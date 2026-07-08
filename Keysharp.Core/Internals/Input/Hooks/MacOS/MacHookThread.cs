@@ -15,13 +15,6 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 	{
 		private const int HookStartTimeoutMs = 3000;
 		private MacNativeEventTap nativeEventTap;
-		[ThreadStatic]
-		private static ulong nativeEventExtraInfo;
-		[ThreadStatic]
-		private static bool nativeEventHasExtraInfo;
-
-		[DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
-		private static extern int CGWarpMouseCursorPosition(MacNativeInput.CGPoint newCursorPosition);
 
 		[DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static extern int CGAssociateMouseAndMouseCursorPosition(int connected);
@@ -37,14 +30,6 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			var active = HasMouseHook();
 			reason = active ? "" : "the global mouse hook is not active";
 			return active;
-		}
-
-		// Pull an initially-outside cursor into the clip rectangle. Re-associating cancels the post-warp
-		// event-suppression interval so the cursor tracks the mouse again inside the rectangle.
-		protected override void WarpCursor(int x, int y)
-		{
-			_ = CGWarpMouseCursorPosition(new MacNativeInput.CGPoint(x, y));
-			_ = CGAssociateMouseAndMouseCursorPosition(1);
 		}
 
 		// Freeze/unfreeze physical cursor movement for BlockInput's mouse-move block and an InputHook with
@@ -89,22 +74,10 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 		internal override uint SC_LWIN => 0;
 		internal override uint SC_RWIN => 0;
 
-		protected override bool MarkSimulatedIfNeeded(HookEventArgs e, uint vk, bool keyUp, out ulong extraInfo)
-		{
-			if (nativeEventHasExtraInfo)
-			{
-				extraInfo = nativeEventExtraInfo;
-				return extraInfo != 0 || e.IsEventSimulated;
-			}
-
-			var simulated = e.IsEventSimulated;
-			// macOS CGEvents carry no readable send-level extraInfo, so every artificial keystroke arrives with
-			// none. Treat it as send level 0 (KeyIgnore) rather than fully-ignored (KeyIgnoreAllExceptModifier),
-			// so an InputHook can observe it — e.g. InputHUD's amber "injected" highlight, or any script watching
-			// SendEvent output — while it still doesn't trigger hotkeys (level 0 <= a hotkey's InputLevel).
-			extraInfo = simulated ? (ulong)KeyIgnore : 0UL;
-			return simulated;
-		}
+		// macOS has no process-local BlockInput equivalent, so the native tap suppresses
+		// physical events directly while allowing Keysharp's own injected events through.
+		private static bool ShouldSuppressForBlockInput(bool isInjected) =>
+			!isInjected && Script.TheScript.KeyboardData.blockInput;
 
 		internal bool ProcessNativeKeyboardEvent(uint type, nint cgEvent)
 		{
@@ -117,14 +90,15 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			var extraInfo = unchecked((ulong)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGEventSourceUserData));
 			var unicodeBuffer = new char[8];
 			var unicodeLength = 0;
-			var hasSyntheticUnicode = extraInfo != 0
+			var isKeysharpInjected = HasKeysharpInjectedExtraInfo(extraInfo);
+			var hasSyntheticUnicode = isKeysharpInjected
 				&& type == MacNativeInput.kCGEventKeyDown
 				&& MacNativeInput.TryGetKeyboardUnicodeString(cgEvent, unicodeBuffer, out unicodeLength);
 
 			if (hasSyntheticUnicode)
 				return ProcessSyntheticUnicodeText(unicodeBuffer, unicodeLength, flags, extraInfo);
 
-			if (extraInfo != 0
+			if (isKeysharpInjected
 				&& type == MacNativeInput.kCGEventKeyUp
 				&& MacNativeInput.TryGetKeyboardUnicodeString(cgEvent, unicodeBuffer, out _))
 				return false;
@@ -136,56 +110,71 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			var keyUp = type == MacNativeInput.kCGEventKeyUp
 				|| (type == MacNativeInput.kCGEventFlagsChanged && MacNativeInput.IsKeyUpFromFlagsChanged(vk, flags));
 			var mask = MacNativeInput.ToEventMask(flags);
-			if (extraInfo != 0)
+			if (isKeysharpInjected)
 				mask |= EventMask.SimulatedEvent;
+			Keysharp.Internals.MacKeyboard.UpdateIndicatorSnapshotFromMask(mask);
 
 			var args = new KeyboardHookEventArgs(keyUp ? EventType.KeyReleased : EventType.KeyPressed, vk, sc, mask);
-			nativeEventExtraInfo = extraInfo;
-			nativeEventHasExtraInfo = true;
-
-			try
-			{
-				if (keyUp)
-					OnKeyReleased(this, args);
-				else
-					OnKeyPressed(this, args);
-			}
-			finally
-			{
-				nativeEventExtraInfo = 0;
-				nativeEventHasExtraInfo = false;
-			}
-
-			return args.SuppressEvent;
+			return ProcessNativeKeyboardEvent(args, vk, sc, keyUp, extraInfo);
 		}
 
 		private bool ProcessSyntheticUnicodeText(char[] chars, int length, ulong flags, ulong extraInfo)
 		{
 			var mask = MacNativeInput.ToEventMask(flags) | EventMask.SimulatedEvent;
+			Keysharp.Internals.MacKeyboard.UpdateIndicatorSnapshotFromMask(mask);
 			var suppress = false;
-			nativeEventExtraInfo = extraInfo;
-			nativeEventHasExtraInfo = true;
 
-			try
+			for (var i = 0; i < length; i++)
 			{
-				for (var i = 0; i < length; i++)
-				{
-					var args = new KeyboardHookEventArgs(EventType.KeyPressed, VK_PACKET, chars[i], mask);
-					OnKeyPressed(this, args);
-					suppress |= args.SuppressEvent;
-				}
-			}
-			finally
-			{
-				nativeEventExtraInfo = 0;
-				nativeEventHasExtraInfo = false;
+				var args = new KeyboardHookEventArgs(EventType.KeyPressed, VK_PACKET, chars[i], mask);
+				_ = ProcessNativeKeyboardEvent(args, VK_PACKET, chars[i], keyUp: false, extraInfo);
+				suppress |= args.SuppressEvent;
 			}
 
 			return suppress;
 		}
 
+		private bool ProcessNativeKeyboardEvent(KeyboardHookEventArgs args, uint vk, uint sc, bool keyUp, ulong eventExtraInfo)
+		{
+			if (!keyboardEnabled)
+				return false;
+
+			lastHookEventWasKeyboard = true;
+			lastKeyboardEventVk = vk;
+			var isInjected = HasKeysharpInjectedExtraInfo(eventExtraInfo) || args.IsEventSimulated;
+
+			if (ShouldSuppressForBlockInput(isInjected))
+			{
+				UpdateObservedPhysicalKeyState(vk, keyUp, isInjected);
+				if (!keyUp && !isInjected)
+					OnPhysicalKeyDownSuppressed(vk);
+				args.SuppressEvent = true;
+				return true;
+			}
+
+			if (eventExtraInfo == (ulong)KeyBlockThis)
+			{
+				args.SuppressEvent = true;
+				return true;
+			}
+
+			var result = LowLevelCommon(args, vk, sc, sc, keyUp, eventExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			ApplyKeyStateAfterKeyboardDecision(vk, keyUp, isInjected, result);
+
+			if (result != 0)
+			{
+				if (!keyUp && !isInjected)
+					OnPhysicalKeyDownSuppressed(vk);
+				args.SuppressEvent = true;
+			}
+
+			return args.SuppressEvent;
+		}
+
 		internal bool ProcessNativeMouseEvent(uint type, nint cgEvent)
 		{
+			var script = Script.TheScript;
+
 			if (type != MacNativeInput.kCGEventLeftMouseDown
 				&& type != MacNativeInput.kCGEventLeftMouseUp
 				&& type != MacNativeInput.kCGEventRightMouseDown
@@ -202,38 +191,85 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			var flags = MacNativeInput.CGEventGetFlags(cgEvent);
 			var extraInfo = unchecked((ulong)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGEventSourceUserData));
 			var mask = MacNativeInput.ToEventMask(flags);
+			var isInjected = HasKeysharpInjectedExtraInfo(extraInfo);
 
-			if (extraInfo != 0)
+			if (isInjected)
 				mask |= EventMask.SimulatedEvent;
+			Keysharp.Internals.MacKeyboard.UpdateIndicatorSnapshotFromMask(mask);
 
 			var loc = MacNativeInput.CGEventGetLocation(cgEvent);
 			var x = (int)Math.Round(loc.X);
 			var y = (int)Math.Round(loc.Y);
-			HookEventArgs args;
-
-			if (type == MacNativeInput.kCGEventScrollWheel)
-			{
-				var vertical = (int)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGScrollWheelEventDeltaAxis1);
-				var horizontal = (int)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGScrollWheelEventDeltaAxis2);
-				var useHorizontal = horizontal != 0 && Math.Abs(horizontal) >= Math.Abs(vertical);
-				args = new MouseWheelHookEventArgs(
-					useHorizontal ? horizontal : vertical,
-					useHorizontal ? MouseWheelScrollDirection.Horizontal : MouseWheelScrollDirection.Vertical,
-					x,
-					y,
-					mask);
-				OnMouseWheel(this, (MouseWheelHookEventArgs)args);
-				return args.SuppressEvent;
-			}
 
 			if (type == MacNativeInput.kCGEventMouseMoved
 				|| type == MacNativeInput.kCGEventLeftMouseDragged
 				|| type == MacNativeInput.kCGEventRightMouseDragged
 				|| type == MacNativeInput.kCGEventOtherMouseDragged)
 			{
-				args = new MouseHookEventArgs(EventType.MouseMoved, MouseButton.NoButton, x, y, mask);
-				OnMouseMoved(this, (MouseHookEventArgs)args);
-				return args.SuppressEvent;
+				if (!mouseEnabled)
+					return false;
+
+				lastHookEventWasKeyboard = false;
+				var suppressMove = false;
+
+				if (!isInjected)
+				{
+					script.timeLastInputPhysical = script.timeLastInputMouse = DateTime.UtcNow;
+
+					if (CursorClipActive)
+					{
+						var cx = x;
+						var cy = y;
+
+						if (ClampToCursorClip(ref cx, ref cy))
+						{
+							_ = Platform.Mouse.TryMoveAbsolute(cx, cy);
+							return true;
+						}
+					}
+
+					suppressMove = script.KeyboardData.blockMouseMove || script.KeyboardData.blockInput;
+				}
+
+				if (script.input != null && !CollectMouseMove(extraInfo, x, y, null))
+					suppressMove = true;
+
+				if (!isInjected)
+					SetMoveSuppression(suppressMove);
+
+				return suppressMove;
+			}
+
+			if (type == MacNativeInput.kCGEventScrollWheel)
+			{
+				if (!mouseEnabled)
+					return false;
+
+				lastHookEventWasKeyboard = false;
+
+				if (!isInjected)
+					script.timeLastInputPhysical = script.timeLastInputMouse = DateTime.UtcNow;
+
+				var vertical = (int)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGScrollWheelEventDeltaAxis1);
+				var horizontal = (int)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGScrollWheelEventDeltaAxis2);
+				var useHorizontal = horizontal != 0 && Math.Abs(horizontal) >= Math.Abs(vertical);
+				var delta = useHorizontal ? horizontal : vertical;
+				var vk = useHorizontal
+					? (delta < 0 ? VK_WHEEL_LEFT : VK_WHEEL_RIGHT)
+					: (delta < 0 ? VK_WHEEL_DOWN : VK_WHEEL_UP);
+				var sc = (uint)delta;
+				var args = new MouseWheelHookEventArgs(
+					delta,
+					useHorizontal ? MouseWheelScrollDirection.Horizontal : MouseWheelScrollDirection.Vertical,
+					x,
+					y,
+					mask);
+
+				if (ShouldSuppressForBlockInput(isInjected))
+					return true;
+
+				var result = LowLevelCommon(args, vk, sc, sc, keyUp: false, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+				return result != 0;
 			}
 
 			var buttonNumber = (uint)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGMouseEventButtonNumber);
@@ -245,127 +281,69 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			var keyUp = type == MacNativeInput.kCGEventLeftMouseUp
 				|| type == MacNativeInput.kCGEventRightMouseUp
 				|| type == MacNativeInput.kCGEventOtherMouseUp;
-			args = new MouseHookEventArgs(keyUp ? EventType.MouseReleased : EventType.MousePressed, button, x, y, mask);
 
-			if (keyUp)
-				OnMouseReleased(this, (MouseHookEventArgs)args);
-			else
-				OnMousePressed(this, (MouseHookEventArgs)args);
+			if (!mouseEnabled)
+				return false;
 
-			return args.SuppressEvent;
+			lastHookEventWasKeyboard = false;
+
+			if (!isInjected)
+				script.timeLastInputPhysical = script.timeLastInputMouse = DateTime.UtcNow;
+
+			var vk = button switch
+			{
+				MouseButton.Button1 => VK_LBUTTON,
+				MouseButton.Button2 => VK_RBUTTON,
+				MouseButton.Button3 => VK_MBUTTON,
+				MouseButton.Button4 => VK_XBUTTON1,
+				MouseButton.Button5 => VK_XBUTTON2,
+				_ => 0u
+			};
+
+			if (vk == 0)
+				return false;
+
+			if (ShouldSuppressForBlockInput(isInjected))
+				return true;
+
+			var mouseArgs = new MouseHookEventArgs(keyUp ? EventType.MouseReleased : EventType.MousePressed, button, x, y, mask);
+			var buttonResult = LowLevelCommon(mouseArgs, vk, 0, 0, keyUp, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			return buttonResult != 0;
 		}
 
-		protected override void ChangeHookStateLinux(HookType req, bool changeIsTemporary, long expectedGeneration)
+		protected override string PlatformHookDisabledMessage => "macOS hook disabled via KEYSHARP_DISABLE_HOOK=1.";
+
+		protected override bool StartPlatformHookCore(bool wantKeyboard, bool wantMouse, out string message)
 		{
-			if (HookDisabledForMac())
-			{
-				lock (hookStateLock)
-				{
-					if (hookStateGeneration != expectedGeneration)
-						return;
+			message = string.Empty;
 
-					keyboardEnabled = false;
-					mouseEnabled = false;
-					kbdHook = 0;
-					mouseHook = 0;
-					StopNativeHookCore(dispose: true);
-				}
+			if (!wantKeyboard && !wantMouse)
+				return false;
 
-				Ks.OutputDebugLine("macOS hook disabled via KEYSHARP_DISABLE_HOOK=1.");
-				return;
-			}
+			if (Script.IsUiInitializationBlocked || nativeEventTap != null)
+				return true;
 
-			var wantKeyboard = (req & HookType.Keyboard) != 0;
-			var wantMouse = (req & HookType.Mouse) != 0;
+			_ = Script.TheScript.Permissions.EnsureInputMonitoring(operation: "install keyboard/mouse hooks");
+			nativeEventTap = new MacNativeEventTap(this);
 
-			lock (hookStateLock)
-			{
-				if (hookStateGeneration != expectedGeneration)
-					return;
+			if (nativeEventTap.Start(HookStartTimeoutMs))
+				return true;
 
-				var hadKeyboard = keyboardEnabled;
-				var hadMouse = mouseEnabled;
-
-				if (!wantKeyboard && !wantMouse)
-				{
-					keyboardEnabled = false;
-					mouseEnabled = false;
-					kbdHook = 0;
-					mouseHook = 0;
-
-					if (!changeIsTemporary)
-						StopNativeHookCore(dispose: true);
-
-					return;
-				}
-
-				if (!Script.IsUiInitializationBlocked && nativeEventTap == null)
-				{
-					_ = Script.TheScript.Permissions.EnsureInputMonitoring(operation: "install keyboard/mouse hooks");
-					nativeEventTap = new MacNativeEventTap(this);
-
-					if (!nativeEventTap.Start(HookStartTimeoutMs))
-					{
-						nativeEventTap.Dispose();
-						nativeEventTap = null;
-						Ks.OutputDebugLine("Global hook failed on macOS: CGEventTapCreate returned null. Check Accessibility/Input Monitoring permissions.");
-					}
-				}
-
-				if (!changeIsTemporary)
-				{
-					if (wantKeyboard && !hadKeyboard)
-					{
-						keyboardEnabled = false;
-						kbdHook = 0;
-						ResetHook(false, HookType.Keyboard, true);
-					}
-					if (wantMouse && !hadMouse)
-					{
-						mouseEnabled = false;
-						mouseHook = 0;
-						ResetHook(false, HookType.Mouse, true);
-					}
-				}
-
-				keyboardEnabled = wantKeyboard;
-				mouseEnabled = wantMouse;
-				kbdHook = wantKeyboard ? 1 : 0;
-				mouseHook = wantMouse ? 1 : 0;
-			}
+			nativeEventTap.Dispose();
+			nativeEventTap = null;
+			message = "Global hook failed on macOS: CGEventTapCreate returned null. Check Accessibility/Input Monitoring permissions.";
+			return false;
 		}
 
-		protected internal override void DeregisterHooks()
-		{
-			lock (hookStateLock)
-			{
-				hookStateGeneration++;
-				keyboardEnabled = false;
-				mouseEnabled = false;
-				StopNativeHookCore(dispose: true);
-				kbdHook = 0;
-				mouseHook = 0;
-			}
-
-			SyncHookMutexes(changeIsTemporary: false);
-		}
-
-		private void StopNativeHookCore(bool dispose)
+		protected override void StopPlatformHookCore(bool dispose)
 		{
 			if (!dispose)
 				return;
 
 			try { nativeEventTap?.Dispose(); } catch { }
 			nativeEventTap = null;
-			ResetTrackedInputState(clearSyntheticQueue: false);
+			base.StopPlatformHookCore(dispose);
 			OnMoveSuppressionChanged(false);
-		}
-
-		private static bool HookDisabledForMac()
-		{
-			var env = Environment.GetEnvironmentVariable("KEYSHARP_DISABLE_HOOK");
-			return !string.IsNullOrEmpty(env) &&
-				   (env.Equals("1") || env.Equals("true", StringComparison.OrdinalIgnoreCase) || env.Equals("yes", StringComparison.OrdinalIgnoreCase));
 		}
 
 		protected override void OnPhysicalKeyDownSuppressed(uint vk)

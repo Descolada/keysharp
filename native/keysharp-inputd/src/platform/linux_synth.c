@@ -40,6 +40,7 @@
  * threshold and pay nothing, so the common case runs at full speed. */
 #define KSI_SYNTH_PACE_EVENTS 16
 #define KSI_SYNTH_PACE_SLEEP_NS (350L * 1000L) /* 0.35 ms */
+#define KSI_VK_PACKET 0xE7u
 
 /* Relative mouse: keyboard keys + BTN_* + REL_X/Y/WHEEL. */
 static int uinput_fd = -1;
@@ -47,8 +48,7 @@ static int uinput_fd = -1;
 static int uinput_abs_fd = -1;
 
 /* All uinput writes and the ACTUAL-device synthesis state they touch (uinput_fd,
- * synthesized_keys_down, suppress_replay_events, current_extra_info, the pacing
- * counters) are accessed on a single thread -- the output sequencer, which drains
+ * synthesized_keys_down and the pacing counters) are accessed on a single thread -- the output sequencer, which drains
  * replay, client synthesis AND the release-all action (KSI_OUTPUT_ACTION_RELEASE_ALL)
  * in arrival order. The only other caller of ksi_linux_synth_release_all() is
  * ksi_linux_synth_stop() during shutdown, which runs after the sequencer thread has
@@ -57,7 +57,6 @@ static int uinput_abs_fd = -1;
  * is running, reintroduce serialization.) synthesized_keys_down tracks what is actually
  * held on the uinput device so release_all can drop any key left "down" when the grab
  * is dropped. */
-static bool suppress_replay_events;
 static bool synthesized_keys_down[KEY_MAX + 1];
 
 /* enqueued_synth_* is the exception to the single-thread rule above: it tracks
@@ -77,7 +76,6 @@ static pthread_mutex_t enqueued_synth_keys_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int resolve_synth_key_code(const ksi_keybdinput *input, int *out_value);
 static uint16_t mouse_data_to_xbutton(uint32_t mouse_data);
 static uint16_t pending_high_surrogate;
-static uint64_t current_extra_info;
 /* Pacing state, used only while a bulk client synthesis batch is being written
  * (see pacing note). Replays/passthrough are single events and never paced. */
 static bool synth_pacing_active;
@@ -98,6 +96,46 @@ static void pace_synthetic_output(void)
     } while (result == EINTR);
 }
 
+static uint64_t monotonic_ms(void)
+{
+    struct timespec time_value;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &time_value) != 0) {
+        return 0;
+    }
+
+    return ((uint64_t)time_value.tv_sec * 1000u) + ((uint64_t)time_value.tv_nsec / 1000000u);
+}
+
+static uint64_t synth_hook_time_ms(uint32_t input_time)
+{
+    return input_time != 0u ? (uint64_t)input_time : monotonic_ms();
+}
+
+static uint32_t keyboard_indicator_flags_for_hook(void)
+{
+    bool caps_lock = false;
+    bool num_lock = false;
+    bool scroll_lock = false;
+    uint32_t flags = 0;
+
+    ksi_linux_devices_get_indicator_state(&caps_lock, &num_lock, &scroll_lock);
+
+    if (caps_lock) {
+        flags |= KSI_LLKHF_CAPS_LOCK_ON;
+    }
+
+    if (num_lock) {
+        flags |= KSI_LLKHF_NUM_LOCK_ON;
+    }
+
+    if (scroll_lock) {
+        flags |= KSI_LLKHF_SCROLL_LOCK_ON;
+    }
+
+    return flags;
+}
+
 static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
 {
     struct input_event event;
@@ -112,14 +150,6 @@ static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
     event.code = code;
     event.value = value;
 
-    /* Record the suppression entry BEFORE writing so the main thread, which
-     * reads evdev concurrently with this sequencer-thread write, can match
-     * the loopback event to a recorded synthetic event and tag it INJECTED.
-     * Under the old single-threaded daemon write-then-record was fine because
-     * the same thread did both; under the lane refactor the main thread can
-     * observe the loopback before write() returns to us. */
-    ksi_linux_devices_record_synthetic_event(type, code, value, current_extra_info, suppress_replay_events);
-
     /* Retry on EINTR: a signal delivered during the write syscall returns -1
      * with errno=EINTR.  Without the retry the rest of a synthesis batch is
      * silently dropped, which manifests as only a few characters being typed. */
@@ -128,12 +158,6 @@ static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
     } while (nwritten < 0 && errno == EINTR);
 
     if (nwritten != (ssize_t)sizeof(event)) {
-        /* The write failed, so no event will loop back to consume this entry.
-         * Leaving it in the ring risks a future real event with the same
-         * {type, code, value} falsely matching and being suppressed.  Pop it
-         * so the ring stays consistent with what's actually pending on the
-         * input subsystem. */
-        ksi_linux_devices_unrecord_last_synthetic_event(type, code, value);
         return -1;
     }
 
@@ -485,7 +509,6 @@ static int enable_relative(int relative_code)
     return 0;
 }
 
-
 static int vk_to_evdev_key(uint16_t vk)
 {
     return ksi_vk_to_evdev(vk);
@@ -797,6 +820,182 @@ static int resolve_synth_key_code(const ksi_keybdinput *input, int *out_value)
     return key_code;
 }
 
+static bool keyboard_input_to_hook_event(
+    const ksi_keybdinput *input,
+    ksi_keyboard_hook_event *event)
+{
+    bool key_up;
+    uint32_t flags;
+
+    if (input == NULL || event == NULL) {
+        return false;
+    }
+
+    memset(event, 0, sizeof(*event));
+    key_up = (input->flags & KSI_KEYEVENTF_KEYUP) != 0;
+    flags = KSI_LLKHF_INJECTED | keyboard_indicator_flags_for_hook();
+
+    if (key_up) {
+        flags |= KSI_LLKHF_UP;
+    }
+
+    if ((input->flags & KSI_KEYEVENTF_EXTENDEDKEY) != 0) {
+        flags |= KSI_LLKHF_EXTENDED;
+    }
+
+    event->message = key_up ? KSI_WM_KEYUP : KSI_WM_KEYDOWN;
+    event->flags = flags;
+    event->time_ms = synth_hook_time_ms(input->time);
+    event->extra_info = input->extra_info;
+
+    if ((input->flags & KSI_KEYEVENTF_UNICODE) != 0) {
+        event->vk_code = KSI_VK_PACKET;
+        event->scan_code = input->scan;
+        return true;
+    }
+
+    {
+        int value;
+        int key_code = resolve_synth_key_code(input, &value);
+
+        (void)value;
+
+        if (key_code >= 0) {
+            event->scan_code = (uint32_t)key_code;
+            event->vk_code = ksi_evdev_to_vk((unsigned int)key_code);
+        }
+    }
+
+    if (event->vk_code == 0u) {
+        event->vk_code = input->vk;
+    }
+
+    if (event->scan_code == 0u) {
+        event->scan_code = input->scan;
+    }
+
+    return event->vk_code != 0u || event->scan_code != 0u;
+}
+
+static bool mouse_input_to_hook_event(
+    const ksi_mouseinput *input,
+    ksi_mouse_hook_event *event)
+{
+    if (input == NULL || event == NULL) {
+        return false;
+    }
+
+    memset(event, 0, sizeof(*event));
+    event->flags = KSI_LLMHF_INJECTED;
+    event->time_ms = synth_hook_time_ms(input->time);
+    event->extra_info = input->extra_info;
+
+    if ((input->flags & KSI_MOUSEEVENTF_MOVE) != 0) {
+        event->message = KSI_WM_MOUSEMOVE;
+        event->x = input->dx;
+        event->y = input->dy;
+
+        if ((input->flags & KSI_MOUSEEVENTF_ABSOLUTE) != 0) {
+            event->mouse_data = KSI_MOUSEEVENTF_ABSOLUTE;
+        }
+
+        return true;
+    }
+
+    if ((input->flags & KSI_MOUSEEVENTF_WHEEL) != 0) {
+        event->message = KSI_WM_MOUSEWHEEL;
+        event->mouse_data = input->mouse_data << 16;
+        return true;
+    }
+
+    if ((input->flags & KSI_MOUSEEVENTF_HWHEEL) != 0) {
+        event->message = KSI_WM_MOUSEHWHEEL;
+        event->mouse_data = input->mouse_data << 16;
+        return true;
+    }
+
+    if ((input->flags & KSI_MOUSEEVENTF_LEFTDOWN) != 0) {
+        event->message = KSI_WM_LBUTTONDOWN;
+        return true;
+    }
+
+    if ((input->flags & KSI_MOUSEEVENTF_LEFTUP) != 0) {
+        event->message = KSI_WM_LBUTTONUP;
+        return true;
+    }
+
+    if ((input->flags & KSI_MOUSEEVENTF_RIGHTDOWN) != 0) {
+        event->message = KSI_WM_RBUTTONDOWN;
+        return true;
+    }
+
+    if ((input->flags & KSI_MOUSEEVENTF_RIGHTUP) != 0) {
+        event->message = KSI_WM_RBUTTONUP;
+        return true;
+    }
+
+    if ((input->flags & KSI_MOUSEEVENTF_MIDDLEDOWN) != 0) {
+        event->message = KSI_WM_MBUTTONDOWN;
+        return true;
+    }
+
+    if ((input->flags & KSI_MOUSEEVENTF_MIDDLEUP) != 0) {
+        event->message = KSI_WM_MBUTTONUP;
+        return true;
+    }
+
+    if ((input->flags & KSI_MOUSEEVENTF_XDOWN) != 0) {
+        event->message = KSI_WM_XBUTTONDOWN;
+        event->mouse_data = input->mouse_data;
+        return true;
+    }
+
+    if ((input->flags & KSI_MOUSEEVENTF_XUP) != 0) {
+        event->message = KSI_WM_XBUTTONUP;
+        event->mouse_data = input->mouse_data;
+        return true;
+    }
+
+    return false;
+}
+
+bool ksi_linux_synth_input_to_hook_event(
+    const ksi_input *input,
+    uint32_t *hook_type,
+    ksi_hook_event_payload *event,
+    size_t *event_size)
+{
+    if (input == NULL || hook_type == NULL || event == NULL || event_size == NULL) {
+        return false;
+    }
+
+    memset(event, 0, sizeof(*event));
+
+    if (input->type == KSI_INPUT_KEYBOARD) {
+        if (!keyboard_input_to_hook_event(&input->data.keyboard, &event->event.keyboard)) {
+            return false;
+        }
+
+        *hook_type = KSI_HOOK_KEYBOARD_LL;
+        event->hook_type = *hook_type;
+        *event_size = sizeof(event->event.keyboard);
+        return true;
+    }
+
+    if (input->type == KSI_INPUT_MOUSE) {
+        if (!mouse_input_to_hook_event(&input->data.mouse, &event->event.mouse)) {
+            return false;
+        }
+
+        *hook_type = KSI_HOOK_MOUSE_LL;
+        event->hook_type = *hook_type;
+        *event_size = sizeof(event->event.mouse);
+        return true;
+    }
+
+    return false;
+}
+
 static int send_keyboard_input(const ksi_keybdinput *input)
 {
     int key_code;
@@ -993,22 +1192,13 @@ static int send_mouse_input(const ksi_mouseinput *input)
 
 int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t flags)
 {
-    bool old_suppress;
-    uint64_t old_extra_info;
     int result = 0;
+
+    (void)flags;
 
     if (uinput_fd < 0) {
         fprintf(stderr, "inputd: synthesis unavailable; %s could not be opened\n", KSI_UINPUT_PATH);
         return -1;
-    }
-
-    /* When BYPASS_HOOK is set, suppress the evdev echo so the events don't
-     * loop back to hook subscribers — the same mechanism used for PASS replays. */
-    old_suppress = suppress_replay_events;
-    old_extra_info = current_extra_info;
-
-    if ((flags & KSI_SYNTH_FLAG_BYPASS_HOOK) != 0) {
-        suppress_replay_events = true;
     }
 
     /* Enable per-event pacing for this batch (see emit_event_to). */
@@ -1017,10 +1207,8 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
 
     for (size_t i = 0; i < count; i++) {
         if (inputs[i].type == KSI_INPUT_KEYBOARD) {
-            current_extra_info = inputs[i].data.keyboard.extra_info;
             result = send_keyboard_input(&inputs[i].data.keyboard);
         } else if (inputs[i].type == KSI_INPUT_MOUSE) {
-            current_extra_info = inputs[i].data.mouse.extra_info;
             result = send_mouse_input(&inputs[i].data.mouse);
         } else {
             fprintf(stderr, "inputd: unsupported input type %u\n", inputs[i].type);
@@ -1033,8 +1221,6 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
     }
 
     synth_pacing_active = false;
-    suppress_replay_events = old_suppress;
-    current_extra_info = old_extra_info;
     return result;
 }
 
@@ -1117,15 +1303,11 @@ static int replay_mouse_hook_event(const ksi_mouse_hook_event *event)
 
 int ksi_linux_synth_replay_hook_event(uint32_t hook_type, const ksi_hook_event_payload *event)
 {
-    bool old_suppress_replay_events;
     int result;
 
     if (event == NULL) {
         return -1;
     }
-
-    old_suppress_replay_events = suppress_replay_events;
-    suppress_replay_events = true;
 
     if (hook_type == KSI_HOOK_KEYBOARD_LL) {
         result = replay_keyboard_hook_event(&event->event.keyboard);
@@ -1135,6 +1317,5 @@ int ksi_linux_synth_replay_hook_event(uint32_t hook_type, const ksi_hook_event_p
         result = -1;
     }
 
-    suppress_replay_events = old_suppress_replay_events;
     return result;
 }

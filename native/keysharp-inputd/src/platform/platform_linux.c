@@ -56,6 +56,20 @@ static void linux_process_fd(int fd)
     ksi_linux_devices_process_fd(fd);
 }
 
+static bool linux_peek_oldest_pending_input(int *out_fd, uint64_t *out_time_ms)
+{
+    return ksi_linux_devices_peek_oldest_pending_event(out_fd, out_time_ms);
+}
+
+static bool linux_input_to_hook_event(
+    const ksi_input *input,
+    uint32_t *hook_type,
+    ksi_hook_event_payload *event,
+    size_t *event_size)
+{
+    return ksi_linux_synth_input_to_hook_event(input, hook_type, event, event_size);
+}
+
 static int linux_send_input(const ksi_input *inputs, size_t count, uint32_t flags)
 {
     return ksi_linux_synth_send_input(inputs, count, flags);
@@ -98,6 +112,8 @@ static const ksi_platform_backend linux_backend = {
     .get_available_capabilities = linux_get_available_capabilities,
     .poll_fds = linux_poll_fds,
     .process_fd = linux_process_fd,
+    .peek_oldest_pending_input = linux_peek_oldest_pending_input,
+    .input_to_hook_event = linux_input_to_hook_event,
     .send_input = linux_send_input,
     .replay_hook_event = linux_replay_hook_event,
     .set_grab_hook_mask = linux_set_grab_hook_mask,

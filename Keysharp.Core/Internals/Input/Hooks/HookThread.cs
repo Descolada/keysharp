@@ -1660,7 +1660,7 @@ namespace Keysharp.Internals.Input.Hooks
 				int x = p.X, y = p.Y;
 
 				if (ClampToCursorClip(ref x, ref y))
-					WarpCursor(x, y);
+					_ = Platform.Mouse.TryMoveAbsolute(x, y);
 			}
 		}
 
@@ -1695,9 +1695,6 @@ namespace Keysharp.Internals.Input.Hooks
 
 		/// <summary>Whether ClipCursor can work in the current platform/environment.</summary>
 		protected virtual bool CanClipCursor(out string reason) { reason = ""; return true; }
-
-		/// <summary>Moves the cursor to the given absolute screen coordinates.</summary>
-		protected virtual void WarpCursor(int x, int y) { }
 
 		#endregion
 

@@ -80,7 +80,7 @@ global using global::Keysharp.Internals.Mapper;
 global using global::Keysharp.Internals.Patterns;
 global using global::Keysharp.Internals.Os;
 global using Platform = global::Keysharp.Internals.Platform;
-global using static global::Keysharp.Internals.Platform.Keyboard;
+global using static global::Keysharp.Internals.Platform.Keys;
 global using static global::Keysharp.Internals.Platform.Library;
 global using static global::Keysharp.Internals.Platform.Process;
 global using static global::Keysharp.Internals.Platform.Desktop;

@@ -1,6 +1,8 @@
 using Keysharp.Builtins;
 #if LINUX
 using System.Runtime.InteropServices;
+using Keysharp.Internals.Input.Linux;
+using Keysharp.Internals.Window.Linux.X11;
 
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 
@@ -9,6 +11,7 @@ namespace Keysharp.Internals.Input.Unix
 	internal sealed class LinuxXkbCharMapperProvider : IKeyCodeMapperProvider
 	{
 		private readonly object initLock = new();
+		private readonly Func<uint?> activeLayoutOverride;
 
 		private bool initTried;
 		private bool ready;
@@ -21,14 +24,16 @@ namespace Keysharp.Internals.Input.Unix
 
 		private IntPtr ctx;
 		private IntPtr keymap;
+		private WaylandKeyboardLayoutMonitor waylandMonitor;
 
 		private int minKeycode;
 		private int maxKeycode;
 		private uint shiftIndex = uint.MaxValue;
 		private uint mod5Index = uint.MaxValue;
 		private bool hasModsForLevel;
+		private uint lastDeadKeyLayout = uint.MaxValue;
 
-		private readonly Dictionary<uint, (uint vk, bool s, bool g)> cache = new(256);
+		private readonly Dictionary<(uint keysym, uint layout), (uint vk, bool s, bool g)> cache = new(256);
 		private readonly Dictionary<uint, List<uint>> vkToKeycodesCache = new(128);
 		private readonly Dictionary<uint, uint> keycodeToVkCache = new(128);
 
@@ -83,6 +88,11 @@ namespace Keysharp.Internals.Input.Unix
 			["LSGT"] = VK_OEM_8,
 		};
 
+		internal LinuxXkbCharMapperProvider(Func<uint?> activeLayoutOverride = null)
+		{
+			this.activeLayoutOverride = activeLayoutOverride;
+		}
+
 		public bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr)
 		{
 			vk = 0;
@@ -97,7 +107,10 @@ namespace Keysharp.Internals.Input.Unix
 			if (keysym == 0)
 				return false;
 
-			if (cache.TryGetValue(keysym, out var cached))
+			var layout = GetActiveLayout();
+			var cacheKey = (keysym, layout);
+
+			if (cache.TryGetValue(cacheKey, out var cached))
 			{
 				(vk, needShift, needAltGr) = cached;
 				return true;
@@ -108,21 +121,21 @@ namespace Keysharp.Internals.Input.Unix
 				if (!TryGetNamedVk(key, out var candidateVk))
 					continue;
 
-				const uint layout = 0;
-				int levels = xkb_keymap_num_levels_for_key(currentKeymap, key, layout);
+				var keyLayout = NormalizeLayoutForKey(currentKeymap, key, layout);
+				int levels = xkb_keymap_num_levels_for_key(currentKeymap, key, keyLayout);
 
 				if (levels <= 0)
 					continue;
 
 				for (uint level = 0; level < (uint)levels; level++)
 				{
-					if (!LevelHasKeysym(currentKeymap, key, layout, level, keysym))
+					if (!LevelHasKeysym(currentKeymap, key, keyLayout, level, keysym))
 						continue;
 
-					if (!TryResolveSupportedModsForLevel(key, layout, level, out var s, out var g))
+					if (!TryResolveSupportedModsForLevel(key, keyLayout, level, out var s, out var g))
 						continue;
 
-					cache[keysym] = (candidateVk, s, g);
+					cache[cacheKey] = (candidateVk, s, g);
 					vk = candidateVk;
 					needShift = s;
 					needAltGr = g;
@@ -143,7 +156,7 @@ namespace Keysharp.Internals.Input.Unix
 			if (!TryGetReadyKeymap(out var currentKeymap))
 				return false;
 
-			const uint layout = 0;
+			var layout = NormalizeLayoutForKey(currentKeymap, keycode, GetActiveLayout());
 			int levels = xkb_keymap_num_levels_for_key(currentKeymap, keycode, layout);
 
 			for (uint level = 0; level < (uint)levels; level++)
@@ -177,6 +190,14 @@ namespace Keysharp.Internals.Input.Unix
 
 		public int TranslateKeyWithDeadKeys(uint vk, bool shift, bool altGr, bool capsLock, Span<char> buffer)
 		{
+			var activeLayout = GetActiveLayout();
+
+			if (activeLayout != lastDeadKeyLayout)
+			{
+				pendingDead.Clear();
+				lastDeadKeyLayout = activeLayout;
+			}
+
 			// Backspace cancels any pending dead key (AHK's {dead key}{BS} behavior): emit the dead
 			// key's spacing form(s) followed by '\b' so the caller collects then erases them.
 			if (vk == VK_BACK && pendingDead.Count > 0)
@@ -212,7 +233,7 @@ namespace Keysharp.Internals.Input.Unix
 
 			var baseRune = new Rune(cp);
 
-			// Caps Lock only toggles letter case (matches Platform.Keyboard.ToUnicode).
+			// Caps Lock only toggles letter case (matches Platform.Keys.ToUnicode).
 			if (capsLock && Rune.IsLetter(baseRune))
 			{
 				var upper = Rune.ToUpperInvariant(baseRune);
@@ -268,7 +289,7 @@ namespace Keysharp.Internals.Input.Unix
 			if (!TryGetReadyKeymap(out var currentKeymap))
 				return false;
 
-			const uint layout = 0;
+			var layout = NormalizeLayoutForKey(currentKeymap, keycode, GetActiveLayout());
 			int levels = xkb_keymap_num_levels_for_key(currentKeymap, keycode, layout);
 
 			for (uint level = 0; level < (uint)levels; level++)
@@ -386,7 +407,7 @@ namespace Keysharp.Internals.Input.Unix
 		public void Dispose()
 		{
 			lock (initLock)
-				ResetState();
+				ResetState(disposeWaylandMonitor: true);
 		}
 
 		private void EnsureInitialized()
@@ -408,7 +429,23 @@ namespace Keysharp.Internals.Input.Unix
 					if (ctx == IntPtr.Zero)
 						return;
 
-					if (BuildKeymapFromDisplay())
+					if (HasPreferredLayoutNames() && BuildKeymapFromNames())
+					{
+						FinalizeKeymapCommon();
+						ready = true;
+						return;
+					}
+
+					if (Platform.Desktop.IsWaylandSession)
+					{
+						if (BuildKeymapFromWayland())
+						{
+							FinalizeKeymapCommon();
+							ready = true;
+							return;
+						}
+					}
+					else if (BuildKeymapFromDisplay())
 					{
 						FinalizeKeymapCommon();
 						ready = true;
@@ -431,6 +468,9 @@ namespace Keysharp.Internals.Input.Unix
 				}
 			}
 		}
+
+		private bool HasPreferredLayoutNames()
+			=> prefRules != null || prefModel != null || prefLayout != null || prefVariant != null || prefOptions != null;
 
 		private bool TryGetReadyKeymap(out IntPtr currentKeymap)
 		{
@@ -466,6 +506,17 @@ namespace Keysharp.Internals.Input.Unix
 			return keycodes;
 		}
 
+		private bool BuildKeymapFromWayland()
+		{
+			var monitor = EnsureWaylandMonitor();
+
+			if (monitor == null || !monitor.TryGetKeymap(out var text) || string.IsNullOrEmpty(text))
+				return false;
+
+			keymap = xkb_keymap_new_from_string(ctx, text, XkbKeymapFormatTextV1, 0);
+			return keymap != IntPtr.Zero;
+		}
+
 		private bool BuildKeymapFromDisplay()
 		{
 			var display = XDisplay.Default.Handle;
@@ -499,6 +550,66 @@ namespace Keysharp.Internals.Input.Unix
 			{
 				return false;
 			}
+		}
+
+		private WaylandKeyboardLayoutMonitor EnsureWaylandMonitor()
+		{
+			if (!Platform.Desktop.IsWaylandSession)
+				return null;
+
+			return waylandMonitor ??= new WaylandKeyboardLayoutMonitor(ResetFromExternalKeymapChange);
+		}
+
+		private void ResetFromExternalKeymapChange()
+		{
+			lock (initLock)
+				ResetState(disposeWaylandMonitor: false);
+		}
+
+		public void StartLayoutChangeMonitoring()
+		{
+			if (!Platform.Desktop.IsWaylandSession)
+				return;
+
+			_ = EnsureWaylandMonitor()?.TryGetKeymap(out _);
+		}
+
+		private uint GetActiveLayout()
+		{
+			if (activeLayoutOverride != null)
+			{
+				var overridden = activeLayoutOverride();
+
+				if (overridden.HasValue)
+					return overridden.Value;
+			}
+
+			if (Platform.Desktop.IsWaylandSession)
+			{
+				var monitor = EnsureWaylandMonitor();
+
+				if (monitor != null && monitor.TryGetGroup(out var waylandGroup))
+					return waylandGroup;
+
+				return 0;
+			}
+
+			var display = XDisplay.Default.Handle;
+
+			if (display != IntPtr.Zero
+				&& Xlib.XkbGetState(display, XkbUseCoreKbd, out var state) == 0)
+				return state.group;
+
+			return 0;
+		}
+
+		private static uint NormalizeLayoutForKey(IntPtr map, uint key, uint layout)
+		{
+			if (layout == 0)
+				return 0;
+
+			int layouts = xkb_keymap_num_layouts_for_key(map, key);
+			return layouts > 0 && layout < (uint)layouts ? layout : 0;
 		}
 
 		private bool BuildKeymapFromNames()
@@ -549,7 +660,7 @@ namespace Keysharp.Internals.Input.Unix
 
 			try
 			{
-				xkb_keymap_key_get_mods_for_level(keymap, 0, 0, 0, IntPtr.Zero, UIntPtr.Zero);
+				xkb_keymap_key_get_mods_for_level(keymap, 0, 0, 0, IntPtr.Zero, 0);
 				hasModsForLevel = true;
 			}
 			catch (EntryPointNotFoundException)
@@ -565,32 +676,40 @@ namespace Keysharp.Internals.Input.Unix
 
 			if (hasModsForLevel)
 			{
-				Span<ulong> buf = stackalloc ulong[4];
-				int got;
+				Span<uint> buf = stackalloc uint[4];
+				nuint got;
 
 				unsafe
 				{
-					fixed (ulong* p = buf)
-						got = xkb_keymap_key_get_mods_for_level(keymap, key, layout, level, (IntPtr)p, (UIntPtr)buf.Length);
+					fixed (uint* p = buf)
+						got = xkb_keymap_key_get_mods_for_level(keymap, key, layout, level, (IntPtr)p, (nuint)buf.Length);
 				}
 
 				if (got > 0)
 				{
-					ulong mask = buf[0];
-					ulong supportedMask = 0;
+					uint supportedMask = 0;
 
-					if (shiftIndex != uint.MaxValue)
-						supportedMask |= 1UL << (int)shiftIndex;
+					if (shiftIndex < 32)
+						supportedMask |= 1u << (int)shiftIndex;
 
-					if (mod5Index != uint.MaxValue)
-						supportedMask |= 1UL << (int)mod5Index;
+					if (mod5Index < 32)
+						supportedMask |= 1u << (int)mod5Index;
 
-					if ((mask & ~supportedMask) != 0)
-						return false;
+					var count = got > (nuint)buf.Length ? buf.Length : (int)got;
 
-					needShift = shiftIndex != uint.MaxValue && (mask & (1UL << (int)shiftIndex)) != 0;
-					needAltGr = mod5Index != uint.MaxValue && (mask & (1UL << (int)mod5Index)) != 0;
-					return true;
+					for (var i = 0; i < count; i++)
+					{
+						var mask = buf[i];
+
+						if ((mask & ~supportedMask) != 0)
+							continue;
+
+						needShift = shiftIndex < 32 && (mask & (1u << (int)shiftIndex)) != 0;
+						needAltGr = mod5Index < 32 && (mask & (1u << (int)mod5Index)) != 0;
+						return true;
+					}
+
+					return false;
 				}
 			}
 
@@ -666,11 +785,12 @@ namespace Keysharp.Internals.Input.Unix
 			return mem;
 		}
 
-		private void ResetState()
+		private void ResetState(bool disposeWaylandMonitor = false)
 		{
 			ResetNativeHandles();
 			cache.Clear();
 			vkToKeycodesCache.Clear();
+			keycodeToVkCache.Clear();
 			pendingDead.Clear();
 			ready = false;
 			initTried = false;
@@ -679,6 +799,13 @@ namespace Keysharp.Internals.Input.Unix
 			shiftIndex = uint.MaxValue;
 			mod5Index = uint.MaxValue;
 			hasModsForLevel = false;
+			lastDeadKeyLayout = uint.MaxValue;
+
+			if (disposeWaylandMonitor)
+			{
+				waylandMonitor?.Dispose();
+				waylandMonitor = null;
+			}
 		}
 
 		private void ResetNativeHandles()
@@ -699,6 +826,8 @@ namespace Keysharp.Internals.Input.Unix
 		private const string LibXkbCommon = "libxkbcommon.so.0";
 		private const string LibXkbCommonX11 = "libxkbcommon-x11.so.0";
 		private const string LibX11Xcb = "libX11-xcb.so.1";
+		private const uint XkbUseCoreKbd = 0x0100;
+		private const int XkbKeymapFormatTextV1 = 1;
 
 		[StructLayout(LayoutKind.Sequential)]
 		private struct xkb_rule_names
@@ -713,14 +842,17 @@ namespace Keysharp.Internals.Input.Unix
 		[DllImport(LibXkbCommon)] private static extern IntPtr xkb_context_new(uint flags);
 		[DllImport(LibXkbCommon)] private static extern void xkb_context_unref(IntPtr ctx);
 		[DllImport(LibXkbCommon)] private static extern IntPtr xkb_keymap_new_from_names(IntPtr ctx, ref xkb_rule_names names, uint flags);
+		[DllImport(LibXkbCommon)]
+		private static extern IntPtr xkb_keymap_new_from_string(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string str, int format, uint flags);
 		[DllImport(LibXkbCommon)] private static extern void xkb_keymap_unref(IntPtr keymap);
 		[DllImport(LibXkbCommon)] private static extern int xkb_keymap_min_keycode(IntPtr keymap);
 		[DllImport(LibXkbCommon)] private static extern int xkb_keymap_max_keycode(IntPtr keymap);
 		[DllImport(LibXkbCommon)] private static extern uint xkb_keymap_mod_get_index(IntPtr keymap, string name);
+		[DllImport(LibXkbCommon)] private static extern int xkb_keymap_num_layouts_for_key(IntPtr keymap, uint key);
 		[DllImport(LibXkbCommon)] private static extern int xkb_keymap_num_levels_for_key(IntPtr keymap, uint key, uint layout);
 		[DllImport(LibXkbCommon)] private static extern int xkb_keymap_key_get_syms_by_level(IntPtr keymap, uint key, uint layout, uint level, out IntPtr symsOut);
 		[DllImport(LibXkbCommon, EntryPoint = "xkb_keymap_key_get_mods_for_level")]
-		private static extern int xkb_keymap_key_get_mods_for_level(IntPtr keymap, uint key, uint layout, uint level, IntPtr masksOut, UIntPtr masksOutSize);
+		private static extern nuint xkb_keymap_key_get_mods_for_level(IntPtr keymap, uint key, uint layout, uint level, IntPtr masksOut, nuint masksOutSize);
 		[DllImport(LibXkbCommon)] private static extern IntPtr xkb_keymap_key_get_name(IntPtr keymap, uint key);
 		[DllImport(LibXkbCommon)] private static extern uint xkb_keysym_to_utf32(uint keysym);
 		[DllImport(LibX11Xcb)] private static extern IntPtr XGetXCBConnection(IntPtr display);

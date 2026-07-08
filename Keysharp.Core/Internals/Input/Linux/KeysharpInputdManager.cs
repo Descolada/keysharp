@@ -10,15 +10,8 @@ namespace Keysharp.Internals.Input.Linux
 		private static readonly Lock gate = new();
 		private static readonly Lock queryGate = new();
 
-		// Two-socket model:
-		//   client      – hook events + decisions (hook reader thread).
-		//   queryClient – synthesis + state queries (any thread, queryGate for safety).
-		//
-		// Both synthesis (SYNTHESIS_RESULT returned after enqueue, not after uinput
-		// delivery) and queries (GET_KEY_STATE, GET_INDICATOR_STATE, etc.) complete in
-		// one short IPC round-trip, so queryGate is never held for long.
-		// volatile so the best-effort lock-free read in IsDaemonReachable (when a capability prompt is
-		// holding 'gate') observes a consistent connect/disconnect state.
+		// client handles hook/control traffic; queryClient handles synthesis/state queries.
+		// Volatile lets IsDaemonReachable answer without blocking behind a prompt.
 		private static volatile KeysharpInputdClient client;
 		private static KeysharpInputdClient queryClient;
 		private const KeysharpInputdClient.Capabilities InputdGrantedCapabilities =
@@ -28,18 +21,7 @@ namespace Keysharp.Internals.Input.Linux
 			| KeysharpInputdClient.Capabilities.SynthMouse
 			| KeysharpInputdClient.Capabilities.BlockInput;
 
-		/// <summary>
-		/// Sends input events to the daemon via the query/synthesis socket.
-		/// Capabilities must already be granted (via EnsureInputInjection) before this is called.
-		/// inputd returns SYNTHESIS_RESULT as soon as events are enqueued for the
-		/// output sequencer, so this call is fast and queryGate is held briefly.
-		/// </summary>
-		// The daemon rejects (rather than blocks) a SYNTHESIZE_INPUT batch that would
-		// overflow its bounded output queue while the sequencer is still draining prior
-		// events. That reject is transient backpressure, so a long Send resends the same
-		// batch after a short pause instead of failing — which also queues physical input
-		// behind the whole Send, matching Windows SendInput. Bounded so a genuinely wedged
-		// sequencer still surfaces an error rather than hanging the script thread forever.
+		// Bounded daemon queue overflow is transient backpressure; retry briefly.
 		private const int SynthesisBackpressureRetryMs = 4;
 		private const long SynthesisBackpressureMaxWaitMs = 4000;
 
@@ -55,9 +37,7 @@ namespace Keysharp.Internals.Input.Linux
 				{
 					if (!TryUseQueryClient(qc =>
 					{
-						// Request synth caps lazily on first use. By the time Send is called,
-						// EnsureInputInjection has already established trust on the main client,
-						// so the daemon serves this from the trust store without a prompt.
+						// Query connection inherits trust already established on the main client.
 						if (!HasCapabilities(qc, KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse))
 							qc.TryRequestCapabilities(
 								KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
@@ -73,19 +53,12 @@ namespace Keysharp.Internals.Input.Linux
 				catch (KeysharpInputdClient.RequestFailedException ex)
 					when (KeysharpInputdClient.IsSynthesisBackpressure(ex) && Environment.TickCount64 < backpressureDeadline)
 				{
-					// Output queue full; let the sequencer drain (queryGate is released here),
-					// then resend the same batch.
 					Thread.Sleep(SynthesisBackpressureRetryMs);
 				}
 			}
 		}
 
-		/// <summary>
-		/// Best-effort panic release: asks keysharp-inputd to drop ALL grabs and block-input
-		/// (emergency passthrough). Sent on the query channel so it works even while the hook lane and
-		/// the main script thread are busy/hung. Never throws — if even the query channel is gone there
-		/// is nothing more to do here (the daemon also auto-releases when this client disconnects).
-		/// </summary>
+		/// <summary>Best-effort panic release; never throws.</summary>
 		internal static void EmergencyReleaseInput()
 		{
 			try
@@ -106,54 +79,29 @@ namespace Keysharp.Internals.Input.Linux
 			capsLock = false;
 			numLock = false;
 			scrollLock = false;
-			var queryCapsLock = false;
-			var queryNumLock = false;
-			var queryScrollLock = false;
 
-			try
-			{
-				var success = TryUseQueryClient(qc =>
-				{
-					if (!EnsureQueryCapabilityNoPrompt(qc, KeysharpInputdClient.Capabilities.HookKeyboard))
-						return false;
-
-					(queryCapsLock, queryNumLock, queryScrollLock) = qc.GetIndicatorState();
-					return true;
-				});
-
-				if (!success)
-					return false;
-
-				capsLock = queryCapsLock;
-				numLock = queryNumLock;
-				scrollLock = queryScrollLock;
-				return true;
-			}
-			catch (Exception ex)
-			{
-				Ks.OutputDebugLine($"keysharp-inputd: indicator state query failed: {ex.Message}");
+			if (!TryQuery(
+					KeysharpInputdClient.Capabilities.HookKeyboard,
+					qc => (true, qc.GetIndicatorState()),
+					out (bool CapsLock, bool NumLock, bool ScrollLock) state,
+					"indicator state query"))
 				return false;
-			}
+
+			capsLock = state.CapsLock;
+			numLock = state.NumLock;
+			scrollLock = state.ScrollLock;
+			return true;
 		}
 
-		/// <summary>
-		/// Queries inputd for the current logical modifier and toggle-key state.
-		/// Returns false if the daemon is unavailable or the capability is not granted.
-		/// </summary>
+		/// <summary>Queries inputd for current logical modifier and toggle-key state.</summary>
 		internal static bool TryGetKeyState(out uint modifiersLR, out bool capsLock, out bool numLock, out bool scrollLock)
-			=> TryGetKeyState(out modifiersLR, out capsLock, out numLock, out scrollLock, out _);
+			=> TryGetKeyState(out modifiersLR, out capsLock, out numLock, out scrollLock, out _, out _);
 
-		/// <summary>
-		/// Queries inputd for the current logical keyboard state. logicalKeys is an evdev KEY_* bitmap
-		/// when the daemon supports it; older daemons return an empty array.
-		/// </summary>
+		/// <summary>Queries logical keyboard state plus optional logical-key bitmap.</summary>
 		internal static bool TryGetKeyState(out uint modifiersLR, out bool capsLock, out bool numLock, out bool scrollLock, out byte[] logicalKeys)
 			=> TryGetKeyState(out modifiersLR, out capsLock, out numLock, out scrollLock, out logicalKeys, out _);
 
-		/// <summary>
-		/// Queries inputd for the current logical and physical keyboard state. physicalKeys is available when
-		/// the daemon supports the extended payload; older daemons return an empty array.
-		/// </summary>
+		/// <summary>Queries logical and physical keyboard state.</summary>
 		internal static bool TryGetKeyState(out uint modifiersLR, out bool capsLock, out bool numLock, out bool scrollLock, out byte[] logicalKeys, out byte[] physicalKeys)
 		{
 			modifiersLR = 0;
@@ -162,46 +110,21 @@ namespace Keysharp.Internals.Input.Linux
 			scrollLock = false;
 			logicalKeys = [];
 			physicalKeys = [];
-			var queryModifiersLR = 0u;
-			var queryCapsLock = false;
-			var queryNumLock = false;
-			var queryScrollLock = false;
-			byte[] queryLogicalKeys = [];
-			byte[] queryPhysicalKeys = [];
 
-			try
-			{
-				var success = TryUseQueryClient(qc =>
-				{
-					if (!EnsureQueryCapabilityNoPrompt(qc, KeysharpInputdClient.Capabilities.HookKeyboard))
-						return false;
-
-					var state = qc.QueryKeyState();
-					queryModifiersLR = state.ModifiersLR;
-					queryCapsLock = state.CapsLock;
-					queryNumLock = state.NumLock;
-					queryScrollLock = state.ScrollLock;
-					queryLogicalKeys = state.LogicalKeys ?? [];
-					queryPhysicalKeys = state.PhysicalKeys ?? [];
-					return true;
-				});
-
-				if (!success)
-					return false;
-
-				modifiersLR = queryModifiersLR;
-				capsLock = queryCapsLock;
-				numLock = queryNumLock;
-				scrollLock = queryScrollLock;
-				logicalKeys = queryLogicalKeys;
-				physicalKeys = queryPhysicalKeys;
-				return true;
-			}
-			catch (Exception ex)
-			{
-				Ks.OutputDebugLine($"keysharp-inputd: key state query failed: {ex.Message}");
+			if (!TryQuery(
+					KeysharpInputdClient.Capabilities.HookKeyboard,
+					qc => (true, qc.QueryKeyState()),
+					out KeysharpInputdClient.KeyStateSnapshot state,
+					"key state query"))
 				return false;
-			}
+
+			modifiersLR = state.ModifiersLR;
+			capsLock = state.CapsLock;
+			numLock = state.NumLock;
+			scrollLock = state.ScrollLock;
+			logicalKeys = state.LogicalKeys ?? [];
+			physicalKeys = state.PhysicalKeys ?? [];
+			return true;
 		}
 
 		internal static bool TryGetPointerPosition(
@@ -213,62 +136,32 @@ namespace Keysharp.Internals.Input.Linux
 			out int yMax)
 		{
 			x = y = xMin = xMax = yMin = yMax = 0;
-			var queryX = 0;
-			var queryY = 0;
-			var queryXMin = 0;
-			var queryXMax = 0;
-			var queryYMin = 0;
-			var queryYMax = 0;
 
 			if (!EnsureCapabilities(
 					KeysharpInputdClient.Capabilities.HookMouse,
 					"query pointer position").IsGranted)
 				return false;
 
-			try
-			{
-				var success = TryUseQueryClient(qc =>
-				{
-					if (!EnsureQueryCapabilityNoPrompt(qc, KeysharpInputdClient.Capabilities.HookMouse)
-						|| !qc.TryGetPointerPosition(out var position))
-						return false;
-
-					queryX = position.X;
-					queryY = position.Y;
-					queryXMin = position.XMin;
-					queryXMax = position.XMax;
-					queryYMin = position.YMin;
-					queryYMax = position.YMax;
-					return true;
-				});
-
-				if (!success)
-					return false;
-
-				x = queryX;
-				y = queryY;
-				xMin = queryXMin;
-				xMax = queryXMax;
-				yMin = queryYMin;
-				yMax = queryYMax;
-				return true;
-			}
-			catch
-			{
+			if (!TryQuery(
+					KeysharpInputdClient.Capabilities.HookMouse,
+					qc => qc.TryGetPointerPosition(out var position) ? (true, position) : (false, default),
+					out KeysharpInputdClient.PointerPosition position))
 				return false;
-			}
+
+			x = position.X;
+			y = position.Y;
+			xMin = position.XMin;
+			xMax = position.XMax;
+			yMin = position.YMin;
+			yMax = position.YMax;
+			return true;
 		}
 
 		/// <summary>Live logical state of one mouse button (Wayland path for GetKeyState(button)).</summary>
 		internal static bool TryQueryButtonStateLogical(uint vk, out bool down)
 			=> TryQueryButtonState(vk, physical: false, out down);
 
-		/// <summary>
-		/// Live physical state of one mouse button (Wayland path for GetKeyState(.., "P")). The daemon snapshots
-		/// evdev button state via EVIOCGKEY, so this works with no mouse grab/hook. Returns false — leaving the
-		/// caller to fall back to hook-tracked state — if the daemon is unavailable, lacks the query (older
-		/// daemon), or has no readable pointer device.
-		/// </summary>
+		/// <summary>Live physical state of one mouse button.</summary>
 		internal static bool TryQueryButtonStatePhysical(uint vk, out bool down)
 			=> TryQueryButtonState(vk, physical: true, out down);
 
@@ -276,7 +169,6 @@ namespace Keysharp.Internals.Input.Linux
 		{
 			down = false;
 
-			// Bit layout mirrors KeysharpInputdClient.TryGetPointerButtons: 0=left,1=right,2=middle,3=X1,4=X2.
 			var bit = vk switch
 			{
 				0x01u => 1u << 0, // VK_LBUTTON
@@ -295,42 +187,62 @@ namespace Keysharp.Internals.Input.Linux
 					"query mouse button state").IsGranted)
 				return false;
 
-			KeysharpInputdClient.PointerButtons buttons = default;
+			if (!TryQuery(
+					KeysharpInputdClient.Capabilities.HookMouse,
+					qc => qc.TryGetPointerButtons(out var buttons) ? (true, buttons) : (false, default),
+					out KeysharpInputdClient.PointerButtons buttons))
+				return false;
+
+			var buttonsMask = physical ? buttons.PhysicalButtons : buttons.LogicalButtons;
+			down = (buttonsMask & bit) != 0;
+			return true;
+		}
+
+		private static bool TryQuery<T>(
+			KeysharpInputdClient.Capabilities required,
+			Func<KeysharpInputdClient, (bool Success, T Value)> query,
+			out T value,
+			string failureContext = null)
+		{
+			value = default;
+			var captured = default(T);
 
 			try
 			{
 				var success = TryUseQueryClient(qc =>
 				{
-					if (!EnsureQueryCapabilityNoPrompt(qc, KeysharpInputdClient.Capabilities.HookMouse)
-						|| !qc.TryGetPointerButtons(out buttons))
+					if (!EnsureQueryCapabilityNoPrompt(qc, required))
 						return false;
 
+					var result = query(qc);
+
+					if (!result.Success)
+						return false;
+
+					captured = result.Value;
 					return true;
 				});
 
 				if (!success)
 					return false;
 
-				var buttonsMask = physical ? buttons.PhysicalButtons : buttons.LogicalButtons;
-				down = (buttonsMask & bit) != 0;
+				value = captured;
 				return true;
 			}
-			catch
+			catch (Exception ex)
 			{
+				if (failureContext != null)
+					Ks.OutputDebugLine($"keysharp-inputd: {failureContext} failed: {ex.Message}");
+
 				return false;
 			}
 		}
 
 		private static KeysharpInputdClient GetOrCreateQueryClient()
 		{
-			// Keep lock order consistent with DisconnectClients()/DisposeClient():
-			// gate first, then queryGate. Reversing this can deadlock shutdown while
-			// a background query-client prewarm is checking the main connection.
+			// Lock order: gate, then queryGate.
 			lock (gate)
 			{
-				// Only create the query connection if the main connection already exists
-				// (i.e. the daemon is reachable). This avoids a redundant connect attempt
-				// during startup before the daemon has been discovered.
 				if (client == null)
 					return null;
 
@@ -341,15 +253,10 @@ namespace Keysharp.Internals.Input.Linux
 
 					try
 					{
-						// Connect with no capabilities; synthesis is requested lazily in
-						// SendInputViaSynthesisChannel after EnsureInputInjection has
-						// established trust on the main client.
 						queryClient = KeysharpInputdClient.Connect();
 					}
-					catch (Exception ex) when (ex is IOException or SocketException
-						or ObjectDisposedException or InvalidDataException)
+					catch (Exception ex) when (IsConnectException(ex))
 					{
-						// Non-fatal: callers can fall back to the main request/response connection.
 					}
 
 					return queryClient;
@@ -366,9 +273,6 @@ namespace Keysharp.Internals.Input.Linux
 
 			lock (queryGate)
 			{
-				// GetOrCreateQueryClient releases queryGate before callers use the
-				// returned client. DisconnectClients() can dispose and clear it in that
-				// gap, so only use the object if it is still the cached query client.
 				if (!ReferenceEquals(qc, queryClient))
 					return false;
 
@@ -378,17 +282,10 @@ namespace Keysharp.Internals.Input.Linux
 				}
 				catch (KeysharpInputdClient.RequestFailedException)
 				{
-					// A protocol-level rejection (e.g. capability denied, or an output-queue
-					// backpressure reject) is NOT a dead transport — the connection is healthy.
-					// Let it propagate so the caller can react (retry backpressure, fall back on
-					// a 403) instead of tearing down a working channel and reconnecting.
 					throw;
 				}
-				catch (Exception ex) when (ex is IOException or SocketException
-					or ObjectDisposedException or InvalidDataException or EndOfStreamException)
+				catch (Exception ex) when (IsTransportException(ex))
 				{
-					// Drop the dead query channel (inline: we already hold queryGate) so the
-					// next call recreates it against a freshly socket-activated daemon.
 					Ks.OutputDebugLine($"keysharp-inputd query channel lost: {ex.Message}");
 					try { queryClient?.Dispose(); } catch { }
 					queryClient = null;
@@ -442,10 +339,8 @@ namespace Keysharp.Internals.Input.Linux
 					message = string.Empty;
 					return true;
 				}
-				catch (Exception ex) when (ex is IOException or SocketException
-					or ObjectDisposedException or InvalidDataException or EndOfStreamException)
+				catch (Exception ex) when (IsTransportException(ex))
 				{
-					// Drop the dead connection so a later call reconnects.
 					DisposeClient();
 					message = ex.Message;
 					return false;
@@ -475,11 +370,8 @@ namespace Keysharp.Internals.Input.Linux
 						$"keysharp-inputd did not grant the required capabilities for '{operation}'. " +
 						$"Required from inputd: {requiredFromInputd}, requested: {requested}, granted: {client.GrantedCapabilities}.");
 				}
-				catch (Exception ex) when (ex is IOException or SocketException
-					or ObjectDisposedException or InvalidDataException or EndOfStreamException)
+				catch (Exception ex) when (IsTransportException(ex))
 				{
-					// The cached connection died (daemon crash/restart). Drop it so the
-					// next call reconnects — the systemd socket respawns the daemon.
 					DisposeClient();
 					return new PermissionResult(PermissionStatus.Unsupported,
 						$"keysharp-inputd connection lost while preparing '{operation}': {ex.Message}");
@@ -489,8 +381,6 @@ namespace Keysharp.Internals.Input.Linux
 
 		private static bool TryEnsureConnected(string operation, out PermissionStatus status, out string message)
 		{
-			// Already connected — reuse the existing connection regardless of which
-			// capabilities it has; individual Ensure calls do their own capability checks.
 			if (client != null)
 			{
 				status = PermissionStatus.Granted;
@@ -498,22 +388,12 @@ namespace Keysharp.Internals.Input.Linux
 				return true;
 			}
 
-			// The installed systemd socket starts the privileged service on connect.
 			return TryConnect(operation, out status, out message);
 		}
 
-		/// <summary>
-		/// Probes whether keysharp-inputd is reachable without requesting any
-		/// capabilities (so no permission prompt is shown). Used to decide which
-		/// keyboard/mouse sender to construct before any hook/send is actually
-		/// requested — defer the real capability prompt to first use.
-		/// </summary>
+		/// <summary>Probes daemon reachability without requesting capabilities.</summary>
 		internal static bool IsDaemonReachable()
 		{
-			// A capability/trust prompt in EnsureCapabilities can hold 'gate' for as long as the user
-			// takes to decide (tens of seconds). This probe drives sender selection and must stay
-			// responsive, so don't block behind that prompt: if the lock isn't promptly available,
-			// answer from the current (volatile) connection state instead of stalling.
 			if (!gate.TryEnter(TimeSpan.FromMilliseconds(50)))
 				return client != null;
 
@@ -535,14 +415,12 @@ namespace Keysharp.Internals.Input.Linux
 				status = PermissionStatus.Granted;
 				message = string.Empty;
 
-				// Pre-warm the QueryClient (synthesis channel) in the background so the
-				// first SendInput call does not pay connection setup cost mid-action.
 				ThreadPool.QueueUserWorkItem(
 					_ => { try { GetOrCreateQueryClient(); } catch { } });
 
 				return true;
 			}
-			catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or InvalidDataException)
+			catch (Exception ex) when (IsConnectException(ex))
 			{
 				DisposeClient();
 				status = PermissionStatus.Unsupported;
@@ -555,21 +433,19 @@ namespace Keysharp.Internals.Input.Linux
 		private static bool HasCapabilities(KeysharpInputdClient connectedClient, KeysharpInputdClient.Capabilities required)
 			=> (connectedClient.GrantedCapabilities & required) == required;
 
-		// True when the main (hook/request) connection already holds a capability. If it
-		// does, the same process identity's grant is in the trust store, so requesting the
-		// capability on a sibling query connection is served silently — no prompt. Used to
-		// keep read-only state queries from ever raising an interactive permission prompt
-		// (e.g. the key-state reconcile after a Send in a synthesis-only script).
+		private static bool IsConnectException(Exception ex)
+			=> ex is IOException or SocketException or ObjectDisposedException or InvalidDataException;
+
+		private static bool IsTransportException(Exception ex)
+			=> IsConnectException(ex) || ex is EndOfStreamException;
+
 		private static bool MainClientHasCapability(KeysharpInputdClient.Capabilities cap)
 		{
 			var c = client;
 			return c != null && (c.GrantedCapabilities & cap) == cap;
 		}
 
-		// Ensures a query connection carries a read capability without ever prompting:
-		// reuse an existing grant if present, otherwise inherit it from the main
-		// connection's trust-store grant. Returns false (caller falls back) rather than
-		// prompting when the capability was never granted to this process.
+		// Query reads must never prompt; inherit only from an existing main grant.
 		private static bool EnsureQueryCapabilityNoPrompt(KeysharpInputdClient qc, KeysharpInputdClient.Capabilities required)
 		{
 			if (HasCapabilities(qc, required))
@@ -586,10 +462,7 @@ namespace Keysharp.Internals.Input.Linux
 			const KeysharpInputdClient.Capabilities synth =
 				KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse;
 
-			// Hook-backed features can synthesize events later from the hook path
-			// (for example, remaps), so a hook grant includes synthesis to avoid
-			// a second prompt on first activation. Synthesis alone still does not
-			// imply hook access.
+			// Hooks can synthesize later (remaps), so hook grants include synthesis.
 			if ((requested & hook) != 0)
 				requested |= hook | synth;
 			else if ((requested & synth) != 0)

@@ -569,10 +569,36 @@ static void handle_synthesize_input(
         return;
     }
 
-    if (!output_queue_push_synth(&state->output_queue,
-            payload->inputs, payload->count, payload->flags, false)) {
-        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 12);
+    if (synth_batch_needs_hook_queue(state, payload->inputs, payload->count, payload->flags)) {
+        ksi_synth_completion *completion = synth_completion_create(
+            client->hook_send_ref, message->header);
+
+        if (completion == NULL) {
+            send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 12);
+            return;
+        }
+
+        if (!synthetic_hook_queue_push(
+                &state->synthetic_hook_queue,
+                payload->inputs,
+                payload->count,
+                monotonic_ms(),
+                completion)) {
+            synth_completion_fail(completion, -1, 12u);
+            return;
+        }
+
+        if (completion->remaining == 0u) {
+            synth_completion_send_once(completion, 0, 0u);
+            synth_completion_destroy(completion);
+        }
         return;
+    } else {
+        if (!output_queue_push_synth(&state->output_queue,
+                payload->inputs, payload->count, payload->flags)) {
+            send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 12);
+            return;
+        }
     }
 
     send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, 0, 0);

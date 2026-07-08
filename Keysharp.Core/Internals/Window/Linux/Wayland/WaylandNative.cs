@@ -155,10 +155,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		// wl_seat opcodes
 		private const uint WlSeatGetPointerOpcode = 0;
+		private const uint WlSeatGetKeyboardOpcode = 1;
 
 		// wl_pointer opcodes
 		private const uint WlPointerSetCursorOpcode = 0;
 		private const uint WlPointerReleaseOpcode = 1; // v3+
+
+		// wl_keyboard opcodes
+		private const uint WlKeyboardReleaseOpcode = 0; // v3+
 
 		// zwlr_layer_surface_v1 opcodes
 		private const uint WlrLayerSurfaceSetSizeOpcode = 0;
@@ -207,6 +211,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static nint RegionInterface => Export("wl_region_interface");
 		internal static nint CallbackInterface => Export("wl_callback_interface");
 		internal static nint PointerInterface => Export("wl_pointer_interface");
+		internal static nint KeyboardInterface => Export("wl_keyboard_interface");
 
 		internal static nint DisplayGetRegistry(nint display)
 			=> MarshalConstructor(display, WlDisplayGetRegistryOpcode, RegistryInterface, ProxyGetVersion(display), 0, 0);
@@ -291,6 +296,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static nint SeatGetPointer(nint seat)
 			=> MarshalConstructor(seat, WlSeatGetPointerOpcode, PointerInterface, ProxyGetVersion(seat), 0, 0);
 
+		internal static nint SeatGetKeyboard(nint seat)
+			=> MarshalConstructor(seat, WlSeatGetKeyboardOpcode, KeyboardInterface, ProxyGetVersion(seat), 0, 0);
+
 		internal static void PointerRelease(nint pointer)
 		{
 			// wl_pointer.release was added in version 3; on older seats we have to fall through to
@@ -299,6 +307,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				MarshalRequest(pointer, WlPointerReleaseOpcode, 0, ProxyGetVersion(pointer), DestroyFlag);
 			else
 				ProxyDestroy(pointer);
+		}
+
+		internal static void KeyboardRelease(nint keyboard)
+		{
+			if (ProxyGetVersion(keyboard) >= 3)
+				MarshalRequest(keyboard, WlKeyboardReleaseOpcode, 0, ProxyGetVersion(keyboard), DestroyFlag);
+			else
+				ProxyDestroy(keyboard);
 		}
 
 		// Converts a wl_fixed_t (24.8 fixed-point integer) to a double pixel coordinate.

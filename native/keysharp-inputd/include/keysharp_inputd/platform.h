@@ -20,6 +20,12 @@ typedef struct ksi_platform_backend {
     uint32_t (*get_available_capabilities)(void);
     nfds_t (*poll_fds)(struct pollfd *fds, nfds_t max_fds);
     void (*process_fd)(int fd);
+    bool (*peek_oldest_pending_input)(int *out_fd, uint64_t *out_time_ms);
+    bool (*input_to_hook_event)(
+        const ksi_input *input,
+        uint32_t *hook_type,
+        ksi_hook_event_payload *event,
+        size_t *event_size);
     int (*send_input)(const ksi_input *inputs, size_t count, uint32_t flags);
     int (*replay_hook_event)(uint32_t hook_type, const ksi_hook_event_payload *event);
     int (*set_grab_hook_mask)(uint32_t hook_mask);

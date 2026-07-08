@@ -134,9 +134,9 @@ namespace Keysharp.Internals
 		/// <summary>Whether this service can BOTH query the cursor position AND move it — the exact capability
 		/// the inputd cursor-clip enforcement needs. Resolves the X11-vs-Wayland question once so callers
 		/// (e.g. the hook thread's <c>CanClipCursor</c>) don't re-derive the session shape.</summary>
-		bool SupportsCursorClip { get; }
+		bool SupportsCursorQueryAndMove { get; }
 
-		/// <summary>Warp the cursor to an absolute screen position (the clip-correction counterpart to
+		/// <summary>Move the cursor to an absolute screen position (the clip-correction counterpart to
 		/// <see cref="TryGetCursorPos"/>): X11 <c>XWarpPointer</c> / the Wayland compositor backend.</summary>
 		bool TryMoveAbsolute(int x, int y);
 

@@ -190,7 +190,7 @@ namespace Keysharp.Internals.Input.Windows
 				window = WindowQuery.GetForegroundWindowHandle();
 
 			nint tempzero = 0;
-			return Platform.Keyboard.GetKeyboardLayout(WindowQuery.GetFocusedCtrlThread(ref tempzero, window));
+			return Platform.Keys.GetKeyboardLayout(WindowQuery.GetFocusedCtrlThread(ref tempzero, window));
 		}
 
 		//internal ResultType ExpandEventArray()

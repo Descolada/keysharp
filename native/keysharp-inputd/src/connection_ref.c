@@ -6,11 +6,21 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+/* One connection can subscribe to both hook lanes. Each lane is capped at 512
+ * queued events, so 1024 covers the maximum pending order window for that peer. */
+#define KSI_HOOK_SEND_REF_MAX_PENDING 1024u
 
 struct ksi_hook_send_ref {
     int fd;
     atomic_uint ref_count;
     pthread_mutex_t send_mutex;
+    pthread_mutex_t order_mutex;
+    pthread_cond_t order_cond;
+    uint64_t pending_event_ids[KSI_HOOK_SEND_REF_MAX_PENDING];
+    size_t pending_event_head;
+    size_t pending_event_count;
     struct ksi_hook_send_ref *next;
 };
 
@@ -20,6 +30,8 @@ static ksi_hook_send_ref *registry;
 ksi_hook_send_ref *hook_send_ref_create(int client_fd)
 {
     ksi_hook_send_ref *ref = malloc(sizeof(*ref));
+    pthread_condattr_t cond_attr;
+    int cond_rc;
 
     if (ref == NULL) {
         return NULL;
@@ -30,6 +42,30 @@ ksi_hook_send_ref *hook_send_ref_create(int client_fd)
     atomic_init(&ref->ref_count, 1u);
 
     if (pthread_mutex_init(&ref->send_mutex, NULL) != 0) {
+        free(ref);
+        return NULL;
+    }
+
+    if (pthread_mutex_init(&ref->order_mutex, NULL) != 0) {
+        pthread_mutex_destroy(&ref->send_mutex);
+        free(ref);
+        return NULL;
+    }
+
+    if (pthread_condattr_init(&cond_attr) != 0) {
+        pthread_mutex_destroy(&ref->order_mutex);
+        pthread_mutex_destroy(&ref->send_mutex);
+        free(ref);
+        return NULL;
+    }
+
+    (void)pthread_condattr_setclock(&cond_attr, CLOCK_MONOTONIC);
+    cond_rc = pthread_cond_init(&ref->order_cond, &cond_attr);
+    pthread_condattr_destroy(&cond_attr);
+
+    if (cond_rc != 0) {
+        pthread_mutex_destroy(&ref->order_mutex);
+        pthread_mutex_destroy(&ref->send_mutex);
         free(ref);
         return NULL;
     }
@@ -56,6 +92,124 @@ int hook_send_ref_fd(const ksi_hook_send_ref *ref)
     return ref == NULL ? -1 : ref->fd;
 }
 
+int hook_send_ref_send(
+    ksi_hook_send_ref *ref,
+    uint32_t message_type,
+    uint32_t client_id,
+    uint64_t correlation_id,
+    const void *payload,
+    size_t payload_size)
+{
+    int result;
+
+    if (ref == NULL) {
+        return -1;
+    }
+
+    pthread_mutex_lock(&ref->send_mutex);
+    result = ksi_ipc_send_framed_message(
+        ref->fd, message_type, client_id, correlation_id, payload, payload_size);
+    pthread_mutex_unlock(&ref->send_mutex);
+    return result;
+}
+
+bool hook_send_ref_note_event(ksi_hook_send_ref *ref, uint64_t event_id)
+{
+    bool ok = false;
+
+    if (ref == NULL || event_id == 0u) {
+        return false;
+    }
+
+    pthread_mutex_lock(&ref->order_mutex);
+
+    if (ref->pending_event_count < KSI_HOOK_SEND_REF_MAX_PENDING) {
+        size_t tail = (ref->pending_event_head + ref->pending_event_count)
+            % KSI_HOOK_SEND_REF_MAX_PENDING;
+        ref->pending_event_ids[tail] = event_id;
+        ref->pending_event_count++;
+        ok = true;
+    }
+
+    pthread_mutex_unlock(&ref->order_mutex);
+    return ok;
+}
+
+/* Lane threads call this before writing HOOK_EVENT. Event ids are registered by
+ * the daemon main thread in chronological dispatch order, so waiting for the
+ * FIFO head gives one hook connection Windows-like keyboard+mouse serialization
+ * without coupling unrelated connections or hook lanes. */
+bool hook_send_ref_wait_event_turn(ksi_hook_send_ref *ref, uint64_t event_id, int timeout_ms)
+{
+    struct timespec absolute;
+    bool is_turn;
+
+    if (ref == NULL || event_id == 0u) {
+        return true;
+    }
+
+    if (clock_gettime(CLOCK_MONOTONIC, &absolute) != 0) {
+        return false;
+    }
+
+    if (timeout_ms < 0) {
+        timeout_ms = 0;
+    }
+
+    absolute.tv_sec += timeout_ms / 1000;
+    absolute.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+
+    if (absolute.tv_nsec >= 1000000000L) {
+        absolute.tv_sec++;
+        absolute.tv_nsec -= 1000000000L;
+    }
+
+    pthread_mutex_lock(&ref->order_mutex);
+    while (ref->pending_event_count != 0u
+        && ref->pending_event_ids[ref->pending_event_head] != event_id) {
+        if (pthread_cond_timedwait(&ref->order_cond, &ref->order_mutex, &absolute) != 0) {
+            break;
+        }
+    }
+
+    is_turn = ref->pending_event_count == 0u
+        || ref->pending_event_ids[ref->pending_event_head] == event_id;
+    pthread_mutex_unlock(&ref->order_mutex);
+    return is_turn;
+}
+
+void hook_send_ref_complete_event(ksi_hook_send_ref *ref, uint64_t event_id)
+{
+    if (ref == NULL || event_id == 0u) {
+        return;
+    }
+
+    pthread_mutex_lock(&ref->order_mutex);
+
+    for (size_t i = 0u; i < ref->pending_event_count; i++) {
+        size_t idx = (ref->pending_event_head + i) % KSI_HOOK_SEND_REF_MAX_PENDING;
+
+        if (ref->pending_event_ids[idx] == event_id) {
+            ref->pending_event_ids[idx] = 0u;
+            break;
+        }
+    }
+
+    while (ref->pending_event_count != 0u
+        && ref->pending_event_ids[ref->pending_event_head] == 0u) {
+        ref->pending_event_head = (ref->pending_event_head + 1u)
+            % KSI_HOOK_SEND_REF_MAX_PENDING;
+        ref->pending_event_count--;
+    }
+
+    if (ref->pending_event_count == 0u) {
+        ref->pending_event_head = 0u;
+    }
+
+    pthread_cond_broadcast(&ref->order_cond);
+    pthread_mutex_unlock(&ref->order_mutex);
+}
+
 void hook_send_ref_release(ksi_hook_send_ref *ref)
 {
     if (ref == NULL) {
@@ -74,6 +228,8 @@ void hook_send_ref_release(ksi_hook_send_ref *ref)
 
         pthread_mutex_unlock(&registry_mutex);
         ksi_ipc_close_client(ref->fd);
+        pthread_cond_destroy(&ref->order_cond);
+        pthread_mutex_destroy(&ref->order_mutex);
         pthread_mutex_destroy(&ref->send_mutex);
         free(ref);
     }
@@ -107,10 +263,7 @@ int ipc_send_locked(
         return -1;
     }
 
-    pthread_mutex_lock(&ref->send_mutex);
-    result = ksi_ipc_send_framed_message(
-        ref->fd, message_type, client_id, correlation_id, payload, payload_size);
-    pthread_mutex_unlock(&ref->send_mutex);
+    result = hook_send_ref_send(ref, message_type, client_id, correlation_id, payload, payload_size);
     hook_send_ref_release(ref);
     return result;
 }

@@ -20,12 +20,9 @@ namespace Keysharp.Internals.Input.Linux
 		private const int InputSize = 40;
 		internal const int KeyStateBitmapBytes = 96;
 		private const uint ClientHelloFlagForcePrompt = 0x00000001;
-		// Bounds a request round-trip so a hung daemon cannot block a script thread
-		// indefinitely (callers hold a manager lock across these calls).
+		// Bounds request round-trips so a hung daemon cannot block a script thread.
 		internal const int DefaultRequestTimeoutMs = 5000;
-		// CLIENT_HELLO can trigger an interactive trust prompt; the daemon enforces a
-		// 60s prompt window (KSI_PROMPT_TIMEOUT_SECONDS), so allow margin beyond that
-		// for the hello response specifically.
+		// CLIENT_HELLO may wait on the daemon's interactive trust prompt.
 		private const int HelloResponseTimeoutMs = 75000;
 		private const int LeaseHeartbeatPeriodMs = 5000;
 
@@ -38,13 +35,8 @@ namespace Keysharp.Internals.Input.Linux
 			SynthKeyboard = 0x00000004,
 			SynthMouse = 0x00000008,
 			BlockInput = 0x00000010,
-			// inputd does not physically provide screen capture, but including this bit
-			// in the CLIENT_HELLO causes the combined prompt to cover it and writes the
-			// PID session grant so that keysharp-helper can skip its own prompt.
+			// Brokered in the combined inputd trust prompt for helper reuse.
 			ScreenCapture = 0x00000020,
-			// AT-SPI access is not provided by inputd either, but it is a privileged
-			// automation capability from the user's perspective, so inputd brokers the
-			// trust prompt and records the user's decision.
 			AccessibilityAutomation = 0x00000040,
 		}
 
@@ -171,43 +163,35 @@ namespace Keysharp.Internals.Input.Linux
 			int YMin,
 			int YMax);
 
-			internal readonly record struct KeyStateSnapshot(
-				uint ModifiersLR,
-				bool CapsLock,
-				bool NumLock,
-				bool ScrollLock,
-				byte[] LogicalKeys,
-				byte[] PhysicalKeys);
+		internal readonly record struct KeyStateSnapshot(
+			uint ModifiersLR,
+			bool CapsLock,
+			bool NumLock,
+			bool ScrollLock,
+			byte[] LogicalKeys,
+			byte[] PhysicalKeys);
 
-			private readonly Socket socket;
-			/// <summary>
-			/// Hook events received on this socket while a thread was waiting for a
-			/// command response. Buffered by ReadResponseFrame and drained by
-			/// ReadHookEvent. Access serialized through pendingHookEventsLock so a
-			/// reader-thread + control-thread workload is safe even if both end up
-			/// touching this client concurrently.
-			/// </summary>
+		private readonly Socket socket;
+		/// <summary>
+		/// Hook events received on this socket while a thread was waiting for a
+		/// command response. Buffered by ReadResponseFrame and drained by
+		/// ReadHookEvent.
+		/// </summary>
 		private readonly Queue<HookEvent> pendingHookEvents = new();
 		private readonly Lock pendingHookEventsLock = new();
 		private readonly Lock sendLock = new();
 		private Timer leaseHeartbeatTimer;
-		// Consulted before each periodic lease heartbeat. While it returns false
-		// the heartbeat is skipped, so a wedged hook reader stops renewing the
-		// daemon's grab lease. Null renews unconditionally (the BlockInput path,
-		// which has no reader thread). volatile for the cross-thread timer read.
+		// Null renews unconditionally; false stops renewing the daemon grab lease.
 		private volatile Func<bool> leaseLivenessProbe;
-			private ulong nextCorrelationId = 1;
-			private bool disposed;
-			private readonly int requestTimeoutMs;
+		private ulong nextCorrelationId = 1;
+		private bool disposed;
+		private readonly int requestTimeoutMs;
 
 		private KeysharpInputdClient(Socket socket, int requestTimeoutMs)
 		{
 			this.socket = socket;
 			this.requestTimeoutMs = requestTimeoutMs;
 
-			// A finite timeout means a stalled daemon surfaces as a SocketException the
-			// caller can recover from, rather than an unbounded block. The hook-event
-			// read path tolerates idle timeouts explicitly (see ReadAll's idleRetry).
 			if (requestTimeoutMs > 0)
 			{
 				socket.ReceiveTimeout = requestTimeoutMs;
@@ -237,8 +221,7 @@ namespace Keysharp.Internals.Input.Linux
 				Detail: 2u
 			};
 
-		// SYNTHESIS_RESULT status<0 detail 12: the daemon's bounded output queue is
-		// full and rejected (did not queue) the batch. Transient — resend after a pause.
+		// SYNTHESIS_RESULT detail 12: transient bounded-queue backpressure.
 		internal const uint SynthesisBackpressureDetail = 12u;
 
 		internal static bool IsSynthesisBackpressure(Exception exception)
@@ -302,19 +285,13 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal void SendHeartbeat()
 		{
-				var correlationId = NextCorrelationId();
-				SendFrame(MessageType.Heartbeat, correlationId, ReadOnlySpan<byte>.Empty);
-				var response = ReadResponseFrame(MessageType.Heartbeat, correlationId);
-				EnsureStatus(response, MessageType.Heartbeat, correlationId);
-			}
+			SendStatusRequest(MessageType.Heartbeat);
+		}
 
 		internal void EmergencyPassthrough()
 		{
-				var correlationId = NextCorrelationId();
-				SendFrame(MessageType.EmergencyPassthrough, correlationId, ReadOnlySpan<byte>.Empty);
-				var response = ReadResponseFrame(MessageType.EmergencyPassthrough, correlationId);
-				EnsureStatus(response, MessageType.EmergencyPassthrough, correlationId);
-			}
+			SendStatusRequest(MessageType.EmergencyPassthrough);
+		}
 
 		internal BlockInputMask SetBlockInput(BlockInputMask mask)
 		{
@@ -322,16 +299,13 @@ namespace Keysharp.Internals.Input.Linux
 			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)mask);
 			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], 0);
 
-				var correlationId = NextCorrelationId();
-				SendFrame(MessageType.SetBlockInput, correlationId, payload);
-				var response = ReadResponseFrame(MessageType.SetBlockInput, correlationId);
-				var applied = (BlockInputMask)EnsureStatus(response, MessageType.SetBlockInput, correlationId).Detail;
+			var applied = (BlockInputMask)SendStatusRequest(MessageType.SetBlockInput, payload).Detail;
 
-				if (applied != BlockInputMask.None)
-					EnsureLeaseHeartbeat();
+			if (applied != BlockInputMask.None)
+				EnsureLeaseHeartbeat();
 
-				return applied;
-			}
+			return applied;
+		}
 
 		internal uint SubscribeHook(HookType hookType)
 		{
@@ -339,16 +313,13 @@ namespace Keysharp.Internals.Input.Linux
 			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)hookType);
 			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], 0);
 
-				var correlationId = NextCorrelationId();
-				SendFrame(MessageType.SubscribeHook, correlationId, payload);
-				var response = ReadResponseFrame(MessageType.SubscribeHook, correlationId);
-				var subscriptions = EnsureStatus(response, MessageType.SubscribeHook, correlationId).Detail;
+			var subscriptions = SendStatusRequest(MessageType.SubscribeHook, payload).Detail;
 
-				if (subscriptions != 0)
-					EnsureLeaseHeartbeat();
+			if (subscriptions != 0)
+				EnsureLeaseHeartbeat();
 
-				return subscriptions;
-			}
+			return subscriptions;
+		}
 
 		internal uint UnsubscribeHook(HookType hookType)
 		{
@@ -356,11 +327,8 @@ namespace Keysharp.Internals.Input.Linux
 			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)hookType);
 			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], 0);
 
-				var correlationId = NextCorrelationId();
-				SendFrame(MessageType.UnsubscribeHook, correlationId, payload);
-				var response = ReadResponseFrame(MessageType.UnsubscribeHook, correlationId);
-				return EnsureStatus(response, MessageType.UnsubscribeHook, correlationId).Detail;
-			}
+			return SendStatusRequest(MessageType.UnsubscribeHook, payload).Detail;
+		}
 
 		[Flags]
 		internal enum SynthFlags : uint
@@ -381,25 +349,13 @@ namespace Keysharp.Internals.Input.Linux
 			for (var i = 0; i < inputs.Count; i++)
 				WriteInput(payload.AsSpan(8 + (i * InputSize), InputSize), inputs[i]);
 
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.SynthesizeInput, correlationId, payload);
-			var response = ReadResponseFrame(MessageType.SynthesisResult, correlationId);
-			EnsureStatus(response, MessageType.SynthesisResult, correlationId);
+			SendStatusRequest(MessageType.SynthesizeInput, MessageType.SynthesisResult, payload);
 		}
 
-		/// <summary>
-		/// Queries the daemon for the current keyboard indicator (lock key) state.
-		/// Must be called on a dedicated query connection, not on the hook-event socket.
-		/// </summary>
+		/// <summary>Queries the daemon for current lock-key indicator state.</summary>
 		internal (bool CapsLock, bool NumLock, bool ScrollLock) GetIndicatorState()
 		{
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.GetIndicatorState, correlationId, ReadOnlySpan<byte>.Empty);
-			var response = ReadResponseFrame(MessageType.IndicatorStateResult, correlationId);
-
-			if (response.Type != MessageType.IndicatorStateResult || response.CorrelationId != correlationId)
-				throw new InvalidDataException(
-					$"Unexpected response to GetIndicatorState: type={response.Type} corr={response.CorrelationId} expected={correlationId}");
+			var response = SendRequest(MessageType.GetIndicatorState, MessageType.IndicatorStateResult);
 
 			if (response.Payload.Length < 3)
 				return (false, false, false);
@@ -407,23 +363,10 @@ namespace Keysharp.Internals.Input.Linux
 			return (response.Payload[0] != 0, response.Payload[1] != 0, response.Payload[2] != 0);
 		}
 
-		/// <summary>
-		/// Queries the daemon for the current logical keyboard state.
-		/// modifiersLR uses the same bit layout as Keysharp's internal MOD_* constants:
-		///   0=LCONTROL 1=RCONTROL 2=LALT 3=RALT 4=LSHIFT 5=RSHIFT 6=LWIN 7=RWIN.
-		/// LogicalKeys is an evdev KEY_* bitmap when the daemon supports protocol payload extensions;
-		/// old daemons return the 8-byte prefix only, leaving LogicalKeys empty.
-		/// Must be called on a dedicated query connection, not on the hook-event socket.
-		/// </summary>
+		/// <summary>Queries logical/toggle keyboard state plus optional key bitmaps.</summary>
 		internal KeyStateSnapshot QueryKeyState()
 		{
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.GetKeyState, correlationId, ReadOnlySpan<byte>.Empty);
-			var response = ReadResponseFrame(MessageType.KeyStateResult, correlationId);
-
-			if (response.Type != MessageType.KeyStateResult || response.CorrelationId != correlationId)
-				throw new InvalidDataException(
-					$"Unexpected response to GetKeyState: type={response.Type} corr={response.CorrelationId} expected={correlationId}");
+			var response = SendRequest(MessageType.GetKeyState, MessageType.KeyStateResult);
 
 			if (response.Payload.Length < 8)
 				return new(0u, false, false, false, [], []);
@@ -447,21 +390,12 @@ namespace Keysharp.Internals.Input.Linux
 			return new(mods, response.Payload[4] != 0, response.Payload[5] != 0, response.Payload[6] != 0, logicalKeys, physicalKeys);
 		}
 
-		/// <summary>
-		/// Queries the daemon for the last raw evdev ABS_X/ABS_Y pointer sample.
-		/// Screen-space mapping stays in Keysharp because the daemon has no display model.
-		/// </summary>
+		/// <summary>Queries the last raw evdev ABS_X/ABS_Y pointer sample.</summary>
 		internal bool TryGetPointerPosition(out PointerPosition position)
 		{
 			position = default;
 
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.GetPointerPosition, correlationId, ReadOnlySpan<byte>.Empty);
-			var response = ReadResponseFrame(MessageType.PointerPositionResult, correlationId);
-
-			if (response.Type != MessageType.PointerPositionResult || response.CorrelationId != correlationId)
-				throw new InvalidDataException(
-					$"Unexpected response to GetPointerPosition: type={response.Type} corr={response.CorrelationId} expected={correlationId}");
+			var response = SendRequest(MessageType.GetPointerPosition, MessageType.PointerPositionResult);
 
 			if (response.Payload.Length != 28 || response.Payload[0] == 0)
 				return false;
@@ -478,24 +412,13 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal readonly record struct PointerButtons(uint LogicalButtons, uint PhysicalButtons);
 
-		/// <summary>
-		/// Snapshot of current mouse-button state. New daemons return logical and physical masks separately;
-		/// old daemons return only the physical mask, which is used for both outputs for compatibility.
-		/// Bit 0 = left, 1 = right, 2 = middle, 3 = X1 (side), 4 = X2 (extra).
-		/// </summary>
+		/// <summary>Queries logical and physical mouse-button masks.</summary>
 		internal bool TryGetPointerButtons(out PointerButtons buttons)
 		{
 			buttons = default;
 
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.GetPointerButtons, correlationId, ReadOnlySpan<byte>.Empty);
-			var response = ReadResponseFrame(MessageType.PointerButtonsResult, correlationId);
+			var response = SendRequest(MessageType.GetPointerButtons, MessageType.PointerButtonsResult);
 
-			if (response.Type != MessageType.PointerButtonsResult || response.CorrelationId != correlationId)
-				throw new InvalidDataException(
-					$"Unexpected response to GetPointerButtons: type={response.Type} corr={response.CorrelationId} expected={correlationId}");
-
-			// Payload: [byte ok][3 pad][uint32 button mask]. ok==0 means no readable pointer device.
 			if (response.Payload.Length < 8 || response.Payload[0] == 0)
 				return false;
 
@@ -523,8 +446,6 @@ namespace Keysharp.Internals.Input.Linux
 					return pendingHookEvents.Dequeue();
 			}
 
-			// The hook connection waits an unbounded time for the next input event, so
-			// an idle receive timeout here is not a failure — keep waiting.
 			var frame = ReadFrame(idleRetry: true);
 
 			if (frame.Type != MessageType.HookEvent)
@@ -573,10 +494,7 @@ namespace Keysharp.Internals.Input.Linux
 			for (var i = 0; i < inputCount; i++)
 				WriteInput(payload.AsSpan(16 + (i * InputSize), InputSize), replacementInputs[i]);
 
-			var correlationId = eventId;
-			SendFrame(MessageType.HookDecision, correlationId, payload);
-			var response = ReadResponseFrame(MessageType.HookDecision, correlationId);
-			EnsureStatus(response, MessageType.HookDecision, correlationId);
+			SendStatusRequest(MessageType.HookDecision, MessageType.HookDecision, payload, eventId);
 		}
 
 		public void Dispose()
@@ -617,8 +535,6 @@ namespace Keysharp.Internals.Input.Linux
 			var correlationId = NextCorrelationId();
 			SendFrame(MessageType.ClientHello, correlationId, payload);
 
-			// The hello may block on an interactive trust prompt; widen the receive
-			// timeout to cover the daemon's prompt window, then restore it.
 			Frame response;
 			var previousReceiveTimeout = socket.ReceiveTimeout;
 
@@ -635,9 +551,6 @@ namespace Keysharp.Internals.Input.Linux
 					socket.ReceiveTimeout = previousReceiveTimeout;
 			}
 
-			if (response.Type != MessageType.ClientHello || response.CorrelationId != correlationId)
-				throw new InvalidDataException($"Unexpected hello response type={response.Type} correlation={response.CorrelationId}.");
-
 			if (response.Payload.Length != 8)
 				throw new InvalidDataException($"Unexpected hello response size {response.Payload.Length}.");
 
@@ -647,6 +560,33 @@ namespace Keysharp.Internals.Input.Linux
 		}
 
 		private ulong NextCorrelationId() => nextCorrelationId++;
+
+		private StatusPayload SendStatusRequest(MessageType type)
+			=> SendStatusRequest(type, type, ReadOnlySpan<byte>.Empty);
+
+		private StatusPayload SendStatusRequest(MessageType type, ReadOnlySpan<byte> payload)
+			=> SendStatusRequest(type, type, payload);
+
+		private StatusPayload SendStatusRequest(
+			MessageType requestType,
+			MessageType responseType,
+			ReadOnlySpan<byte> payload,
+			ulong? correlationId = null)
+		{
+			var id = correlationId ?? NextCorrelationId();
+			SendFrame(requestType, id, payload);
+			return EnsureStatus(ReadResponseFrame(responseType, id), responseType, id);
+		}
+
+		private Frame SendRequest(MessageType requestType, MessageType responseType)
+			=> SendRequest(requestType, responseType, ReadOnlySpan<byte>.Empty);
+
+		private Frame SendRequest(MessageType requestType, MessageType responseType, ReadOnlySpan<byte> payload)
+		{
+			var correlationId = NextCorrelationId();
+			SendFrame(requestType, correlationId, payload);
+			return ReadResponseFrame(responseType, correlationId);
+		}
 
 		private void SendFrame(MessageType type, ulong correlationId, ReadOnlySpan<byte> payload)
 		{
@@ -670,14 +610,7 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		/// <summary>
-		/// Installs a liveness probe consulted before each periodic lease
-		/// heartbeat. While it returns false the heartbeat is skipped, so a wedged
-		/// hook reader stops renewing the daemon's grab lease and the dead-man's-
-		/// switch can release the grabbed devices. Pass null to renew
-		/// unconditionally (the default; used by BlockInput, which has no reader
-		/// thread). Safe to call before or after the lease has started.
-		/// </summary>
+		/// <summary>Installs a probe controlling whether periodic grab-lease heartbeats renew.</summary>
 		internal void SetLeaseLivenessProbe(Func<bool> probe) => leaseLivenessProbe = probe;
 
 		private void EnsureLeaseHeartbeat()
@@ -690,20 +623,12 @@ namespace Keysharp.Internals.Input.Linux
 				{
 					try
 					{
-						// The grab lease is a dead-man's-switch: only renew it while
-						// the owner is demonstrably alive. Hook connections install a
-						// liveness probe (SetLeaseLivenessProbe); if the reader wedges
-						// the probe returns false and we stop renewing so the daemon's
-						// lease can expire and release the grabbed devices. With no
-						// probe set (e.g. BlockInput, which has no reader) renewal is
-						// unconditional.
 						var probe = leaseLivenessProbe;
 
 						if (probe != null && !probe())
 							return;
 
-						// Correlation zero is a protocol 0.2 one-way lease renewal,
-						// so it cannot interfere with the hook reader's receive stream.
+						// Correlation zero is a one-way lease renewal.
 						SendFrame(MessageType.Heartbeat, 0, ReadOnlySpan<byte>.Empty);
 					}
 					catch
@@ -749,19 +674,11 @@ namespace Keysharp.Internals.Input.Linux
 
 			while (offset < buffer.Length)
 			{
-				// Wait for readability with Poll rather than a blocking Receive: Poll
-				// reports a timeout as a bool, so an idle hook connection no longer
-				// raises (and logs) a first-chance SocketException every interval.
-				// Poll returns true when bytes are available OR the peer has closed —
-				// in the latter case Receive returns 0 and we surface EndOfStream below.
 				if (!socket.Poll(ReceiveTimeoutMicroseconds(), SelectMode.SelectRead))
 				{
-					// Nothing readable within the timeout window.
 					if (idleRetry && offset == 0)
-						continue; // Idle hook connection waiting for the next event.
+						continue;
 
-					// Mid-frame, or a request channel: a stall here is a real timeout
-					// that callers recover from by dropping the connection.
 					throw new SocketException((int)SocketError.TimedOut);
 				}
 
@@ -774,9 +691,6 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		// Poll() wants microseconds; mirror the socket's configured receive timeout
-		// (ExchangeHello widens it to cover the prompt window). A non-positive timeout
-		// means "block indefinitely", which Poll expresses as a negative argument.
 		private int ReceiveTimeoutMicroseconds()
 		{
 			var timeoutMs = socket.ReceiveTimeout;

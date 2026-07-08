@@ -1535,7 +1535,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				keybdLayoutThread = WindowQuery.GetFocusedCtrlThread(ref tempzero, 0);
 			}
 
-			targetKeybdLayout = Platform.Keyboard.GetKeyboardLayout(keybdLayoutThread); // If keybd_layout_thread==0, this will get our thread's own layout, which seems like the best/safest default.
+			targetKeybdLayout = Platform.Keys.GetKeyboardLayout(keybdLayoutThread); // If keybd_layout_thread==0, this will get our thread's own layout, which seems like the best/safest default.
 			targetLayoutHasAltGr = LayoutHasAltGr(targetKeybdLayout);  // Note that WM_INPUTLANGCHANGEREQUEST is not monitored by MsgSleep for the purpose of caching our thread's keyboard layout.  This is because it would be unreliable if another msg pump such as MsgBox is running.  Plus it hardly helps perf. at all, and hurts maintainability.
 			// Below is now called with "true" so that the hook's modifier state will be corrected (if necessary)
 			// prior to every send.

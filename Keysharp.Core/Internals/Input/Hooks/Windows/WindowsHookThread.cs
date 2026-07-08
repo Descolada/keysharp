@@ -573,7 +573,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			// See Get_active_window_keybd_layout macro definition for related comments.
 			var activeWindow = WindowQuery.GetForegroundWindowHandle(); // Set default in case there's no focused control.
 			nint tempzero = 0;
-			var activeWindowKeybdLayout = Platform.Keyboard.GetKeyboardLayout(WindowQuery.GetFocusedCtrlThread(ref tempzero, activeWindow));
+			var activeWindowKeybdLayout = Platform.Keys.GetKeyboardLayout(WindowQuery.GetFocusedCtrlThread(ref tempzero, activeWindow));
 			state.activeWindow = activeWindow;
 			state.keyboardLayout = activeWindowKeybdLayout;
 
@@ -930,8 +930,6 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			return HookAction.Continue;
 		}
 
-		protected override void WarpCursor(int x, int y) => SetCursorPos(x, y);
-
 		protected override bool CanClipCursor(out string reason)
 		{
 			var active = HasMouseHook();
@@ -973,7 +971,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 
 					if (ClampToCursorClip(ref x, ref y))
 					{
-						WarpCursor(x, y);
+						_ = Platform.Mouse.TryMoveAbsolute(x, y);
 						return new nint(1);
 					}
 				}

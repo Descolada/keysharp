@@ -1452,8 +1452,8 @@ namespace Keysharp.Internals.Input.Keyboard
 			// background task is abandoned. We deliberately do NOT cache the active-window result: a
 			// stale answer could fire the wrong context hotkey. Off the hook thread (script/UI threads)
 			// the full A_HotIfTimeout still applies.
-#if !WINDOWS
-			if (Keysharp.Internals.Input.Hooks.Unix.UnixHookThread.IsHookReaderThread
+#if LINUX
+			if (Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsHookReaderThread
 					&& hotIfTimeoutMs > HookThreadHotCriterionTimeoutMs)
 				hotIfTimeoutMs = HookThreadHotCriterionTimeoutMs;
 #endif

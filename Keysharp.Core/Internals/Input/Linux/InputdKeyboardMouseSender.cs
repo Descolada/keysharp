@@ -4,6 +4,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Text;
+using Keysharp.Internals.Input.Hooks.Linux;
 using Keysharp.Internals.Input.Keyboard;
 using Keysharp.Internals.Input.Mouse;
 using Keysharp.Internals.Input.Unix;
@@ -26,6 +27,15 @@ namespace Keysharp.Internals.Input.Linux
 		private const int MaxMouseMoveChunk = 1000;
 
 		private readonly List<InputdQueuedEvent> eventQueue = new(MaxInitialEventsSI);
+		private static readonly (uint Flag, uint Button, bool Down)[] GnomeButtonRoutes =
+		[
+			((uint)MOUSEEVENTF.LEFTDOWN, 1u, true),
+			((uint)MOUSEEVENTF.LEFTUP, 1u, false),
+			((uint)MOUSEEVENTF.RIGHTDOWN, 3u, true),
+			((uint)MOUSEEVENTF.RIGHTUP, 3u, false),
+			((uint)MOUSEEVENTF.MIDDLEDOWN, 2u, true),
+			((uint)MOUSEEVENTF.MIDDLEUP, 2u, false),
+		];
 
 		private readonly struct InputdQueuedEvent
 		{
@@ -117,15 +127,7 @@ namespace Keysharp.Internals.Input.Linux
 				eventModifiersLR |= keyAsModifiersLR;
 
 			if (!isUnicode)
-			{
-				if ((sc & 0x100) != 0)
-					flags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_EXTENDEDKEY;
-
-				if (vk == 0 && (sc & 0xFF) != 0)
-					flags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_SCANCODE;
-
-				sc &= 0xFF;
-			}
+				flags = NormalizeKeyFlags(vk, ref sc, flags);
 
 			QueueInput(KeysharpInputdClient.Input.Key(
 				vk: (ushort)vk,
@@ -136,12 +138,7 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal override void PutMouseEventIntoArray(uint eventFlags, uint data, int x, int y)
 		{
-			QueueInput(KeysharpInputdClient.Input.MouseEvent(
-				dx: x == CoordUnspecified ? 0 : x,
-				dy: y == CoordUnspecified ? 0 : y,
-				mouseData: data,
-				flags: (KeysharpInputdClient.MouseEventFlags)eventFlags,
-				extraInfo: (ulong)KeyIgnoreLevel(ThreadAccessors.A_SendLevel)));
+			QueueInput(CreateMouseInput(eventFlags, data, x, y, (ulong)KeyIgnoreLevel(ThreadAccessors.A_SendLevel)));
 		}
 
 		internal override void SendEventArray(ref long finalKeyDelay, uint modsDuringSend)
@@ -149,13 +146,7 @@ namespace Keysharp.Internals.Input.Linux
 			if (eventQueue.Count == 0)
 				return;
 
-			// AHK's SendInput removes the keyboard hook for the duration so the
-			// LL hook never sees the synth events; AHK then reconciles
-			// g_modifiersLR_logical from the OS state afterward (see
-			// keyboard_mouse.cpp:2755-2776). Mirror that here: ask the daemon
-			// to bypass the hook lane for these events (so they reach uinput
-			// but no client hook callback fires), then reconcile state once
-			// the batch is fully flushed.
+			// SendInput bypasses hooks, then reconciles logical modifier state.
 			try
 			{
 				var batch = new List<KeysharpInputdClient.Input>(Math.Min(eventQueue.Count, MaxInputdBatchSize));
@@ -189,20 +180,7 @@ namespace Keysharp.Internals.Input.Linux
 			ReconcileLogicalModifiersFromOs();
 		}
 
-		/// <summary>
-		/// Mirrors AHK's post-SendInput state reconciliation: after a bypass-hook
-		/// batch the daemon's hook lane did not echo the synth events back to us,
-		/// so modifiersLRLogical may be stale. Query inputd for the ground-truth
-		/// logical modifier state (which is X11-independent and always current),
-		/// update logical state to match, and also refresh the indicator snapshot.
-		///
-		/// The query is race-free even though the synthesis channel returns as soon as
-		/// the batch is ENQUEUED (not after it drains to uinput): inputd tracks its
-		/// logical key state at enqueue time, so it already reflects the state the batch
-		/// will leave in effect once the paced output flushes — the inputd analogue of
-		/// Windows' synchronous SendInput, where the OS modifier state is settled the
-		/// instant SendInput returns.
-		/// </summary>
+		/// <summary>Reconciles logical modifiers after bypass-hook SendInput.</summary>
 		private static void ReconcileLogicalModifiersFromOs()
 		{
 			var ht = Script.TheScript.HookThread;
@@ -211,42 +189,23 @@ namespace Keysharp.Internals.Input.Linux
 			if (sender == null)
 				return;
 
-			if (KeysharpInputdManager.TryGetKeyState(out var logicalMods, out var capsOn, out var numOn, out var scrollOn))
+			if (KeysharpInputdManager.TryGetKeyState(out var logicalMods, out _, out _, out _))
 			{
 				sender.modifiersLRLogical = logicalMods;
 				sender.modifiersLRLogicalNonIgnored = logicalMods;
-
-				// Refresh the indicator snapshot while we have fresh data.
-				if (ht is Keysharp.Internals.Input.Hooks.Unix.UnixHookThread uht)
-					uht.SetIndicatorSnapshot(capsOn, numOn, scrollOn);
 			}
 			else
 			{
-				// inputd unavailable: fall back to OS-level query (X11 or physical snapshot).
 				var modsCurrent = sender.GetModifierLRState(true);
 				sender.modifiersLRLogical = sender.modifiersLRLogicalNonIgnored = modsCurrent;
 			}
 		}
 
-		/// <summary>
-		/// Overrides the base toggle-key logic to use a live inputd hardware query
-		/// for the post-toggle check instead of the snapshot + Thread.Sleep(1).
-		///
-		/// The base class sends a CapsLock/NumLock/ScrollLock keypress and then
-		/// waits 1 ms before re-checking IsKeyToggledOn to confirm the toggle.
-		/// On the inputd path that 1 ms is far too short: the synthetic event must
-		/// travel Keysharp→inputd→uinput→compositor→EV_LED→inputd before the
-		/// cached indicator state updates. Reading the hardware LED directly via
-		/// GET_KEY_STATE (which calls EVIOCGLED) gives the correct answer
-		/// immediately because the kernel updates the LED synchronously when it
-		/// processes the uinput event.
-		/// </summary>
+		/// <summary>Uses the inputd-backed live toggle state after sending a lock key.</summary>
 		internal override ToggleValueType ToggleKeyState(uint vk, ToggleValueType toggleValue)
 		{
 			var script = Script.TheScript;
 
-			// Outside the hook reader, IsKeyToggledOn queries the resolved Platform.Keyboard
-			// service first (X11 or inputd), with the hook snapshot only as a fallback.
 			var startingState = script.HookThread.IsKeyToggledOn(vk) ? ToggleValueType.On : ToggleValueType.Off;
 
 			if (toggleValue != ToggleValueType.On && toggleValue != ToggleValueType.Off)
@@ -261,8 +220,6 @@ namespace Keysharp.Internals.Input.Linux
 
 			SendKeyEvent(KeyEventTypes.KeyDownAndUp, vk);
 
-			// Give the compositor a moment to update its XKB state, then verify.
-			// XkbGetState returns the post-toggle state within a few ms.
 			System.Threading.Thread.Sleep(5);
 
 			if (vk == VK_CAPITAL && toggleValue == ToggleValueType.Off && script.HookThread.IsKeyToggledOn(vk))
@@ -274,26 +231,10 @@ namespace Keysharp.Internals.Input.Linux
 			return startingState;
 		}
 
-		/// <summary>
-		/// Immediate single-event send, equivalent to keybd_event() on Windows.
-		/// The event always round-trips through the daemon's hook lane so
-		/// AllowIt's UpdateKeybdState updates modifiersLRLogical — matching
-		/// AHK's keybd_event semantics, where the LL hook still sees the
-		/// injected event (and routes it through AllowIt because of the
-		/// ignore marker) rather than skipping it. The bypass-hook flag is
-		/// reserved for the SendInput-mode batch path.
-		/// </summary>
+		/// <summary>Immediate single-event send, equivalent to keybd_event() on Windows.</summary>
 		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint flags, long extraInfo)
 		{
-			var keyFlags = (KeysharpInputdClient.KeyEventFlags)flags;
-
-			if ((sc & 0x100) != 0)
-				keyFlags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_EXTENDEDKEY;
-
-			if (vk == 0 && (sc & 0xFF) != 0)
-				keyFlags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_SCANCODE;
-
-			sc &= 0xFF;
+			var keyFlags = NormalizeKeyFlags(vk, ref sc, (KeysharpInputdClient.KeyEventFlags)flags);
 
 			if (eventType == KeyEventTypes.KeyDownAndUp)
 			{
@@ -474,11 +415,7 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal override void MouseEvent(uint eventFlags, uint data, int x = CoordUnspecified, int y = CoordUnspecified)
 		{
-			// Route button and scroll events through the compositor backend when available,
-			// regardless of sendMode. MOVE events are handled in MouseMove below.
-			// This must run before the sendMode check so that Input-mode batches don't
-			// bypass the compositor path and end up using inputd's uinput absolute
-			// coordinates, which do not map correctly on Wayland compositors.
+			// Prefer compositor injection for button/scroll events when available.
 			if ((eventFlags & (uint)MOUSEEVENTF.MOVE) == 0)
 			{
 				var gnomeMouse = WaylandMouseInjection.Backend();
@@ -495,12 +432,7 @@ namespace Keysharp.Internals.Input.Linux
 
 			SendInputBatches(
 			[
-				KeysharpInputdClient.Input.MouseEvent(
-					dx: x == CoordUnspecified ? 0 : x,
-					dy: y == CoordUnspecified ? 0 : y,
-					mouseData: data,
-					flags: (KeysharpInputdClient.MouseEventFlags)eventFlags,
-					extraInfo: (ulong)KeyIgnoreLevel(ThreadAccessors.A_SendLevel)),
+				CreateMouseInput(eventFlags, data, x, y, (ulong)KeyIgnoreLevel(ThreadAccessors.A_SendLevel)),
 			]);
 		}
 
@@ -509,7 +441,6 @@ namespace Keysharp.Internals.Input.Linux
 			if (x == CoordUnspecified || y == CoordUnspecified)
 				return;
 
-			// Relative moves: keep using inputd (uinput relative events work fine on Wayland).
 			if (moveOffset)
 			{
 				if (sendMode == SendModes.Event)
@@ -528,12 +459,7 @@ namespace Keysharp.Internals.Input.Linux
 			var targetY = y;
 			CoordToScreen(ref targetX, ref targetY, CoordMode.Mouse);
 
-			// Absolute moves: prefer the compositor backend for all send modes so the
-			// cursor lands at the exact screen-pixel position. inputd's uinput path
-			// normalises coordinates to 0-65535 and the round-trip back to screen
-			// pixels is unreliable on Wayland compositors. This must be checked before
-			// the sendMode branch so that Input-mode MouseMove calls use the compositor
-			// path rather than queuing a normalised event for inputd.
+			// Prefer compositor injection for absolute moves; uinput absolute mapping is fallback.
 			{
 				var gnomeMouse = WaylandMouseInjection.Backend();
 
@@ -576,12 +502,7 @@ namespace Keysharp.Internals.Input.Linux
 				}
 			}
 
-			// inputd / uinput fallback: normalise to the 0-65535 absolute range. The daemon's uinput
-			// absolute pointer maps [0,65535] across the WHOLE virtual desktop (the union of all
-			// monitors), so normalise against the virtual bounds and offset by its (possibly negative)
-			// origin rather than the primary screen size -- otherwise the cursor lands at the wrong
-			// place on a multi-monitor setup. For a single monitor at the origin this is identical
-			// to the previous A_ScreenWidth/Height behaviour.
+			// uinput fallback maps [0,65535] across the whole virtual desktop.
 			var vb = Keysharp.Builtins.Monitor.GetVirtualScreenBounds();
 			var absTargetX = MouseCoordToAbs(targetX - (int)vb.Left, (int)vb.Width);
 			var absTargetY = MouseCoordToAbs(targetY - (int)vb.Top, (int)vb.Height);
@@ -650,23 +571,18 @@ namespace Keysharp.Internals.Input.Linux
 		}
 
 
-		// Maps MOUSEEVENTF button/scroll flags to GNOME D-Bus calls.
-		// Returns false if the flag is not handled here (e.g. MOVE-only events).
 		private static bool TryRouteToGnome(
 			Keysharp.Internals.Window.Linux.Wayland.IWaylandBackend gnomeMouse,
 			uint flags, uint data)
 		{
-			if ((flags & (uint)MOUSEEVENTF.LEFTDOWN) != 0)   return gnomeMouse.TrySendMouseButton(1, true);
-			if ((flags & (uint)MOUSEEVENTF.LEFTUP) != 0)     return gnomeMouse.TrySendMouseButton(1, false);
-			if ((flags & (uint)MOUSEEVENTF.RIGHTDOWN) != 0)  return gnomeMouse.TrySendMouseButton(3, true);
-			if ((flags & (uint)MOUSEEVENTF.RIGHTUP) != 0)    return gnomeMouse.TrySendMouseButton(3, false);
-			if ((flags & (uint)MOUSEEVENTF.MIDDLEDOWN) != 0) return gnomeMouse.TrySendMouseButton(2, true);
-			if ((flags & (uint)MOUSEEVENTF.MIDDLEUP) != 0)   return gnomeMouse.TrySendMouseButton(2, false);
+			foreach (var (flag, button, down) in GnomeButtonRoutes)
+				if ((flags & flag) != 0)
+					return gnomeMouse.TrySendMouseButton(button, down);
+
 			if ((flags & (uint)MOUSEEVENTF.XDOWN) != 0)
 				return gnomeMouse.TrySendMouseButton((data & 0x0001u) != 0 ? 8u : 9u, true);
 			if ((flags & (uint)MOUSEEVENTF.XUP) != 0)
 				return gnomeMouse.TrySendMouseButton((data & 0x0001u) != 0 ? 8u : 9u, false);
-			// Wheel delta is a signed 16-bit value packed into the low word of data.
 			if ((flags & (uint)MOUSEEVENTF.WHEEL) != 0)
 				return gnomeMouse.TrySendMouseScroll(unchecked((short)(ushort)(data & 0xFFFF)), true);
 			if ((flags & (uint)MOUSEEVENTF.HWHEEL) != 0)
@@ -757,6 +673,34 @@ namespace Keysharp.Internals.Input.Linux
 
 		protected override void RegisterHook() { }
 
+		private static KeysharpInputdClient.KeyEventFlags NormalizeKeyFlags(
+			uint vk,
+			ref uint sc,
+			KeysharpInputdClient.KeyEventFlags flags)
+		{
+			if ((sc & 0x100) != 0)
+				flags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_EXTENDEDKEY;
+
+			if (vk == 0 && (sc & 0xFF) != 0)
+				flags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_SCANCODE;
+
+			sc &= 0xFF;
+			return flags;
+		}
+
+		private static KeysharpInputdClient.Input CreateMouseInput(
+			uint eventFlags,
+			uint data,
+			int x,
+			int y,
+			ulong extraInfo)
+			=> KeysharpInputdClient.Input.MouseEvent(
+				x == CoordUnspecified ? 0 : x,
+				y == CoordUnspecified ? 0 : y,
+				data,
+				(KeysharpInputdClient.MouseEventFlags)eventFlags,
+				extraInfo: extraInfo);
+
 		private void QueueInput(KeysharpInputdClient.Input input)
 			=> eventQueue.Add(InputdQueuedEvent.FromInput(input));
 
@@ -771,6 +715,9 @@ namespace Keysharp.Internals.Input.Linux
 		private static void SendInputBatches(IReadOnlyList<KeysharpInputdClient.Input> inputs, KeysharpInputdClient.SynthFlags flags = KeysharpInputdClient.SynthFlags.None)
 		{
 			if (inputs.Count == 0)
+				return;
+
+			if (LinuxHookThread.TryProcessReentrantHookInputs(inputs, flags))
 				return;
 
 			if (inputs.Count <= MaxInputdBatchSize)

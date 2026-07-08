@@ -38,6 +38,7 @@ namespace Keysharp.Internals
 		internal static ISession Session => Instance.Session;
 		internal static IHotkeys Hotkeys => Instance.Hotkeys;
 		internal static IInput Input => Instance.Input;
+		internal static IKeyboard Keyboard => Instance.Keyboard;
 		internal static IPermissionManager Permissions => Instance.Permissions;
 		internal static ControlManagerBase Control => Instance.Control;
 	}

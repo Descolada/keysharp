@@ -512,7 +512,7 @@ static void clear_hook_state(ksi_daemon_state *state)
         return;
     }
 
-    lane_flush_passthrough(&state->kbd_lane);
+    lane_flush_passthrough(&state->keyboard_lane);
     lane_flush_passthrough(&state->mouse_lane);
 
     for (nfds_t i = 0; i < state->client_count; i++) {
@@ -562,7 +562,7 @@ static void expire_client_leases(ksi_daemon_state *state)
             client->fd);
 
         if ((expired_subscriptions & KSI_CAP_HOOK_KEYBOARD) != 0u) {
-            lane_flush_passthrough(&state->kbd_lane);
+            lane_flush_passthrough(&state->keyboard_lane);
         }
 
         if ((expired_subscriptions & KSI_CAP_HOOK_MOUSE) != 0u) {
@@ -684,7 +684,7 @@ static void record_client_hook_failure(
      * wait on the dying client; then remove_client closes the fd and releases
      * grabs (update_grab_state). Do not touch client/index after this. */
     if ((failed_subscriptions & KSI_CAP_HOOK_KEYBOARD) != 0) {
-        lane_flush_passthrough(&state->kbd_lane);
+        lane_flush_passthrough(&state->keyboard_lane);
     }
 
     if ((failed_subscriptions & KSI_CAP_HOOK_MOUSE) != 0) {

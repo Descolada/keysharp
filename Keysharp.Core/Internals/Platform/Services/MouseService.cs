@@ -26,7 +26,7 @@ namespace Keysharp.Internals
 		public void SetCursorShape(string ahkName) => SetCursor(ahkName);
 
 		public abstract bool TryGetCursorPos(out int x, out int y);
-		public abstract bool SupportsCursorClip { get; }
+		public abstract bool SupportsCursorQueryAndMove { get; }
 		public abstract bool TryMoveAbsolute(int x, int y);
 
 		// Default: unknown. X11 answers via XQueryPointer, Wayland via the inputd daemon.
@@ -65,7 +65,7 @@ namespace Keysharp.Internals
 		public override bool TryGetCursorPos(out int x, out int y) => TryGetX11CursorPos(out x, out y);
 
 		// We can both read (XQueryPointer) and move (XWarpPointer) the cursor whenever an X display is reachable.
-		public override bool SupportsCursorClip => TryGetX11CursorPos(out _, out _);
+		public override bool SupportsCursorQueryAndMove => TryGetX11CursorPos(out _, out _);
 
 		// XWarpPointer is pixel-accurate, unlike inputd's normalised uinput abs path.
 		public override bool TryMoveAbsolute(int x, int y) => TryX11Warp(x, y);
@@ -202,7 +202,7 @@ namespace Keysharp.Internals
 			return false;
 		}
 
-		public override bool SupportsCursorClip => backend?.SupportsMouse == true && backend.TryGetCursorPos(out _, out _);
+		public override bool SupportsCursorQueryAndMove => backend?.SupportsMouse == true && backend.TryGetCursorPos(out _, out _);
 
 		public override bool TryMoveAbsolute(int x, int y) => backend?.TrySendMouseMoveAbsolute(x, y) == true;
 
@@ -229,10 +229,9 @@ namespace Keysharp.Internals
 
 		public void SetCursorShape(string ahkName) => SetCursor(ahkName);
 
-		// Cursor clipping uses the native Win32 ClipCursor API, and mouse injection goes through the Windows
-		// sender — neither is routed through this service, so the clip-warp capability is simply unavailable here.
-		public bool SupportsCursorClip => false;
-		public bool TryMoveAbsolute(int x, int y) => false;
+		public bool SupportsCursorQueryAndMove => true;
+		public bool TryMoveAbsolute(int x, int y)
+			=> Keysharp.Internals.Os.Windows.WindowsAPI.SetCursorPos(x, y);
 
 		public bool TryQueryButtonStateLogical(uint vk, out bool down)
 			=> TryQueryWin32ButtonState(vk, out down);
@@ -261,8 +260,19 @@ namespace Keysharp.Internals
 
 		public void SetCursorShape(string ahkName) => SetCursor(ahkName);
 
-		public bool SupportsCursorClip => false;
-		public bool TryMoveAbsolute(int x, int y) => false;
+		public bool SupportsCursorQueryAndMove => true;
+		public bool TryMoveAbsolute(int x, int y)
+		{
+			var warpResult = CGWarpMouseCursorPosition(new Keysharp.Internals.Input.MacOS.MacNativeInput.CGPoint(x, y));
+			var associateResult = CGAssociateMouseAndMouseCursorPosition(1);
+			return warpResult == 0 && associateResult == 0;
+		}
+
+		[System.Runtime.InteropServices.DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+		private static extern int CGWarpMouseCursorPosition(Keysharp.Internals.Input.MacOS.MacNativeInput.CGPoint newCursorPosition);
+
+		[System.Runtime.InteropServices.DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+		private static extern int CGAssociateMouseAndMouseCursorPosition(int connected);
 
 		[System.Runtime.InteropServices.DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I1)]

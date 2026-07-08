@@ -13,6 +13,8 @@ an internal ABI.
   failure accounting.
 - `hook_dispatch.inc`: physical event snapshotting, emergency replay, and
   backend hook callback dispatch.
+- `hook_ingress.inc`: physical/synthetic hook ingress fairness and Send input
+  conversion into hook events.
 - `protocol_server.inc`: protocol handlers, frame parsing, accept, and command
   result processing.
 

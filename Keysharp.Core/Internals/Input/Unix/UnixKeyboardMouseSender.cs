@@ -524,7 +524,7 @@ namespace Keysharp.Internals.Input.Unix
 				switch (ev.Type)
 				{
 					case ArrayEventType.KeyDown:
-						// only matters if we will press it down; KeyUp-only doesnâ€™t need a pre-release.
+						// only matters if we will press it down; KeyUp-only doesn't need a pre-release.
 						if (!KeyboardUtils.IsModifierVk(ev.Vk) && !MouseUtils.IsMouseVK(ev.Vk) && !MouseUtils.IsWheelVK(ev.Vk))
 							set.Add(ev.Vk);
 						break;

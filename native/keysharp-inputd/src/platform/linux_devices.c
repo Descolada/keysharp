@@ -18,13 +18,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <time.h>
 #include <unistd.h>
 
 #define KSI_INPUT_DIR "/dev/input"
 #define KSI_EVENT_PREFIX "event"
 #define KSI_DEVICE_NAME_LENGTH 256
 #define KSI_MAX_TRACKED_DEVICES 128
-#define KSI_MAX_SUPPRESSED_REPLAY_EVENTS 8192
 #define KSI_MAX_DEVICE_EVENTS_PER_PASS 256
 #define KSI_MAX_UDEV_EVENTS_PER_PASS 64
 
@@ -49,20 +49,6 @@ typedef struct ksi_linux_device_info {
     bool is_synth_device;
 } ksi_linux_device_info;
 
-typedef struct ksi_suppressed_replay_event {
-    uint16_t type;
-    uint16_t code;
-    int32_t value;
-    uint64_t extra_info;
-    bool suppress;
-} ksi_suppressed_replay_event;
-
-typedef struct ksi_synthetic_event_metadata {
-    uint64_t extra_info;
-    bool suppress;
-    bool found;
-} ksi_synthetic_event_metadata;
-
 typedef struct ksi_linux_tracked_device {
     char path[PATH_MAX];
     char name[KSI_DEVICE_NAME_LENGTH];
@@ -74,6 +60,8 @@ typedef struct ksi_linux_tracked_device {
     bool mouse_candidate;
     bool injected_source;
     bool grab_deferred;
+    bool has_buffered_event;
+    struct input_event buffered_event;
     unsigned long physical_down_keys[KSI_BIT_ARRAY_LENGTH(KEY_MAX)];
     unsigned long deferred_down_keys[KSI_BIT_ARRAY_LENGTH(KEY_MAX)];
     bool has_pending_rel;
@@ -81,6 +69,7 @@ typedef struct ksi_linux_tracked_device {
     int32_t pending_rel_y;
     uint64_t pending_rel_time_ms;
     uint64_t pending_rel_extra_info;
+    bool pending_rel_injected;
     bool has_pending_abs;
     int32_t pending_abs_x;
     int32_t pending_abs_y;
@@ -94,21 +83,11 @@ typedef struct ksi_linux_tracked_device {
     int32_t abs_y_max;
     uint64_t pending_abs_time_ms;
     uint64_t pending_abs_extra_info;
+    bool pending_abs_injected;
 } ksi_linux_tracked_device;
 
 static ksi_linux_tracked_device tracked_devices[KSI_MAX_TRACKED_DEVICES];
-static ksi_suppressed_replay_event suppressed_replay_events[KSI_MAX_SUPPRESSED_REPLAY_EVENTS];
 static size_t tracked_device_count;
-static size_t suppressed_replay_head;   /* index of oldest entry */
-static size_t suppressed_replay_count;  /* number of valid entries */
-/* The suppressed-replay ring is the only piece of backend state that is
- * legitimately shared between threads: the sequencer thread writes entries
- * via ksi_linux_devices_record_synthetic_event when emitting to uinput, and
- * the main thread reads / compacts them in process_fd when synthesized events
- * loop back through evdev so it can tag them as INJECTED.  Concurrent access
- * here was producing the wrong INJECTED flag for some loopback events, which
- * surfaced as "stuck" keys and remap output appearing as raw input. */
-static pthread_mutex_t suppressed_replay_mutex = PTHREAD_MUTEX_INITIALIZER;
 static struct udev *udev_context;
 static struct udev_monitor *udev_monitor;
 static uint32_t next_device_id = 1;
@@ -223,18 +202,15 @@ static bool is_keysharp_synth_device_identity(
     uint16_t vendor,
     uint16_t product)
 {
-    if (name != NULL
+    bool name_matches = name != NULL
         && (strcmp(name, KSI_SYNTH_DEVICE_NAME) == 0
-            || strcmp(name, KSI_SYNTH_ABS_DEVICE_NAME) == 0)) {
-        return true;
-    }
+            || strcmp(name, KSI_SYNTH_ABS_DEVICE_NAME) == 0);
+    bool id_matches = bustype == KSI_SYNTH_DEVICE_BUSTYPE
+        && vendor == KSI_SYNTH_DEVICE_VENDOR
+        && (product == KSI_SYNTH_DEVICE_PRODUCT
+            || product == KSI_SYNTH_ABS_DEVICE_PRODUCT);
 
-    if (bustype != KSI_SYNTH_DEVICE_BUSTYPE || vendor != KSI_SYNTH_DEVICE_VENDOR) {
-        return false;
-    }
-
-    return product == KSI_SYNTH_DEVICE_PRODUCT
-        || product == KSI_SYNTH_ABS_DEVICE_PRODUCT;
+    return name_matches && id_matches;
 }
 
 static void set_cloexec(int fd)
@@ -422,6 +398,8 @@ static void close_tracked_device(ksi_linux_tracked_device *device)
     }
 
     device->grab_deferred = false;
+    device->has_buffered_event = false;
+    memset(&device->buffered_event, 0, sizeof(device->buffered_event));
     memset(device->physical_down_keys, 0, sizeof(device->physical_down_keys));
     memset(device->deferred_down_keys, 0, sizeof(device->deferred_down_keys));
 }
@@ -430,6 +408,7 @@ static int open_tracked_device(ksi_linux_tracked_device *device)
 {
     int fd;
     int result;
+    int clock_id = CLOCK_MONOTONIC;
 
     close_tracked_device(device);
 
@@ -438,6 +417,11 @@ static int open_tracked_device(ksi_linux_tracked_device *device)
     if (fd < 0) {
         return -1;
     }
+
+    /* Make evdev input_event timestamps comparable with daemon monotonic time.
+     * Older kernels may reject this; in that case event ordering still works
+     * best-effort with the device's default clock. */
+    (void)ioctl(fd, EVIOCSCLOCKID, &clock_id);
 
     result = libevdev_new_from_fd(fd, &device->evdev);
 
@@ -842,8 +826,6 @@ static void handle_device_add_or_change(const char *path, const char *action)
 int ksi_linux_devices_start(void)
 {
     tracked_device_count = 0;
-    suppressed_replay_head = 0;
-    suppressed_replay_count = 0;
     grab_hook_mask = 0;
     block_input_mask = 0;
     grab_state_incomplete = false;
@@ -868,15 +850,14 @@ void ksi_linux_devices_stop(void)
     stop_udev_monitor();
 
     tracked_device_count = 0;
-    suppressed_replay_head = 0;
-    suppressed_replay_count = 0;
     memset(&current_pointer_position, 0, sizeof(current_pointer_position));
 }
 
 bool ksi_linux_devices_has_candidates(void)
 {
     for (size_t i = 0; i < tracked_device_count; i++) {
-        if (tracked_devices[i].keyboard_candidate || tracked_devices[i].mouse_candidate) {
+        if (!tracked_devices[i].injected_source
+            && (tracked_devices[i].keyboard_candidate || tracked_devices[i].mouse_candidate)) {
             return true;
         }
     }
@@ -933,97 +914,6 @@ int ksi_linux_devices_set_grab_hook_mask(uint32_t hook_mask)
 int ksi_linux_devices_set_block_input_mask(uint32_t block_mask)
 {
     return set_grab_masks(grab_hook_mask, block_mask);
-}
-
-void ksi_linux_devices_record_synthetic_event(uint16_t type, uint16_t code, int32_t value, uint64_t extra_info, bool suppress)
-{
-    size_t tail;
-    ksi_suppressed_replay_event *entry;
-
-    if (type == EV_SYN) {
-        return;
-    }
-
-    pthread_mutex_lock(&suppressed_replay_mutex);
-
-    if (suppressed_replay_count >= KSI_MAX_SUPPRESSED_REPLAY_EVENTS) {
-        /* Buffer full: overwrite the oldest entry by advancing head. */
-        suppressed_replay_head = (suppressed_replay_head + 1) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
-        suppressed_replay_count--;
-    }
-
-    tail = (suppressed_replay_head + suppressed_replay_count) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
-    entry = &suppressed_replay_events[tail];
-    suppressed_replay_count++;
-
-    entry->type = type;
-    entry->code = code;
-    entry->value = value;
-    entry->extra_info = extra_info;
-    entry->suppress = suppress;
-
-    pthread_mutex_unlock(&suppressed_replay_mutex);
-}
-
-/* Rolls back the most recent record if it still matches {type, code, value}.
- * Used by the synth path when the uinput write fails after recording so the
- * ring does not retain a phantom entry that could falsely match a later real
- * event with the same identifier. */
-void ksi_linux_devices_unrecord_last_synthetic_event(uint16_t type, uint16_t code, int32_t value)
-{
-    if (type == EV_SYN) {
-        return;
-    }
-
-    pthread_mutex_lock(&suppressed_replay_mutex);
-
-    if (suppressed_replay_count > 0) {
-        size_t tail = (suppressed_replay_head + suppressed_replay_count - 1)
-                      % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
-        const ksi_suppressed_replay_event *entry = &suppressed_replay_events[tail];
-
-        if (entry->type == type && entry->code == code && entry->value == value) {
-            suppressed_replay_count--;
-        }
-    }
-
-    pthread_mutex_unlock(&suppressed_replay_mutex);
-}
-
-static ksi_synthetic_event_metadata consume_synthetic_event_metadata(const struct input_event *event)
-{
-    ksi_synthetic_event_metadata metadata = {
-        .extra_info = 0,
-        .suppress = false,
-        .found = false,
-    };
-
-    pthread_mutex_lock(&suppressed_replay_mutex);
-
-    for (size_t i = 0; i < suppressed_replay_count; i++) {
-        size_t idx = (suppressed_replay_head + i) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
-
-        if (suppressed_replay_events[idx].type == event->type
-            && suppressed_replay_events[idx].code == event->code
-            && suppressed_replay_events[idx].value == event->value) {
-            metadata.extra_info = suppressed_replay_events[idx].extra_info;
-            metadata.suppress = suppressed_replay_events[idx].suppress;
-            metadata.found = true;
-
-            /* Compact: shift remaining entries one slot toward head. */
-            for (size_t j = i; j + 1 < suppressed_replay_count; j++) {
-                size_t dst = (suppressed_replay_head + j) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
-                size_t src = (suppressed_replay_head + j + 1) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
-                suppressed_replay_events[dst] = suppressed_replay_events[src];
-            }
-
-            suppressed_replay_count--;
-            break;
-        }
-    }
-
-    pthread_mutex_unlock(&suppressed_replay_mutex);
-    return metadata;
 }
 
 static nfds_t add_poll_fd(struct pollfd *fds, nfds_t max_fds, nfds_t count, int fd)
@@ -1105,9 +995,9 @@ static uint32_t evdev_key_to_flags(const struct input_event *event)
     return flags;
 }
 
-static uint32_t keyboard_injected_flags(const ksi_linux_tracked_device *device)
+static uint32_t keyboard_injected_flags(bool is_injected)
 {
-    return device->injected_source ? KSI_LLKHF_INJECTED : 0u;
+    return is_injected ? KSI_LLKHF_INJECTED : 0u;
 }
 
 static uint32_t keyboard_indicator_flags(void)
@@ -1119,14 +1009,14 @@ static uint32_t keyboard_indicator_flags(void)
     return flags;
 }
 
-static uint32_t mouse_injected_flags(const ksi_linux_tracked_device *device)
+static uint32_t mouse_injected_flags(bool is_injected)
 {
-    return device->injected_source ? KSI_LLMHF_INJECTED : 0u;
+    return is_injected ? KSI_LLMHF_INJECTED : 0u;
 }
 
 static bool should_dispatch_hook_input(const ksi_linux_tracked_device *device)
 {
-    return device != NULL && (device->grabbed || device->injected_source);
+    return device != NULL && device->grabbed && !device->injected_source;
 }
 
 static bool evdev_button_to_mouse_message(unsigned int code, int value, uint32_t *message)
@@ -1167,7 +1057,11 @@ static uint32_t evdev_button_mouse_data(unsigned int code)
     return 0u;
 }
 
-static void dispatch_keyboard_event(const ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
+static void dispatch_keyboard_event(
+    const ksi_linux_tracked_device *device,
+    const struct input_event *event,
+    uint64_t extra_info,
+    bool is_injected)
 {
     if (!should_dispatch_hook_input(device)) {
         return;
@@ -1177,7 +1071,7 @@ static void dispatch_keyboard_event(const ksi_linux_tracked_device *device, cons
         .message = evdev_key_to_message(event),
         .vk_code = evdev_key_to_vk((unsigned int)event->code),
         .scan_code = (uint32_t)event->code,
-        .flags = evdev_key_to_flags(event) | keyboard_injected_flags(device) | keyboard_indicator_flags(),
+        .flags = evdev_key_to_flags(event) | keyboard_injected_flags(is_injected) | keyboard_indicator_flags(),
         .time_ms = event_time_ms(event),
         .extra_info = extra_info,
         .device_id = device->device_id,
@@ -1203,7 +1097,11 @@ static void dispatch_keyboard_event(const ksi_linux_tracked_device *device, cons
     }
 }
 
-static void dispatch_mouse_button_event(const ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
+static void dispatch_mouse_button_event(
+    const ksi_linux_tracked_device *device,
+    const struct input_event *event,
+    uint64_t extra_info,
+    bool is_injected)
 {
     uint32_t message;
 
@@ -1220,7 +1118,7 @@ static void dispatch_mouse_button_event(const ksi_linux_tracked_device *device, 
         .x = 0,
         .y = 0,
         .mouse_data = evdev_button_mouse_data((unsigned int)event->code),
-        .flags = mouse_injected_flags(device),
+        .flags = mouse_injected_flags(is_injected),
         .time_ms = event_time_ms(event),
         .extra_info = extra_info,
         .device_id = device->device_id,
@@ -1252,7 +1150,7 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         hook_event.message = KSI_WM_MOUSEMOVE;
         hook_event.x = device->pending_rel_x;
         hook_event.y = device->pending_rel_y;
-        hook_event.flags = mouse_injected_flags(device);
+        hook_event.flags = mouse_injected_flags(device->pending_rel_injected);
         hook_event.time_ms = device->pending_rel_time_ms;
         hook_event.extra_info = device->pending_rel_extra_info;
         hook_event.device_id = device->device_id;
@@ -1270,6 +1168,7 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         device->pending_rel_y = 0;
         device->pending_rel_time_ms = 0;
         device->pending_rel_extra_info = 0;
+        device->pending_rel_injected = false;
 
         if (should_dispatch_hook_input(device) && hook_event_callback != NULL) {
             hook_event_callback(
@@ -1286,7 +1185,7 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         hook_event.x = device->pending_abs_x;
         hook_event.y = device->pending_abs_y;
         hook_event.mouse_data = KSI_MOUSEEVENTF_ABSOLUTE;
-        hook_event.flags = mouse_injected_flags(device);
+        hook_event.flags = mouse_injected_flags(device->pending_abs_injected);
         hook_event.time_ms = device->pending_abs_time_ms;
         hook_event.extra_info = device->pending_abs_extra_info;
         hook_event.device_id = device->device_id;
@@ -1302,6 +1201,7 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         device->has_pending_abs = false;
         device->pending_abs_time_ms = 0;
         device->pending_abs_extra_info = 0;
+        device->pending_abs_injected = false;
 
         if (should_dispatch_hook_input(device) && hook_event_callback != NULL) {
             hook_event_callback(
@@ -1313,8 +1213,16 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
     }
 }
 
-static void queue_relative_motion(ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
+static void queue_relative_motion(
+    ksi_linux_tracked_device *device,
+    const struct input_event *event,
+    uint64_t extra_info,
+    bool is_injected)
 {
+    if (device->has_pending_rel && device->pending_rel_injected != is_injected) {
+        dispatch_pending_mouse_move(device);
+    }
+
     if (event->code == REL_X) {
         device->pending_rel_x += event->value;
     } else {
@@ -1323,6 +1231,7 @@ static void queue_relative_motion(ksi_linux_tracked_device *device, const struct
 
     device->pending_rel_time_ms = event_time_ms(event);
     device->pending_rel_extra_info = extra_info;
+    device->pending_rel_injected = is_injected;
     device->has_pending_rel = true;
 
     /* A relative movement makes any cached absolute position stale: the cursor has moved but we
@@ -1332,10 +1241,14 @@ static void queue_relative_motion(ksi_linux_tracked_device *device, const struct
     current_pointer_position.valid = 0u;
 }
 
-static void dispatch_relative_event(ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
+static void dispatch_relative_event(
+    ksi_linux_tracked_device *device,
+    const struct input_event *event,
+    uint64_t extra_info,
+    bool is_injected)
 {
     if (event->code == REL_X || event->code == REL_Y) {
-        queue_relative_motion(device, event, extra_info);
+        queue_relative_motion(device, event, extra_info, is_injected);
         return;
     }
 
@@ -1345,7 +1258,7 @@ static void dispatch_relative_event(ksi_linux_tracked_device *device, const stru
             .x = 0,
             .y = 0,
             .mouse_data = (uint32_t)((int32_t)event->value * 120) << 16,
-            .flags = mouse_injected_flags(device),
+            .flags = mouse_injected_flags(is_injected),
             .time_ms = event_time_ms(event),
             .extra_info = extra_info,
             .device_id = device->device_id,
@@ -1371,10 +1284,18 @@ static void dispatch_relative_event(ksi_linux_tracked_device *device, const stru
     }
 }
 
-static void queue_absolute_motion(ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
+static void queue_absolute_motion(
+    ksi_linux_tracked_device *device,
+    const struct input_event *event,
+    uint64_t extra_info,
+    bool is_injected)
 {
     int32_t previous_abs_x = device->current_abs_x;
     int32_t previous_abs_y = device->current_abs_y;
+
+    if (device->has_pending_abs && device->pending_abs_injected != is_injected) {
+        dispatch_pending_mouse_move(device);
+    }
 
     if (event->code == ABS_X) {
         device->current_abs_x_raw = event->value;
@@ -1396,6 +1317,7 @@ static void queue_absolute_motion(ksi_linux_tracked_device *device, const struct
     device->pending_abs_y = device->current_abs_y;
     device->pending_abs_time_ms = event_time_ms(event);
     device->pending_abs_extra_info = extra_info;
+    device->pending_abs_injected = is_injected;
     device->has_pending_abs = true;
 
     current_pointer_position.valid = 1u;
@@ -1407,27 +1329,24 @@ static void queue_absolute_motion(ksi_linux_tracked_device *device, const struct
     current_pointer_position.y_max = device->abs_y_max;
 }
 
-static void dispatch_absolute_event(ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
+static void dispatch_absolute_event(
+    ksi_linux_tracked_device *device,
+    const struct input_event *event,
+    uint64_t extra_info,
+    bool is_injected)
 {
     if (event->code == ABS_X || event->code == ABS_Y) {
-        queue_absolute_motion(device, event, extra_info);
+        queue_absolute_motion(device, event, extra_info, is_injected);
     }
 }
 
 static void handle_input_event(ksi_linux_tracked_device *device, const struct input_event *event)
 {
     uint64_t extra_info = 0;
+    bool is_injected = false;
 
-    if (device->injected_source) {
-        ksi_synthetic_event_metadata metadata = consume_synthetic_event_metadata(event);
-
-        if (metadata.suppress) {
-            return;
-        }
-
-        if (metadata.found) {
-            extra_info = metadata.extra_info;
-        }
+    if (device == NULL || device->injected_source) {
+        return;
     }
 
     if (event->type == EV_SYN) {
@@ -1443,14 +1362,14 @@ static void handle_input_event(ksi_linux_tracked_device *device, const struct in
         }
 
         if (event->code >= BTN_MOUSE) {
-            dispatch_mouse_button_event(device, event, extra_info);
+            dispatch_mouse_button_event(device, event, extra_info, is_injected);
         } else {
-            dispatch_keyboard_event(device, event, extra_info);
+            dispatch_keyboard_event(device, event, extra_info, is_injected);
         }
     } else if (event->type == EV_REL) {
-        dispatch_relative_event(device, event, extra_info);
+        dispatch_relative_event(device, event, extra_info, is_injected);
     } else if (event->type == EV_ABS) {
-        dispatch_absolute_event(device, event, extra_info);
+        dispatch_absolute_event(device, event, extra_info, is_injected);
     } else if (event->type == EV_LED && !device->injected_source) {
         /* Track indicator LED state so we can include it in keyboard hook events. */
         if (event->code == LED_CAPSL)
@@ -1668,7 +1587,14 @@ static void process_device_events(ksi_linux_tracked_device *device)
             return;
         }
 
-        result = libevdev_next_event(device->evdev, LIBEVDEV_READ_FLAG_NORMAL, &event);
+        if (device->has_buffered_event) {
+            event = device->buffered_event;
+            device->has_buffered_event = false;
+            memset(&device->buffered_event, 0, sizeof(device->buffered_event));
+            result = 0;
+        } else {
+            result = libevdev_next_event(device->evdev, LIBEVDEV_READ_FLAG_NORMAL, &event);
+        }
 
         if (result == 0) {
             handle_input_event(device, &event);
@@ -1694,6 +1620,84 @@ static void process_device_events(ksi_linux_tracked_device *device)
     /* Leave remaining events readable for another poll iteration. This keeps a
      * continuously busy device from starving other devices and cleanup work. */
     dispatch_pending_mouse_move(device);
+}
+
+static bool buffer_next_device_event(ksi_linux_tracked_device *device)
+{
+    if (device == NULL || device->evdev == NULL) {
+        return false;
+    }
+
+    if (device->has_buffered_event) {
+        return true;
+    }
+
+    for (;;) {
+        struct input_event event;
+        int result = libevdev_next_event(device->evdev, LIBEVDEV_READ_FLAG_NORMAL, &event);
+
+        if (result == 0) {
+            device->buffered_event = event;
+            device->has_buffered_event = true;
+            return true;
+        }
+
+        if (result == -EAGAIN) {
+            return false;
+        }
+
+        if (result == LIBEVDEV_READ_STATUS_SYNC) {
+            continue;
+        }
+
+        fprintf(stderr, "inputd: failed peeking %s: %s\n",
+            device->path,
+            strerror(-result));
+        close_tracked_device(device);
+        return false;
+    }
+}
+
+bool ksi_linux_devices_peek_oldest_pending_event(int *out_fd, uint64_t *out_time_ms)
+{
+    bool found = false;
+    uint64_t oldest_time = 0;
+    int oldest_fd = -1;
+
+    for (size_t i = 0; i < tracked_device_count; i++) {
+        ksi_linux_tracked_device *device = &tracked_devices[i];
+        uint64_t time_ms;
+
+        if (!device->grabbed || device->injected_source || device->fd < 0) {
+            continue;
+        }
+
+        if (!buffer_next_device_event(device)) {
+            continue;
+        }
+
+        time_ms = event_time_ms(&device->buffered_event);
+
+        if (!found || time_ms < oldest_time) {
+            found = true;
+            oldest_time = time_ms;
+            oldest_fd = device->fd;
+        }
+    }
+
+    if (!found) {
+        return false;
+    }
+
+    if (out_fd != NULL) {
+        *out_fd = oldest_fd;
+    }
+
+    if (out_time_ms != NULL) {
+        *out_time_ms = oldest_time;
+    }
+
+    return true;
 }
 
 static void process_udev_events(void)

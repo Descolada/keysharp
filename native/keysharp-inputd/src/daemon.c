@@ -38,41 +38,27 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
 
 #define KSI_MAX_CLIENTS 64
 #define KSI_MAX_BACKEND_FDS 160
-#define KSI_MAX_POLL_FDS (2 + KSI_MAX_BACKEND_FDS + KSI_MAX_CLIENTS)
+#define KSI_MAX_POLL_FDS (3 + KSI_MAX_BACKEND_FDS + KSI_MAX_CLIENTS)
 #define KSI_MAX_PENDING_COMMANDS 256
-#define KSI_MAX_MODIFY_INPUTS 32
 #define KSI_MAX_SYNTH_INPUTS 1024
+#define KSI_MAX_MODIFY_INPUTS KSI_MAX_SYNTH_INPUTS
 #define KSI_HOOK_DECISION_TIMEOUT_MS 1000u
-/* The client is disconnected only after this many *consecutive* decision
- * timeouts/failures on one lane (the per-lane counter resets on any in-time
- * decision via record_client_hook_success). 1 was too aggressive: a single
- * transient stall — e.g. one debugger pause — would silently drop the hook. A
- * handful of consecutive failures means the client is genuinely hung, not just
- * blipping. On reaching the limit the daemon closes the connection so the
- * client's socket-close recovery re-establishes its hooks (Windows-style: the
- * OS silently unhooks a stalled low-level hook and the app re-hooks). */
+/* Per-lane consecutive hook failures before the client is disconnected. */
 #define KSI_MAX_CONSECUTIVE_HOOK_FAILURES 5u
 #define KSI_MAX_LANE_ACTIONS 512u
 #define KSI_MAX_OUTPUT_ACTIONS 4096u
-#define KSI_MAX_NONCRITICAL_OUTPUT_ACTIONS 4032u
-#define KSI_MAX_CLIENT_OUTPUT_ACTIONS 3840u
+#define KSI_MAX_SYNTH_HOOK_ACTIONS 4096u
 #define KSI_MAX_OUTPUT_SYNTH_BYTES (1024u * 1024u)
-#define KSI_MAX_CLIENT_OUTPUT_SYNTH_BYTES (960u * 1024u)
+#define KSI_MAX_SYNTH_HOOK_STEPS_PER_PASS 256u
+#define KSI_HOOK_SEND_ORDER_WAIT_MS 10
 #define KSI_SHUTDOWN_TIMEOUT_MS 5000u
 #define KSI_GRAB_LEASE_TIMEOUT_MS 15000u
 #define KSI_IDLE_EXIT_MS 30000u
-/* A connection must complete its CLIENT_HELLO handshake within this window or be
- * dropped, so a peer that connects and sends nothing cannot hold a client slot
- * indefinitely. The Keysharp client always sends its hello immediately on connect,
- * well inside this bound (which is generous enough to survive a slow scheduler). */
+/* CLIENT_HELLO deadline; peers that connect and send nothing cannot pin slots. */
 #define KSI_HANDSHAKE_TIMEOUT_MS 10000u
-/* Minimum spacing between honored client-forced permission prompts (FORCE_PROMPT).
- * Throttles a hostile loop that would otherwise spam dialogs / starve prompt
- * workers, while leaving a genuine, user-driven RequestCapabilities re-ask working. */
+/* Minimum spacing between honored client-forced permission prompts. */
 #define KSI_FORCED_PROMPT_COOLDOWN_MS 3000u
-/* Per-uid connection reserve: never let a single uid consume the last slots, so one
- * user cannot lock every other user (and root helpers) out of the broker. Only bites
- * on shared multi-user systems; a single-user desktop stays well under it. */
+/* Reserve a few client slots for other users/root helpers on shared systems. */
 #define KSI_MAX_CLIENTS_PER_UID (KSI_MAX_CLIENTS - 8u)
 #define KSI_VK_BACK 0x08u
 #define KSI_VK_LCONTROL 0xA2u
@@ -90,10 +76,7 @@ static volatile sig_atomic_t keep_running = 1;
  * Retaining a stale grab or BlockInput mask is worse than dropping hooks. */
 static atomic_int g_fail_open_requested = 0;
 
-/* Writes a single wake byte to a self-pipe/eventfd. The pipe's buffer is the
- * signal — readers drain it eagerly, so EAGAIN/EPIPE failures here are
- * harmless. The assignment is what actually consumes glibc's
- * warn_unused_result attribute (a bare (void) cast does not). */
+/* Self-pipe wake; EAGAIN/EPIPE are harmless because readers drain eagerly. */
 static inline void wake_pipe_write(int fd)
 {
     uint8_t byte = 1;
@@ -124,18 +107,13 @@ typedef struct ksi_client {
     bool identity_attempted;
     bool has_identity;
     bool authenticated;
-    /* Set on the first CLIENT_HELLO. A connection that never sends one is dropped
-     * after KSI_HANDSHAKE_TIMEOUT_MS so an unauthenticated peer that just holds the
-     * socket open cannot pin a client slot forever (slot-exhaustion DoS). */
+    /* Set by CLIENT_HELLO; missing handshakes are dropped after the deadline. */
     bool hello_seen;
     uint64_t connected_at_ms;
     uint32_t granted_capabilities;
     uint32_t hook_subscriptions;
     uint32_t block_input_mask;
-    /* Consecutive hook-callback failures, counted independently per lane
-     * (index 0 = keyboard, 1 = mouse) so that a client answering one lane
-     * cannot mask a persistently stalled other lane. A success on a lane
-     * resets only that lane's slot; see hook_type_to_lane_index. */
+    /* Consecutive hook failures per lane: index 0 keyboard, 1 mouse. */
     uint32_t consecutive_hook_failures[2];
     uint64_t lease_expires_ms;
     char exe_path[KSI_PERMISSION_MAX_PATH];
@@ -188,7 +166,7 @@ static void free_daemon_command(ksi_daemon_command *command);
 
 /* --- Typed queues built on ksi_pipe_ring --- */
 
-/* Forward command queue: IPC thread (and worker threads) → main thread. */
+/* Worker/lane threads -> main thread. */
 typedef struct ksi_daemon_command_queue { ksi_pipe_ring ring; } ksi_daemon_command_queue;
 
 static int command_queue_init(ksi_daemon_command_queue *q)
@@ -238,9 +216,7 @@ static void command_queue_drain_wake(const ksi_daemon_command_queue *q)
 typedef enum ksi_output_action_type {
     KSI_OUTPUT_ACTION_REPLAY = 0,
     KSI_OUTPUT_ACTION_SYNTH,
-    /* Release every key the backend has replayed/synthesized "down". Runs on the
-     * sequencer thread so it is serialized with REPLAY/SYNTH and never races them.
-     * Enqueued by update_grab_state when the keyboard grab is dropped. */
+    /* Release keys held by replay/synth, serialized with normal output. */
     KSI_OUTPUT_ACTION_RELEASE_ALL,
 } ksi_output_action_type;
 
@@ -254,39 +230,66 @@ typedef struct ksi_output_action {
     ksi_input *synth_inputs;
 } ksi_output_action;
 
-/* Output queue is an intrusive linked list with mutex + wake pipe. Admission
- * is bounded by action count and synthesis bytes; client batches are accepted
- * atomically or rejected, with capacity reserved for the emergency chord. */
-typedef struct ksi_output_node {
-    ksi_output_action action;
-    struct ksi_output_node *next;
-} ksi_output_node;
-
 typedef struct ksi_output_queue {
     pthread_mutex_t mutex;
     bool mutex_initialized;
-    ksi_output_node *head;
-    ksi_output_node *tail;
+    ksi_output_action actions[KSI_MAX_OUTPUT_ACTIONS];
+    size_t head;
     size_t count;
     size_t synth_bytes;
     int wake_read_fd;
     int wake_write_fd;
 } ksi_output_queue;
 
-/* Snapshot of one hook event handed off from the main thread to a lane thread.
- * The subscriber list is captured at enqueue time so the lane never needs to
- * touch state->clients[] while iterating. */
+typedef struct ksi_synth_completion {
+    ksi_hook_send_ref *send_ref;
+    uint32_t client_id;
+    uint64_t correlation_id;
+    uint32_t remaining;
+    bool result_sent;
+} ksi_synth_completion;
+
+typedef enum ksi_lane_egress_type {
+    KSI_LANE_EGRESS_NONE = 0,
+    KSI_LANE_EGRESS_REPLAY,
+    KSI_LANE_EGRESS_SYNTH,
+} ksi_lane_egress_type;
+
+typedef struct ksi_lane_egress {
+    ksi_lane_egress_type type;
+    uint32_t synth_flags;
+    uint32_t synth_count;
+    ksi_input synth_inputs[1];
+} ksi_lane_egress;
+
+typedef struct ksi_synthetic_hook_item {
+    ksi_input input;
+    uint64_t queued_at_ms;
+    ksi_synth_completion *completion;
+} ksi_synthetic_hook_item;
+
+typedef struct ksi_synthetic_hook_queue {
+    pthread_mutex_t mutex;
+    bool mutex_initialized;
+    ksi_synthetic_hook_item items[KSI_MAX_SYNTH_HOOK_ACTIONS];
+    size_t head;
+    size_t count;
+    int wake_read_fd;
+    int wake_write_fd;
+} ksi_synthetic_hook_queue;
+
+/* Hook event snapshot; lanes never touch state->clients[] while iterating. */
 typedef struct ksi_lane_event {
     uint64_t event_id;
     uint32_t hook_type;
     uint32_t generation;
-    bool is_injected;
+    ksi_synth_completion *synthetic_completion;
+    ksi_lane_egress egress;
     ksi_hook_event_payload payload;
     size_t payload_size;
     int subscriber_response_fds[KSI_MAX_CLIENTS];
     ksi_hook_send_ref *subscriber_send_refs[KSI_MAX_CLIENTS];
     uint64_t subscriber_connection_ids[KSI_MAX_CLIENTS];
-    uint32_t subscriber_granted_caps[KSI_MAX_CLIENTS];
     size_t subscriber_count;
 } ksi_lane_event;
 
@@ -302,22 +305,9 @@ typedef struct ksi_lane_decision {
     ksi_input inputs[KSI_MAX_MODIFY_INPUTS];
 } ksi_lane_decision;
 
-/* Lane action queues are capped linked lists.  If a stalled subscriber lets a
- * lane fall too far behind, new physical events bypass hook delivery and are
- * replayed so daemon memory/fd use remains bounded. */
-typedef struct ksi_lane_action_node {
-    ksi_lane_event *event;
-    struct ksi_lane_action_node *next;
-} ksi_lane_action_node;
-
+/* If a lane is full, new physical events bypass hooks and replay fail-open. */
 typedef struct ksi_lane_action_queue {
-    pthread_mutex_t mutex;
-    bool mutex_initialized;
-    ksi_lane_action_node *head;
-    ksi_lane_action_node *tail;
-    size_t count;
-    int wake_read_fd;
-    int wake_write_fd;
+    ksi_pipe_ring ring;
 } ksi_lane_action_queue;
 
 typedef struct ksi_lane_decision_queue {
@@ -336,9 +326,7 @@ typedef struct ksi_hook_lane {
     atomic_uint_least64_t current_event_id;  /* 0 = idle */
     atomic_int current_responder_fd;
     atomic_uint_least64_t current_responder_connection_id;
-    /* Set to 1 by lane_shutdown so the lane bails out of its decision wait
-     * loop and any remaining subscribers, instead of paying KSI_HOOK_DECISION_
-     * TIMEOUT_MS per subscriber per queued event during shutdown. */
+    /* Set by lane_shutdown to abort waits and drain promptly. */
     atomic_int shutting_down;
     /* Incremented by EmergencyPassthrough. Events captured under an older
      * generation skip subscriber callbacks and finalize immediately. */
@@ -357,29 +345,19 @@ typedef struct ksi_daemon_state {
     uint32_t available_capabilities;
     uint64_t next_connection_id;
     uint64_t next_event_id;
-    /* Output sequencer: thread + queue that funnels every uinput write (PASS
-     * replay, MODIFY synthesis, SYNTHESIZE_INPUT) onto a single dedicated
-     * thread.  See output_queue helpers above for ordering semantics. */
+    /* Single ordered uinput writer for replay, modify and SendInput output. */
     ksi_output_queue output_queue;
+    ksi_synthetic_hook_queue synthetic_hook_queue;
+    atomic_int synthetic_hook_inflight;
     pthread_t sequencer_thread;
     bool sequencer_thread_started;
     atomic_int sequencer_running;
-    /* Two independent hook lanes so a stalled keyboard hook callback can't
-     * back up mouse events (and vice versa).  Per-lane FIFO ordering, no
-     * cross-lane ordering. */
-    ksi_hook_lane kbd_lane;
+    /* Independent hook lanes; shared subscribers are serialized by hook_send_ref. */
+    ksi_hook_lane keyboard_lane;
     ksi_hook_lane mouse_lane;
-    /* Tracks whether the keyboard is currently grabbed (per the last applied grab
-     * masks) so update_grab_state can enqueue a KSI_OUTPUT_ACTION_RELEASE_ALL exactly
-     * when the keyboard grab transitions from held to released -- the point at which a
-     * key replayed "down" on the uinput device would otherwise be stranded. */
+    /* Used to enqueue RELEASE_ALL on keyboard grab held->released. */
     bool keyboard_grab_active;
-    /* Monotonic time of the last honored force-prompt hello. A client-controlled
-     * FORCE_PROMPT flag bypasses the persistent-deny suppression (that is its whole
-     * purpose: a script re-asking after a deny), so without a limit a hostile peer
-     * could loop it to spam permission dialogs and keep the prompt workers busy.
-     * Forced prompts are rate-limited to one per KSI_FORCED_PROMPT_COOLDOWN_MS; a
-     * legitimate RequestCapabilities re-ask is far rarer than that. */
+    /* Last accepted FORCE_PROMPT, for prompt-spam throttling. */
     uint64_t last_forced_prompt_ms;
 } ksi_daemon_state;
 
@@ -394,8 +372,7 @@ static void clear_hook_state(ksi_daemon_state *state);
 static void record_client_hook_failure(
     ksi_daemon_state *state, nfds_t index, uint32_t hook_type, const char *reason);
 
-/* Per-lane failure-counter slot for a low-level hook type.
- * 0 = keyboard lane, 1 = mouse lane. */
+/* Per-hook-type failure-counter slot: 0 keyboard, 1 mouse. */
 static size_t hook_type_to_lane_index(uint32_t hook_type)
 {
     return hook_type == KSI_HOOK_MOUSE_LL ? 1u : 0u;
@@ -477,6 +454,7 @@ static void free_daemon_command(ksi_daemon_command *command)
 #include "daemon/hook_lanes.inc"
 #include "daemon/grab_leases.inc"
 #include "daemon/hook_dispatch.inc"
+#include "daemon/hook_ingress.inc"
 #include "daemon/protocol_server.inc"
 
 static bool check_idle_exit(
@@ -581,6 +559,18 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         return 1;
     }
 
+    if (synthetic_hook_queue_init(&daemon_state->synthetic_hook_queue) != 0) {
+        output_queue_close(&daemon_state->output_queue);
+        command_queue_destroy(&command_queue);
+        free(daemon_state);
+        ksi_ipc_server_close(server);
+        ksi_permissions_destroy(permissions);
+        backend->stop();
+        return 1;
+    }
+
+    atomic_store(&daemon_state->synthetic_hook_inflight, 0);
+
     /* Sequencer thread must be running before the hook callback fires for the
      * first time so the queue always has a draining consumer. */
     atomic_store(&daemon_state->sequencer_running, 1);
@@ -588,6 +578,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
     if (pthread_create(&daemon_state->sequencer_thread, NULL,
             output_sequencer_thread_main, daemon_state) != 0) {
         atomic_store(&daemon_state->sequencer_running, 0);
+        synthetic_hook_queue_close(&daemon_state->synthetic_hook_queue);
         output_queue_close(&daemon_state->output_queue);
         command_queue_destroy(&command_queue);
         free(daemon_state);
@@ -601,17 +592,18 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
     /* Initialize and start both hook lanes before the backend can start
      * delivering events.  Errors here unwind the sequencer thread cleanly. */
-    if (lane_init(&daemon_state->kbd_lane, daemon_state, KSI_HOOK_KEYBOARD_LL) != 0
+    if (lane_init(&daemon_state->keyboard_lane, daemon_state, KSI_HOOK_KEYBOARD_LL) != 0
         || lane_init(&daemon_state->mouse_lane, daemon_state, KSI_HOOK_MOUSE_LL) != 0
-        || lane_start(&daemon_state->kbd_lane) != 0
+        || lane_start(&daemon_state->keyboard_lane) != 0
         || lane_start(&daemon_state->mouse_lane) != 0) {
         fprintf(stderr, "inputd: failed to start hook lanes\n");
-        (void)lane_shutdown(&daemon_state->kbd_lane, 0u);
+        (void)lane_shutdown(&daemon_state->keyboard_lane, 0u);
         (void)lane_shutdown(&daemon_state->mouse_lane, 0u);
         atomic_store(&daemon_state->sequencer_running, 0);
         output_queue_wake(&daemon_state->output_queue);
         pthread_join(daemon_state->sequencer_thread, NULL);
         daemon_state->sequencer_thread_started = false;
+        synthetic_hook_queue_close(&daemon_state->synthetic_hook_queue);
         output_queue_close(&daemon_state->output_queue);
         command_queue_destroy(&command_queue);
         free(daemon_state);
@@ -632,12 +624,13 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             backend->set_hook_event_callback(NULL, NULL);
         }
 
-        (void)lane_shutdown(&daemon_state->kbd_lane, 0u);
+        (void)lane_shutdown(&daemon_state->keyboard_lane, 0u);
         (void)lane_shutdown(&daemon_state->mouse_lane, 0u);
         atomic_store(&daemon_state->sequencer_running, 0);
         output_queue_wake(&daemon_state->output_queue);
         pthread_join(daemon_state->sequencer_thread, NULL);
         daemon_state->sequencer_thread_started = false;
+        synthetic_hook_queue_close(&daemon_state->synthetic_hook_queue);
         output_queue_close(&daemon_state->output_queue);
         command_queue_destroy(&command_queue);
         free(daemon_state);
@@ -647,13 +640,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         return 1;
     }
 
-    /* The main thread is the evdev reader: for grabbed devices, every physical
-     * event must travel main-thread -> lane -> sequencer -> uinput before it
-     * reaches the display server.  The lane and sequencer threads already run
-     * at SCHED_FIFO priority 1, so leaving this producing hop at SCHED_OTHER
-     * makes it the lowest-priority stage in the pipeline: under CPU load it can
-     * be starved while its real-time consumers sit idle, stalling grabbed input.
-     * Elevate it to the same priority so the whole replay path is real-time. */
+    /* Keep the grabbed-input producer at the same priority as lanes/sequencer. */
     set_realtime_priority("evdev reader");
 
     uint64_t idle_since_ms = 0u;
@@ -661,6 +648,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
     while (keep_running) {
         struct pollfd fds[KSI_MAX_POLL_FDS];
         nfds_t count = 0;
+        nfds_t synthetic_index;
         nfds_t server_index;
         nfds_t backend_start;
         nfds_t backend_count;
@@ -669,6 +657,11 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
         memset(fds, 0, sizeof(fds));
         fds[count].fd = ksi_pipe_ring_wake_fd(&command_queue.ring);
+        fds[count].events = POLLIN;
+        count++;
+
+        synthetic_index = count;
+        fds[count].fd = daemon_state->synthetic_hook_queue.wake_read_fd;
         fds[count].events = POLLIN;
         count++;
 
@@ -692,8 +685,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             count++;
         }
 
-        /* Lanes own their own decision-timeout deadlines now, so the main
-         * loop just blocks until evdev or the command queue has work. */
+        /* Lane threads own hook-decision deadlines. */
         int poll_result = poll(fds, count, 1000);
 
         if (poll_result < 0) {
@@ -706,6 +698,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         }
 
         if (poll_result == 0) {
+            (void)process_hook_ingress(daemon_state);
             apply_fail_open_if_requested(daemon_state);
             process_daemon_commands(daemon_state);
             expire_client_leases(daemon_state);
@@ -720,6 +713,10 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
         if ((fds[0].revents & POLLIN) != 0) {
             command_queue_drain_wake(&command_queue);
+        }
+
+        if ((fds[synthetic_index].revents & POLLIN) != 0) {
+            drain_wake_fd(daemon_state->synthetic_hook_queue.wake_read_fd);
         }
 
         if ((fds[server_index].revents & POLLIN) != 0) {
@@ -740,6 +737,8 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             }
         }
 
+        (void)process_hook_ingress(daemon_state);
+
         for (nfds_t i = backend_start; i < backend_start + backend_count; i++) {
             if ((fds[i].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) != 0
                 && backend->process_fd != NULL) {
@@ -747,12 +746,9 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             }
         }
 
-        /* Device hotplug (handled in process_fd via the udev monitor) can change
-         * which physical capabilities the backend can provide.  Refresh the
-         * snapshot so a keyboard/mouse that appears after startup — a Bluetooth
-         * device, or a device-enumeration race when the daemon was socket-
-         * activated early at login — enables hook/block-input capabilities
-         * without requiring a daemon restart. */
+        (void)process_hook_ingress(daemon_state);
+
+        /* Hotplug can change physical hook/block capabilities. */
         daemon_state->available_capabilities = daemon_available_capabilities(backend);
 
         apply_fail_open_if_requested(daemon_state);
@@ -780,8 +776,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         backend->set_hook_event_callback(NULL, NULL);
     }
 
-    /* Release all physical grabs before joining or waiting on any thread.
-     * Later shutdown work may block, but it must never keep user input held. */
+    /* Release grabs before any shutdown step that may block. */
     clear_hook_state(daemon_state);
 
     if (update_grab_state(daemon_state) != 0) {
@@ -790,19 +785,15 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
     uint64_t shutdown_deadline_ms = monotonic_ms() + KSI_SHUTDOWN_TIMEOUT_MS;
 
-    /* Shut down both hook lanes.  lane_shutdown sets a flag the lane threads
-     * observe to bail out of any pending decision wait, then pushes a NULL
-     * sentinel.  Anything still queued is finalized as PASS so physical events
-     * reach the sequencer for replay rather than being lost. */
-    if (!lane_shutdown(&daemon_state->kbd_lane, shutdown_deadline_ms)
+    /* Queued physical events finalize as PASS during lane shutdown. */
+    if (!lane_shutdown(&daemon_state->keyboard_lane, shutdown_deadline_ms)
         || !lane_shutdown(&daemon_state->mouse_lane, shutdown_deadline_ms)) {
         fprintf(stderr, "inputd: shutdown deadline exceeded waiting for hook lanes; terminating\n");
         fflush(NULL);
         _exit(EXIT_FAILURE);
     }
 
-    /* Signal any in-progress permission prompts to abort so their worker
-     * threads finish promptly rather than waiting up to 60 seconds. */
+    /* Abort in-progress prompts so worker threads exit promptly. */
     ksi_permissions_cancel();
     ksi_worker_pool_request_stop(&g_worker_pool);
 
@@ -821,9 +812,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         remove_client(daemon_state, daemon_state->client_count - 1u);
     }
 
-    /* Stop and drain the output sequencer.  The shutdown replay above queued
-     * the last batch of physical events through it, so we wait for the thread
-     * to drain them before tearing down the backend. */
+    /* Drain final replay/synth output before tearing down the backend. */
     if (daemon_state->sequencer_thread_started) {
         atomic_store(&daemon_state->sequencer_running, 0);
         output_queue_wake(&daemon_state->output_queue);
@@ -837,6 +826,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         daemon_state->sequencer_thread_started = false;
     }
 
+    synthetic_hook_queue_close(&daemon_state->synthetic_hook_queue);
     output_queue_close(&daemon_state->output_queue);
     command_queue_destroy(&command_queue);
     free(daemon_state);

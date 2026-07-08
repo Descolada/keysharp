@@ -84,6 +84,14 @@ namespace Keysharp.Internals
 
 	internal sealed class InputdKeyboard : IKeyboard
 	{
+		internal const uint LLKHF_CAPS_LOCK_ON = 0x04u;
+		internal const uint LLKHF_NUM_LOCK_ON = 0x08u;
+		internal const uint LLKHF_SCROLL_LOCK_ON = 0x40u;
+		private static volatile bool indicatorSnapshotValid;
+		private static bool indicatorSnapshotCaps;
+		private static bool indicatorSnapshotNum;
+		private static bool indicatorSnapshotScroll;
+
 		public bool TryQueryModifierLRState(out uint mods, byte[] keymapBuffer = null)
 			=> Keysharp.Internals.Input.Linux.KeysharpInputdManager.TryGetKeyState(out mods, out _, out _, out _);
 
@@ -136,7 +144,38 @@ namespace Keysharp.Internals
 		}
 
 		public bool TryGetIndicatorStates(out bool capsOn, out bool numOn, out bool scrollOn)
-			=> Keysharp.Internals.Input.Linux.KeysharpInputdManager.TryGetKeyState(out _, out capsOn, out numOn, out scrollOn);
+		{
+			if (Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsHookReaderThread && TryGetIndicatorSnapshot(out capsOn, out numOn, out scrollOn))
+				return true;
+
+			return Keysharp.Internals.Input.Linux.KeysharpInputdManager.TryGetKeyState(out _, out capsOn, out numOn, out scrollOn);
+		}
+
+		internal static bool HookFlagsNumLockOn(uint flags) => (flags & LLKHF_NUM_LOCK_ON) != 0;
+
+		internal static void UpdateIndicatorSnapshotFromHookFlags(uint flags)
+		{
+			indicatorSnapshotCaps = (flags & LLKHF_CAPS_LOCK_ON) != 0;
+			indicatorSnapshotNum = (flags & LLKHF_NUM_LOCK_ON) != 0;
+			indicatorSnapshotScroll = (flags & LLKHF_SCROLL_LOCK_ON) != 0;
+			indicatorSnapshotValid = true;
+		}
+
+		private static bool TryGetIndicatorSnapshot(out bool capsOn, out bool numOn, out bool scrollOn)
+		{
+			if (indicatorSnapshotValid)
+			{
+				capsOn = indicatorSnapshotCaps;
+				numOn = indicatorSnapshotNum;
+				scrollOn = indicatorSnapshotScroll;
+				return true;
+			}
+
+			capsOn = false;
+			numOn = false;
+			scrollOn = false;
+			return false;
+		}
 
 		private static bool TryGetEvdevBit(byte[] keys, uint evdev, out bool isDown)
 		{
@@ -304,6 +343,9 @@ namespace Keysharp.Internals
 		private const ulong AlternateKeyMask = 1UL << 19;
 		private const ulong CommandKeyMask = 1UL << 20;
 		private const ulong AlphaShiftKeyMask = 1UL << 16;
+		private static volatile bool indicatorSnapshotValid;
+		private static bool indicatorSnapshotNum;
+		private static bool indicatorSnapshotScroll;
 
 		public bool TryQueryModifierLRState(out uint mods, byte[] keymapBuffer = null)
 		{
@@ -335,6 +377,12 @@ namespace Keysharp.Internals
 			numOn = false;
 			scrollOn = false;
 
+			if (indicatorSnapshotValid)
+			{
+				numOn = indicatorSnapshotNum;
+				scrollOn = indicatorSnapshotScroll;
+			}
+
 			if (Keysharp.Internals.Input.MacOS.MacCapsLockState.TryGet(out capsOn))
 				return true;
 
@@ -346,6 +394,13 @@ namespace Keysharp.Internals
 
 			capsOn = false;
 			return false;
+		}
+
+		internal static void UpdateIndicatorSnapshotFromMask(Keysharp.Internals.Input.Hooks.EventMask mask)
+		{
+			indicatorSnapshotNum = (mask & Keysharp.Internals.Input.Hooks.EventMask.NumLock) != 0;
+			indicatorSnapshotScroll = (mask & Keysharp.Internals.Input.Hooks.EventMask.ScrollLock) != 0;
+			indicatorSnapshotValid = true;
 		}
 
 		private bool TryQueryMacKeyState(uint vk, uint sourceState, bool useIndicators, out bool isDown)

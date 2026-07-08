@@ -1,9 +1,37 @@
+static void complete_synthetic_dispatch_fallback(
+    ksi_daemon_state *state,
+    const ksi_lane_egress *egress,
+    ksi_synth_completion *completion)
+{
+    bool ok = true;
+
+    if (completion == NULL) {
+        return;
+    }
+
+    if (egress != NULL && egress->type == KSI_LANE_EGRESS_SYNTH) {
+        ok = output_queue_push_synth(&state->output_queue,
+            egress->synth_inputs,
+            egress->synth_count,
+            egress->synth_flags);
+    }
+
+    if (ok) {
+        synth_completion_complete(completion);
+    } else {
+        synth_completion_fail(completion, -1, 12u);
+    }
+
+    synthetic_hook_queue_complete_inflight(state);
+}
+
 static void dispatch_hook_event_to_lane(
     ksi_daemon_state *state,
     uint32_t hook_type,
     const void *event,
     size_t event_size,
-    bool is_injected)
+    const ksi_lane_egress *egress,
+    ksi_synth_completion *completion)
 {
     ksi_hook_lane *lane;
     ksi_lane_event *lane_event;
@@ -12,25 +40,33 @@ static void dispatch_hook_event_to_lane(
     lane = lane_for_hook_type(state, hook_type);
 
     if (lane == NULL || event_size > sizeof(lane_event->payload.event)) {
+        complete_synthetic_dispatch_fallback(state, egress, completion);
         return;
     }
 
     subscription_bit = hook_type_to_cap_bit(hook_type);
 
     if (subscription_bit == 0u) {
+        complete_synthetic_dispatch_fallback(state, egress, completion);
         return;
     }
 
     lane_event = calloc(1, sizeof(*lane_event));
 
     if (lane_event == NULL) {
+        complete_synthetic_dispatch_fallback(state, egress, completion);
         return;
     }
 
     lane_event->event_id = state->next_event_id++;
     lane_event->hook_type = hook_type;
     lane_event->generation = atomic_load(&lane->flush_generation);
-    lane_event->is_injected = is_injected;
+    lane_event->synthetic_completion = completion;
+
+    if (egress != NULL) {
+        lane_event->egress = *egress;
+    }
+
     lane_event->payload.event_id = lane_event->event_id;
     lane_event->payload.hook_type = hook_type;
     memcpy(&lane_event->payload.event, event, event_size);
@@ -53,17 +89,23 @@ static void dispatch_hook_event_to_lane(
             continue;
         }
 
+        if (!hook_send_ref_note_event(c->hook_send_ref, lane_event->event_id)) {
+            fprintf(stderr, "inputd: hook subscriber ordering queue full\n");
+            hook_send_ref_release(c->hook_send_ref);
+            continue;
+        }
+
         lane_event->subscriber_send_refs[lane_event->subscriber_count] = c->hook_send_ref;
         lane_event->subscriber_response_fds[lane_event->subscriber_count] = c->fd;
         lane_event->subscriber_connection_ids[lane_event->subscriber_count] = c->connection_id;
-        lane_event->subscriber_granted_caps[lane_event->subscriber_count] = c->granted_capabilities;
         lane_event->subscriber_count++;
     }
 
     if (!lane_action_queue_push(&lane->action_queue, lane_event)) {
-        if (!is_injected) {
-            if (!output_queue_push_replay(&state->output_queue,
-                    hook_type, &lane_event->payload, lane_event->payload_size)) {
+        bool egress_ok = lane_event_enqueue_egress(lane, lane_event);
+
+        if (!egress_ok) {
+            if (lane_event_egress_is_replay(lane_event)) {
                 atomic_store(&g_fail_open_requested, 1);
                 command_queue_wake(state->commands);
             }
@@ -72,6 +114,18 @@ static void dispatch_hook_event_to_lane(
         fprintf(stderr, "inputd: hook lane queue full; bypassed hook event %llu\n",
             (unsigned long long)lane_event->event_id);
         lane_event_release_send_refs(lane_event);
+
+        if (lane_event->synthetic_completion != NULL) {
+            if (egress_ok) {
+                synth_completion_complete(lane_event->synthetic_completion);
+            } else {
+                synth_completion_fail(lane_event->synthetic_completion, -1, 12u);
+            }
+
+            lane_event->synthetic_completion = NULL;
+            synthetic_hook_queue_complete_inflight(state);
+        }
+
         free(lane_event);
     }
 }
@@ -102,7 +156,7 @@ static void enqueue_emergency_passthrough_chord(ksi_daemon_state *state, uint32_
     inputs[5] = inputs[0];
     inputs[5].data.keyboard.flags = KSI_KEYEVENTF_KEYUP;
 
-    if (!output_queue_push_synth(&state->output_queue, inputs, 6u, KSI_SYNTH_FLAG_BYPASS_HOOK, true)) {
+    if (!output_queue_push_synth(&state->output_queue, inputs, 6u, KSI_SYNTH_FLAG_BYPASS_HOOK)) {
         fprintf(stderr, "inputd: failed to enqueue emergency passthrough chord\n");
     }
 }
@@ -129,9 +183,7 @@ static void daemon_handle_hook_event(
         ? ((((const ksi_keyboard_hook_event *)event)->flags & KSI_LLKHF_INJECTED) != 0)
         : ((((const ksi_mouse_hook_event *)event)->flags & KSI_LLMHF_INJECTED) != 0);
 
-    /* Out-of-band rescue path which does not depend on IPC or a responsive
-     * client. The device backend updates physical modifier state before this
-     * callback, so Ctrl and Alt are visible when Backspace is pressed. */
+    /* Out-of-band rescue path independent of IPC or responsive clients. */
     if (!is_injected && hook_type == KSI_HOOK_KEYBOARD_LL) {
         const ksi_keyboard_hook_event *keyboard = event;
         uint32_t modifiers = ksi_linux_devices_get_modifier_state();
@@ -148,8 +200,7 @@ static void daemon_handle_hook_event(
                 fprintf(stderr, "inputd: emergency passthrough failed to release grabs\n");
             }
 
-            /* BlockInput may have prevented the display server from seeing the
-             * preceding modifier downs, so emit the complete chord. */
+            /* BlockInput may have hidden prior modifier downs; emit the chord. */
             enqueue_emergency_passthrough_chord(state, modifiers);
             return;
         }
@@ -160,8 +211,7 @@ static void daemon_handle_hook_event(
     }
 
     if (!any_matching_hook_subscriptions(state, hook_type)) {
-        /* A mixed keyboard/mouse device can be grabbed for the other class of
-         * input. Replay nonblocked physical events that have no hook target. */
+        /* Mixed devices may be grabbed for the other input class. */
         if (!is_injected) {
             ksi_hook_event_payload payload;
             memset(&payload, 0, sizeof(payload));
@@ -179,6 +229,11 @@ static void daemon_handle_hook_event(
         return;
     }
 
-    dispatch_hook_event_to_lane(state, hook_type, event, event_size, is_injected);
-}
+    {
+        ksi_lane_egress egress;
 
+        memset(&egress, 0, sizeof(egress));
+        egress.type = is_injected ? KSI_LANE_EGRESS_NONE : KSI_LANE_EGRESS_REPLAY;
+        dispatch_hook_event_to_lane(state, hook_type, event, event_size, &egress, NULL);
+    }
+}

@@ -134,6 +134,28 @@ maybe_run pkill -x '[Kk]eyview' || true
 if [[ "${ROOT_INSTALL}" == "true" ]]; then
   maybe_run systemctl disable --now keysharp-inputd.socket || true
   maybe_run systemctl stop keysharp-inputd.service || true
+
+  # Remove the uaccess udev rule that grants the desktop user (via systemd-logind
+  # uaccess) read access to the virtual input device the daemon creates. Prefer the
+  # daemon's own removal path so it stays the single source of truth (and reloads
+  # udev); otherwise delete the rule file and reload udev directly. Do this while
+  # the binary still exists — the APP_DIR_TARGET removal below deletes it.
+  removed_udev_rule=false
+  if [[ -x "${APP_DIR_TARGET}/keysharp-inputd" ]]; then
+    "${APP_DIR_TARGET}/keysharp-inputd" --remove-input-access || true
+  else
+    rm -f /etc/udev/rules.d/70-keysharp-inputd-uaccess.rules
+    removed_udev_rule=true
+  fi
+  # Legacy rule from installs predating the uaccess switch (harmless if absent).
+  if [[ -e /etc/udev/rules.d/99-keysharp-inputd.rules ]]; then
+    rm -f /etc/udev/rules.d/99-keysharp-inputd.rules
+    removed_udev_rule=true
+  fi
+  if [[ "${removed_udev_rule}" == "true" ]]; then
+    maybe_run udevadm control --reload-rules || true
+  fi
+
   rm -f "${SYSTEMD_DIR}/keysharp-inputd.service" "${SYSTEMD_DIR}/keysharp-inputd.socket"
   maybe_run systemctl daemon-reload || true
 fi

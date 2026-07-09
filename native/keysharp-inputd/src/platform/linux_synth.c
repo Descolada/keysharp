@@ -37,9 +37,35 @@
  *
  * Smaller, more frequent pauses tolerate delayed consumer scheduling better
  * while preserving the same nominal throughput. Short sends never reach the
- * threshold and pay nothing, so the common case runs at full speed. */
+ * threshold and pay nothing, so the common case runs at full speed.
+ *
+ * The counter is SHARED across every output path that runs on the sequencer
+ * thread -- bulk client synthesis AND single-event passthrough replay -- and
+ * PERSISTS across back-to-back emits rather than resetting per batch. This is
+ * what lets replay be paced: a passthrough replay is one event per call, so a
+ * per-batch reset would keep it forever below the threshold, but a *sustained*
+ * burst (mouse REL motion floods, key autorepeat, several grabbed devices
+ * interleaving) is a stream of such calls arriving back-to-back on the one
+ * sequencer thread and can overflow the consumer ring exactly like a long Send.
+ * By carrying the counter across calls, that stream accumulates and paces the
+ * same way synthesis does.
+ *
+ * Isolated input must stay free (no per-keystroke latency), so the counter is
+ * reset whenever the gap since the previous emit exceeds KSI_SYNTH_PACE_IDLE_
+ * RESET_NS: an idle gap that long means the consumer has had ample time to
+ * drain, so nothing we sent is still in flight and the next event starts a
+ * fresh chunk. A single passed keystroke (or one every few hundred ms) therefore
+ * never accumulates toward the threshold and never sleeps, while a genuine
+ * sub-millisecond flood does. The gap-based reset also spaces successive client
+ * Sends: two Sends separated by human-scale time each start fresh, exactly as
+ * the old per-batch reset did. */
 #define KSI_SYNTH_PACE_EVENTS 16
 #define KSI_SYNTH_PACE_SLEEP_NS (350L * 1000L) /* 0.35 ms */
+/* Idle gap after which the consumer is assumed fully drained (nothing of ours
+ * in flight) and the pacing counter is reset. Comfortably above the pace sleep
+ * (0.35 ms) so a paced burst is never mistaken for idle, comfortably below any
+ * human-perceptible key/mouse cadence so isolated input always resets. */
+#define KSI_SYNTH_PACE_IDLE_RESET_NS (8L * 1000L * 1000L) /* 8 ms */
 #define KSI_VK_PACKET 0xE7u
 
 /* Relative mouse: keyboard keys + BTN_* + REL_X/Y/WHEEL. */
@@ -76,10 +102,17 @@ static pthread_mutex_t enqueued_synth_keys_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int resolve_synth_key_code(const ksi_keybdinput *input, int *out_value);
 static uint16_t mouse_data_to_xbutton(uint32_t mouse_data);
 static uint16_t pending_high_surrogate;
-/* Pacing state, used only while a bulk client synthesis batch is being written
- * (see pacing note). Replays/passthrough are single events and never paced. */
+/* Pacing state (see pacing note). synth_pacing_active gates the actual sleep and
+ * is held while ANY output that funnels through ksi_linux_synth_send_input is
+ * being written -- that is both bulk client synthesis and single-event
+ * passthrough replay, since replay_*_hook_event route through send_input too.
+ * synth_pace_events is the shared, persistent chunk counter; last_emit_ns is the
+ * monotonic timestamp of the previous emit, used to reset the counter after an
+ * idle gap. All three are touched only on the sequencer thread (see note above),
+ * so no lock is needed. */
 static bool synth_pacing_active;
 static unsigned synth_pace_events; /* events emitted since the last yield */
+static uint64_t last_emit_ns;      /* monotonic time of the previous emit, for idle reset */
 
 static void pace_synthetic_output(void)
 {
@@ -105,6 +138,20 @@ static uint64_t monotonic_ms(void)
     }
 
     return ((uint64_t)time_value.tv_sec * 1000u) + ((uint64_t)time_value.tv_nsec / 1000000u);
+}
+
+/* Monotonic nanoseconds, for the sub-millisecond idle-gap check in the pacer.
+ * Returns 0 on failure, which the caller treats as "no measurable gap" (it never
+ * triggers an idle reset), so a clock hiccup fails safe toward more pacing. */
+static uint64_t monotonic_ns(void)
+{
+    struct timespec time_value;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &time_value) != 0) {
+        return 0;
+    }
+
+    return ((uint64_t)time_value.tv_sec * 1000000000ull) + (uint64_t)time_value.tv_nsec;
 }
 
 static uint64_t synth_hook_time_ms(uint32_t input_time)
@@ -152,7 +199,15 @@ static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
 
     /* Retry on EINTR: a signal delivered during the write syscall returns -1
      * with errno=EINTR.  Without the retry the rest of a synthesis batch is
-     * silently dropped, which manifests as only a few characters being typed. */
+     * silently dropped, which manifests as only a few characters being typed.
+     *
+     * We do NOT retry EAGAIN even though the fd is O_NONBLOCK: a write() to
+     * /dev/uinput never blocks and never returns EAGAIN. uinput's write handler
+     * copies the events into the kernel input core and returns immediately -- it
+     * has no bounded producer-side buffer to fill (the ring that CAN overflow is
+     * the *consumer's* evdev fd, which write() here cannot see, hence the pacing
+     * below). O_NONBLOCK is set only so the open()/setup path can't stall. A
+     * poll-retry would therefore never fire and is not warranted. */
     do {
         nwritten = write(fd, &event, sizeof(event));
     } while (nwritten < 0 && errno == EINTR);
@@ -161,13 +216,32 @@ static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
         return -1;
     }
 
-    /* Pace bulk synthesis against the consumer's finite evdev ring. Checked
-     * after every emitted event so the chunk size is the exact per-cycle
-     * footprint. Yielding mid-report (between a key and its SYN) is harmless:
-     * the consumer applies nothing until the SYN, and we drop nothing. */
-    if (synth_pacing_active && ++synth_pace_events >= KSI_SYNTH_PACE_EVENTS) {
-        pace_synthetic_output();
-        synth_pace_events = 0;
+    /* Pace synthesis AND passthrough replay against the consumer's finite evdev
+     * ring. The counter is shared and persists across calls (see pacing note),
+     * so a sustained back-to-back burst -- whether one long Send or a flood of
+     * single-event replays -- is throttled the same way. Checked after every
+     * emitted event so the chunk size is the exact per-cycle footprint. Yielding
+     * mid-report (between a key and its SYN) is harmless: the consumer applies
+     * nothing until the SYN, and we drop nothing. */
+    if (synth_pacing_active) {
+        uint64_t now_ns = monotonic_ns();
+
+        /* An idle gap this long means the consumer has drained everything we
+         * sent, so nothing is in flight: start a fresh chunk. This keeps
+         * isolated keystrokes free (they never accumulate to the threshold) and
+         * reproduces the old per-batch reset for Sends spaced by human time,
+         * while still letting a genuine sub-millisecond burst accumulate. */
+        if (last_emit_ns != 0 && now_ns != 0
+            && now_ns - last_emit_ns >= KSI_SYNTH_PACE_IDLE_RESET_NS) {
+            synth_pace_events = 0;
+        }
+
+        last_emit_ns = now_ns;
+
+        if (++synth_pace_events >= KSI_SYNTH_PACE_EVENTS) {
+            pace_synthetic_output();
+            synth_pace_events = 0;
+        }
     }
 
     return 0;
@@ -725,7 +799,7 @@ static int configure_abs_uinput_device(void)
 
 int ksi_linux_synth_start(void)
 {
-    uinput_fd = open(KSI_UINPUT_PATH, O_WRONLY | O_NONBLOCK);
+    uinput_fd = open(KSI_UINPUT_PATH, O_WRONLY | O_NONBLOCK | O_CLOEXEC);
 
     if (uinput_fd < 0) {
         fprintf(stderr, "inputd: cannot open %s: %s\n", KSI_UINPUT_PATH, strerror(errno));
@@ -740,7 +814,7 @@ int ksi_linux_synth_start(void)
 
     puts("inputd: uinput relative mouse device created");
 
-    uinput_abs_fd = open(KSI_UINPUT_PATH, O_WRONLY | O_NONBLOCK);
+    uinput_abs_fd = open(KSI_UINPUT_PATH, O_WRONLY | O_NONBLOCK | O_CLOEXEC);
 
     if (uinput_abs_fd < 0) {
         fprintf(stderr, "inputd: cannot open %s for abs device: %s\n", KSI_UINPUT_PATH, strerror(errno));
@@ -1201,9 +1275,12 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
         return -1;
     }
 
-    /* Enable per-event pacing for this batch (see emit_event_to). */
+    /* Enable per-event pacing for this batch (see emit_event_to). The chunk
+     * counter is deliberately NOT reset here: it is shared and persists across
+     * calls so a burst of single-event passthrough replays paces like one long
+     * synthesis batch. emit_event_to resets it after an idle gap instead, which
+     * keeps isolated Sends/keystrokes free without a per-batch reset. */
     synth_pacing_active = true;
-    synth_pace_events = 0;
 
     for (size_t i = 0; i < count; i++) {
         if (inputs[i].type == KSI_INPUT_KEYBOARD) {

@@ -213,25 +213,19 @@ static bool is_keysharp_synth_device_identity(
     return name_matches && id_matches;
 }
 
-static void set_cloexec(int fd)
-{
-    int flags = fcntl(fd, F_GETFD);
-
-    if (flags >= 0) {
-        (void)fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
-    }
-}
-
 static int open_event_fd(const char *path)
 {
-    int fd = open(path, O_RDONLY | O_NONBLOCK);
+    /* O_CLOEXEC atomically at open (vs a post-open fcntl, which races a
+     * concurrent fork+exec): a spawned helper (systemctl/udevadm/prompt worker)
+     * must never inherit an evdev grab fd, or the grab would outlive this daemon
+     * and strand the user's input even after the daemon is killed. */
+    int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 
     if (fd < 0) {
         fprintf(stderr, "inputd: cannot open %s: %s\n", path, strerror(errno));
         return -1;
     }
 
-    set_cloexec(fd);
     return fd;
 }
 
@@ -642,6 +636,51 @@ static bool should_grab_device_for_masks(
             && device->mouse_candidate);
 }
 
+/* Best-effort, kernel-truth check: is any of our OWN re-emission device (the
+ * uinput nodes we create, tracked with injected_source) currently EVIOCGRAB'd by
+ * another process? evdev exposes no "is this grabbed / by whom" query, so we
+ * learn it the only way possible: open the node fresh and try to grab it --
+ * EBUSY means another open file description already holds it; success means
+ * nobody does, so we release immediately. This is the "am I still the tail of
+ * the chain?" test.
+ *
+ * Called only event-driven (hotplug), never on a timer: cooperating interceptors
+ * are assumed (so no event flood can occur), and the momentary self-grab
+ * therefore cannot meaningfully divert consumer input. The probe fd is O_CLOEXEC
+ * so it can never leak a grab to a spawned child. */
+static bool our_output_is_grabbed(void)
+{
+    for (size_t i = 0; i < tracked_device_count; i++) {
+        int fd;
+
+        if (!tracked_devices[i].injected_source) {
+            continue;
+        }
+
+        fd = open(tracked_devices[i].path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+
+        if (fd < 0) {
+            continue; /* transient (device gone); treat as not grabbed */
+        }
+
+        if (ioctl(fd, EVIOCGRAB, 1) == 0) {
+            (void)ioctl(fd, EVIOCGRAB, 0); /* nobody else had it; release */
+            close(fd);
+            continue;
+        }
+
+        if (errno == EBUSY) {
+            close(fd);
+            return true; /* a foreign process holds our output */
+        }
+
+        /* Any other errno (ENODEV, etc.): device is gone/unusable; not grabbed. */
+        close(fd);
+    }
+
+    return false;
+}
+
 static void track_device(const ksi_linux_device_info *info, const char *reason)
 {
     ssize_t existing_index = find_tracked_device(info->path);
@@ -680,7 +719,25 @@ static void track_device(const ksi_linux_device_info *info, const char *reason)
         update_absolute_axis_ranges(target);
     }
 
-    (void)set_device_grab(target, should_grab_device_for_masks(target, grab_hook_mask, block_input_mask));
+    {
+        bool want_grab = should_grab_device_for_masks(target, grab_hook_mask, block_input_mask);
+
+        /* Only-the-tail-extends: if a downstream cooperating interceptor has
+         * grabbed our OWN output, we are no longer the tail of the chain, so we
+         * must not grab a newly-appeared device -- that would put two grabbers on
+         * one stream and risk a mutual-grab lockout. Defer to the tail instead.
+         * Applies only to NEW devices; grabs already implied by the active mask
+         * (e.g. our interception target at hook install) are unaffected. */
+        if (want_grab && is_new && our_output_is_grabbed()) {
+            fprintf(stderr,
+                "inputd: not grabbing new device %s (\"%s\"): our output is grabbed "
+                "downstream; deferring to the tail interceptor\n",
+                target->path, target->name);
+            want_grab = false;
+        }
+
+        (void)set_device_grab(target, want_grab);
+    }
 
     log_device(info, reason);
 }

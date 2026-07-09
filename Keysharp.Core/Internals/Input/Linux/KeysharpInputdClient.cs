@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
 using System.Threading;
+using Keysharp.Builtins;
 
 #if LINUX
 namespace Keysharp.Internals.Input.Linux
@@ -554,9 +555,42 @@ namespace Keysharp.Internals.Input.Linux
 			if (response.Payload.Length != 8)
 				throw new InvalidDataException($"Unexpected hello response size {response.Payload.Length}.");
 
+			// The daemon stamps its own compiled protocol version into every response
+			// header, so a successful hello already tells us which daemon we reached.
+			// Surface it (and flag a mismatch) to make a stale daemon binary visible.
+			LogDaemonVersion(response.Major, response.Minor);
+
 			var status = BinaryPrimitives.ReadInt32LittleEndian(response.Payload);
 			var granted = (Capabilities)BinaryPrimitives.ReadUInt32LittleEndian(response.Payload[4..]);
 			return (status, granted);
+		}
+
+		// Guards the one-shot daemon-version log below so reconnects and the several
+		// client connections a script opens do not spam the debug output.
+		private static int daemonVersionLogged;
+
+		/// <summary>
+		/// Logs the daemon's negotiated protocol version once per process, warning
+		/// when it differs from the client's compiled version. A daemon whose minor
+		/// is &lt;= the client's still negotiates on the wire (see <see cref="ReadFrame"/>),
+		/// so without this a stale daemon would silently lack newer behavior.
+		/// </summary>
+		private static void LogDaemonVersion(ushort daemonMajor, ushort daemonMinor)
+		{
+			if (Interlocked.Exchange(ref daemonVersionLogged, 1) != 0)
+				return;
+
+			if (daemonMajor == ProtocolMajor && daemonMinor == ProtocolMinor)
+			{
+				Ks.OutputDebugLine($"keysharp-inputd: connected to daemon protocol {daemonMajor}.{daemonMinor}.");
+			}
+			else
+			{
+				Ks.OutputDebugLine(
+					$"keysharp-inputd: WARNING - daemon protocol {daemonMajor}.{daemonMinor} differs from client " +
+					$"{ProtocolMajor}.{ProtocolMinor}; the keysharp-inputd binary may be stale. Reinstall/restart it " +
+					"if input behaves unexpectedly.");
+			}
 		}
 
 		private ulong NextCorrelationId() => nextCorrelationId++;
@@ -665,7 +699,9 @@ namespace Keysharp.Internals.Input.Linux
 				(MessageType)BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(8)),
 				BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(12)),
 				BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(16)),
-				payload);
+				payload,
+				major,
+				minor);
 		}
 
 		private void ReadAll(Span<byte> buffer, bool idleRetry = false)
@@ -812,7 +848,7 @@ namespace Keysharp.Internals.Input.Linux
 				throw new ObjectDisposedException(nameof(KeysharpInputdClient));
 		}
 
-		private readonly record struct Frame(MessageType Type, uint ClientId, ulong CorrelationId, byte[] Payload);
+		private readonly record struct Frame(MessageType Type, uint ClientId, ulong CorrelationId, byte[] Payload, ushort Major, ushort Minor);
 		private readonly record struct StatusPayload(int Status, uint Detail);
 	}
 }

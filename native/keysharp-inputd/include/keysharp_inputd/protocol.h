@@ -6,10 +6,28 @@
 #define KSI_PROTOCOL_MAJOR 0u
 #define KSI_PROTOCOL_MINOR 2u
 #define KSI_PROTOCOL_NAME "keysharp-inputd/windows-input-v0"
+
+/* Human-readable build identity for this daemon binary. Derived from the C
+ * compiler's build date/time so a stale daemon is identifiable in logs even
+ * when the wire protocol version still negotiates successfully (an older daemon
+ * whose minor is <= the client's is accepted, then silently lacks newer
+ * behavior). Informational only — this string is never placed on the wire or
+ * parsed; the wire version remains KSI_PROTOCOL_MAJOR/MINOR. */
+#define KSI_BUILD_VERSION ("built " __DATE__ " " __TIME__)
 #define KSI_MAX_MESSAGE_SIZE 65536u
 #define KSI_SYNTH_DEVICE_NAME "Keysharp Virtual Input"
 #define KSI_SYNTH_DEVICE_BUSTYPE 0x06u
-#define KSI_SYNTH_DEVICE_VENDOR 0x4b53u
+/* Vendor 0x0FAC is keyd's own vendor id. We MASQUERADE as it so keyd's device
+ * filter (device.c: `is_virtual = vendor==0x0FAC`, manage_device skips is_virtual)
+ * treats our re-emission devices as "one of keyd's own" and never EVIOCGRABs them.
+ * That is what prevents the mutual-grab lockout: keyd re-emits via its virtual
+ * keyboard, we grab THAT and re-emit via ours, and keyd leaves ours alone so the
+ * consumer (X/libinput) reads it. We still identify our OWN devices unambiguously
+ * by (vendor==0x0FAC AND name is one of ours) — keyd's own device has name
+ * "keyd virtual keyboard", so it never matches ours and we correctly still grab it
+ * as our interception point. NOTE: the uaccess udev rule and is_keysharp_synth_
+ * device_identity therefore key on the NAME, not this (now shared) vendor. */
+#define KSI_SYNTH_DEVICE_VENDOR 0x0FACu
 #define KSI_SYNTH_DEVICE_PRODUCT 0x0001u
 #define KSI_SYNTH_DEVICE_VERSION 1u
 

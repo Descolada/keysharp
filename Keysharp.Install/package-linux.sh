@@ -416,6 +416,14 @@ prompt may be unavailable until this is resolved. Re-run manually as root:
 and check the output for the failing step (modprobe uinput, udevadm, or
 systemctl enable --now keysharp-inputd.socket).
 WARN
+    # --install-input-access normally reloads the unit files and (re)starts the
+    # socket. When it fails, prerm has already stopped the old service on an
+    # upgrade, so reload units and restart the socket here to avoid leaving the
+    # socket down with a stale daemon behind.
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl daemon-reload || true
+      systemctl restart keysharp-inputd.socket || true
+    fi
   fi
 fi
 
@@ -650,6 +658,26 @@ fi
 if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
   if command -v systemctl >/dev/null 2>&1; then
     systemctl disable --now keysharp-inputd.socket || true
+  fi
+
+  # Remove the uaccess udev rule (and any legacy rule) so removal does not orphan
+  # device-access grants. The daemon binary still exists during prerm, so prefer its
+  # own removal path (keeps it the single source of truth and reloads udev);
+  # otherwise delete the rule file ourselves. dpkg removes the payload after prerm.
+  _ks_removed_udev_rule=false
+  if [ -x /usr/lib/keysharp/keysharp-inputd ]; then
+    /usr/lib/keysharp/keysharp-inputd --remove-input-access || true
+  else
+    rm -f /etc/udev/rules.d/70-keysharp-inputd-uaccess.rules || true
+    _ks_removed_udev_rule=true
+  fi
+  # Legacy rule from installs predating the uaccess switch (harmless if absent).
+  if [ -e /etc/udev/rules.d/99-keysharp-inputd.rules ]; then
+    rm -f /etc/udev/rules.d/99-keysharp-inputd.rules || true
+    _ks_removed_udev_rule=true
+  fi
+  if [ "${_ks_removed_udev_rule}" = "true" ] && command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules || true
   fi
 
   # Remove system-wide default MIME associations added by postinst.

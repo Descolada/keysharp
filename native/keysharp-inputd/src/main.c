@@ -17,6 +17,16 @@ bool g_verbose = false;
 #define KSI_DEFAULT_SOCKET_NAME "keysharp-inputd.sock"
 #define KSI_SOCKET_PATH_LENGTH 256
 
+/* Shared by install/remove so the two paths always agree on the file to manage.
+ * Numbered 70- so it lexically precedes systemd's 73-seat-late.rules, which runs
+ * the uaccess builtin — a tag added after that rule would have no effect. */
+#define KSI_UACCESS_RULES_PATH "/etc/udev/rules.d/70-keysharp-inputd-uaccess.rules"
+
+/* uinput module auto-load config written by --install-input-access. Shared with
+ * --remove-input-access so removal cleans up exactly what install created and the
+ * two paths cannot drift. */
+#define KSI_UINPUT_MODULES_PATH "/etc/modules-load.d/uinput.conf"
+
 static int ensure_private_directory(const char *path)
 {
     struct stat info;
@@ -76,7 +86,7 @@ static int build_default_socket_path(char *buffer, size_t buffer_size)
 static void print_usage(const char *argv0)
 {
 	fprintf(stderr,
-		"Usage: %s [--foreground] [--socket PATH] [--system-service] [--verbose] [--install-input-access] [--version]\n"
+		"Usage: %s [--foreground] [--socket PATH] [--system-service] [--verbose] [--install-input-access] [--remove-input-access] [--version]\n"
 		"       %s trust <list|reset> [options]\n"
 		"\n"
 		"Daemon options:\n"
@@ -86,18 +96,64 @@ static void print_usage(const char *argv0)
 		"                Use the systemd-activated socket passed as fd 3. Must be run by the system unit.\n"
 		"  --verbose      Enable per-event debug logging.\n"
 		"  --install-input-access\n"
-		"                Load uinput and enable the installed system socket. Must be run as root.\n"
+		"                Load uinput, install the uaccess udev rule for the virtual devices, and\n"
+		"                (re)enable the installed system socket. Must be run as root.\n"
+		"  --remove-input-access\n"
+		"                Remove the uaccess udev rule and reload udev. Must be run as root.\n"
 		"  --version      Print version information.\n"
 		"\n"
 		"Trust subcommand: run '%s trust --help' for details.\n",
 		argv0, argv0, argv0);
 }
 
+/* Body of the uaccess udev rule written by --install-input-access.
+ *
+ * WHY THIS EXISTS (consumer-access root cause):
+ *   keysharp-inputd runs as root, EVIOCGRABs the real input devices, and
+ *   re-injects every PASSED (non-hotkey) event onto its own uinput virtual
+ *   devices ("Keysharp Virtual Input" / "Keysharp Virtual Pointer"). For those
+ *   replayed events to reach applications, the CONSUMER — the user's X/Wayland
+ *   server — must be able to READ the virtual /dev/input/eventN nodes. The
+ *   daemon being root is NOT enough; it is the consumer that needs access.
+ *
+ *   The old (removed in commit 4f09a267) approach broadened every input node:
+ *       KERNEL=="event*", SUBSYSTEM=="input", GROUP="input", MODE="0660"
+ *   and told users to join the 'input' group. On boxes where the user is not in
+ *   'input' and there is no uaccess ACL (e.g. rootless X) replay was invisible,
+ *   so ALL non-hotkey input died while hotkeys still fired.
+ *
+ *   This rule grants access narrowly instead: only the daemon's OWN virtual
+ *   devices, only to the active-session user, via systemd-logind's uaccess ACL.
+ *   No group membership and no broadening of unrelated input devices.
+ *
+ * Matching notes:
+ *   - We match by NAME, not vendor/product. The synthetic devices masquerade as
+ *     keyd's vendor 0x0FAC (see protocol.h), so id/vendor no longer uniquely
+ *     identifies us — but the names "Keysharp Virtual Input"/"Keysharp Virtual
+ *     Pointer" are ours alone. (An id/vendor=="0fac" match would also tag keyd's
+ *     own devices; harmless, but name is precise.)
+ *   - ATTRS{} walks up from the event* node to the parent input device that
+ *     carries the name; the tag lands on the event* node (the one with a device
+ *     node), which is what the uaccess builtin needs. */
+static const char KSI_UACCESS_RULES_CONTENTS[] =
+	"# keysharp-inputd uaccess rule - grants the active-session user an ACL on\n"
+	"# the daemon's OWN virtual input devices so replayed (passed-through) events\n"
+	"# are readable by the user's X/Wayland server. See src/main.c for the full\n"
+	"# rationale. Replaces the removed GROUP=\"input\", MODE=\"0660\" rule.\n"
+	"ACTION!=\"add|change\", GOTO=\"keysharp_uaccess_end\"\n"
+	"SUBSYSTEM!=\"input\", GOTO=\"keysharp_uaccess_end\"\n"
+	"\n"
+	"ATTRS{name}==\"Keysharp Virtual Input\", TAG+=\"uaccess\"\n"
+	"ATTRS{name}==\"Keysharp Virtual Pointer\", TAG+=\"uaccess\"\n"
+	"\n"
+	"LABEL=\"keysharp_uaccess_end\"\n";
+
 static int install_input_access(void)
 {
 	const char *legacy_rules_path = "/etc/udev/rules.d/99-keysharp-inputd.rules";
-	const char *modules_path = "/etc/modules-load.d/uinput.conf";
+	const char *modules_path = KSI_UINPUT_MODULES_PATH;
 	FILE *modules;
+	FILE *rules;
 	int status = 0;
 
 	if (geteuid() != 0) {
@@ -125,17 +181,101 @@ static int install_input_access(void)
 		status = 1;
 	}
 
+	/* Grant the consuming X/Wayland server read access to the daemon's own
+	 * virtual devices via systemd-logind's uaccess ACL (see the rationale on
+	 * KSI_UACCESS_RULES_CONTENTS above). */
+	rules = fopen(KSI_UACCESS_RULES_PATH, "w");
+
+	if (rules == NULL) {
+		fprintf(stderr, "failed to write %s: %s\n", KSI_UACCESS_RULES_PATH, strerror(errno));
+		status = 1;
+	} else {
+		if (fputs(KSI_UACCESS_RULES_CONTENTS, rules) == EOF) {
+			fprintf(stderr, "failed to write %s: %s\n", KSI_UACCESS_RULES_PATH, strerror(errno));
+			status = 1;
+		}
+
+		if (fclose(rules) != 0) {
+			fprintf(stderr, "failed to close %s: %s\n", KSI_UACCESS_RULES_PATH, strerror(errno));
+			status = 1;
+		}
+	}
+
+	/* Reload rules and re-trigger so the new uaccess tag is applied to any
+	 * already-present virtual devices as well as future ones. */
 	if (system("udevadm control --reload-rules && udevadm trigger --subsystem-match=input && udevadm trigger --subsystem-match=misc") != 0) {
-		fprintf(stderr, "warning: failed to refresh udev after legacy input rule removal\n");
+		fprintf(stderr, "warning: failed to refresh udev after installing the uaccess rule\n");
 		status = 1;
 	}
 
-	if (system("systemctl daemon-reload && systemctl enable --now keysharp-inputd.socket") != 0) {
-		fprintf(stderr, "warning: failed to enable keysharp-inputd.socket\n");
-		status = 1;
+	/* Replace any stale socket-activated daemon: reload unit definitions, stop a
+	 * lingering Type=simple service instance so it is not left serving the new
+	 * client, then re-enable and restart the socket to bind a fresh listener.
+	 * Tolerate systemctl being absent (e.g. non-systemd hosts): warn, do not
+	 * hard-fail — the udev/uinput setup above is still useful without it. */
+	if (system("command -v systemctl >/dev/null 2>&1") != 0) {
+		/* Benign on non-systemd hosts: the udev/uinput setup above is the part
+		 * that actually fixes input access, so don't fail the whole command (and
+		 * trigger the installer's scary "did not complete" banner) just for this. */
+		fprintf(stderr, "notice: systemctl not found; skipping socket activation refresh\n");
+	} else {
+		if (system("systemctl daemon-reload") != 0) {
+			fprintf(stderr, "warning: systemctl daemon-reload failed\n");
+			status = 1;
+		}
+
+		/* Stopping an inactive/absent unit can exit non-zero on older systemd;
+		 * that's benign here (we re-enable and restart the socket next), so warn
+		 * without failing the command. */
+		if (system("systemctl stop keysharp-inputd.service") != 0) {
+			fprintf(stderr, "notice: keysharp-inputd.service was not running (nothing to stop)\n");
+		}
+
+		if (system("systemctl enable keysharp-inputd.socket") != 0) {
+			fprintf(stderr, "warning: failed to enable keysharp-inputd.socket\n");
+			status = 1;
+		}
+
+		if (system("systemctl restart keysharp-inputd.socket") != 0) {
+			fprintf(stderr, "warning: failed to restart keysharp-inputd.socket\n");
+			status = 1;
+		}
 	}
 
 	puts("keysharp-inputd input access setup complete.");
+	return status;
+}
+
+/* Remove the uaccess rule installed by --install-input-access and reload udev.
+ * Exposed as its own flag so the uninstaller script can call it. Mirrors the
+ * defensive style of install_input_access: warn + set status, never abort. */
+static int remove_input_access(void)
+{
+	int status = 0;
+
+	if (geteuid() != 0) {
+		fprintf(stderr, "--remove-input-access must be run as root\n");
+		return 1;
+	}
+
+	if (unlink(KSI_UACCESS_RULES_PATH) != 0 && errno != ENOENT) {
+		fprintf(stderr, "warning: failed to remove %s: %s\n", KSI_UACCESS_RULES_PATH, strerror(errno));
+		status = 1;
+	}
+
+	/* Also remove the uinput module-load config install wrote, so removal does
+	 * not leave the kernel auto-loading the uinput module every boot. */
+	if (unlink(KSI_UINPUT_MODULES_PATH) != 0 && errno != ENOENT) {
+		fprintf(stderr, "warning: failed to remove %s: %s\n", KSI_UINPUT_MODULES_PATH, strerror(errno));
+		status = 1;
+	}
+
+	if (system("udevadm control --reload-rules && udevadm trigger --subsystem-match=input") != 0) {
+		fprintf(stderr, "warning: failed to refresh udev after removing the uaccess rule\n");
+		status = 1;
+	}
+
+	puts("keysharp-inputd uaccess rule removed.");
 	return status;
 }
 
@@ -198,6 +338,8 @@ int main(int argc, char **argv)
 			options.system_service = true;
 		} else if (strcmp(argv[i], "--install-input-access") == 0) {
 			return install_input_access();
+		} else if (strcmp(argv[i], "--remove-input-access") == 0) {
+			return remove_input_access();
 		} else if (strcmp(argv[i], "--version") == 0) {
             printf("keysharp-inputd %u.%u\n",
                 (unsigned)KSI_PROTOCOL_MAJOR, (unsigned)KSI_PROTOCOL_MINOR);

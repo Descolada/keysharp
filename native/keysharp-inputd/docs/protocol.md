@@ -229,9 +229,13 @@ The daemon's `uinput` device is identified by:
 ```
 name     Keysharp Virtual Input
 bustype  BUS_VIRTUAL
-vendor   0x4b53
+vendor   0x0FAC   (masquerades as keyd's vendor so keyd won't re-grab our output; see protocol.h)
 product  0x0001
 ```
+
+The device is identified as *ours* by name **and** vendor (`0x0FAC` is shared with
+keyd, so name is the discriminator); keyd's own `keyd virtual keyboard` therefore
+does not match and remains a valid interception target for us to grab.
 
 Events from this device set `LLKHF_INJECTED` / `LLMHF_INJECTED` in hook callback
 flags. Pass-through replay events are suppressed from re-entering the callback

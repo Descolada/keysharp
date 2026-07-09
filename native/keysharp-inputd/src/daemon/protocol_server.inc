@@ -689,11 +689,17 @@ static bool process_client_buffer_direct(ksi_daemon_state *state, ksi_client *cl
         }
 
         if (header.major != KSI_PROTOCOL_MAJOR || header.minor > KSI_PROTOCOL_MINOR) {
+            /* Name the daemon's own version and build so a mismatch is visible
+             * from the daemon log (e.g. a newer client hitting a stale daemon). */
             fprintf(stderr,
-                "client %d sent unsupported protocol version %u.%u\n",
+                "client %d sent unsupported protocol version %u.%u; "
+                "this daemon speaks %u.%u (%s)\n",
                 client->fd,
                 header.major,
-                header.minor);
+                header.minor,
+                (unsigned)KSI_PROTOCOL_MAJOR,
+                (unsigned)KSI_PROTOCOL_MINOR,
+                KSI_BUILD_VERSION);
             return false;
         }
 

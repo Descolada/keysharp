@@ -574,12 +574,17 @@ if [[ "${ROOT_INSTALL}" == "true" ]]; then
       maybe_run systemctl daemon-reload || true
 
       # On an upgrade an older keysharp-inputd may still be running the previous
-      # binary. Stop it so socket re-activation (re-enabled by --install-input-access
-      # below) launches the just-installed binary instead of the stale one.
+      # binary. Stop it so that when the socket is (re)started the just-installed
+      # binary is activated instead of the stale one. --install-input-access below
+      # normally reloads the units and restarts the socket itself.
       maybe_run systemctl stop keysharp-inputd.service || true
 
       if ! "${APP_DIR_TARGET}/keysharp-inputd" --install-input-access; then
         echo "Warning: keysharp-inputd service setup did not complete. Input automation helper may be unavailable." >&2
+        # --install-input-access is what normally (re)starts the socket; when it
+        # fails, restart it ourselves so an upgrade does not leave the socket
+        # stopped with the stale daemon behind. daemon-reload already ran above.
+        maybe_run systemctl restart keysharp-inputd.socket || true
       fi
     else
       echo "Warning: keysharp-inputd systemd unit files were not found in the installer payload." >&2

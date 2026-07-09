@@ -4,7 +4,8 @@
 #include HotkeyCard.ks
 
 /*
-    WindowTiler — snap the active window to halves, quarters, or maximize on its current monitor.
+    WindowTiler — snap the active window to halves, quarters, thirds, or a grid on its current monitor,
+    with switchable region MODES.
 
     Demonstrates cross-platform Keysharp: window actions (WinActive / WinGetPos / WinMove / WinRestore /
     WinMaximize), multi-monitor geometry (MonitorGet / MonitorGetWorkArea, which excludes panels/taskbars),
@@ -12,13 +13,23 @@
 
     Hotkeys (CapsLock + a QWE/ASD/ZXC grid that mirrors screen position — no numpad needed):
 
-        Q W E       top-left    top-half     top-right
-        A S D   =   left-half   centre       right-half
-        Z X C       bottom-left bottom-half  bottom-right
+        Q W E       top row      |  the exact target of each key depends on the ACTIVE MODE
+        A S D   =   middle row   |  (below); the key grid always mirrors screen position.
+        Z X C       bottom row    |
 
-        CapsLock+R  maximize / restore
+        CapsLock+R           maximize / restore (works in any mode)
+        CapsLock+1/2/3/4     switch the region mode:
 
-    Edit WindowTiler.Prefix / WindowTiler.Grid below if these clash with your desktop's shortcuts.
+            1  Halves + Quarters — halves on the edges, quarters in the corners, a centred 2/3
+                                   box on S. The everyday single-monitor default (unchanged).
+            2  Grid 3×3         — nine equal thirds×thirds cells: a literal 1:1 map from the key
+                                   grid to the screen. For many small windows on a big display.
+            3  Columns (thirds) — A/S/D snap the full-height left/centre/right third; Q/W/E and
+                                   Z/X/C are the top/bottom halves of each column. For ultrawides.
+            4  Rows (thirds)    — W/S/X snap the full-width top/middle/bottom band; Q/A/Z and
+                                   E/D/C are the left/right halves of each band. For portrait screens.
+
+    Edit WindowTiler.Prefix / WindowTiler.Modes below if these clash with your desktop's shortcuts.
 
     Cross-platform notes: work-area math excludes panels/taskbars everywhere. Moving/resizing a foreign
     window works natively on Windows and X11; on Wayland it needs a compositor backend (KWin / GNOME /
@@ -28,11 +39,36 @@
 class WindowTiler {
     ; --- config -------------------------------------------------------------
     static Prefix := "CapsLock & "   ; CapsLock chord. Change to "^!" (Ctrl+Alt) etc. if you prefer.
-    static Grid := Map(              ; hotkey suffix -> region
-        "q", "topleft",  "w", "top",     "e", "topright",
-        "a", "left",     "s", "center",  "d", "right",
-        "z", "botleft",  "x", "bottom",  "c", "botright",
-        "r", "togglemax")
+
+    ; The fixed 3×3 key grid (spatially mirrors the screen). Each mode below maps every one of these
+    ; keys to a target rectangle; CapsLock+R (maximize/restore) is handled separately and works in any mode.
+    static Keys := ["q", "w", "e", "a", "s", "d", "z", "x", "c"]
+
+    ; A mode is {name, layout}. `layout` maps each grid key -> a NORMALIZED rect [x, y, w, h] where every
+    ; component is a fraction (0..1) of the monitor work area. Snapping scales the fraction to pixels and
+    ; rounds each edge, so adjacent cells that share a boundary fraction stay gap-free (see FracRect).
+    static Modes := [
+        {name: "Halves + Quarters", layout: Map(          ; 1 — everyday default (unchanged behaviour)
+            "q", [0,   0,   1/2, 1/2], "w", [0,   0,   1,   1/2], "e", [1/2, 0,   1/2, 1/2],
+            "a", [0,   0,   1/2, 1],   "s", [1/6, 1/6, 2/3, 2/3], "d", [1/2, 0,   1/2, 1],
+            "z", [0,   1/2, 1/2, 1/2], "x", [0,   1/2, 1,   1/2], "c", [1/2, 1/2, 1/2, 1/2])},
+
+        {name: "Grid 3×3", layout: Map(                    ; 2 — nine equal thirds×thirds cells (9-region)
+            "q", [0,   0,   1/3, 1/3], "w", [1/3, 0,   1/3, 1/3], "e", [2/3, 0,   1/3, 1/3],
+            "a", [0,   1/3, 1/3, 1/3], "s", [1/3, 1/3, 1/3, 1/3], "d", [2/3, 1/3, 1/3, 1/3],
+            "z", [0,   2/3, 1/3, 1/3], "x", [1/3, 2/3, 1/3, 1/3], "c", [2/3, 2/3, 1/3, 1/3])},
+
+        {name: "Columns (thirds)", layout: Map(            ; 3 — A/S/D = full-height thirds; Q/W/E, Z/X/C = half cells
+            "q", [0,   0,   1/3, 1/2], "w", [1/3, 0,   1/3, 1/2], "e", [2/3, 0,   1/3, 1/2],
+            "a", [0,   0,   1/3, 1],   "s", [1/3, 0,   1/3, 1],   "d", [2/3, 0,   1/3, 1],
+            "z", [0,   1/2, 1/3, 1/2], "x", [1/3, 1/2, 1/3, 1/2], "c", [2/3, 1/2, 1/3, 1/2])},
+
+        {name: "Rows (thirds)", layout: Map(               ; 4 — transpose of 3: W/S/X = full-width bands; Q/A/Z, E/D/C = half cells
+            "q", [0,   0,   1/2, 1/3], "w", [0,   0,   1,   1/3], "e", [1/2, 0,   1/2, 1/3],
+            "a", [0,   1/3, 1/2, 1/3], "s", [0,   1/3, 1,   1/3], "d", [1/2, 1/3, 1/2, 1/3],
+            "z", [0,   2/3, 1/2, 1/3], "x", [0,   2/3, 1,   1/3], "c", [1/2, 2/3, 1/2, 1/3])}
+    ]
+    static ModeIndex := 1            ; the active mode (1-based index into Modes)
 
     static hl := ""                  ; reused Highlight for the snap-target flash
     ; Stable timer callbacks (kept in-class so SetTimer can cancel/reschedule the same reference).
@@ -42,55 +78,60 @@ class WindowTiler {
     static Install() {
         SetWinDelay(-1)             ; no post-move delay -> snappy tiling
         HotkeyCard.SetTrayIcon("📐")
-        for suffix, region in this.Grid
-            Hotkey(this.Prefix suffix, this.Handler(region), "On")
-        HotkeyCard.Show("Window Tiler", [
-            ["CapsLock+ Q/W/E", "Top-left · top · top-right"],
-            ["CapsLock+ A/S/D", "Left · centre · right"],
-            ["CapsLock+ Z/X/C", "Bottom-left · bottom · bottom-right"],
-            ["CapsLock+ R", "Maximize / restore"] ])
+        for key in this.Keys
+            Hotkey(this.Prefix key, this.Handler(key), "On")
+        Hotkey(this.Prefix "r", (*) => this.ToggleMax(), "On")       ; maximize/restore — mode-independent
+        for i, mode in this.Modes
+            Hotkey(this.Prefix i, this.ModeHandler(i), "On")         ; CapsLock+1..N switch modes
+        this.ShowCard()
     }
 
-    static Handler(region) => (*) => this.Snap(region)
+    static Handler(key) => (*) => this.Snap(key)
+    static ModeHandler(i) => (*) => this.SwitchMode(i)
 
-    static Snap(region) {
+    static Snap(key) {
         local info := this.ActiveWindowArea()
         if !IsObject(info)
             return
 
+        local layout := this.Modes[this.ModeIndex].layout
+        if !layout.Has(key)
+            return
+        local frac := layout[key]
         try {
-            if (region = "restore") {
-                WinRestore(info.id)
-                this.Flash({x: info.l, y: info.t, w: 1, h: 1})   ; nothing to outline; just clear
-                this.Tip("Restore", 800)
-                return
-            }
-            if (region = "maximize") {
-                WinMaximize(info.id)
-                this.Flash({x: info.l, y: info.t, w: info.w, h: info.h})
-                this.Tip("Maximize", 800)
-                return
-            }
-            if (region = "togglemax") {
-                if (WinGetMinMax(info.id) = 1) {
-                    WinRestore(info.id)
-                    this.Flash({x: info.l, y: info.t, w: 1, h: 1})   ; nothing to outline; just clear
-                    this.Tip("Restore", 800)
-                } else {
-                    WinMaximize(info.id)
-                    this.Flash({x: info.l, y: info.t, w: info.w, h: info.h})
-                    this.Tip("Maximize", 800)
-                }
-                return
-            }
-
-            local r := this.RegionRect(region, info)
+            local r := this.FracRect(frac, info)
             WinRestore(info.id)                          ; un-maximize so the resize takes effect
             WinMove(r.x, r.y, r.w, r.h, info.id)
             this.Flash(r)
-            this.Tip(this.Label(region), 800)
+            this.Tip(this.PosLabel(frac), 800)
         } catch as e
             this.Tip("Tile failed: " e.Message, 2500)
+    }
+
+    static ToggleMax() {
+        local info := this.ActiveWindowArea()
+        if !IsObject(info)
+            return
+        try {
+            if (WinGetMinMax(info.id) = 1) {
+                WinRestore(info.id)
+                this.Flash({x: info.l, y: info.t, w: 1, h: 1})   ; nothing to outline; just clear
+                this.Tip("Restore", 800)
+            } else {
+                WinMaximize(info.id)
+                this.Flash({x: info.l, y: info.t, w: info.w, h: info.h})
+                this.Tip("Maximize", 800)
+            }
+        } catch as e
+            this.Tip("Tile failed: " e.Message, 2500)
+    }
+
+    static SwitchMode(i) {
+        if (i < 1 || i > this.Modes.Length)
+            return
+        this.ModeIndex := i
+        this.ShowCard()                                  ; refresh the card so the active-mode marker moves
+        this.Tip("Mode " i "/" this.Modes.Length ":  " this.Modes[i].name, 1200)
     }
 
     ; Active window + the work area of the monitor it mostly sits on.
@@ -113,28 +154,41 @@ class WindowTiler {
         return MonitorGetPrimary()
     }
 
-    static RegionRect(region, info) {
-        local l := info.l, t := info.t, w := info.w, h := info.h
-        local hw := w // 2, hh := h // 2
-        switch region {
-            case "left":     return {x: l,      y: t,      w: hw,     h: h}
-            case "right":    return {x: l + hw, y: t,      w: w - hw, h: h}
-            case "top":      return {x: l,      y: t,      w: w,      h: hh}
-            case "bottom":   return {x: l,      y: t + hh, w: w,      h: h - hh}
-            case "topleft":  return {x: l,      y: t,      w: hw,     h: hh}
-            case "topright": return {x: l + hw, y: t,      w: w - hw, h: hh}
-            case "botleft":  return {x: l,      y: t + hh, w: hw,     h: h - hh}
-            case "botright": return {x: l + hw, y: t + hh, w: w - hw, h: h - hh}
-            case "center":   return {x: l + w // 6, y: t + h // 6, w: w * 2 // 3, h: h * 2 // 3}
-        }
-        return {x: l, y: t, w: w, h: h}
+    ; Normalized rect [fx, fy, fw, fh] (fractions of the work area) -> pixel rect. Both far edges are
+    ; computed by rounding (fx+fw)/(fy+fh), so cells sharing a boundary fraction land on the same pixel
+    ; (no gaps or overlaps from rounding) and full-span cells reach the work-area edge exactly.
+    static FracRect(frac, info) {
+        local x0 := info.l + Round(frac[1] * info.w)
+        local y0 := info.t + Round(frac[2] * info.h)
+        local x1 := info.l + Round((frac[1] + frac[3]) * info.w)
+        local y1 := info.t + Round((frac[2] + frac[4]) * info.h)
+        return {x: x0, y: y0, w: x1 - x0, h: y1 - y0}
     }
 
-    static Labels := Map(
-        "left", "Left half",   "right", "Right half", "top", "Top half",    "bottom", "Bottom half",
-        "topleft", "Top-left", "topright", "Top-right", "botleft", "Bottom-left", "botright", "Bottom-right",
-        "center", "Centre")
-    static Label(region) => this.Labels.Has(region) ? this.Labels[region] : region
+    ; A short directional label derived from a rect's centre — works for every mode without a per-mode table.
+    static PosLabel(frac) {
+        local cx := frac[1] + frac[3] / 2, cy := frac[2] + frac[4] / 2
+        local h := cx < 0.4 ? "Left" : (cx > 0.6 ? "Right" : "")
+        local v := cy < 0.4 ? "Top" : (cy > 0.6 ? "Bottom" : "")
+        if (v = "" && h = "")
+            return "Centre"
+        if (v != "" && h != "")
+            return v "-" StrLower(h)
+        return v != "" ? v : h
+    }
+
+    ; Rebuild the cheat-sheet card, marking the active mode. Called on install and on every mode switch.
+    static ShowCard() {
+        local lines := [
+            [this.KeyLabel("Q…C"), "Snap to a region of the active mode"],
+            [this.KeyLabel("R"),   "Maximize / restore"] ]
+        for i, mode in this.Modes
+            lines.Push([this.KeyLabel(i), (i = this.ModeIndex ? "● " : "○ ") mode.name])
+        HotkeyCard.Show("Window Tiler", lines)
+    }
+
+    ; Pretty keycap text: "CapsLock & " -> "CapsLock + q" (leaves symbolic prefixes like "^!" untouched).
+    static KeyLabel(suffix) => StrReplace(this.Prefix, " & ", " + ") suffix
 
     ; Briefly outline the snap target so the action is visible.
     static Flash(r) {

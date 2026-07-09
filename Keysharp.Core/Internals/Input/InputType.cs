@@ -618,10 +618,12 @@ namespace Keysharp.Internals.Input
 						{
 							vkByNumber = (keySource & KeySource.Vk) != 0;
 
-							if (!vkByNumber && (sc = KeyCodes.MapVkToSc(vk, true)) != 0)
+							if (!vkByNumber && (sc = KeyCodes.MapVkToSc(vk, true)) != 0) // This VK maps to two scan codes (e.g. Enter/NumpadEnter); sc = the secondary.
 							{
 #if WINDOWS
 								sc ^= 0x100; // Convert sc to the primary scan code, which is the one named by end_key.
+#else
+								sc = KeyCodes.MapVkToSc(vk); // evdev has no extended-bit relation; use the primary (named) code directly.
 #endif
 								vk = 0; // Handle it only by SC.
 							}

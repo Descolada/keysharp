@@ -11,6 +11,15 @@ namespace Keysharp.Internals.Input.Keyboard
 	{
 		internal static uint VkToEvdev(uint vk, bool returnSecondary = false)
 		{
+			// Only VK_RETURN maps to two evdev keys — the main Enter (KEY_ENTER = 28) and the numpad Enter
+			// (KEY_KPENTER = 96); see EvdevToVk, where both 28 and 96 resolve back to VK_RETURN. Every other VK
+			// owns a single evdev code (the numpad digits/operators and the navigation keys each have their own
+			// distinct VK, unlike Windows where e.g. Up and NumpadUp share VK_UP), so it has no secondary.
+			// Mirroring the Windows mapper, a secondary request for a VK that has none returns 0 — callers use
+			// that both as the "this VK maps to two scan codes" test and to fall back to the primary code.
+			if (returnSecondary)
+				return vk == VK_RETURN ? 96u : 0u;
+
 			return vk switch
 			{
 				>= (uint)'A' and <= (uint)'Z' => vk switch

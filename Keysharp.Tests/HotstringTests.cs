@@ -584,13 +584,21 @@ namespace Keysharp.Tests
 			const uint VkReturn = 0x0D;
 			var ih = Input.InputHook("V");
 			ih.KeyOpt("{Enter}", "E");
-			var sc = Keysharp.Internals.Input.Keyboard.KeyCodes.MapVkToSc(VkReturn, true);
-			Assert.AreNotEqual(0u, sc);
 
-			if (OperatingSystem.IsWindows())
-				sc ^= 0x100;
+			// VK_RETURN is the one VK backed by two scan codes, so MapVkToSc must report a non-zero *secondary*
+			// (the NumpadEnter code); that is exactly what lets KeyOpt tell Enter apart from NumpadEnter.
+			var secondary = Keysharp.Internals.Input.Keyboard.KeyCodes.MapVkToSc(VkReturn, true);
+			Assert.AreNotEqual(0u, secondary);
+
+			// {Enter} names the MAIN Enter, so its end-key is registered at the primary scan code, not at
+			// NumpadEnter's. On Windows the primary is the secondary with its extended bit cleared; evdev/Mac
+			// have no such bit relation, so query the primary directly.
+			var sc = OperatingSystem.IsWindows()
+				? secondary ^ 0x100u
+				: Keysharp.Internals.Input.Keyboard.KeyCodes.MapVkToSc(VkReturn);
 
 			Assert.AreEqual(Keysharp.Internals.Input.Hooks.HookThread.END_KEY_ENABLED, ih.input.keySC[sc] & Keysharp.Internals.Input.Hooks.HookThread.END_KEY_ENABLED);
+			Assert.AreEqual(0u, ih.input.keySC[secondary] & Keysharp.Internals.Input.Hooks.HookThread.END_KEY_ENABLED); // NumpadEnter is a distinct key, not this end-key.
 
 #if LINUX
 			const uint EvdevEnter = 28u;

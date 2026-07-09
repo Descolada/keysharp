@@ -124,6 +124,16 @@ namespace Keysharp.Parsing.Syntax
 		// Enclosing-scope statics (name -> emitted module-level SL_ field), so a nested closure's deref `%name%` resolves
 		// an enclosing function's static the same way it resolves its own.
 		private Dictionary<string, string> _enclosingStatics = new(System.StringComparer.Ordinal);
+		// Lexical `#import` frames for class and function scopes (module scope is NOT a frame — it is the
+		// EnsureGlobalField fallback). Innermost is last. A frame is pushed while lowering a class body / callable body
+		// and popped after, so a nested closure — whose body lowers WHILE the enclosing frame is still on the stack —
+		// sees the enclosing scope's imports automatically, with zero capture machinery. NameRef walks it innermost-
+		// first; scoped bindings are inline expressions (no emitted declarations). See BuildImportScope.
+		private readonly List<ImportScope> _importScopes = new();
+		// Multi-module only: module name -> ModInfo, so a function/class-scoped `#import "ScriptMod" { … }` can resolve
+		// the module's exports at body-lowering time (byName is otherwise a BuildMultiModule local). Null on the single-
+		// module path (which only ever sees built-in modules).
+		private Dictionary<string, ModInfo> _modulesByName;
 		// Set by NameRef when it resolves a captured enclosing local or `this`; read (scoped) by LowerFatArrow to pick
 		// Closure (capturing → `is Closure` true) vs Func (non-capturing) binding.
 		private bool _capturedInScope;
@@ -185,19 +195,23 @@ namespace Keysharp.Parsing.Syntax
 			_includeDir = includeDir;
 			// Use the dedicated multi-module path when the file defines/uses modules: a `#Module`, an `export`, or a
 			// `#import "name"` that resolves to a separate <name>.ahk file. Otherwise the common single-module path is
-			// completely unaffected (a builtin `#import "Ks"` stays here).
+			// completely unaffected (a builtin `#import "Ks"` stays here). The file-import scan is DEEP (any nesting):
+			// a `#import "helper"` inside a function must still trigger module loading, even though its binding is
+			// function-scoped — otherwise the file is never parsed (a silent-vaporize bug).
 			bool IsFileImport(ImportDirective im) =>
 				_includeDir != null && im.Module.Length > 0 && ResolveModuleFile(im.Module, _includeDir) != null;
+			var allImports = new List<ImportDirective>();
+			foreach (var s in prog.Body) CollectAllImports(s, allImports);
 			if (prog.Body.Any(s => s is DirectiveStmt d && d.Name.Equals("Module", System.StringComparison.OrdinalIgnoreCase))
 				|| prog.Body.Any(s => s is ExportStmt)
-				|| prog.Body.Any(s => s is ImportDirective im && IsFileImport(im)))
+				|| allImports.Any(IsFileImport))
 				return BuildMultiModule(prog, name);
 
 			// `export <decl>` outside a `#Module` file is just a normal top-level declaration.
 			var body = prog.Body.Select(s => s is ExportStmt e ? e.Decl : s).ToList();
 			_moduleCompat = ScanRequires(body) ?? Keysharp.Runtime.Script.DefaultCompatibilityVersion;
 			_currentCompat = _moduleCompat;
-			var (members, auto) = LowerProgramBody(body);
+			var (members, auto) = LowerProgramBody(body, liftControlFlowImports: true);
 			if (Diagnostics.Count > 0) return null;
 			return BuildUnit(name, members, auto);
 		}
@@ -210,7 +224,11 @@ namespace Keysharp.Parsing.Syntax
 			public string Name;
 			public string Dir;   // directory of the source file this module came from (for "importing file dir first")
 			public List<Stmt> Body = new();
-			public List<ImportDirective> Imports = new();
+			// Imports bound at MODULE scope: top-level directives + control-flow-lifted ones (consumed by EmitImports).
+			public List<ImportDirective> ModuleBindings = new();
+			// EVERY import in the module regardless of nesting (top-level, control-flow, function/class/switch/hotkey
+			// bodies) — drives file loading and execution order, which stay eager and scope-blind. Superset of the above.
+			public List<ImportDirective> AllImports = new();
 			public Dictionary<string, ExportK> Exports = new(System.StringComparer.OrdinalIgnoreCase);
 			public string DefaultName;          // user name of the `export default` member (or null)
 			public bool HasExplicitExports;
@@ -225,7 +243,7 @@ namespace Keysharp.Parsing.Syntax
 			while (queue.Count > 0)
 			{
 				var m = queue.Dequeue();
-				foreach (var im in m.Imports)
+				foreach (var im in m.AllImports)   // load files for imports at ANY nesting depth, not just module scope
 				{
 					var modName = im.Module;
 					if (modName.Length == 0 || byName.ContainsKey(modName) || modName.Equals("AHK", System.StringComparison.OrdinalIgnoreCase)) continue;
@@ -321,8 +339,9 @@ namespace Keysharp.Parsing.Syntax
 			return null;
 		}
 
-		// Splits the program into module segments by `#Module Name` directives (segment 0 is `__Main`), pulling each
-		// segment's `#import` directives into ModInfo.Imports.
+		// Splits the program into module segments by `#Module Name` directives (segment 0 is `__Main`), collecting each
+		// segment's `#import` directives into two lists: ModuleBindings (top-level + control-flow-lifted, bound at module
+		// scope) and AllImports (every nesting depth, for file loading and execution order — see the ModInfo fields).
 		private static List<ModInfo> PartitionModules(List<Stmt> body)
 		{
 			var mods = new List<ModInfo>();
@@ -336,14 +355,23 @@ namespace Keysharp.Parsing.Syntax
 					mods.Add(cur);
 				}
 				else if (s is ImportDirective im)
-					cur.Imports.Add(im);
-				else { cur.Body.Add(s); CollectNestedImports(s, cur.Imports); }
+				{
+					cur.ModuleBindings.Add(im);
+					cur.AllImports.Add(im);
+				}
+				else
+				{
+					cur.Body.Add(s);
+					CollectNestedImports(s, cur.ModuleBindings);   // control-flow-nested → module-scope binding
+					CollectAllImports(s, cur.AllImports);          // any nesting → loading / execution order
+				}
 			}
 			return mods;
 		}
 
 		// AHK processes `#import` directives at load time regardless of nesting, so an import inside a block / if / loop
-		// (e.g. `if true { #import "M" { X as Y } }`) still binds at module scope. Recursively lift those out.
+		// (e.g. `if true { #import "M" { X as Y } }`) still binds at module scope. Recursively lift those out. This
+		// covers only CONTROL FLOW — an import inside a function/class body is lexically scoped (see CollectAllImports).
 		private static void CollectNestedImports(Stmt s, List<ImportDirective> into)
 		{
 			switch (s)
@@ -355,6 +383,10 @@ namespace Keysharp.Parsing.Syntax
 				case LoopStmt l: CollectNestedImports(l.Body, into); if (l.Else != null) CollectNestedImports(l.Else, into); break;
 				case SpecialLoopStmt sl: CollectNestedImports(sl.Body, into); if (sl.Else != null) CollectNestedImports(sl.Else, into); break;
 				case ForStmt f: CollectNestedImports(f.Body, into); if (f.Else != null) CollectNestedImports(f.Else, into); break;
+				case SwitchStmt sw:
+					foreach (var c in sw.Cases) foreach (var cs in c.Body) CollectNestedImports(cs, into);
+					if (sw.Default != null) foreach (var ds in sw.Default) CollectNestedImports(ds, into);
+					break;
 				case TryStmt t:
 					CollectNestedImports(t.Body, into);
 					foreach (var cb in t.Catches) CollectNestedImports(cb.Body, into);
@@ -362,6 +394,51 @@ namespace Keysharp.Parsing.Syntax
 					if (t.Finally != null) CollectNestedImports(t.Finally, into);
 					break;
 			}
+		}
+
+		// Every `#import` reachable from a statement regardless of nesting depth — control flow AND function/class/switch/
+		// hotkey-hotstring bodies. Feeds file loading and execution order, which are load-time and position-independent
+		// even though the BINDING of a function/class-nested import is lexically scoped (Phase 3). Superset of
+		// CollectNestedImports; the two are kept separate so a function-scoped import never binds at module scope.
+		private static void CollectAllImports(Stmt s, List<ImportDirective> into)
+		{
+			switch (s)
+			{
+				case ImportDirective d: into.Add(d); break;
+				case Block b: foreach (var c in b.Body) CollectAllImports(c, into); break;
+				case IfStmt i: CollectAllImports(i.Then, into); if (i.Else != null) CollectAllImports(i.Else, into); break;
+				case WhileStmt w: CollectAllImports(w.Body, into); if (w.Else != null) CollectAllImports(w.Else, into); break;
+				case LoopStmt l: CollectAllImports(l.Body, into); if (l.Else != null) CollectAllImports(l.Else, into); break;
+				case SpecialLoopStmt sl: CollectAllImports(sl.Body, into); if (sl.Else != null) CollectAllImports(sl.Else, into); break;
+				case ForStmt f: CollectAllImports(f.Body, into); if (f.Else != null) CollectAllImports(f.Else, into); break;
+				case SwitchStmt sw:
+					foreach (var c in sw.Cases) foreach (var cs in c.Body) CollectAllImports(cs, into);
+					if (sw.Default != null) foreach (var ds in sw.Default) CollectAllImports(ds, into);
+					break;
+				case TryStmt t:
+					CollectAllImports(t.Body, into);
+					foreach (var cb in t.Catches) CollectAllImports(cb.Body, into);
+					if (t.Else != null) CollectAllImports(t.Else, into);
+					if (t.Finally != null) CollectAllImports(t.Finally, into);
+					break;
+				case FunctionDecl fn: if (fn.Body != null) CollectAllImports(fn.Body, into); break;
+				case ExportStmt ex: CollectAllImports(ex.Decl, into); break;
+				case HotkeyDef hk: if (hk.Body != null) CollectAllImports(hk.Body, into); if (hk.Func?.Body != null) CollectAllImports(hk.Func.Body, into); break;
+				case HotstringDef hs: if (hs.Body != null) CollectAllImports(hs.Body, into); if (hs.Func?.Body != null) CollectAllImports(hs.Func.Body, into); break;
+				case ClassDecl cd: CollectClassImports(cd, into); break;
+			}
+		}
+
+		// Every `#import` declared anywhere in a class: its class-body imports (ClassDecl.Imports), method bodies,
+		// property get/set bodies, member initializers, and nested classes. Load/order only, like CollectAllImports.
+		private static void CollectClassImports(ClassDecl cd, List<ImportDirective> into)
+		{
+			into.AddRange(cd.Imports);
+			foreach (var mth in cd.Methods) if (mth.Body != null) CollectAllImports(mth.Body, into);
+			foreach (var pr in cd.Properties) { if (pr.GetBody != null) CollectAllImports(pr.GetBody, into); if (pr.SetBody != null) CollectAllImports(pr.SetBody, into); }
+			foreach (var init in cd.StaticInit) CollectAllImports(init, into);
+			foreach (var init in cd.InstanceInit) CollectAllImports(init, into);
+			foreach (var nc in cd.Nested) CollectClassImports(nc, into);
 		}
 
 		// Collects a module's exports. Explicit `export` declarations win; a module with none implicitly exports all of
@@ -414,7 +491,7 @@ namespace Keysharp.Parsing.Syntax
 
 		private static IEnumerable<string> ImportTargets(ModInfo m)
 		{
-			foreach (var im in m.Imports)
+			foreach (var im in m.AllImports)   // an import at any nesting depth still contributes an execution-order edge
 				if (im.Module.Length > 0) yield return im.Module;
 		}
 
@@ -425,6 +502,7 @@ namespace Keysharp.Parsing.Syntax
 
 			_inlineAliases.Clear(); _wildcardModules.Clear(); _classFieldIds.Clear(); _emittedFuncImpls.Clear();
 			_exportedNames.Clear(); _pendingLambdas.Clear(); _scopeTemps.Clear(); _tempCounter = 0;
+			_importScopes.Clear();   // class/function import frames never straddle a module boundary
 		}
 
 		private CompilationUnitSyntax BuildMultiModule(ProgramNode prog, string name)
@@ -432,6 +510,7 @@ namespace Keysharp.Parsing.Syntax
 			var mods = PartitionModules(prog.Body);
 			foreach (var m in mods) { m.Dir = _includeDir; ScanExports(m); }   // main-file modules resolve imports from A_ScriptDir
 			var byName = mods.ToDictionary(m => m.Name, m => m, System.StringComparer.OrdinalIgnoreCase);
+			_modulesByName = byName;   // lets a function/class-scoped `#import "ScriptMod"` resolve exports at body-lowering time
 			LoadFileModules(mods, byName);   // pull in `#import "name"` modules defined in a separate <name>.ahk
 			if (Diagnostics.Count > 0) return null;   // an imported module file failed to parse — surface that, not a later "module not found"
 			var execOrder = ComputeExecOrder(mods, byName);
@@ -462,6 +541,44 @@ namespace Keysharp.Parsing.Syntax
 		private static ExpressionSyntax ModuleMemberField(string modName, string memberName) =>
 			Member(Member(Id("Program"), modName), NameMangler.Global(memberName));
 
+		// The value a whole-module import (`#import Mod` / `#import Mod as X`) binds the name to: a fresh MODULE
+		// INSTANCE. Script modules → `new Program.<Mod>()`; the built-in catch-all AHK module → the Ahk meta-object;
+		// a built-in Module type (Ks, …) → `new <Type>()`. All derive from Module and implement IMetaObject, so member
+		// access and method calls (`Ks.Cosh(0)`) dispatch through Get/Call — a Statics *class* singleton would not.
+		// Returns null if the name is not a known module. Shared by the single- and multi-module binding paths.
+		private static ExpressionSyntax ModuleObjectExpr(string modName, bool isAhk, bool isScript)
+		{
+			if (isScript)
+				return SyntaxFactory.ObjectCreationExpression(Ty("Program." + NameMangler.ModuleClass(modName))).WithArgumentList(SyntaxFactory.ArgumentList());
+			if (isAhk)
+				return SyntaxFactory.ObjectCreationExpression(Ty("Keysharp.Runtime.Ahk")).WithArgumentList(SyntaxFactory.ArgumentList());
+			return Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var t)
+				&& typeof(Keysharp.Runtime.Module).IsAssignableFrom(t)
+				? SyntaxFactory.ObjectCreationExpression(Ty(t.FullName.Replace('+', '.'))).WithArgumentList(SyntaxFactory.ArgumentList()) : null;
+		}
+
+		// The inline expression a bare global name resolves to when it names a built-in function/property/AHK
+		// class (NOT a user declaration), else null. Factored out of EnsureGlobalField so a `#import AHK { X }`
+		// member — the AHK module being the catch-all over every global built-in — binds the same way.
+		private static ExpressionSyntax ResolveGlobalBuiltin(string lower)
+		{
+			var rd = Script.TheScript.ReflectionsData;
+			if (rd.flatPublicStaticMethods.TryGetValue(lower, out var mi))
+				return FuncBind($"{mi.DeclaringType.FullName.Replace('+', '.')}.{mi.Name}");
+			if (rd.flatPublicStaticProperties.TryGetValue(lower, out var prop))
+				return Access(prop.DeclaringType.FullName.Replace('+', '.') + "." + prop.Name);
+			if (rd.stringToTypes.TryGetValue(lower, out var type) && IsAhkClass(type))
+				return TypeSingleton(type.FullName.Replace('+', '.'));
+			return null;
+		}
+
+		// Resolves an explicit member of a BUILT-IN module to its inline binding expression: a specific Module
+		// type (Ks) via BindModuleMember (method→Func, nested type→singleton, property→access); the catch-all
+		// AHK module via the global built-in tables. Returns null when the module genuinely has no such member.
+		private ExpressionSyntax BindBuiltinMember(string modName, bool isAhk, string member) =>
+			isAhk ? ResolveGlobalBuiltin(member.ToLowerInvariant())
+				: Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var t) ? BindModuleMember(t, member) : null;
+
 		// Emits the import binding members for a module (and registers the bound names in `_fields`). Returns property
 		// members (imported variables) to add to the class body; field bindings go straight into `_fieldDecls`.
 		// Names declared locally in a module (functions/classes/hotkey-or-hotstring funcs). A local declaration takes
@@ -490,7 +607,7 @@ namespace Keysharp.Parsing.Syntax
 			// Wildcard `{ * }` exports are deferred and resolved with LAST-import-wins (a later `#import "B" { * }`
 			// overrides an earlier `#import "A" { * }` for a shared name); explicit imports and locals take priority.
 			var wild = new Dictionary<string, (string mod, string key, ExportK kind)>(System.StringComparer.OrdinalIgnoreCase);
-			foreach (var im in m.Imports)
+			foreach (var im in m.ModuleBindings)   // module-scope bindings only; function/class-nested imports are scoped elsewhere
 			{
 				var (modName, alias, named, quoted) = (im.Module, im.Alias, im.Named, im.Quoted);
 				if (modName.Length == 0) continue;
@@ -502,18 +619,13 @@ namespace Keysharp.Parsing.Syntax
 				bool isAhk = modName.Equals("AHK", System.StringComparison.OrdinalIgnoreCase);
 				bool isScript = byName.ContainsKey(modName);
 
-				// The module object: `new Program.<Mod>()` (or `new Keysharp.Runtime.Ahk()` for the built-in AHK module).
-				ExpressionSyntax ModuleObject() => isAhk
-					? SyntaxFactory.ObjectCreationExpression(Ty("Keysharp.Runtime.Ahk")).WithArgumentList(SyntaxFactory.ArgumentList())
-					: SyntaxFactory.ObjectCreationExpression(Ty("Program." + NameMangler.ModuleClass(modName))).WithArgumentList(SyntaxFactory.ArgumentList());
-
 				// `as Alias`: bind the module's default export if it has one, else the module object.
 				if (alias != null && !localNames.Contains(alias))
 				{
 					ExpressionSyntax val = isScript && byName[modName].DefaultName != null
 						? ModuleMemberField(modName, byName[modName].DefaultName)
-						: ModuleObject();
-					RegisterImportField(alias, val);
+						: ModuleObjectExpr(modName, isAhk, isScript);
+					if (val != null) RegisterImportField(alias, val);
 				}
 				// Named imports `{ a, b as c, * }`.
 				if (named != null)
@@ -527,6 +639,10 @@ namespace Keysharp.Parsing.Syntax
 							if (isScript)
 								foreach (var ex in byName[modName].Exports)
 									if (!localNames.Contains(ex.Key)) wild[ex.Key] = (modName, ex.Key, ex.Value);
+							// A built-in `{ * }` resolves members on demand (matching the single-module RegisterImport
+							// path) instead of eagerly emitting every export — the module type is consulted in NameRef.
+							else if (!isAhk && Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var wt) && !_wildcardModules.Contains(wt))
+								_wildcardModules.Add(wt);
 							continue;
 						}
 						string impName = part, impAlias = part;
@@ -536,18 +652,21 @@ namespace Keysharp.Parsing.Syntax
 						wild.Remove(impAlias);                         // an explicit import overrides a wildcard one
 						if (isScript && byName[modName].Exports.TryGetValue(impName, out var k))
 							BindNamedImport(modName, impName, impAlias, k, props);
-						else if (!isScript && !isAhk
-								&& Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var bmt)
-								&& !BuiltinModuleHasMember(bmt, impName))   // built-in module with no such member — reject like AutoHotkey's load-time error
-							Diag($"{im.Line}:{im.Column}: #Import: module '{modName}' has no exported member named '{impName}'");
-						else
+						else if (isScript)
 							RegisterImportField(impAlias, ModuleMemberField(modName, impName));   // best-effort (script modules bind non-exported declarations too)
+						else if (BindBuiltinMember(modName, isAhk, impName) is { } bind)
+							RegisterImportField(impAlias, bind);                                   // built-in method/type/property → its inline expression
+						else if (!isAhk && Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var bmt) && BuiltinModuleHasMember(bmt, impName))
+							{ }                                                                    // has the member but not bindable here — leave to ambient resolution
+						else
+							Diag($"{im.Line}:{im.Column}: #Import: module '{modName}' has no exported member named '{impName}'");
 					}
 				}
 				// A bare `#import Mod` (no alias, no braces) adds the module NAME as the module object — but a quoted
 				// `#import "Mod"` does NOT introduce the name unless aliased.
-				if (alias == null && named == null && !quoted && !localNames.Contains(modName))
-					RegisterImportField(modName, ModuleObject());
+				if (alias == null && named == null && !quoted && !localNames.Contains(modName)
+					&& ModuleObjectExpr(modName, isAhk, isScript) is { } bareObj)
+					RegisterImportField(modName, bareObj);
 			}
 			// Emit the surviving wildcard bindings (those not shadowed by an explicit import or local declaration).
 			foreach (var (lower, w) in wild)
@@ -598,7 +717,10 @@ namespace Keysharp.Parsing.Syntax
 
 		// Pre-pass (register functions/classes/imports) + the top-level lowering loop for one module body, returning
 		// the module-class members and its auto-execute statements. Shared by the single- and multi-module paths.
-		private (List<MemberDeclarationSyntax> members, List<StatementSyntax> auto) LowerProgramBody(List<Stmt> body)
+		// liftControlFlowImports: single-module only — an import nested in a top-level control-flow block (if/loop/…)
+		// binds at module scope like a bare top-level one (AHK load-time semantics), matching the multi-module lift.
+		// The multi-module path leaves this off: EmitImports already bound its ModuleBindings before this runs.
+		private (List<MemberDeclarationSyntax> members, List<StatementSyntax> auto) LowerProgramBody(List<Stmt> body, bool liftControlFlowImports = false)
 		{
 			foreach (var s in body)
 			{
@@ -610,6 +732,14 @@ namespace Keysharp.Parsing.Syntax
 				else if (s is HotstringDef { Func: { } hsf }) { _userFuncByLower[hsf.Name.ToLowerInvariant()] = hsf.Name; }
 				else if (s is ClassDecl cd) { RegisterClass(cd); }
 				else if (s is ImportDirective dir) RegisterImport(dir);
+			}
+			if (liftControlFlowImports)
+			{
+				// Imports inside a top-level control-flow block bind at module scope too (function/class bodies are
+				// deliberately excluded — those are lexically scoped and handled when their body is lowered).
+				var lifted = new List<ImportDirective>();
+				foreach (var s in body) if (s is not ImportDirective) CollectNestedImports(s, lifted);
+				foreach (var dir in lifted) RegisterImport(dir);
 			}
 			foreach (var lower in _userFuncByLower.Keys.ToList())
 				EnsureGlobalField(lower);
@@ -744,7 +874,7 @@ namespace Keysharp.Parsing.Syntax
 		{
 			// The module name may be quoted or unquoted (`#import "Ks" {…}` and `#import Ks {…}` are both valid), and
 			// the brace list may be `{ * }` or named — the parser normalizes all of these onto ImportDirective.
-			var (modName, named) = (d.Module, d.Named);
+			var (modName, alias, named) = (d.Module, d.Alias, d.Named);
 			if (modName.Length == 0) return;
 			if (!ModuleResolves(modName, null))
 			{
@@ -759,13 +889,24 @@ namespace Keysharp.Parsing.Syntax
 					_inlineAliases["__main"] = () => SyntaxFactory.ObjectCreationExpression(Ty("__Main")).WithArgumentList(SyntaxFactory.ArgumentList());
 				return;
 			}
-			if (!Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var modType)) return;
-			if (!typeof(Keysharp.Runtime.Module).IsAssignableFrom(modType)) return;
+			bool isAhk = modName.Equals("AHK", System.StringComparison.OrdinalIgnoreCase);
+
+			// `#import Mod as Alias`: the alias binds the module object (single-module has no script modules, so no
+			// default-export form). A bindable module object is required; otherwise the alias is left unbound.
+			if (alias != null && ModuleObjectExpr(modName, isAhk, false) is { } aliasVal)
+				RegisterImportField(alias, aliasVal);
 
 			var names = named ?? "*";
-			if (names == "*" || names.Length == 0)   // `#import "Mod"` / `#import "Mod" { * }`: resolve members on demand
+			if (names == "*" || names.Length == 0)
 			{
-				_wildcardModules.Add(modType);
+				// A bare unquoted `#import Mod` (no braces, no alias) also introduces the module NAME as the module
+				// object, so `Mod.Member` dispatches through IMetaObject (Get/Call) — matching the multi-module and
+				// function-scope paths. Members still resolve unqualified through the wildcard below (existing behavior).
+				if (named == null && alias == null && !d.Quoted && ModuleObjectExpr(modName, isAhk, false) is { } bareObj)
+					RegisterImportField(modName, bareObj);
+				if (!isAhk && Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var wildType)
+					&& !_wildcardModules.Contains(wildType))   // `#import "Mod"` / `#import "Mod" { * }`: resolve members on demand
+					_wildcardModules.Add(wildType);
 				return;
 			}
 			foreach (var raw in names.Split(','))
@@ -777,18 +918,239 @@ namespace Keysharp.Parsing.Syntax
 				if (asIdx >= 0) { impName = part.Substring(0, asIdx).Trim(); impAlias = part.Substring(asIdx + 4).Trim(); }
 				var lower = impAlias.ToLowerInvariant();
 				if (_fields.ContainsKey(lower)) continue;
-				var init = BindModuleMember(modType, impName);
+				var init = BindBuiltinMember(modName, isAhk, impName);
 				if (init == null)
 				{
 					// Not bindable as an import here. Only an error if the module truly has no such member;
 					// otherwise leave the name to normal global resolution, as before this validation existed.
-					if (!BuiltinModuleHasMember(modType, impName))
+					if (!isAhk && Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var mt) && !BuiltinModuleHasMember(mt, impName))
 						Diag($"{d.Line}:{d.Column}: #Import: module '{modName}' has no exported member named '{impName}'");
 					continue;
 				}
 				_fields[lower] = NameMangler.Escape(lower);
 				_fieldDecls.Add(ObjField(NameMangler.Escape(lower), init));
 			}
+		}
+
+		// ---- scoped (function/class) import frames ----
+
+		// One resolved import name: an inline read expression and (only for a writable script variable) a write target.
+		// Both are lazily materialised factories so a name referenced N times reuses the same inline shape without a
+		// declaration; a null Write makes an assignment to the name a load-time diagnostic.
+		private sealed class ImportBinding
+		{
+			public System.Func<ExpressionSyntax> Read;
+			public System.Func<ExpressionSyntax> Write;   // null => not assignable (function/type/module-object/live-property)
+		}
+
+		// A `{ * }` wildcard source in a scope, resolved per referenced name in NameRef (last-added wins).
+		private sealed class ImportWildcard
+		{
+			public string ModName;
+			public bool IsAhk;
+			public System.Type BuiltinType;   // built-in module type, or null for a script module
+			public ModInfo Script;            // script module, or null for a built-in
+		}
+
+		// A lexical import scope (one class body or one callable body): explicit alias bindings plus wildcard sources.
+		private sealed class ImportScope
+		{
+			public Dictionary<string, ImportBinding> Named = new(System.StringComparer.OrdinalIgnoreCase);
+			public List<ImportWildcard> Wildcards = new();   // searched last-first so a later `{ * }` shadows an earlier one
+		}
+
+		// Builds a scope frame from the `#import` directives written directly in a class or callable body. Explicit
+		// names bind eagerly (no declarations — just inline-expression factories); wildcards are recorded for on-demand
+		// resolution in NameRef. Module-not-found / no-such-member are diagnosed here with the directive's position,
+		// keeping validation eager even though binding is lazy. Returns null when the frame would be empty.
+		private ImportScope BuildImportScope(IEnumerable<ImportDirective> imports)
+		{
+			ImportScope scope = null;
+			ImportScope Frame() => scope ??= new ImportScope();
+			foreach (var im in imports)
+			{
+				var (modName, alias, named, quoted) = (im.Module, im.Alias, im.Named, im.Quoted);
+				if (modName.Length == 0) continue;
+				bool isAhk = modName.Equals("AHK", System.StringComparison.OrdinalIgnoreCase);
+				bool isMain = modName.Equals("__Main", System.StringComparison.OrdinalIgnoreCase);
+				ModInfo script = null;
+				bool isScript = _modulesByName != null && _modulesByName.TryGetValue(modName, out script);
+				System.Type builtinType = null;
+				if (!isScript && !isAhk && !isMain)
+					Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out builtinType);
+				if (!isScript && !isAhk && !isMain && builtinType == null)
+				{
+					Diag($"{im.Line}:{im.Column}: #Import: module not found: {modName}");
+					continue;
+				}
+
+				// The module object for a bare/aliased whole-module import. `#import __Main` in the single-module path
+				// (no _modulesByName) is a fresh `new __Main()` proxy over the current module's statics, matching the
+				// existing self-import alias; in the multi-module path __Main is a normal script module (`new Program.__Main()`).
+				System.Func<ExpressionSyntax> ModuleObj = (isMain && !isScript)
+					? () => SyntaxFactory.ObjectCreationExpression(Ty("__Main")).WithArgumentList(SyntaxFactory.ArgumentList())
+					: () => ModuleObjectExpr(modName, isAhk, isScript);
+
+				// `as Alias`: the module's default export (script) or the module object.
+				if (alias != null)
+				{
+					var a = alias.ToLowerInvariant();
+					if (isScript && script.DefaultName != null)
+						Frame().Named[a] = new ImportBinding { Read = () => ModuleMemberField(modName, script.DefaultName) };
+					else
+						Frame().Named[a] = new ImportBinding { Read = ModuleObj };
+				}
+				// Named `{ a, b as c, * }`.
+				if (named != null)
+				{
+					foreach (var raw in named.Split(','))
+					{
+						var part = raw.Trim();
+						if (part.Length == 0) continue;
+						if (part == "*") { Frame().Wildcards.Add(new ImportWildcard { ModName = modName, IsAhk = isAhk, BuiltinType = builtinType, Script = script }); continue; }
+						string impName = part, impAlias = part;
+						var asIdx = part.IndexOf(" as ", System.StringComparison.OrdinalIgnoreCase);
+						if (asIdx >= 0) { impName = part.Substring(0, asIdx).Trim(); impAlias = part.Substring(asIdx + 4).Trim(); }
+						var b = ScopedMemberBinding(modName, isAhk, isScript, script, builtinType, impName, im);
+						if (b != null) Frame().Named[impAlias.ToLowerInvariant()] = b;
+					}
+				}
+				// Bare `#import Mod` (unquoted, no alias/list) introduces the module name itself as the module object.
+				if (alias == null && named == null && !quoted)
+					Frame().Named[modName.ToLowerInvariant()] = new ImportBinding { Read = ModuleObj };
+			}
+			return scope;
+		}
+
+		// The binding for one explicit member of a module in a scope, or null (with a diagnostic) when the module has no
+		// such member. Script variable exports are writable (write-through to the source module field); everything else
+		// (functions, types, built-in methods/types/properties, module objects) is read-only — assignment is a later
+		// diagnostic in LowerAssign.
+		private ImportBinding ScopedMemberBinding(string modName, bool isAhk, bool isScript, ModInfo script, System.Type builtinType, string member, ImportDirective im)
+		{
+			if (isScript)
+			{
+				bool writable = script.Exports.TryGetValue(member, out var kind) && kind == ExportK.Variable;
+				return new ImportBinding
+				{
+					Read = () => ModuleMemberField(modName, member),
+					Write = writable ? () => ModuleMemberField(modName, member) : null,
+				};
+			}
+			var expr = BindBuiltinMember(modName, isAhk, member);
+			if (expr != null)
+				return new ImportBinding { Read = () => BindBuiltinMember(modName, isAhk, member) };
+			// The member is unknown: an error only if the module genuinely lacks it (a member we simply can't bind here
+			// still resolves through ambient global lookup, unchanged).
+			if (!isAhk && builtinType != null && !BuiltinModuleHasMember(builtinType, member))
+				Diag($"{im.Line}:{im.Column}: #Import: module '{modName}' has no exported member named '{member}'");
+			return null;
+		}
+
+		// Resolves `lower` against the scope frames' EXPLICIT bindings, innermost-first. Explicit imports shadow module
+		// globals and built-in class-name aliases (but not locals/params/statics, checked earlier in NameRef).
+		private bool TryScopedExplicit(string lower, out ImportBinding binding)
+		{
+			for (int i = _importScopes.Count - 1; i >= 0; i--)
+				if (_importScopes[i].Named.TryGetValue(lower, out binding)) return true;
+			binding = null;
+			return false;
+		}
+
+		// Resolves `lower` against the scope frames' WILDCARD sources, innermost-first (and last-added within a frame).
+		// A hit is cached into that frame's Named map so later references and %name% deref arms are O(1). Placed BELOW
+		// built-in A_* properties in NameRef so a wildcard never shadows a built-in variable (matching module scope).
+		private bool TryScopedWildcard(string lower, out ImportBinding binding)
+		{
+			for (int i = _importScopes.Count - 1; i >= 0; i--)
+			{
+				var frame = _importScopes[i];
+				for (int w = frame.Wildcards.Count - 1; w >= 0; w--)
+				{
+					var wc = frame.Wildcards[w];
+					ImportBinding b = null;
+					if (wc.Script != null)
+					{
+						if (wc.Script.Exports.TryGetValue(lower, out var kind))
+							b = new ImportBinding
+							{
+								Read = () => ModuleMemberField(wc.ModName, lower),
+								Write = kind == ExportK.Variable ? () => ModuleMemberField(wc.ModName, lower) : null,
+							};
+					}
+					else if (BindBuiltinMember(wc.ModName, wc.IsAhk, lower) is { } expr)
+						b = new ImportBinding { Read = () => BindBuiltinMember(wc.ModName, wc.IsAhk, lower) };
+					if (b != null) { frame.Named[lower] = b; binding = b; return true; }
+				}
+			}
+			binding = null;
+			return false;
+		}
+
+		// The names a set of `#import` directives makes visible in a scope, added to the #Warn VarUnset "readable" set so
+		// a reference to an imported function/type/variable is not flagged "never assigned". Deliberately generous (a
+		// wildcard contributes every exportable member name) — over-providing only suppresses a warning, never adds one.
+		// Emits NO diagnostics (unlike BuildImportScope), so the warn pre-pass doesn't double-report module errors.
+		private void AddImportProvidedNames(IEnumerable<ImportDirective> imports, HashSet<string> into)
+		{
+			foreach (var im in imports)
+			{
+				var (modName, alias, named, quoted) = (im.Module, im.Alias, im.Named, im.Quoted);
+				if (modName.Length == 0) continue;
+				if (alias != null) into.Add(alias.ToLowerInvariant());
+				bool isAhk = modName.Equals("AHK", System.StringComparison.OrdinalIgnoreCase);
+				ModInfo script = null;
+				bool isScript = _modulesByName != null && _modulesByName.TryGetValue(modName, out script);
+				System.Type builtinType = null;
+				if (!isScript && !isAhk) Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out builtinType);
+				if (named != null)
+				{
+					foreach (var raw in named.Split(','))
+					{
+						var part = raw.Trim();
+						if (part.Length == 0) continue;
+						if (part == "*")
+						{
+							if (isScript) foreach (var k in script.Exports.Keys) into.Add(k.ToLowerInvariant());
+							else if (builtinType != null) foreach (var nm in BuiltinMemberNames(builtinType)) into.Add(nm);
+							continue;   // an AHK `{ * }` provides every global — those already never warn
+						}
+						var asIdx = part.IndexOf(" as ", System.StringComparison.OrdinalIgnoreCase);
+						into.Add((asIdx >= 0 ? part.Substring(asIdx + 4).Trim() : part).ToLowerInvariant());
+					}
+				}
+				if (alias == null && named == null && !quoted) into.Add(modName.ToLowerInvariant());
+			}
+		}
+
+		// The lowercased AHK-visible names of a built-in module type's public static methods, nested types and
+		// properties — the members a `#import "Mod" { * }` can bind. Used only by the #Warn provided-name set.
+		private static IEnumerable<string> BuiltinMemberNames(System.Type modType)
+		{
+			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy;
+			foreach (var mi in modType.GetMethods(flags)) if (!mi.IsSpecialName) yield return (Script.GetUserDeclaredName(mi) ?? mi.Name).ToLowerInvariant();
+			foreach (var nt in modType.GetNestedTypes(System.Reflection.BindingFlags.Public)) yield return (Script.GetUserDeclaredName(nt) ?? nt.Name).ToLowerInvariant();
+			foreach (var pr in modType.GetProperties(flags)) yield return (Script.GetUserDeclaredName(pr) ?? pr.Name).ToLowerInvariant();
+		}
+
+		// Whether `lower` actually resolves to a scoped import at THIS reference (used by LowerAssign for the write gate),
+		// respecting the same shadowing as NameRef: a local/param/static/closure/enclosing name of the same spelling —
+		// or, for a wildcard-only match, a built-in A_* property — takes precedence and means "not an import here".
+		private bool ResolvesToScopedImport(string lower, out ImportBinding binding)
+		{
+			binding = null;
+			if (_importScopes.Count == 0) return false;
+			if ((_byRefParams != null && _byRefParams.Contains(lower))
+				|| (_statics != null && _statics.ContainsKey(lower))
+				|| (_forcedGlobals != null && _forcedGlobals.Contains(lower))
+				|| (_locals != null && _locals.Contains(lower))
+				|| _scopeClosureNames.Contains(lower)
+				|| _enclosingLocals.Contains(lower)
+				|| _enclosingStatics.ContainsKey(lower))
+				return false;
+			if (TryScopedExplicit(lower, out binding)) return true;
+			if (Script.TheScript.ReflectionsData.flatPublicStaticProperties.ContainsKey(lower)) return false;   // built-in var beats a wildcard
+			return TryScopedWildcard(lower, out binding);
 		}
 
 		// Resolves one exported name on a module type to its binding: method->Func, nested type->singleton, property->access.
@@ -907,6 +1269,9 @@ namespace Keysharp.Parsing.Syntax
 			// state, not a per-call capture, so a `static` nested function reading it stays a plain Func; a non-static
 			// closure keeps marking the scope captured (unchanged) so its Closure typing is preserved.
 			if (_enclosingStatics.TryGetValue(lower, out var esf)) { if (!_inStaticNested) _capturedInScope = true; return Id(esf); }
+			// An EXPLICIT scoped `#import` (function/class frame) shadows module globals and built-in class-name aliases,
+			// but not the locals/params/statics checked above. Resolves to an inline expression — no emitted declaration.
+			if (_importScopes.Count > 0 && TryScopedExplicit(lower, out var expImp)) return expImp.Read();
 			if (_inlineAliases.TryGetValue(lower, out var alias)) return alias();
 			// Built-in variables (A_Index, A_Clipboard, A_TickCount, …) resolve to their accessor property.
 			if (Script.TheScript.ReflectionsData.flatPublicStaticProperties.TryGetValue(lower, out var prop))
@@ -918,6 +1283,9 @@ namespace Keysharp.Parsing.Syntax
 				&& Keysharp.Parsing.Keywords.TypeNameAliases.FirstOrDefault(kv => kv.Value.Equals(lower, System.StringComparison.OrdinalIgnoreCase)).Key is { } aliasKey
 				&& Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(aliasKey, out var aliasType))
 				return TypeSingleton(aliasType.FullName.Replace('+', '.'));
+			// A scoped `{ * }` WILDCARD import resolves here — below built-in A_* properties (so a wildcard never shadows
+			// a built-in variable) but above module-scope resolution (so a function/class wildcard shadows a module global).
+			if (_importScopes.Count > 0 && TryScopedWildcard(lower, out var wildImp)) return wildImp.Read();
 			// A wildcard-imported PROPERTY reflects live runtime state (e.g. A_DefaultHotstring*), so read it through
 			// a direct member access each reference rather than caching it in a static field initialised once.
 			if (WildcardLiveProperty(lower) is { } liveProp) return liveProp;
@@ -1187,11 +1555,16 @@ namespace Keysharp.Parsing.Syntax
 				// Names readable here = this scope's provided + everything from enclosing scopes (closure capture) + the
 				// module globals (always reachable, even from class methods/properties that don't inherit outer locals).
 				var readable = provided;
-				if (outerProvided != null || (!topLevel && _warnGlobalReadable != null))
+				// This scope's own `#import` names (control-flow-nested and direct) are readable here — a reference to an
+				// imported function/type/variable is not "never assigned". Class-body imports arrive via outerProvided.
+				var ownImports = new List<ImportDirective>();
+				if (body != null) foreach (var s in body) { if (s is ImportDirective id) ownImports.Add(id); else CollectNestedImports(s, ownImports); }
+				if (outerProvided != null || (!topLevel && _warnGlobalReadable != null) || ownImports.Count > 0)
 				{
 					readable = new HashSet<string>(provided, System.StringComparer.OrdinalIgnoreCase);
 					if (outerProvided != null) readable.UnionWith(outerProvided);
 					if (!topLevel && _warnGlobalReadable != null) readable.UnionWith(_warnGlobalReadable);
+					if (ownImports.Count > 0) AddImportProvidedNames(ownImports, readable);
 				}
 				if (_warnVarUnset != null && !assumeGlobal)
 				{
@@ -1409,13 +1782,20 @@ namespace Keysharp.Parsing.Syntax
 			{
 				case FunctionDecl fd: AnalyzeScope(fd.Body?.Body, fd.ArrowBody, fd.Params.Select(p => p.Name), globals, topLevel: false, outerProvided); break;
 				case ClassDecl cd:
-					foreach (var m in cd.Methods) AnalyzeScope(m.Body?.Body, m.ArrowBody, m.Params.Select(p => p.Name), globals, topLevel: false);
+					// Class-body `#import` names are visible to every method/property/nested class of the class — pass them
+					// down as the "outer provided" set (combined with any enclosing class's imports) so VarUnset doesn't
+					// flag a class-imported name. Methods do NOT capture outer locals, so this carries only imports.
+					var classProvided = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+					if (outerProvided != null) classProvided.UnionWith(outerProvided);
+					AddImportProvidedNames(cd.Imports, classProvided);
+					var classArg = classProvided.Count > 0 ? classProvided : null;
+					foreach (var m in cd.Methods) AnalyzeScope(m.Body?.Body, m.ArrowBody, m.Params.Select(p => p.Name), globals, topLevel: false, classArg);
 					foreach (var pr in cd.Properties)
 					{
-						if (pr.HasGet) AnalyzeScope(pr.GetBody?.Body, pr.GetArrow, pr.Params.Select(p => p.Name), globals, topLevel: false);
-						if (pr.HasSet) AnalyzeScope(pr.SetBody?.Body, pr.SetArrow, pr.Params.Select(p => p.Name).Append("value"), globals, topLevel: false);
+						if (pr.HasGet) AnalyzeScope(pr.GetBody?.Body, pr.GetArrow, pr.Params.Select(p => p.Name), globals, topLevel: false, classArg);
+						if (pr.HasSet) AnalyzeScope(pr.SetBody?.Body, pr.SetArrow, pr.Params.Select(p => p.Name).Append("value"), globals, topLevel: false, classArg);
 					}
-					foreach (var nc in cd.Nested) RecurseScopes(nc, globals);
+					foreach (var nc in cd.Nested) RecurseScopes(nc, globals, classArg);
 					break;
 				case Block b: foreach (var x in b.Body) RecurseScopes(x, globals, outerProvided); break;
 				case IfStmt iff: RecurseScopes(iff.Then, globals, outerProvided); if (iff.Else != null) RecurseScopes(iff.Else, globals, outerProvided); RecurseScopesExpr(iff.Cond, globals, outerProvided); break;
@@ -1706,6 +2086,21 @@ namespace Keysharp.Parsing.Syntax
 					: CompoundValue(a.Op[..^1], Op("GetPropertyValue", refId, Str("__Value")), LowerExpr(a.Value));
 				if (rv == null) { Diag($"compound assignment '{a.Op}' not yet lowerable"); return Str(""); }
 				return Op("SetPropertyValue", refId, Str("__Value"), rv);
+			}
+			// A scoped `#import` binding is a valid assignment target only when it is a writable script VARIABLE export
+			// (the write goes through to the source module's field). Assigning to an imported function/type/module
+			// object/built-in member is a load-time error — otherwise it would silently reassign the importer's own
+			// binding (or emit uncompilable C#). Locals/params/statics of the same name shadow the import (handled above).
+			if (ResolvesToScopedImport(tn.Name.ToLowerInvariant(), out var impBind))
+			{
+				if (impBind.Write == null)
+				{
+					Diag($"{a.Line}:{a.Column}: #Import: cannot assign to imported name '{tn.Name}'");
+					return Str("");
+				}
+				var wval = a.Op == ":=" ? LowerExpr(a.Value) : CompoundValue(a.Op[..^1], impBind.Read(), LowerExpr(a.Value));
+				if (wval == null) { Diag($"compound assignment '{a.Op}' not yet lowerable"); return Str(""); }
+				return Assign(impBind.Write(), wval);
 			}
 			var target = NameRef(tn.Name);
 
@@ -2386,6 +2781,11 @@ namespace Keysharp.Parsing.Syntax
 			_staticFieldSink = classStaticFields;
 			var savedPath = _currentClassPath;
 			_currentClassPath = _currentClassPath == null ? typeName : _currentClassPath + "." + typeName;
+			// Class-body `#import` frame: visible to every member lowered below — methods, property accessors, field and
+			// static initializers, and (via the still-pushed stack) lexically nested classes. Pushed AFTER the `extends`
+			// clause is resolved above, so a base-class name is never shadowed by a class import.
+			var classFrame = c.Imports.Count > 0 ? BuildImportScope(c.Imports) : null;
+			if (classFrame != null) _importScopes.Add(classFrame);
 			var members = new List<MemberDeclarationSyntax> { ClassCtor(typeName) };
 			foreach (var m in c.Methods) members.Add(LowerMethod(m, typeName));
 			foreach (var pr in c.Properties) members.AddRange(LowerProperty(pr));
@@ -2404,10 +2804,11 @@ namespace Keysharp.Parsing.Syntax
 			if (statFields.Count > 0 || staticPre.Count > 0 || c.StaticInit.Count > 0)
 				members.Add(InitMethod(NameMangler.StaticInit(), null, statFields, staticPre, c.StaticInit, staticCtx: true));
 
-			// Emit this class's collected static-local backing fields as its own members, then restore the sink/path.
+			// Emit this class's collected static-local backing fields as its own members, then restore the sink/path/frame.
 			members.AddRange(classStaticFields);
 			_staticFieldSink = savedSink;
 			_currentClassPath = savedPath;
+			if (classFrame != null) _importScopes.RemoveAt(_importScopes.Count - 1);
 
 			var decl = SyntaxFactory.ClassDeclaration(typeName)
 				.AddModifiers(PublicTok)
@@ -2940,6 +3341,16 @@ namespace Keysharp.Parsing.Syntax
 			_scopeClosureNames = capturing ? new HashSet<string>(savedScopeClosureNames, System.StringComparer.Ordinal)
 											: new HashSet<string>(System.StringComparer.Ordinal);
 			_scopeClosureNames.UnionWith(ownClosureNames);
+			// This callable's own `#import` frame: its body's imports (control-flow-nested included, nested callables
+			// excluded — those build their own frames). Built and pushed here — BEFORE local/static classification — so a
+			// name it explicitly binds is not turned into a fresh local by an assignment to it (which would shadow the
+			// import and defeat write-through). A nested closure lowered below inherits the frame via the still-pushed
+			// stack. Names bound by the frame:
+			var bodyImports = new List<ImportDirective>();
+			if (bodyBlock != null) foreach (var st in bodyBlock.Body) CollectNestedImports(st, bodyImports);
+			var importFrame = bodyImports.Count > 0 ? BuildImportScope(bodyImports) : null;
+			if (importFrame != null) _importScopes.Add(importFrame);
+			bool BoundByOwnImport(string n) => importFrame != null && importFrame.Named.ContainsKey(n);
 			// A bare `static` declaration switches the function to assume-static: undeclared assigned variables become
 			// per-function STATIC locals (persisting across calls) rather than fresh locals — they need backing SL_ fields
 			// like explicit statics. `global` wins if both are present. Params, explicit locals, and nested-closure names
@@ -2949,7 +3360,7 @@ namespace Keysharp.Parsing.Syntax
 			if (assumeStatic)
 				foreach (var n in assignedOrdered)
 					if (!forcedGlobals.Contains(n) && !statics.ContainsKey(n) && !explicitLocals.Contains(n)
-						&& !paramLowers.Contains(n) && !_enclosingLocals.Contains(n) && !ownClosureNames.Contains(n))
+						&& !paramLowers.Contains(n) && !_enclosingLocals.Contains(n) && !ownClosureNames.Contains(n) && !BoundByOwnImport(n))
 					{
 						var field = NameMangler.StaticLocalField(funcName, n);
 						statics[n] = field;
@@ -2959,7 +3370,7 @@ namespace Keysharp.Parsing.Syntax
 			_locals = new HashSet<string>(paramLowers);
 			if (!assumeGlobal)
 				foreach (var n in assignedOrdered)
-					if (!forcedGlobals.Contains(n) && !statics.ContainsKey(n) && !_enclosingLocals.Contains(n)) _locals.Add(n);
+					if (!forcedGlobals.Contains(n) && !statics.ContainsKey(n) && !_enclosingLocals.Contains(n) && !BoundByOwnImport(n)) _locals.Add(n);
 			foreach (var n in explicitLocals) _locals.Add(n);
 			// In a method (or a closure nested in one), `this` is always the special @this (the receiver), never a local —
 			// even when assigned (`this := 0`), which reassigns the captured receiver. Don't shadow it with a null local.
@@ -3063,6 +3474,7 @@ namespace Keysharp.Parsing.Syntax
 			_scopeTemps = savedTemps; _pendingScopeFuncs = savedScopeFuncs; _enclosingLocals = savedEnclosing;
 			_pendingScopeClosureInits = savedClosureInits; _enclosingStatics = savedEnclosingStatics;
 			_inStaticNested = savedInStaticNested;
+			if (importFrame != null) _importScopes.RemoveAt(_importScopes.Count - 1);
 			return SyntaxFactory.Block(body);
 		}
 
@@ -3075,39 +3487,69 @@ namespace Keysharp.Parsing.Syntax
 		//   FuncScope.Writer KS_writeVar = (KS_name, KS_val) => key switch { "a" => a = KS_val, ..., _ => Script.DerefMiss };
 		// The writer is emitted only when the body writes a dynamic name, so a read-only scope is a single reader.
 		private ExpressionSyntax BuildReaderLambda() =>
-			SyntaxFactory.SimpleLambdaExpression(SyntaxFactory.Parameter(SyntaxFactory.Identifier("KS_name")), BuildScopeSwitch(t => t));
+			SyntaxFactory.SimpleLambdaExpression(SyntaxFactory.Parameter(SyntaxFactory.Identifier("KS_name")), BuildScopeSwitch(isWriter: false));
 		private ExpressionSyntax BuildWriterLambda() =>
 			SyntaxFactory.ParenthesizedLambdaExpression(
 				SyntaxFactory.ParameterList(SyntaxFactory.SeparatedList(new[] { SyntaxFactory.Parameter(SyntaxFactory.Identifier("KS_name")), SyntaxFactory.Parameter(SyntaxFactory.Identifier("KS_val")) })),
-				BuildScopeSwitch(t => Assign(t, Id("KS_val"))));
+				BuildScopeSwitch(isWriter: true));
 
-		private ExpressionSyntax BuildScopeSwitch(Func<ExpressionSyntax, ExpressionSyntax> arm) =>
-			SyntaxFactory.SwitchExpression(LowerKey(), SyntaxFactory.SeparatedList(
-				DerefArms().Select(a => SyntaxFactory.SwitchExpressionArm(SyntaxFactory.ConstantPattern(Str(a.key)), arm(a.target)))
-					.Append(SyntaxFactory.SwitchExpressionArm(SyntaxFactory.DiscardPattern(), Access("Keysharp.Runtime.Script.DerefMiss")))));
+		// The reader switch reads every arm; the writer switch assigns only arms with a write target (a read-only
+		// import arm is omitted, so a dynamic write to it falls through to DerefMiss / the global store).
+		private ExpressionSyntax BuildScopeSwitch(bool isWriter)
+		{
+			var swArms = new List<SwitchExpressionArmSyntax>();
+			foreach (var a in DerefArms())
+			{
+				var target = isWriter ? a.write : a.read;
+				if (target == null) continue;
+				swArms.Add(SyntaxFactory.SwitchExpressionArm(SyntaxFactory.ConstantPattern(Str(a.key)), isWriter ? Assign(target, Id("KS_val")) : target));
+			}
+			swArms.Add(SyntaxFactory.SwitchExpressionArm(SyntaxFactory.DiscardPattern(), Access("Keysharp.Runtime.Script.DerefMiss")));
+			return SyntaxFactory.SwitchExpression(LowerKey(), SyntaxFactory.SeparatedList(swArms));
+		}
 
 		// `%name%` read/write inside a deref function body, routed through the runtime so the call sites stay tiny;
 		// KS_readVar/KS_writeVar are this function's reader/writer delegates (the prologue lambdas).
 		private static ExpressionSyntax DerefGet(ExpressionSyntax name) => Op("DerefGet", Id("KS_readVar"), name);
 		private static ExpressionSyntax DerefSet(ExpressionSyntax name, ExpressionSyntax value) => Op("DerefSet", Id("KS_writeVar"), name, value);
 
-		// The (key -> read/write target) arms shared by the Try* switches, in NameRef's resolution priority order
-		// (locals, statics, this scope's closures, then captured enclosing locals/statics), deduped so the switch never
-		// emits a duplicate `case` label.
-		private List<(string key, ExpressionSyntax target)> DerefArms()
+		// The (key -> read/write target) arms shared by the reader/writer switches, in NameRef's resolution priority
+		// order (locals, statics, this scope's closures, captured enclosing locals/statics, then scoped `#import`
+		// names), deduped so the switch never emits a duplicate `case` label. `write` is null for a read-only arm.
+		private List<(string key, ExpressionSyntax read, ExpressionSyntax write)> DerefArms()
 		{
-			var arms = new List<(string, ExpressionSyntax)>();
+			var arms = new List<(string, ExpressionSyntax, ExpressionSyntax)>();
 			var seen = new HashSet<string>(System.StringComparer.Ordinal);
-			void Arm(string key, ExpressionSyntax target) { if (seen.Add(key)) arms.Add((key, target)); }
-			foreach (var n in _locals) Arm(n, Id(NameMangler.Escape(n)));
-			foreach (var kv in _statics) Arm(kv.Key, Id(kv.Value));
+			void Arm(string key, ExpressionSyntax read, ExpressionSyntax write) { if (seen.Add(key)) arms.Add((key, read, write)); }
+			void LValue(string key) { var id = Id(NameMangler.Escape(key)); Arm(key, id, id); }
+			foreach (var n in _locals) LValue(n);
+			foreach (var kv in _statics) { var id = Id(kv.Value); Arm(kv.Key, id, id); }
 			// Named nested functions in this scope are local closure vars (not in _locals); exposing them here lets a
 			// dynamic `%name%` — and external callers resolving by name — reach the closure rather than a global.
-			foreach (var n in _scopeClosureNames) Arm(n, Id(NameMangler.Escape(n)));
+			foreach (var n in _scopeClosureNames) LValue(n);
 			// Captured enclosing-scope locals and statics, after this scope's own, so a nested closure's `%name%`
 			// reaches the enclosing function's variables, not just globals.
-			foreach (var n in _enclosingLocals) Arm(n, Id(NameMangler.Escape(n)));
-			foreach (var kv in _enclosingStatics) Arm(kv.Key, Id(kv.Value));
+			foreach (var n in _enclosingLocals) LValue(n);
+			foreach (var kv in _enclosingStatics) { var id = Id(kv.Value); Arm(kv.Key, id, id); }
+			// Scoped `#import` names last (locals/statics of the same name shadow them, matching NameRef). Explicit
+			// bindings first, then each wildcard's members fully expanded — a built-in wildcard member is not reachable
+			// via the runtime global store (Ks is not in the reflection tables), so it MUST be an arm here. Read-only
+			// members contribute a read arm only. Walk every frame on the stack so an enclosing scope's imports resolve.
+			for (int i = _importScopes.Count - 1; i >= 0; i--)
+			{
+				var frame = _importScopes[i];
+				foreach (var kv in frame.Named) Arm(kv.Key, kv.Value.Read(), kv.Value.Write?.Invoke());
+				for (int w = frame.Wildcards.Count - 1; w >= 0; w--)
+				{
+					var wc = frame.Wildcards[w];
+					if (wc.Script != null)
+						foreach (var ex in wc.Script.Exports)
+							Arm(ex.Key.ToLowerInvariant(), ModuleMemberField(wc.ModName, ex.Key), ex.Value == ExportK.Variable ? ModuleMemberField(wc.ModName, ex.Key) : null);
+					else if (wc.BuiltinType != null)
+						foreach (var nm in BuiltinMemberNames(wc.BuiltinType))
+							if (BindBuiltinMember(wc.ModName, wc.IsAhk, nm) is { } expr) Arm(nm, expr, null);
+				}
+			}
 			return arms;
 		}
 

@@ -39,7 +39,7 @@ Status legend:
 | #HotIfTimeout | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #HotIfTimeout directive sets the maximum time that may be spent evaluating a single #HotIf expression. |
 | #Hotstring | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Hotstring directive changes hotstring options or ending characters. |
 | #If | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Begins a conditional compilation block. |
-| #Import | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Imports exported names from another module/script file. |
+| #Import | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Imports exported names from another module/script file. Keysharp extension: an #import inside a function/method/property body or a class body binds the imported names lexically to that scope (in AutoHotkey v2.1 it binds module-wide); control-flow-nested and top-level imports match AutoHotkey and bind at module scope. Module loading and execution order stay eager regardless of nesting. |
 | #Include | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Include and #IncludeAgain directives cause the script to behave as though the specified file's contents are present at this exact position. |
 | #IncludeAgain | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Include and #IncludeAgain directives cause the script to behave as though the specified file's contents are present at this exact position. |
 | #InputLevel | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #InputLevel directive controls which artificial keyboard and mouse events are ignored by hotkeys and hotstrings. |

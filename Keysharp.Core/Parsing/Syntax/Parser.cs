@@ -293,6 +293,10 @@ namespace Keysharp.Parsing.Syntax
 			{
 				var p = _pos;
 				body.Add(ParseStatement());
+				// A directive lifted out of an object literal in this statement lands in THIS block (the nearest
+				// enclosing function/class/accessor body), not at program scope — so `foo(){ x := { #import M } }`
+				// scopes the import to foo. A top-level literal instead drains in ParseProgram (module scope).
+				if (_hoistedStmts.Count > 0) { body.AddRange(_hoistedStmts); _hoistedStmts.Clear(); }
 				if (_pos == p) Advance();
 				SkipNewlines();
 			}
@@ -1059,6 +1063,7 @@ namespace Keysharp.Parsing.Syntax
 			var nested = new List<ClassDecl>();
 			var staticInits = new List<Stmt>();     // `static x.y := z` member/index-target static initializers
 			var instanceInits = new List<Stmt>();   // `x.y := z` member/index-target instance initializers
+			var classImports = new List<ImportDirective>();   // `#import` directives → class-scoped bindings (Lowerer)
 			string classRequires = null;
 			long structPack = 0;   // #StructPack alignment in effect for subsequent typed fields (0 = default)
 			SkipNewlines();
@@ -1073,6 +1078,11 @@ namespace Keysharp.Parsing.Syntax
 					// #StructPack [1|2|4|8] sets the max alignment for subsequent typed fields (0/omitted resets to default).
 					else if (dir.Name.Equals("StructPack", System.StringComparison.OrdinalIgnoreCase))
 						structPack = long.TryParse((dir.Args ?? "").Trim(), out var sp) ? sp : 0;
+					// A class-body `#import` scopes its bindings to this class (retained for the Lowerer instead of
+					// being silently discarded); other directives are not meaningful here.
+					else if (dir is ImportDirective imp) classImports.Add(imp);
+					else if (dir.Name.Equals("Module", System.StringComparison.OrdinalIgnoreCase))
+						Error("#Module is only allowed at the top level, not inside a class body");
 					SkipNewlines();
 					continue;
 				}
@@ -1166,7 +1176,7 @@ namespace Keysharp.Parsing.Syntax
 			}
 			Expect(TokenKind.RBrace, isStruct ? "struct body" : "class body");
 			return new ClassDecl(name, baseName, fields, methods, properties, nested, isStruct)
-			{ Requires = classRequires, StaticInit = staticInits, InstanceInit = instanceInits };
+			{ Requires = classRequires, Imports = classImports, StaticInit = staticInits, InstanceInit = instanceInits };
 		}
 
 		// Property body: { get [=> expr | { ... }]  set [=> expr | { ... }] }

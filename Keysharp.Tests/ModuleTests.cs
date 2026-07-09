@@ -48,5 +48,44 @@ namespace Keysharp.Tests
 			Assert.IsTrue(System.Array.Exists(bad, d => d.Contains("has no exported member") && d.Contains("NotARealKsMember123")),
 				"expected a 'has no exported member' diagnostic, got: " + string.Join("; ", bad));
 		}
+
+		[Test, Category("Module")]
+		public void ScopedImport() => Assert.IsTrue(TestScript("module-scoped-import", false));
+
+		[Test, Category("Module")]
+		public void ScopedImportDiagnostics()
+		{
+			static string[] Lower(string src)
+			{
+				var (prog, parseDiags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(src);
+				Assert.IsEmpty(parseDiags, "unexpected parse diagnostics: " + string.Join("; ", parseDiags));
+				var lowerer = new Keysharp.Parsing.Syntax.Lowerer();
+				_ = lowerer.Build(prog, "Test");
+				return lowerer.Diagnostics.ToArray();
+			}
+
+			// Assigning to an imported function/type inside a function is a load-time error (not a silent local).
+			var wr = Lower("Foo() {\n#import KS { Cosh }\nCosh := 5\n}\n");
+			Assert.IsTrue(System.Array.Exists(wr, d => d.Contains("cannot assign to imported name") && d.Contains("Cosh")),
+				"expected a 'cannot assign to imported name' diagnostic, got: " + string.Join("; ", wr));
+
+			// A bad member name is still rejected eagerly when the import sits inside a function body (nested position).
+			var nested = Lower("Foo() {\n#import \"Ks\" { NotARealKsMember123 }\nreturn NotARealKsMember123\n}\n");
+			Assert.IsTrue(System.Array.Exists(nested, d => d.Contains("has no exported member") && d.Contains("NotARealKsMember123")),
+				"expected a nested-position 'has no exported member' diagnostic, got: " + string.Join("; ", nested));
+
+			// A well-formed scoped import produces no diagnostics (and no false #Warn-unset baked into codegen).
+			Assert.IsEmpty(Lower("Foo() {\n#import KS { Cosh }\nreturn Cosh(0)\n}\nFoo()\n"),
+				"a valid function-scoped import should not error");
+		}
+
+		[Test, Category("Module")]
+		public void ModuleDirectiveInClassRejected()
+		{
+			// `#Module` is only meaningful at the top level; inside a class body it is a parse error, not a silent drop.
+			var (_, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("class C {\n#Module Nope\n}\n");
+			Assert.IsTrue(System.Array.Exists(diags.ToArray(), d => d.Contains("#Module")),
+				"expected a '#Module' parse diagnostic, got: " + string.Join("; ", diags));
+		}
 	}
 }

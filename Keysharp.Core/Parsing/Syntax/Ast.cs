@@ -404,6 +404,7 @@ namespace Keysharp.Parsing.Syntax
 		public readonly List<ClassDecl> Nested;   // nested class declarations
 		public readonly bool IsStruct;   // `struct Name { … }` — base is Struct; instance fields are typed
 		public string Requires;          // a `#Requires` directive in the class body (its args) → per-class compat mode
+		public List<ImportDirective> Imports = new();   // `#import` directives in the class body → class-scoped bindings
 		public List<Stmt> StaticInit = new();     // `static x.y := z` member/index-target static initializers (run in static __Init)
 		public List<Stmt> InstanceInit = new();   // `x.y := z` member/index-target instance initializers (run in __Init)
 		public ClassDecl(string name, string baseName, List<ClassField> fields, List<ClassMethod> methods, List<ClassProperty> properties, List<ClassDecl> nested = null, bool isStruct = false)

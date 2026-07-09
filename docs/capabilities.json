@@ -325,7 +325,8 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Imports exported names from another module/script file."
+                     "notes":  "Imports exported names from another module/script file. Keysharp extension: an #import inside a function/method/property body or a class body binds the imported names lexically to that scope (in AutoHotkey v2.1 it binds module-wide); control-flow-nested and top-level imports match AutoHotkey and bind at module scope. Module loading and execution order stay eager regardless of nesting.",
+                     "tested-by":  "module-scoped-import.ahk"
                  },
                  {
                      "category":  "Environment/System",

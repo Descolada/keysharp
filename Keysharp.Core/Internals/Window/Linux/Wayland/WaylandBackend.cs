@@ -836,7 +836,7 @@ for (var __i = 0; __i < __order.length; ++__i) {
 			public bool TrySetTransparency(nint handle, object alpha)
 				=> TryHandleToSeq(handle, out var seq) && GnomeShellBridge.SendSetOpacity(seq, alpha);
 
-				public bool SupportsImageOverlay => true;
+				public bool SupportsImageOverlay => GnomeShellBridge.SupportsImageOverlay();
 
 				public bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 					=> GnomeShellBridge.SendShowImageOverlay(id, x, y, width, height, pngBytes);

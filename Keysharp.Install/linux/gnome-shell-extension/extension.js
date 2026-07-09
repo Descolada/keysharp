@@ -991,13 +991,30 @@ export default class KeysharpExtension {
             const bus = String(busName || '');
 
             this._cancelOverlayReconnectTimer(owner.key);
-            this._removeImageOverlayByKey(key);
 
-            // Empty pixels = a clear request, which the removal above already satisfied - report success.
+            // Empty pixels = a clear request.
             if (!pngData || pngData.length === 0 || width < 1 || height < 1) {
+                this._removeImageOverlayByKey(key);
+
                 if (!this._hasAnyOverlays())
                     this._stopOverlayCleanupTimer();
+
                 return true;
+            }
+
+            const entry = this._imageOverlays.get(key);
+
+            if (entry && entry.actor) {
+                try {
+                    this._updateImageActor(entry.actor, pngData, x, y, width, height);
+                    entry.ownerPid = owner.pid;
+                    entry.ownerStartTime = owner.startTime;
+                    entry.busName = bus;
+                    this._ensureOverlayCleanupTimer();
+                    return true;
+                } catch (_e) {
+                    this._removeImageOverlayByKey(key);
+                }
             }
 
             const actor = this._createImageActor(pngData, x, y, width, height);
@@ -1396,7 +1413,7 @@ export default class KeysharpExtension {
             this._stopOverlayCleanupTimer();
     }
 
-    _createImageActor(pngData, x, y, width, height) {
+    _createImageContent(pngData) {
         const loader = GdkPixbuf.PixbufLoader.new();
         loader.write(pngData);
         loader.close();
@@ -1419,10 +1436,18 @@ export default class KeysharpExtension {
             content.set_data(pixels, format, pixbuf.get_width(), pixbuf.get_height(), pixbuf.get_rowstride());
         }
 
-        const actor = new Clutter.Actor({ reactive: false });
-        actor.set_content(content);
+        return content;
+    }
+
+    _updateImageActor(actor, pngData, x, y, width, height) {
+        actor.set_content(this._createImageContent(pngData));
         actor.set_position(x, y);
         actor.set_size(width, height);
+    }
+
+    _createImageActor(pngData, x, y, width, height) {
+        const actor = new Clutter.Actor({ reactive: false });
+        this._updateImageActor(actor, pngData, x, y, width, height);
         return actor;
     }
 

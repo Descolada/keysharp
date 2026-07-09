@@ -118,15 +118,24 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	{
 		private const string ServiceName  = "io.github.keysharp.GnomeShell";
 		private const string ObjectPath   = "/io/github/keysharp/GnomeShell";
+		private const string DBusServiceName = "org.freedesktop.DBus";
+		private const string DBusObjectPath  = "/org/freedesktop/DBus";
 		private const int    TimeoutMs    = 2000;
+		private const int    ImageOverlayTimeoutMs = 10_000;
+		private const int    ExtensionOwnerCheckTimeoutMs = 250;
+		private const int    ExtensionMissingCacheMs = 5000;
+		private const int    ExtensionPresentCacheMs = 1000;
 
 		// Backoff before retrying owner registration after a miss (extension still loading / absent).
 		private const long RegisterRetryBackoffMs = 5000;
 
 		private static readonly SemaphoreSlim initSemaphore = new(1, 1);
 		private static Connection connection;
+		private static IFreedesktopDBus dbusProxy;
 		private static IGnomeShell proxy;
 		private static bool initFailed;
+		private static long extensionOwnerCacheUntil;
+		private static bool extensionOwnerCached;
 
 		// Overlay-ownership plumbing (mirrors CinnamonBackend): our stable process key, the unique name of
 		// our D-Bus connection, and the sticky "already registered under this connection" latch + retry gate.
@@ -238,13 +247,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal static bool SendShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 			=> pngBytes is { Length: > 0 }
-			   && Run(p => p.ShowImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, pngBytes));
+			   && Run(p => p.ShowImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, pngBytes),
+					  ImageOverlayTimeoutMs);
 
 		internal static bool SendMoveImageOverlay(uint id, int x, int y, int width, int height)
 			=> Run(p => p.MoveImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height));
 
 		internal static bool SendHideImageOverlay(uint id)
 			=> Run(p => p.HideImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName));
+
+		internal static bool SupportsImageOverlay() => ExtensionServiceHasOwner();
 
 		internal static bool SendMouseMoveAbsolute(int x, int y)
 			=> Run(p => p.SendMouseMoveAbsoluteAsync(x, y));
@@ -321,7 +333,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		// ---- connection management ---------------------------------------
 
-		private static T Run<T>(Func<IGnomeShell, Task<T>> call)
+		private static T Run<T>(Func<IGnomeShell, Task<T>> call, int timeoutMs = TimeoutMs)
 		{
 			try
 			{
@@ -331,7 +343,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return default;
 
 				var task = Task.Run(() => call(p));
-				return task.Wait(TimeoutMs) ? task.GetAwaiter().GetResult() : default;
+				return task.Wait(timeoutMs) ? task.GetAwaiter().GetResult() : default;
 			}
 			catch
 			{
@@ -341,6 +353,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		private static IGnomeShell EnsureProxy()
 		{
+			if (!ExtensionServiceHasOwner())
+				return null;
+
 			// Fast path: already connected. Re-attempt owner registration each time — it is cheap and
 			// self-latching (a no-op once registered under the current connection).
 			if (proxy != null)
@@ -348,6 +363,42 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				RegisterHighlightOwner(proxy);
 				return proxy;
 			}
+
+			var conn = EnsureConnection();
+
+			if (conn == null)
+				return null;
+
+			initSemaphore.Wait();
+			try
+			{
+				if (proxy != null)
+					return proxy;
+
+				// Creating the proxy is cheap — it does not make any D-Bus calls.
+				// Individual method calls will fail gracefully if the extension is
+				// not yet running, rather than permanently locking out the bridge
+				// (which would happen if we probed here and set initFailed on the
+				// first miss while the extension was still loading).
+				proxy = conn.CreateProxy<IGnomeShell>(ServiceName, new ObjectPath(ObjectPath));
+				RegisterHighlightOwner(proxy);
+				return proxy;
+			}
+			catch
+			{
+				proxy = null;
+				return null;
+			}
+			finally
+			{
+				initSemaphore.Release();
+			}
+		}
+
+		private static Connection EnsureConnection()
+		{
+			if (connection != null)
+				return connection;
 
 			// Fast path: session bus was unreachable (rare — implies broken environment).
 			if (initFailed)
@@ -357,8 +408,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			try
 			{
-				if (proxy != null)
-					return proxy;
+				if (connection != null)
+					return connection;
 
 				if (initFailed)
 					return null;
@@ -377,16 +428,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// Our unique bus name (":1.x") — the shell tags our overlays with it and reaps them when
 				// this name drops off the bus (see the extension's NameOwnerChanged watch).
 				connectionLocalName = info?.LocalName ?? "";
-
-				// Creating the proxy is cheap — it does not make any D-Bus calls.
-				// Individual method calls will fail gracefully if the extension is
-				// not yet running, rather than permanently locking out the bridge
-				// (which would happen if we probed here and set initFailed on the
-				// first miss while the extension was still loading).
 				connection = localConn;
-				proxy = localConn.CreateProxy<IGnomeShell>(ServiceName, new ObjectPath(ObjectPath));
-				RegisterHighlightOwner(proxy);
-				return proxy;
+				return connection;
 			}
 			catch
 			{
@@ -398,6 +441,53 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			finally
 			{
 				initSemaphore.Release();
+			}
+		}
+
+		private static bool ExtensionServiceHasOwner()
+		{
+			var now = Environment.TickCount64;
+
+			if (now < extensionOwnerCacheUntil)
+				return extensionOwnerCached;
+
+			try
+			{
+				var conn = EnsureConnection();
+
+				if (conn == null)
+					return false;
+
+				dbusProxy ??= conn.CreateProxy<IFreedesktopDBus>(DBusServiceName, new ObjectPath(DBusObjectPath));
+				var task = Task.Run(() => dbusProxy.NameHasOwnerAsync(ServiceName));
+
+				if (!task.Wait(ExtensionOwnerCheckTimeoutMs))
+				{
+					extensionOwnerCached = false;
+					extensionOwnerCacheUntil = now + ExtensionMissingCacheMs;
+					proxy = null;
+					return false;
+				}
+
+				var hasOwner = task.GetAwaiter().GetResult();
+				extensionOwnerCached = hasOwner;
+				extensionOwnerCacheUntil = now + (hasOwner ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
+
+				if (!hasOwner)
+				{
+					proxy = null;
+					registeredHighlightOwnerBusName = "";
+					highlightOwnerRegisterRetryAfter = 0;
+				}
+
+				return hasOwner;
+			}
+			catch
+			{
+				extensionOwnerCached = false;
+				extensionOwnerCacheUntil = now + ExtensionMissingCacheMs;
+				proxy = null;
+				return false;
 			}
 		}
 

@@ -31,7 +31,7 @@ const DBUS_IFACE_XML = `
 
     <!-- Returns JSON: { ok, windows: [ { id, title, appId, pid,
          frame:{x,y,width,height}, client:{x,y,width,height},
-         active, minimized, maximized, visible } ... ] }
+         active, minimized, maximized, visible, transparency } ... ] }
          Windows are ordered bottom-to-top (index 0 = lowest z-order). -->
     <method name="GetWindowList">
       <arg type="b" direction="in"  name="includeHidden"/>
@@ -1568,8 +1568,26 @@ export default class KeysharpExtension {
             visible:   !win.minimized,
             alwaysOnTop: !!win.is_above(),
             decorated:   !!win.decorated,
+            transparency: this._windowOpacity(win),
             onCurrentWorkspace,
         };
+    }
+
+    // Current whole-window opacity, 0 (transparent)..255 (opaque), read back from the compositor actor.
+    // Mirrors SetWindowOpacity's actor access so WinGetTransparent round-trips; defaults to opaque when
+    // the window has no live actor. Matches the Cinnamon extension's opacity() helper.
+    _windowOpacity(win) {
+        try {
+            const actor = (typeof win.get_compositor_private === 'function')
+                ? win.get_compositor_private()
+                : null;
+            if (!actor)
+                return 255;
+            const value = (typeof actor.get_opacity === 'function') ? actor.get_opacity() : actor.opacity;
+            return Math.max(0, Math.min(255, Math.round(Number(value))));
+        } catch (_e) {
+            return 255;
+        }
     }
 
     _findWindow(handle) {

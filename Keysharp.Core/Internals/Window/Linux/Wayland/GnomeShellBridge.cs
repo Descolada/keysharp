@@ -16,7 +16,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>
 		/// Returns JSON: { ok, windows: [ { id, title, appId, pid,
 		/// frame:{x,y,width,height}, client:{x,y,width,height},
-		/// active, minimized, maximized, visible } ... ] }
+		/// active, minimized, maximized, visible, transparency } ... ] }
 		/// Windows are ordered bottom-to-top (index 0 = lowest z-order).
 		/// </summary>
 		Task<string> GetWindowListAsync(bool includeHidden);

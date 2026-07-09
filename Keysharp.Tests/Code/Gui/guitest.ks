@@ -3534,9 +3534,10 @@ RunOcrTest() {
 
 	report.Push("")
 	report.Push("=== FindString('Open') ===")
+	openMatch := ""
 	try {
-		m := res.FindString("Open")
-		report.Push(Format("  found '{1}' at {2},{3} ({4}x{5})", m.Text, m.x, m.y, m.w, m.h))
+		openMatch := res.FindString("Open")
+		report.Push(Format("  found '{1}' at {2},{3} ({4}x{5})", openMatch.Text, openMatch.x, openMatch.y, openMatch.w, openMatch.h))
 	} catch as err
 		report.Push("  FindString('Open') threw: " err.Message "  (likely an OCR misread, not a code bug)")
 
@@ -3580,9 +3581,12 @@ RunOcrTest() {
 			report.Push("  Cluster threw: " err.Message)
 	}
 
-	; Visual: box the first word over the live window briefly, then auto-clear.
-	if res.Words.Length
-		try res.Words[1].Highlight(700)
+	; Visual: box the located "Open" match over the live window briefly, then auto-clear. Highlighting the
+	; FindString result (rather than Words[1]) keeps this robust when the capture carries extra glyphs — e.g. on
+	; GNOME Wayland a Gui's client-side-decorated title bar is part of the captured image, so Words[1] can be a
+	; stray title-bar/button glyph at the window corner rather than real content.
+	if IsObject(openMatch)
+		try openMatch.Highlight(700)
 
 	g.Destroy()
 

@@ -1,6 +1,26 @@
 #if LINUX
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
+	/// <summary>Outcome of a compositor-extension image-overlay Show. The middle state is the important one: a
+	/// compositor overlay is drawn by a shell extension over an asynchronous D-Bus call, so a slow (cold, large)
+	/// upload can exceed our client-side deadline even though the shell received it and created the actor. We must
+	/// NOT treat that ambiguous timeout as a failure — doing so and falling back to an Eto window leaves two
+	/// overlays on screen (the shell's actor plus a mis-positioned Eto twin). Only a definitive rejection/absence
+	/// is a <see cref="Failed"/>.</summary>
+	internal enum OverlayShowResult
+	{
+		/// <summary>The shell acknowledged the overlay — it is displayed.</summary>
+		Shown,
+
+		/// <summary>No acknowledgement within the deadline. The shell most likely still created the actor (the call
+		/// was dispatched), so the caller commits to the compositor and updates the same actor on the next Show.</summary>
+		TimedOut,
+
+		/// <summary>The extension is absent, or definitively rejected/errored the call. The caller may fall back to
+		/// an Eto window without risking a duplicate, because no compositor actor was created.</summary>
+		Failed
+	}
+
 	/// <summary>The kind of a <see cref="WaylandWindowEvent"/>. These map 1:1 onto the platform-neutral
 	/// <c>WindowEventType</c> the WinEvent manager consumes (Created additionally implies Show).</summary>
 	internal enum WaylandWindowEventKind
@@ -164,8 +184,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>True when the backend can draw a generic PNG-backed click-through overlay inside the compositor.</summary>
 		bool SupportsImageOverlay => false;
 
-		/// <summary>Create or update a compositor-owned image overlay. PNG bytes are copied by the compositor service.</summary>
-		bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes) => false;
+		/// <summary>Create or update a compositor-owned image overlay. PNG bytes are copied by the compositor service.
+		/// The distinction between <see cref="OverlayShowResult.TimedOut"/> and <see cref="OverlayShowResult.Failed"/>
+		/// matters: a timed-out call most likely still reached the shell and created the actor (so the caller commits
+		/// to the compositor rather than duplicating the overlay with an Eto fallback), whereas a definitive failure
+		/// means the extension is absent or rejected the call (so the caller may fall back).</summary>
+		OverlayShowResult TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
+			=> OverlayShowResult.Failed;
 
 		/// <summary>Reposition/resize an existing image overlay by id, reusing the pixels already uploaded to the
 		/// compositor (no re-encode). False = unsupported or no such overlay; the caller should re-Show instead.</summary>

@@ -836,9 +836,13 @@ for (var __i = 0; __i < __order.length; ++__i) {
 			public bool TrySetTransparency(nint handle, object alpha)
 				=> TryHandleToSeq(handle, out var seq) && GnomeShellBridge.SendSetOpacity(seq, alpha);
 
-				public bool SupportsImageOverlay => GnomeShellBridge.SupportsImageOverlay();
+				// The Keysharp extension owns the compositor-drawn overlay surface, so its D-Bus service ownership
+				// is the capability gate. A stale/broken extension that owns the name but errors on the actual
+				// overlay call is handled reactively by TryShowImageOverlay's tri-state result (a definitive
+				// Failed falls back to Eto), not by a separate up-front probe.
+				public bool SupportsImageOverlay => GnomeShellBridge.ExtensionServiceHasOwner();
 
-				public bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
+				public OverlayShowResult TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 					=> GnomeShellBridge.SendShowImageOverlay(id, x, y, width, height, pngBytes);
 
 				public bool TryMoveImageOverlay(uint id, int x, int y, int width, int height)

@@ -245,18 +245,17 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static bool SendKillWindow(ulong handle)
 			=> Run(p => p.KillWindowAsync(handle));
 
-		internal static bool SendShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
+		internal static OverlayShowResult SendShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 			=> pngBytes is { Length: > 0 }
-			   && Run(p => p.ShowImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, pngBytes),
-					  ImageOverlayTimeoutMs);
+			   ? RunShow(p => p.ShowImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, pngBytes),
+						 ImageOverlayTimeoutMs)
+			   : OverlayShowResult.Failed;
 
 		internal static bool SendMoveImageOverlay(uint id, int x, int y, int width, int height)
 			=> Run(p => p.MoveImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height));
 
 		internal static bool SendHideImageOverlay(uint id)
 			=> Run(p => p.HideImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName));
-
-		internal static bool SupportsImageOverlay() => ExtensionServiceHasOwner();
 
 		internal static bool SendMouseMoveAbsolute(int x, int y)
 			=> Run(p => p.SendMouseMoveAbsoluteAsync(x, y));
@@ -351,6 +350,41 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
+		// Show an image overlay, classifying the outcome so the caller can tell an ambiguous timeout (commit to
+		// the compositor) from a definitive failure (fall back to Eto). A plain Run collapses both to `false`,
+		// which is exactly what caused the duplicated-overlay bug: a slow first upload timed out client-side yet
+		// still created the shell actor, and the false return triggered a second, Eto, surface.
+		private static OverlayShowResult RunShow(Func<IGnomeShell, Task<bool>> call, int timeoutMs)
+		{
+			IGnomeShell p;
+
+			try
+			{
+				p = EnsureProxy();
+			}
+			catch
+			{
+				return OverlayShowResult.Failed;
+			}
+
+			if (p == null)
+				return OverlayShowResult.Failed;
+
+			try
+			{
+				var task = Task.Run(() => call(p));
+
+				if (!task.Wait(timeoutMs))
+					return OverlayShowResult.TimedOut;
+
+				return task.GetAwaiter().GetResult() ? OverlayShowResult.Shown : OverlayShowResult.Failed;
+			}
+			catch
+			{
+				return OverlayShowResult.Failed;
+			}
+		}
+
 		private static IGnomeShell EnsureProxy()
 		{
 			if (!ExtensionServiceHasOwner())
@@ -428,6 +462,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// Our unique bus name (":1.x") — the shell tags our overlays with it and reaps them when
 				// this name drops off the bus (see the extension's NameOwnerChanged watch).
 				connectionLocalName = info?.LocalName ?? "";
+				// If gnome-shell restarts (crash / `r` in Alt+F2 / extension reload) the session-bus connection
+				// is torn down; drop the cached connection + proxies so the next call transparently reconnects
+				// instead of failing forever against a dead handle. Mirrors CinnamonShellBridge.
+				localConn.StateChanged += (_, e) =>
+				{
+					if (e.State == Tmds.DBus.ConnectionState.Disconnected)
+						ResetConnection(localConn);
+				};
 				connection = localConn;
 				return connection;
 			}
@@ -444,7 +486,39 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private static bool ExtensionServiceHasOwner()
+		// Drop a dead session-bus connection and every handle derived from it so the next call reconnects from
+		// scratch. Called from the connection's StateChanged watch (deadConnection = the connection that dropped);
+		// the guard ignores a stale event for a connection we have already replaced.
+		private static void ResetConnection(Connection deadConnection = null)
+		{
+			if (deadConnection != null && connection != null && !ReferenceEquals(connection, deadConnection))
+				return;
+
+			try
+			{
+				if (deadConnection == null)
+					connection?.Dispose();
+			}
+			catch
+			{
+			}
+
+			connection = null;
+			dbusProxy = null;
+			proxy = null;
+			connectionLocalName = "";
+			registeredHighlightOwnerBusName = "";
+			highlightOwnerRegisterRetryAfter = 0;
+			extensionOwnerCached = false;
+			extensionOwnerCacheUntil = 0;
+			initFailed = false;
+		}
+
+		// Whether the Keysharp GNOME Shell extension currently owns its D-Bus service. This is the single
+		// capability gate for the extension-provided surfaces (all GNOME window ops + compositor image overlays go
+		// through it). Cheap and cached; a stale/incompatible extension that owns the name but errors on a specific
+		// call is caught reactively by that call (e.g. the image-overlay tri-state falls back to Eto on failure).
+		internal static bool ExtensionServiceHasOwner()
 		{
 			var now = Environment.TickCount64;
 
@@ -463,10 +537,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				if (!task.Wait(ExtensionOwnerCheckTimeoutMs))
 				{
-					extensionOwnerCached = false;
-					extensionOwnerCacheUntil = now + ExtensionMissingCacheMs;
-					proxy = null;
-					return false;
+					// A probe TIMEOUT is ambiguous (the bus is momentarily slow), not a definitive "absent". If we
+					// recently saw the extension present, keep that answer and re-check soon rather than declaring
+					// it gone for 5s — otherwise a single slow probe under load would route overlays to the Eto
+					// fallback and tear down the proxy. Only fall back to "absent" when we have no recent positive.
+					extensionOwnerCacheUntil = now + (extensionOwnerCached ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
+
+					if (!extensionOwnerCached)
+						proxy = null;
+
+					return extensionOwnerCached;
 				}
 
 				var hasOwner = task.GetAwaiter().GetResult();

@@ -48,10 +48,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		Task<bool> SendMouseButtonAsync(uint button, bool pressed);
 		Task<bool> SendMouseScrollAsync(int delta, bool vertical);
 		Task<bool> RegisterHighlightOwnerAsync(string ownerKey, string busName);
-		// ShowHighlight/HideHighlight survive in the extension protocol solely as the
-		// SupportsHighlight() capability probe target; rendering goes through the image overlay.
-		Task<bool> ShowHighlightAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, string color, int thickness);
-		Task<bool> HideHighlightAsync(uint id, string ownerKey, string busName);
+		// Cinnamon highlights (like GNOME's) render through the generic image-overlay primitive below; the
+		// extension's ShowHighlight/HideHighlight D-Bus methods are no longer called from C#.
 		Task<bool> ShowImageOverlayAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, byte[] pngBytes);
 		Task<bool> MoveImageOverlayAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height);
 		Task<bool> HideImageOverlayAsync(uint id, string ownerKey, string busName);
@@ -82,6 +80,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const string ExtensionServiceName = "io.github.keysharp.CinnamonShell";
 		private const string ExtensionObjectPath  = "/io/github/keysharp/CinnamonShell";
 		private const int    TimeoutMs   = 2000;
+		// The first image-overlay upload is cold and large (full-resolution PNG); give it a generous deadline so
+		// it isn't classified TimedOut before the shell finishes decoding + uploading it. Mirrors GnomeShellBridge.
+		private const int    ImageOverlayTimeoutMs = 10_000;
 		private const int    ExtensionOwnerCheckTimeoutMs = 250;
 		private const int    ExtensionMissingCacheMs = 5000;
 		private const int    ExtensionPresentCacheMs = 1000;
@@ -105,8 +106,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static IKeysharpCinnamonShell extensionProxy;
 		private static long extensionOwnerCacheUntil;
 		private static bool extensionOwnerCached;
-		private static long highlightSupportCacheUntil;
-		private static bool highlightSupportCached;
+		private static long clipboardSupportCacheUntil;
+		private static bool clipboardSupportCached;
 		private static string connectionLocalName = "";
 		private static string registeredHighlightOwnerBusName = "";
 		private static long highlightOwnerRegisterRetryAfter;
@@ -236,26 +237,31 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");const a=w&&w.get_compositor_private?w.get_compositor_private():null;if(a){if(a.set_opacity)a.set_opacity(" + alpha.ToString(CultureInfo.InvariantCulture) + ");else a.opacity=" + alpha.ToString(CultureInfo.InvariantCulture) + ";}return JSON.stringify({ok:!!a});}catch(e){return JSON.stringify({ok:false});}})()");
 		}
 
-		internal static bool SupportsHighlight()
+		// Whether the extension actually answers clipboard calls. The overlay path can gate on cheap name
+		// ownership because it reacts to a per-call tri-state (a definitive failure falls back to Eto), but the
+		// clipboard backend is resolved ONCE with no reactive fallback (LinuxClipboards.Resolve), so a stale/
+		// incompatible extension that owns the D-Bus name yet no longer speaks the clipboard protocol would leave
+		// the clipboard silently dead for the whole session. Verify with a cheap, side-effect-free
+		// GetClipboardMimetypes round-trip (null = absent/failed, any array = answered) and cache the result.
+		internal static bool SupportsClipboard()
 		{
 			var now = Environment.TickCount64;
 
-			if (now < highlightSupportCacheUntil)
-				return highlightSupportCached;
+			if (now < clipboardSupportCacheUntil)
+				return clipboardSupportCached;
 
-			var ok = RunExtensionBool(p => p.ShowHighlightAsync(0, HighlightOwnerKey, connectionLocalName, -10000, -10000, 1, 1, "FF0000", 1));
-
-			if (ok)
-				_ = RunExtensionBool(p => p.HideHighlightAsync(0, HighlightOwnerKey, connectionLocalName));
-
-			highlightSupportCached = ok;
-			highlightSupportCacheUntil = now + (ok ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
+			var ok = ExtensionServiceHasOwner()
+					 && RunExtension(p => p.GetClipboardMimetypesAsync()) != null;
+			clipboardSupportCached = ok;
+			clipboardSupportCacheUntil = now + (ok ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
 			return ok;
 		}
 
-			internal static bool SendShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
+			internal static OverlayShowResult SendShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 				=> pngBytes is { Length: > 0 }
-				   && RunExtensionBool(p => p.ShowImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, pngBytes));
+				   ? RunShow(p => p.ShowImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, pngBytes),
+							 ImageOverlayTimeoutMs)
+				   : OverlayShowResult.Failed;
 
 			internal static bool SendMoveImageOverlay(uint id, int x, int y, int width, int height)
 				=> RunExtensionBool(p => p.MoveImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height));
@@ -479,6 +485,41 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
+		// Show an image overlay, classifying the outcome (see OverlayShowResult) so the caller can distinguish an
+		// ambiguous timeout — the shell most likely still created the actor, so commit to the compositor — from a
+		// definitive failure that may safely fall back to Eto. A plain RunExtensionBool collapses both to false,
+		// which is what let a slow first upload spawn a duplicate Eto overlay.
+		private static OverlayShowResult RunShow(Func<IKeysharpCinnamonShell, Task<bool>> call, int timeoutMs)
+		{
+			IKeysharpCinnamonShell p;
+
+			try
+			{
+				p = EnsureExtensionProxy();
+			}
+			catch
+			{
+				return OverlayShowResult.Failed;
+			}
+
+			if (p == null)
+				return OverlayShowResult.Failed;
+
+			try
+			{
+				var task = Task.Run(() => call(p));
+
+				if (!task.Wait(timeoutMs))
+					return OverlayShowResult.TimedOut;
+
+				return task.GetAwaiter().GetResult() ? OverlayShowResult.Shown : OverlayShowResult.Failed;
+			}
+			catch
+			{
+				return OverlayShowResult.Failed;
+			}
+		}
+
 
 		private static bool JsonOk(string json)
 		{
@@ -551,7 +592,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private static bool ExtensionServiceHasOwner()
+		// Whether the Keysharp Cinnamon extension currently owns its D-Bus service. This is the single capability
+		// gate for the extension-provided surfaces (compositor image overlays + clipboard). Cheap and cached; a
+		// stale/incompatible extension that owns the name but errors on a specific call is caught reactively by
+		// that call (e.g. the image-overlay tri-state falls back to Eto on a definitive failure).
+		internal static bool ExtensionServiceHasOwner()
 		{
 			var now = Environment.TickCount64;
 
@@ -570,10 +615,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				if (!task.Wait(ExtensionOwnerCheckTimeoutMs))
 				{
-					extensionOwnerCached = false;
-					extensionOwnerCacheUntil = now + ExtensionMissingCacheMs;
-					extensionProxy = null;
-					return false;
+					// A probe TIMEOUT is ambiguous (the bus is momentarily slow), not a definitive "absent". Keep a
+					// recent positive answer and re-check soon rather than declaring the extension gone for 5s — a
+					// single slow probe under load would otherwise route overlays to Eto and drop the proxy. Only
+					// fall back to "absent" when we have no recent positive.
+					extensionOwnerCacheUntil = now + (extensionOwnerCached ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
+
+					if (!extensionOwnerCached)
+						extensionProxy = null;
+
+					return extensionOwnerCached;
 				}
 
 				var hasOwner = task.GetAwaiter().GetResult();
@@ -583,8 +634,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (!hasOwner)
 				{
 					extensionProxy = null;
-					highlightSupportCached = false;
-					highlightSupportCacheUntil = now + ExtensionMissingCacheMs;
+					clipboardSupportCached = false;
+					clipboardSupportCacheUntil = now + ExtensionMissingCacheMs;
 				}
 
 				return hasOwner;
@@ -594,8 +645,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				extensionOwnerCached = false;
 				extensionOwnerCacheUntil = now + ExtensionMissingCacheMs;
 				extensionProxy = null;
-				highlightSupportCached = false;
-				highlightSupportCacheUntil = now + ExtensionMissingCacheMs;
+				clipboardSupportCached = false;
+				clipboardSupportCacheUntil = now + ExtensionMissingCacheMs;
 				return false;
 			}
 		}
@@ -686,8 +737,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			highlightOwnerRegisterRetryAfter = 0;
 			extensionOwnerCached = false;
 			extensionOwnerCacheUntil = 0;
-			highlightSupportCached = false;
-			highlightSupportCacheUntil = 0;
+			clipboardSupportCached = false;
+			clipboardSupportCacheUntil = 0;
 			initFailed = false;
 		}
 
@@ -881,11 +932,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		public bool TrySendMouseScroll(int delta, bool vertical)
 			=> CinnamonShellBridge.SendMouseScroll(delta, vertical);
 
-			// The show/hide-highlight probe doubles as the "is the (current-protocol) extension
-			// really answering" check gating compositor-drawn overlays.
-			public bool SupportsImageOverlay => CinnamonShellBridge.SupportsHighlight();
+			// The Keysharp extension owns the compositor-drawn overlay + clipboard surface, so its D-Bus
+			// service ownership is the single capability gate for both. A stale/broken extension that owns
+			// the name but errors on the actual overlay call is handled reactively by TryShowImageOverlay's
+			// tri-state result (a definitive Failed falls back to Eto), not by a separate up-front probe.
+			public bool SupportsImageOverlay => CinnamonShellBridge.ExtensionServiceHasOwner();
 
-			public bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
+			public OverlayShowResult TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 				=> CinnamonShellBridge.SendShowImageOverlay(id, x, y, width, height, pngBytes);
 
 			public bool TryMoveImageOverlay(uint id, int x, int y, int width, int height)
@@ -894,9 +947,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			public bool TryHideImageOverlay(uint id)
 				=> CinnamonShellBridge.SendHideImageOverlay(id);
 
-			// Clipboard is available whenever the extension answers (the highlight probe doubles as the
-			// "extension present & responding" check). Raw MIME <-> bytes; higher layers map formats onto it.
-			public bool SupportsClipboard => CinnamonShellBridge.SupportsHighlight();
+			// Clipboard runs only through the extension (Muffin exposes no data-control protocol). Because the
+			// clipboard backend is chosen once with no reactive fallback, this gates on a real liveness probe (not
+			// mere name ownership) so a stale/broken extension degrades to the focus-gated Eto clipboard instead
+			// of a silently-dead one. Raw MIME <-> bytes; higher layers map formats onto it.
+			public bool SupportsClipboard => CinnamonShellBridge.SupportsClipboard();
 
 			public string[] GetClipboardMimetypes()
 				=> CinnamonShellBridge.GetClipboardMimetypes();

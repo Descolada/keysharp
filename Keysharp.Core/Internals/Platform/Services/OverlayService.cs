@@ -178,7 +178,14 @@ namespace Keysharp.Internals
 			var preferred = ChooseKind();
 
 			// Every backing borrows `image` (copies what it needs, never disposes it), so we can hand the same
-			// bitmap to the preferred backing and, if it fails, straight to the Eto fallback — no clone needed.
+			// bitmap to the preferred backing and, if it genuinely can't render it, straight to the Eto fallback
+			// — no clone needed. Crucially, the compositor backing does NOT report a transient D-Bus TIMEOUT as a
+			// failure: the shell almost certainly still received the (cold, large) upload and created the actor,
+			// so it commits and returns true, and the next Show/Move updates that same shell-owned actor in place.
+			// Only a DEFINITIVE failure (the extension rejected the call / is absent) returns false here. That is
+			// what prevents the duplicated-overlay bug — a naive fallback on timeout would leave the shell's actor
+			// (correctly positioned) PLUS a second Eto window that native-Wayland GDK cannot position, so it piles
+			// up in the screen centre and, being `inner`, steals every live update. See CompositorImageBacking.Show.
 			if (preferred != ImageOverlayKind.Eto)
 			{
 				var backing = Create(preferred);
@@ -306,7 +313,18 @@ namespace Keysharp.Internals
 				// can throw — return false without touching `image` on every path.
 				var bytes = ImageHelper.ToPngBytes(image);
 
-				if (bytes.Length == 0 || Wl.WaylandBackend.Current?.TryShowImageOverlay(id, x, y, width, height, bytes) != true)
+				if (bytes.Length == 0)
+					return false;
+
+				var result = Wl.WaylandBackend.Current?.TryShowImageOverlay(id, x, y, width, height, bytes)
+							 ?? Wl.OverlayShowResult.Failed;
+
+				// A DEFINITIVE Failed means the extension is absent or rejected the call — report failure so the
+				// LinuxImageOverlayBacking wrapper falls back to a (visible) Eto window. A TIMEOUT is NOT a failure:
+				// the shell almost certainly still received this (cold, large) upload and created the actor, so we
+				// commit to the compositor — mark it shown (the actor exists, or will momentarily, and the next
+				// Show/Move updates it in place) rather than spawning a duplicate Eto window for the same overlay.
+				if (result == Wl.OverlayShowResult.Failed)
 					return false;
 
 				shown = true;
@@ -330,10 +348,10 @@ namespace Keysharp.Internals
 
 		public void Dispose()
 		{
-			if (shown)
-			{
-				try { _ = Wl.WaylandBackend.Current?.TryHideImageOverlay(id); } catch { }
-			}
+			// Always ask the shell to drop the actor, even when our Show timed out (shown == false): the shell may
+			// still have created it, and HideImageOverlay is a no-op for an unknown id, so an unconditional hide
+			// reaps a possibly-orphaned actor without risk (the alternative left it on screen until process-death).
+			try { _ = Wl.WaylandBackend.Current?.TryHideImageOverlay(id); } catch { }
 		}
 	}
 #elif WINDOWS

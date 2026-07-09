@@ -65,6 +65,12 @@ jobs:
     needs: prepare
     name: Package ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    # Exposed as env (not read straight from `secrets` in step `if:`) because the `secrets` context is not
+    # available to `if:` expressions. Empty on forks / when the secret is unset, which keeps macOS builds
+    # unsigned exactly as before instead of failing.
+    env:
+      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+      MACOS_CERT_P12_PASSWORD: ${{ secrets.MACOS_CERT_P12_PASSWORD }}
     strategy:
       fail-fast: false
       matrix:
@@ -263,6 +269,39 @@ jobs:
             done
           fi
 
+      - name: Import macOS signing certificate
+        if: ${{ matrix.platform == 'macos' && env.MACOS_CERT_P12_BASE64 != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CERT_PATH="$RUNNER_TEMP/keysharp-cert.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/keysharp-signing.keychain-db"
+          KEYCHAIN_PASS="$(openssl rand -base64 24)"
+
+          # Decode the base64-encoded .p12 secret back into a real file.
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+
+          # Sign out of a throwaway keychain instead of the runner's login keychain, so the private key
+          # never lands in shared state and the cleanup step can delete the whole keychain afterwards.
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"   # don't auto-lock mid-build
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+
+          # Import the identity and pre-authorize codesign to use its private key without a GUI prompt.
+          security import "$CERT_PATH" -P "$MACOS_CERT_P12_PASSWORD" -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN_PATH" >/dev/null
+
+          # Prepend our keychain to the search list (preserving the existing ones) so that
+          # `codesign --sign Keysharp` and `security find-identity` inside package-macos.sh resolve it.
+          EXISTING="$(security list-keychains -d user | sed -e 's/^[[:space:]]*//' -e 's/"//g')"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING
+
+          rm -f "$CERT_PATH"
+
+          # Hand the keychain path to the cleanup step so it always gets removed.
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
       - name: Publish macOS package
         if: ${{ matrix.platform == 'macos' }}
         shell: bash
@@ -270,12 +309,20 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           RID: ${{ matrix.rid }}
           CONFIG: Release
+          # Sign the .app bundles and .dmg with the stable self-signed identity when its cert secret is
+          # present; otherwise stay empty so package-macos.sh produces an unsigned build as before.
+          APP_CERT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && 'Keysharp' || '' }}
         run: |
           chmod +x Keysharp.Install/package-macos.sh
           Keysharp.Install/package-macos.sh
           mkdir -p dist/release-assets
           mv "dist/Keysharp-${RID}.pkg" "dist/release-assets/keysharp-${VERSION}-${RID}.pkg"
           mv "dist/Keysharp-${RID}.dmg" "dist/release-assets/keysharp-${VERSION}-${RID}.dmg"
+
+      - name: Remove macOS signing keychain
+        if: ${{ always() && matrix.platform == 'macos' && env.SIGNING_KEYCHAIN != '' }}
+        shell: bash
+        run: security delete-keychain "$SIGNING_KEYCHAIN" || true
 
       - name: Upload release assets
         uses: actions/upload-artifact@v6
@@ -290,6 +337,13 @@ jobs:
       - package
     name: Publish GitHub Release
     runs-on: ubuntu-latest
+    # Job-level block overrides the top-level `contents: write`, so it must be repeated here. id-token +
+    # attestations are what actions/attest-build-provenance needs to mint an OIDC-signed provenance and
+    # push it to the repo's attestation store.
+    permissions:
+      contents: write       # create/update the release and upload assets
+      id-token: write       # OIDC token used to sign the provenance (Sigstore)
+      attestations: write   # write the attestation to the repo's attestation store
     steps:
       - name: Download release assets
         uses: actions/download-artifact@v7
@@ -297,6 +351,30 @@ jobs:
           pattern: release-assets-*
           path: dist/release-assets
           merge-multiple: true
+
+      - name: Generate SHA-256 checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist/release-assets
+          shopt -s nullglob
+          # Bare filenames (not paths) so users can `sha256sum -c SHA256SUMS` from the download folder.
+          # The keysharp-* glob self-excludes the SHA256SUMS file being written.
+          files=(keysharp-*)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No release assets found to checksum." >&2
+            exit 1
+          fi
+          sha256sum "${files[@]}" > SHA256SUMS
+          cat SHA256SUMS
+
+      # Mint SLSA build-provenance attestations binding each asset's digest to this workflow run, so users
+      # can `gh attestation verify <file> --repo <owner>/<repo>`. SHA256SUMS is attested too, giving it
+      # provenance as well. Bump the major if a newer one ships.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/release-assets/*'
 
       - name: Create or update GitHub Release
         shell: bash

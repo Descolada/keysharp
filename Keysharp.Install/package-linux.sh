@@ -527,8 +527,7 @@ if [ "$1" = "configure" ] && [ -d "${_cinnamon_ext_dir}" ]; then
     if [ "${_cinnamon_enabled}" = "true" ] && [ "${_active_cinnamon}" = "true" ]; then
       _i=0
       while [ "${_i}" -lt 10 ]; do
-        _ks_dbus_owned io.github.keysharp.CinnamonShell
-        _rc=$?
+        _ks_dbus_owned io.github.keysharp.CinnamonShell && _rc=0 || _rc=$?
         # rc=0 owned (success); rc=2 gdbus missing/errored -> stop and assume ok.
         { [ "${_rc}" -eq 0 ] || [ "${_rc}" -eq 2 ]; } && break
         sleep 0.5

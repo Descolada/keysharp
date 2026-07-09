@@ -373,8 +373,8 @@ namespace Keysharp.Internals.Input.Linux
 				return new(0u, false, false, false, [], []);
 
 			var mods = BinaryPrimitives.ReadUInt32LittleEndian(response.Payload.AsSpan(0));
-			var logicalKeys = Array.Empty<byte>();
-			var physicalKeys = Array.Empty<byte>();
+			var logicalKeys = System.Array.Empty<byte>();
+			var physicalKeys = System.Array.Empty<byte>();
 
 			if (response.Payload.Length >= 8 + KeyStateBitmapBytes)
 			{

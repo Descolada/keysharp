@@ -254,10 +254,10 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 				var horizontal = (int)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGScrollWheelEventDeltaAxis2);
 				var useHorizontal = horizontal != 0 && Math.Abs(horizontal) >= Math.Abs(vertical);
 				var delta = useHorizontal ? horizontal : vertical;
-				var vk = useHorizontal
+				var wheelVk = useHorizontal
 					? (delta < 0 ? VK_WHEEL_LEFT : VK_WHEEL_RIGHT)
 					: (delta < 0 ? VK_WHEEL_DOWN : VK_WHEEL_UP);
-				var sc = (uint)delta;
+				var wheelSc = (uint)delta;
 				var args = new MouseWheelHookEventArgs(
 					delta,
 					useHorizontal ? MouseWheelScrollDirection.Horizontal : MouseWheelScrollDirection.Vertical,
@@ -268,7 +268,7 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 				if (ShouldSuppressForBlockInput(isInjected))
 					return true;
 
-				var result = LowLevelCommon(args, vk, sc, sc, keyUp: false, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+				var result = LowLevelCommon(args, wheelVk, wheelSc, wheelSc, keyUp: false, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
 				return result != 0;
 			}
 
@@ -290,7 +290,7 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			if (!isInjected)
 				script.timeLastInputPhysical = script.timeLastInputMouse = DateTime.UtcNow;
 
-			var vk = button switch
+			var buttonVk = button switch
 			{
 				MouseButton.Button1 => VK_LBUTTON,
 				MouseButton.Button2 => VK_RBUTTON,
@@ -300,14 +300,14 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 				_ => 0u
 			};
 
-			if (vk == 0)
+			if (buttonVk == 0)
 				return false;
 
 			if (ShouldSuppressForBlockInput(isInjected))
 				return true;
 
 			var mouseArgs = new MouseHookEventArgs(keyUp ? EventType.MouseReleased : EventType.MousePressed, button, x, y, mask);
-			var buttonResult = LowLevelCommon(mouseArgs, vk, 0, 0, keyUp, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			var buttonResult = LowLevelCommon(mouseArgs, buttonVk, 0, 0, keyUp, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
 			return buttonResult != 0;
 		}
 

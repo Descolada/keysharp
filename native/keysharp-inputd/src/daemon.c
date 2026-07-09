@@ -84,7 +84,15 @@ static inline void wake_pipe_write(int fd)
     (void)written;
 }
 
+/* Two SEPARATE pools, not one shared pool, so a permission prompt -- which
+ * blocks on the user for as long as they take to answer, potentially
+ * indefinitely -- can never starve process-identity resolution for an
+ * unrelated client out of a worker thread. Both connecting-client identity
+ * resolution (fast, frequent) and permission prompts (slow, rare, blocks on a
+ * human) used to share g_worker_pool's fixed thread count; two prompts alone
+ * could fill it and stall every other client's CLIENT_HELLO indefinitely. */
 static ksi_worker_pool g_worker_pool;
+static ksi_worker_pool g_identify_worker_pool;
 
 typedef enum ksi_client_state {
     KSI_CLIENT_STATE_IDENTIFYING,     /* process identity resolution running on worker thread */
@@ -154,6 +162,13 @@ typedef struct ksi_daemon_command {
             ksi_permission_decision decision;
             uint32_t requested_capabilities;
             uint32_t missing_capabilities;
+            /* state->available_capabilities as it was WHEN THE PROMPT STARTED,
+             * not when it completes. A permission prompt can sit open for
+             * seconds; using the current (post-wait) availability here would
+             * let a transient hotplug during that window silently shrink what
+             * "success" means without ever surfacing an error. See
+             * process_client_prompt_done. */
+            uint32_t available_capabilities_at_start;
         } prompt_done;
         struct {
             uint32_t hook_type; /* KSI_HOOK_KEYBOARD_LL / KSI_HOOK_MOUSE_LL */
@@ -466,7 +481,8 @@ static bool check_idle_exit(
 
     if (!options->system_service
         || state->client_count != 0
-        || ksi_worker_pool_has_work(&g_worker_pool)) {
+        || ksi_worker_pool_has_work(&g_worker_pool)
+        || ksi_worker_pool_has_work(&g_identify_worker_pool)) {
         *idle_since_ms = 0u;
         return false;
     }
@@ -617,8 +633,11 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         backend->set_hook_event_callback(daemon_handle_hook_event, daemon_state);
     }
 
-    if (ksi_worker_pool_init(&g_worker_pool) != 0) {
+    if (ksi_worker_pool_init(&g_worker_pool) != 0
+        || ksi_worker_pool_init(&g_identify_worker_pool) != 0) {
         fprintf(stderr, "inputd: failed to start worker pool\n");
+        ksi_worker_pool_destroy(&g_worker_pool);
+        ksi_worker_pool_destroy(&g_identify_worker_pool);
 
         if (backend->set_hook_event_callback != NULL) {
             backend->set_hook_event_callback(NULL, NULL);
@@ -704,6 +723,10 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             expire_client_leases(daemon_state);
             expire_unauthenticated_clients(daemon_state);
 
+            if (backend->periodic_maintenance != NULL) {
+                backend->periodic_maintenance();
+            }
+
             if (check_idle_exit(options, daemon_state, &idle_since_ms)) {
                 keep_running = 0;
             }
@@ -748,6 +771,10 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
         (void)process_hook_ingress(daemon_state);
 
+        if (backend->periodic_maintenance != NULL) {
+            backend->periodic_maintenance();
+        }
+
         /* Hotplug can change physical hook/block capabilities. */
         daemon_state->available_capabilities = daemon_available_capabilities(backend);
 
@@ -757,7 +784,8 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         expire_unauthenticated_clients(daemon_state);
 
         if (options->system_service && daemon_state->client_count == 0
-            && !ksi_worker_pool_has_work(&g_worker_pool)) {
+            && !ksi_worker_pool_has_work(&g_worker_pool)
+            && !ksi_worker_pool_has_work(&g_identify_worker_pool)) {
             uint64_t now = monotonic_ms();
 
             if (idle_since_ms == 0u) {
@@ -796,17 +824,20 @@ int ksi_daemon_run(const ksi_daemon_options *options)
     /* Abort in-progress prompts so worker threads exit promptly. */
     ksi_permissions_cancel();
     ksi_worker_pool_request_stop(&g_worker_pool);
+    ksi_worker_pool_request_stop(&g_identify_worker_pool);
 
     /* Wake the main loop so it observes keep_running=0. */
     command_queue_wake(&command_queue);
 
-    if (!ksi_worker_pool_join_before(&g_worker_pool, shutdown_deadline_ms)) {
+    if (!ksi_worker_pool_join_before(&g_worker_pool, shutdown_deadline_ms)
+        || !ksi_worker_pool_join_before(&g_identify_worker_pool, shutdown_deadline_ms)) {
         fprintf(stderr, "inputd: shutdown deadline exceeded waiting for worker pool; terminating\n");
         fflush(NULL);
         _exit(EXIT_FAILURE);
     }
 
     ksi_worker_pool_destroy(&g_worker_pool);
+    ksi_worker_pool_destroy(&g_identify_worker_pool);
 
     while (daemon_state->client_count > 0u) {
         remove_client(daemon_state, daemon_state->client_count - 1u);

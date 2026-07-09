@@ -11,6 +11,7 @@ typedef struct ksi_prompt_task {
     uint64_t connection_id;
     uint32_t requested_capabilities;
     uint32_t missing_capabilities;
+    uint32_t available_capabilities_at_start;
     char exe_path[KSI_PERMISSION_MAX_PATH];
     char command_line[KSI_PERMISSION_MAX_COMMAND_LINE];
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
@@ -68,7 +69,7 @@ static bool start_identify_task(
     task->client_fd = client_fd;
     task->connection_id = connection_id;
 
-    if (!ksi_worker_pool_submit(&g_worker_pool, identify_worker, free, task)) {
+    if (!ksi_worker_pool_submit(&g_identify_worker_pool, identify_worker, free, task)) {
         free(task);
         return false;
     }
@@ -91,6 +92,7 @@ static void *prompt_worker(void *arg)
             task->exe_path, task->command_line, task->exe_hash, task->missing_capabilities);
     command.data.prompt_done.requested_capabilities = task->requested_capabilities;
     command.data.prompt_done.missing_capabilities = task->missing_capabilities;
+    command.data.prompt_done.available_capabilities_at_start = task->available_capabilities_at_start;
 
     (void)command_queue_push(task->commands, &command);
     free(task);
@@ -103,6 +105,7 @@ static bool start_prompt_task(
     uint64_t connection_id,
     uint32_t requested,
     uint32_t missing,
+    uint32_t available_capabilities_at_start,
     const char *exe_path,
     const char *command_line,
     const char *exe_hash,
@@ -122,6 +125,7 @@ static bool start_prompt_task(
     task->connection_id = connection_id;
     task->requested_capabilities = requested;
     task->missing_capabilities = missing;
+    task->available_capabilities_at_start = available_capabilities_at_start;
     (void)snprintf(task->exe_path, sizeof(task->exe_path), "%s", exe_path != NULL ? exe_path : "");
     (void)snprintf(
         task->command_line, sizeof(task->command_line), "%s",

@@ -10,6 +10,7 @@
 int ksi_linux_synth_start(void);
 void ksi_linux_synth_stop(void);
 bool ksi_linux_synth_is_available(void);
+void ksi_linux_synth_retry_if_broken(void);
 int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t flags);
 int ksi_linux_synth_replay_hook_event(uint32_t hook_type, const ksi_hook_event_payload *event);
 bool ksi_linux_synth_input_to_hook_event(

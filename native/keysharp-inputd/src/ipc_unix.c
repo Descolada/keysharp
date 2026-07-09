@@ -3,11 +3,13 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -16,8 +18,65 @@
 
 struct ksi_ipc_server {
     int fd;
+    int lock_fd;
     char *socket_path;
 };
+
+/* Held for the process lifetime (released automatically on close/exit, so it
+ * can never strand a stale lock across a crash) to stop a second instance
+ * from silently stealing this instance's socket path out from under it: the
+ * old unlink()+bind() sequence below has no "am I alone" check at all, so a
+ * manually-launched second `keysharp-inputd --foreground`/`--socket ...`
+ * hitting the same path would unlink the live listener's directory entry and
+ * bind its own -- the first instance keeps running and accepting on its
+ * already-open fd, but new connections silently go to the second instance,
+ * and BOTH independently try to EVIOCGRAB devices and create their own
+ * uinput virtual devices. Only guards this manual/debug entry point:
+ * ksi_ipc_server_from_fd() (the --system-service / systemd socket-activation
+ * path the production C# client always uses) needs no such guard --
+ * systemd's own unit-instance tracking already prevents two concurrently
+ * "active" processes under the same unit name. */
+static int acquire_single_instance_lock(const char *socket_path)
+{
+    char lock_path[PATH_MAX];
+    int fd;
+
+    if (snprintf(lock_path, sizeof(lock_path), "%s.lock", socket_path) >= (int)sizeof(lock_path)) {
+        fprintf(stderr, "warning: socket path too long to derive a lock file path; "
+            "skipping single-instance check for %s\n", socket_path);
+        return -1;
+    }
+
+    fd = open(lock_path, O_CREAT | O_RDWR | O_CLOEXEC, S_IRUSR | S_IWUSR);
+
+    if (fd < 0) {
+        /* Best-effort: don't block a debug/manual launch just because the
+         * lock file itself couldn't be created (e.g. an unusual filesystem or
+         * permissions setup for a custom --socket path). */
+        fprintf(stderr, "warning: cannot open %s: %s; skipping single-instance check\n",
+            lock_path, strerror(errno));
+        return -1;
+    }
+
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        if (errno == EWOULDBLOCK) {
+            fprintf(stderr,
+                "another keysharp-inputd instance already holds %s; refusing to start "
+                "(starting anyway would silently steal the live socket at %s out from "
+                "under the running instance)\n",
+                lock_path, socket_path);
+        } else {
+            fprintf(stderr, "warning: flock(%s) failed: %s; skipping single-instance check\n",
+                lock_path, strerror(errno));
+            return -1;
+        }
+
+        close(fd);
+        return errno == EWOULDBLOCK ? -2 : -1;
+    }
+
+    return fd;
+}
 
 static int validate_socket_path(const char *socket_path)
 {
@@ -36,11 +95,32 @@ static int validate_socket_path(const char *socket_path)
     return 0;
 }
 
+/* Frees a partially-built server on any of ksi_ipc_server_open()'s failure
+ * paths, releasing the single-instance lock (if one was acquired) along with
+ * everything else so a failed open never leaks it. */
+static void abandon_ipc_server(ksi_ipc_server *created, int fd, const char *socket_path, bool unlink_socket)
+{
+    if (fd >= 0) {
+        close(fd);
+    }
+
+    if (unlink_socket) {
+        (void)unlink(socket_path);
+    }
+
+    if (created->lock_fd >= 0) {
+        close(created->lock_fd);
+    }
+
+    free(created);
+}
+
 int ksi_ipc_server_open(const char *socket_path, ksi_ipc_server **server)
 {
     struct sockaddr_un address;
     ksi_ipc_server *created = NULL;
     int fd = -1;
+    int lock_result;
 
     if (server == NULL || validate_socket_path(socket_path) != 0) {
         return -1;
@@ -53,11 +133,29 @@ int ksi_ipc_server_open(const char *socket_path, ksi_ipc_server **server)
         return -1;
     }
 
+    created->lock_fd = -1;
+
+    lock_result = acquire_single_instance_lock(socket_path);
+
+    if (lock_result == -2) {
+        /* A live instance holds the lock: bail out before touching the
+         * socket path at all (no unlink, no bind) so the running instance is
+         * completely undisturbed. */
+        free(created);
+        return -1;
+    }
+
+    if (lock_result >= 0) {
+        created->lock_fd = lock_result;
+    }
+    /* lock_result == -1: best-effort skip, proceed without a lock (see
+     * acquire_single_instance_lock's comment). */
+
     fd = socket(AF_UNIX, SOCK_STREAM, 0);
 
     if (fd < 0) {
         fprintf(stderr, "failed to create IPC socket: %s\n", strerror(errno));
-        free(created);
+        abandon_ipc_server(created, -1, socket_path, false);
         return -1;
     }
 
@@ -71,32 +169,25 @@ int ksi_ipc_server_open(const char *socket_path, ksi_ipc_server **server)
 
     if (bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0) {
         fprintf(stderr, "failed to bind IPC socket %s: %s\n", socket_path, strerror(errno));
-        close(fd);
-        free(created);
+        abandon_ipc_server(created, fd, socket_path, false);
         return -1;
     }
 
     if (chmod(socket_path, S_IRUSR | S_IWUSR) != 0) {
         fprintf(stderr, "failed to chmod IPC socket %s: %s\n", socket_path, strerror(errno));
-        close(fd);
-        (void)unlink(socket_path);
-        free(created);
+        abandon_ipc_server(created, fd, socket_path, true);
         return -1;
     }
 
     if (listen(fd, 64) != 0) {
         fprintf(stderr, "failed to listen on IPC socket %s: %s\n", socket_path, strerror(errno));
-        close(fd);
-        (void)unlink(socket_path);
-        free(created);
+        abandon_ipc_server(created, fd, socket_path, true);
         return -1;
     }
 
     if (set_nonblock(fd) != 0) {
         fprintf(stderr, "failed to set IPC server non-blocking: %s\n", strerror(errno));
-        close(fd);
-        (void)unlink(socket_path);
-        free(created);
+        abandon_ipc_server(created, fd, socket_path, true);
         return -1;
     }
 
@@ -105,9 +196,7 @@ int ksi_ipc_server_open(const char *socket_path, ksi_ipc_server **server)
 
     if (created->socket_path == NULL) {
         fprintf(stderr, "failed to copy socket path\n");
-        close(fd);
-        (void)unlink(socket_path);
-        free(created);
+        abandon_ipc_server(created, fd, socket_path, true);
         return -1;
     }
 
@@ -132,6 +221,11 @@ int ksi_ipc_server_from_fd(int fd, ksi_ipc_server **server)
     if (created == NULL) {
         return -1;
     }
+
+    /* No single-instance lock in the socket-activation path (see
+     * acquire_single_instance_lock's comment) -- must still be -1, not 0
+     * (calloc's zero-init), or ksi_ipc_server_close() would later close fd 0. */
+    created->lock_fd = -1;
 
     set_cloexec(fd);
 
@@ -158,6 +252,12 @@ void ksi_ipc_server_close(ksi_ipc_server *server)
     if (server->socket_path != NULL) {
         (void)unlink(server->socket_path);
         free(server->socket_path);
+    }
+
+    /* Releases the single-instance flock (held by keeping the fd open, per
+     * acquire_single_instance_lock) so a later instance can start cleanly. */
+    if (server->lock_fd >= 0) {
+        close(server->lock_fd);
     }
 
     free(server);

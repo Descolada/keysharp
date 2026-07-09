@@ -64,6 +64,47 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		protected override KeyboardMouseSender CreateKbdMsSender()
 			=> new InputdKeyboardMouseSender();
 
+		// Fast path for the 8 modifier VKs while the inputd hook is active: every
+		// key event, physical (evdev) and synthetic (uinput, re-injected through
+		// the hook), flows through UpdateKeybdState on this same process, so
+		// kbdMsSender.modifiersLRLogical is always the complete, authoritative
+		// modifier state -- a same-thread field read, no IPC required. Without
+		// this override, the base implementation round-trips to keysharp-inputd
+		// over the query socket for every call, and GetModifierLRState(true)
+		// (KeyboardMouseSender.cs) calls this up to 8 times (once per modifier
+		// VK) on the mainline hotkey-firing path for every hotkey-eligible
+		// keystroke -- turning a zero-cost check into up to 8 blocking
+		// round-trips per keystroke, serialized against any other concurrent
+		// query (e.g. MouseGetPos) via the shared query-client lock.
+		// Non-modifier VKs and mouse VKs fall through to the base implementation
+		// unchanged.
+		internal override bool IsKeyDownLogical(uint vk)
+		{
+			if (UsingInputdHooks)
+			{
+				var modMask = vk switch
+				{
+					VK_LCONTROL => MOD_LCONTROL,
+					VK_RCONTROL => MOD_RCONTROL,
+					VK_CONTROL => MOD_LCONTROL | MOD_RCONTROL,
+					VK_LSHIFT => MOD_LSHIFT,
+					VK_RSHIFT => MOD_RSHIFT,
+					VK_SHIFT => MOD_LSHIFT | MOD_RSHIFT,
+					VK_LMENU => MOD_LALT,
+					VK_RMENU => MOD_RALT,
+					VK_MENU => MOD_LALT | MOD_RALT,
+					VK_LWIN => MOD_LWIN,
+					VK_RWIN => MOD_RWIN,
+					_ => 0u
+				};
+
+				if (modMask != 0)
+					return (kbdMsSender.modifiersLRLogical & modMask) != 0;
+			}
+
+			return base.IsKeyDownLogical(vk);
+		}
+
 		internal static bool TryProcessReentrantHookInputs(
 			IReadOnlyList<KeysharpInputdClient.Input> inputs,
 			KeysharpInputdClient.SynthFlags flags)
@@ -85,15 +126,6 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 		protected override void OnPlatformHookStartFailed(string message)
 			=> WarnIfWaylandHookUnavailable();
-
-		private void EnsureInputdSender()
-		{
-			if (_kbdMsSender is null or InputdKeyboardMouseSender)
-				return;
-
-			InvalidateKbdMsSender();
-			ResetTrackedInputState(clearSyntheticQueue: false);
-		}
 
 		private static bool warnedWaylandHookUnavailable;
 
@@ -230,7 +262,6 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			if (hookRunning && inputdHookKinds == wantedHooks)
 			{
 				usingInputdHooks = true;
-				EnsureInputdSender();
 				return true;
 			}
 
@@ -271,7 +302,6 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 				inputdHookKinds = wantedHooks;
 				usingInputdHooks = true;
-				EnsureInputdSender();
 				return true;
 			}
 			catch (Exception ex)

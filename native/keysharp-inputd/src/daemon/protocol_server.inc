@@ -84,6 +84,7 @@ static void handle_client_hello(
      * start an async prompt. Response will be sent from process_client_prompt_done. */
     if (missing != 0u && state->permissions != NULL) {
         if (!start_prompt_task(state->commands, client->fd, client->connection_id, requested, missing,
+                               state->available_capabilities,
                                client->exe_path, client->command_line, client->exe_hash,
                                client->pid, client->uid, client->gid)) {
             send_hello_status(client->fd, message->header->client_id, message->header->correlation_id, -1, granted);
@@ -101,8 +102,19 @@ static void handle_client_hello(
 
     /* All requested capabilities already granted — respond immediately. */
     if (requested != 0u && (granted & requested) != requested) {
-        client->authenticated = false;
-        client->granted_capabilities = granted;
+        /* `granted` here is scoped to THIS request only (see
+         * check_capabilities_sync: masked by `expanded`), never to capabilities
+         * granted earlier on this same connection for something else. Union
+         * (not overwrite) so a denied/partial request can never claw back a
+         * capability this connection already holds and may be actively using
+         * (e.g. an installed hook). Likewise, `authenticated` gates every
+         * capability check (client_has_capability), so it must reflect
+         * "this connection holds at least one capability", not "the most
+         * recent hello was fully satisfied" -- otherwise a later, unrelated,
+         * partially-denied request would 403 capabilities it still legitimately
+         * holds. */
+        client->granted_capabilities |= granted;
+        client->authenticated = client->authenticated || client->granted_capabilities != 0u;
         send_hello_status(client->fd, message->header->client_id, message->header->correlation_id, -1, granted);
         return;
     }

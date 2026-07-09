@@ -109,6 +109,7 @@ static bool current_scroll_lock;
 static ksi_pointer_position_payload current_pointer_position;
 
 static void refresh_indicator_state_from_device(const ksi_linux_tracked_device *device);
+static int set_grab_masks(uint32_t hook_mask, uint32_t block_mask);
 
 static bool test_bit(const unsigned long *bits, int bit)
 {
@@ -736,7 +737,16 @@ static void track_device(const ksi_linux_device_info *info, const char *reason)
             want_grab = false;
         }
 
-        (void)set_device_grab(target, want_grab);
+        if (set_device_grab(target, want_grab) != 0) {
+            /* Mirror set_grab_masks()'s own bookkeeping: a device that fails to
+             * grab right now (e.g. EBUSY racing keyd, or a stray second daemon
+             * instance) must not be silently forgotten -- this device was never
+             * counted by set_grab_masks()'s own failure loop (this call bypasses
+             * it entirely), so without this it would never be retried. Setting
+             * this flag makes ksi_linux_devices_retry_incomplete_grabs() (called
+             * periodically from the main loop) re-attempt it. */
+            grab_state_incomplete = true;
+        }
     }
 
     log_device(info, reason);
@@ -887,15 +897,74 @@ int ksi_linux_devices_start(void)
     block_input_mask = 0;
     grab_state_incomplete = false;
     memset(&current_pointer_position, 0, sizeof(current_pointer_position));
-    scan_existing_devices();
 
+    /* Start the udev monitor BEFORE enumerating existing devices -- the same
+     * order keyd itself uses (evloop.c: devmon_create() before device_scan()).
+     * A device that appears between udev_monitor_enable_receiving() and the
+     * enumeration below queues on the (now-open) netlink socket and is picked
+     * up later by process_udev_events(); track_device() dedups by path, so a
+     * device that both paths independently see is a harmless no-op on the
+     * second sighting. The reverse order (enumerate-then-watch) leaves a gap
+     * where a device created after the enumeration finishes but before the
+     * monitor goes live is invisible to both paths, permanently -- notably
+     * including keyd's own persistent virtual keyboard, which (unlike a
+     * physical device) is never recreated on a later replug to give the
+     * monitor a second chance. */
     if (start_udev_monitor() != 0) {
         fprintf(stderr, "inputd: warning: udev monitor unavailable; hotplug disabled\n");
         /* Continue in degraded mode: existing devices are tracked but newly
          * plugged devices will not be detected at runtime. */
     }
 
+    scan_existing_devices();
+
     return 0;
+}
+
+/* Rate limit for ksi_linux_devices_retry_incomplete_grabs(): a device that is
+ * genuinely, permanently ungrabbable (e.g. a composite wireless dongle's
+ * extra "consumer control" node -- see the comment in set_grab_masks()) would
+ * otherwise retry, fail, and log on every single main-loop tick. */
+#define KSI_GRAB_RETRY_INTERVAL_MS 3000u
+static uint64_t last_grab_retry_ms;
+
+static uint64_t monotonic_ms(void)
+{
+    struct timespec ts;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0;
+    }
+
+    return ((uint64_t)ts.tv_sec * 1000u) + ((uint64_t)ts.tv_nsec / 1000000u);
+}
+
+/* Called periodically (event-driven callers only ever retry on their own
+ * event; nothing previously re-drove a grab attempt once time had simply
+ * passed). Re-runs set_grab_masks() with the CURRENT masks whenever
+ * grab_state_incomplete is set -- set_grab_masks()'s own short-circuit only
+ * skips the per-device loop when the flag is clear, so this safely becomes a
+ * cheap no-op once every device is resolved (grabbed, or intentionally
+ * deferred-and-still-deferred). This is what lets a device that lost an
+ * EVIOCGRAB race (against keyd, a stray second daemon instance, or any other
+ * transient contention) get picked back up once the contention clears,
+ * instead of being silently abandoned for the rest of the process's life. */
+void ksi_linux_devices_retry_incomplete_grabs(void)
+{
+    uint64_t now;
+
+    if (!grab_state_incomplete) {
+        return;
+    }
+
+    now = monotonic_ms();
+
+    if (now != 0 && last_grab_retry_ms != 0 && now - last_grab_retry_ms < KSI_GRAB_RETRY_INTERVAL_MS) {
+        return;
+    }
+
+    last_grab_retry_ms = now;
+    (void)set_grab_masks(grab_hook_mask, block_input_mask);
 }
 
 void ksi_linux_devices_stop(void)
@@ -925,11 +994,26 @@ bool ksi_linux_devices_has_candidates(void)
 static int set_grab_masks(uint32_t hook_mask, uint32_t block_mask)
 {
     size_t grab_failures = 0;
+    bool deferred_any = false;
+    bool defer_new_grabs = false;
 
     if (!grab_state_incomplete
         && grab_hook_mask == hook_mask
         && block_input_mask == block_mask) {
         return 0;
+    }
+
+    /* Mirror track_device()'s "only-the-tail-extends" guard here too. That
+     * guard previously applied only to a brand-new device appearing via
+     * hotplug; without it here, a hook/BlockInput mask change (or a retry of
+     * a device track_device() correctly deferred on) could still grab a
+     * device out from under a downstream cooperating interceptor (e.g. keyd),
+     * recreating the exact double-grab this mechanism exists to prevent.
+     * Only gates NEW grabs (see the !grabbed check below) -- a device already
+     * flowing is left alone, since un-grabbing it here would itself be a
+     * worse disruption than leaving it as-is. */
+    if (hook_mask != 0 || block_mask != 0) {
+        defer_new_grabs = our_output_is_grabbed();
     }
 
     /* Best-effort, per-device: apply the requested grab state to each tracked
@@ -942,16 +1026,31 @@ static int set_grab_masks(uint32_t hook_mask, uint32_t block_mask)
     for (size_t i = 0; i < tracked_device_count; i++) {
         bool should_grab = should_grab_device_for_masks(&tracked_devices[i], hook_mask, block_mask);
 
+        if (should_grab && defer_new_grabs && !tracked_devices[i].grabbed) {
+            fprintf(stderr,
+                "inputd: not grabbing %s (\"%s\"): our output is grabbed downstream; "
+                "deferring to the tail interceptor\n",
+                tracked_devices[i].path, tracked_devices[i].name);
+            should_grab = false;
+            deferred_any = true;
+        }
+
         if (set_device_grab(&tracked_devices[i], should_grab) != 0) {
             grab_failures++;
         }
     }
 
     /* Commit the masks even on partial failure: the devices that grabbed are
-     * now enforcing this state, and devices hotplugged later must match it. */
+     * now enforcing this state, and devices hotplugged later must match it.
+     * A deferred-to-tail-interceptor device counts as incomplete too (even
+     * though set_device_grab() itself reported success/no-op for it): this is
+     * what makes the periodic retry pass (see
+     * ksi_linux_devices_retry_incomplete_grabs) keep re-checking
+     * our_output_is_grabbed() and pick the device up as soon as the tail
+     * interceptor releases our output, instead of deferring it forever. */
     grab_hook_mask = hook_mask;
     block_input_mask = block_mask;
-    grab_state_incomplete = grab_failures != 0;
+    grab_state_incomplete = grab_failures != 0 || deferred_any;
 
     if (grab_failures != 0) {
         fprintf(stderr,

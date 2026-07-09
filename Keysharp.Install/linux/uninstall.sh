@@ -144,7 +144,14 @@ if [[ "${ROOT_INSTALL}" == "true" ]]; then
   if [[ -x "${APP_DIR_TARGET}/keysharp-inputd" ]]; then
     "${APP_DIR_TARGET}/keysharp-inputd" --remove-input-access || true
   else
+    # Binary already gone (manual deletion, a corrupted install, or a prior
+    # packaging run that skipped the native helpers) -- --remove-input-access
+    # can't run, so manually remove BOTH files it would have removed: the
+    # udev rule AND the uinput modules-load config. Leaving the latter behind
+    # was a real gap (kept the kernel auto-loading uinput at every boot after
+    # a complete uninstall) since only the rule was deleted here before.
     rm -f /etc/udev/rules.d/70-keysharp-inputd-uaccess.rules
+    rm -f /etc/modules-load.d/uinput.conf
     removed_udev_rule=true
   fi
   # Legacy rule from installs predating the uaccess switch (harmless if absent).

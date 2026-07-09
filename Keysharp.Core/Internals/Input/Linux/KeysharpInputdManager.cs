@@ -383,9 +383,21 @@ namespace Keysharp.Internals.Input.Linux
 		{
 			if (client != null)
 			{
-				status = PermissionStatus.Granted;
-				message = string.Empty;
-				return true;
+				if (client.IsConnected)
+				{
+					status = PermissionStatus.Granted;
+					message = string.Empty;
+					return true;
+				}
+
+				// Cached client is stale -- the daemon already closed this
+				// connection (e.g. it crashed or restarted) since we last used
+				// it. Previously this branch was trusted purely because it was
+				// non-null, so the FIRST real request after a silent daemon
+				// death threw an avoidable transport exception instead of
+				// transparently reconnecting here, same as every other
+				// caller-visible transport failure already does.
+				DisposeClient();
 			}
 
 			return TryConnect(operation, out status, out message);

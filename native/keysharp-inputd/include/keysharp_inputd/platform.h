@@ -36,6 +36,15 @@ typedef struct ksi_platform_backend {
      * KSI_OUTPUT_ACTION_RELEASE_ALL action) so it is serialized with replay/synth and
      * never races them or stalls the daemon main thread. May be NULL. */
     void (*release_synthetic_keys)(void);
+    /* Called periodically (roughly once per second, more often when other fd
+     * activity wakes the main loop) from the daemon's main thread. Lets the
+     * backend retry anything that failed transiently and was previously only
+     * ever re-driven reactively by an unrelated event (or never at all) --
+     * e.g. re-attempting a device grab lost to contention, or recreating a
+     * synthetic output device after a write failure. Each backend is
+     * responsible for its own internal rate-limiting; this may be called far
+     * more often than any actual retry should happen. May be NULL. */
+    void (*periodic_maintenance)(void);
 } ksi_platform_backend;
 
 const ksi_platform_backend *ksi_platform_backend_get(void);

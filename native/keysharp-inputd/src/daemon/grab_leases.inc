@@ -164,6 +164,7 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
     uint32_t requested;
     uint32_t missing;
     uint32_t granted;
+    uint32_t available_capabilities_at_start;
 
     if (state == NULL || command == NULL) {
         return;
@@ -172,6 +173,7 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
     decision = command->data.prompt_done.decision;
 	requested = command->data.prompt_done.requested_capabilities;
 	missing = command->data.prompt_done.missing_capabilities;
+	available_capabilities_at_start = command->data.prompt_done.available_capabilities_at_start;
 
     client_index = find_client_index_by_connection(
         state,
@@ -193,10 +195,23 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
 
     /* Separate physical (inputd-managed) from non-physical (e.g. screen capture)
      * capabilities.  Both appear in `missing` because check_capabilities_sync
-     * includes non-physical caps so they appear in the combined prompt. */
-    uint32_t physical_missing    = missing &  state->available_capabilities;
-    uint32_t non_physical_missing = missing & ~state->available_capabilities;
-    uint32_t physical_requested  = requested & state->available_capabilities;
+     * includes non-physical caps so they appear in the combined prompt.
+     *
+     * Masked by available_capabilities_at_start (a snapshot taken when the
+     * prompt was STARTED), not the current state->available_capabilities: a
+     * permission prompt can sit open for as long as the user takes to answer
+     * it, and a hotplug during that window must not silently redefine what
+     * the request "was" -- that would let (granted & physical_requested) ==
+     * physical_requested spuriously pass below even though a capability the
+     * user was actually asked about is no longer being granted, reporting a
+     * false success instead of the honest failure. What we actually PROMISE
+     * the client (the `granted` mask itself, below) is still gated by the
+     * CURRENT availability, so a capability that genuinely became unavailable
+     * is never claimed as granted -- only the pass/fail determination and the
+     * ALLOW_ONCE in-process grant use the start-of-prompt snapshot. */
+    uint32_t physical_missing    = missing &  available_capabilities_at_start;
+    uint32_t non_physical_missing = missing & ~available_capabilities_at_start;
+    uint32_t physical_requested  = requested & available_capabilities_at_start;
 
 	if (decision == KSI_PERMISSION_DECISION_ALLOW_ALWAYS) {
 		/* Grant ALL missing capabilities persistently — physical ones will be
@@ -228,8 +243,14 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
               & (permission_capabilities_for_request(requested) & state->available_capabilities);
 
     if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE) {
-        /* Physical missing caps are granted in-process; propagate to siblings. */
-        granted |= physical_missing;
+        /* Physical missing caps are granted in-process; propagate to siblings.
+         * Re-masked by the CURRENT availability (not the prompt-start
+         * snapshot physical_missing was computed from): the pass/fail check
+         * below correctly uses the snapshot so a mid-prompt hotplug loss is
+         * never silently reported as success, but what we actually hand back
+         * as `granted` must never claim a capability that isn't deliverable
+         * right now. */
+        granted |= physical_missing & state->available_capabilities;
     }
 
     (void)non_physical_missing;  /* acknowledged; handled via PID session above */
@@ -237,8 +258,11 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
     if (decision == KSI_PERMISSION_DECISION_DENY
         || decision == KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE
         || (granted & physical_requested) != physical_requested) {
-        client->authenticated = false;
-        client->granted_capabilities = granted;
+        /* Union, not overwrite -- and only de-authenticate if nothing has ever
+         * been granted on this connection. See the matching comment in
+         * protocol_server.inc's handle_client_hello for the full rationale. */
+        client->granted_capabilities |= granted;
+        client->authenticated = client->authenticated || client->granted_capabilities != 0u;
         send_hello_status(client->fd,
             client->pending_hello_client_id, client->pending_hello_correlation_id,
             -1, granted);
@@ -311,6 +335,7 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
         if (missing != 0u && state->permissions != NULL) {
             /* Need to prompt. Transition to AWAITING_PROMPT and start the worker. */
             if (!start_prompt_task(state->commands, client->fd, client->connection_id, requested, missing,
+                                   state->available_capabilities,
                                    client->exe_path, client->command_line, client->exe_hash,
                                    client->pid, client->uid, client->gid)) {
                 /* Prompt thread failed; deny immediately. */
@@ -329,8 +354,12 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
         client->pending_hello_valid = false;
 
         if (requested != 0u && (granted & requested) != requested) {
-            client->authenticated = false;
-            client->granted_capabilities = granted;
+            /* Union, not overwrite -- and only de-authenticate if nothing has
+             * ever been granted on this connection. See the matching comment
+             * in protocol_server.inc's handle_client_hello for the full
+             * rationale. */
+            client->granted_capabilities |= granted;
+            client->authenticated = client->authenticated || client->granted_capabilities != 0u;
             send_hello_status(client->fd,
                 client->pending_hello_client_id, client->pending_hello_correlation_id,
                 -1, granted);

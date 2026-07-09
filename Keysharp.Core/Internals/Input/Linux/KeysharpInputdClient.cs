@@ -234,6 +234,41 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal Capabilities GrantedCapabilities { get; private set; }
 
+		/// <summary>
+		/// Cheap, non-blocking liveness probe -- a single Poll() syscall, no
+		/// actual request. False once the socket is disposed or the daemon has
+		/// already closed/reset the connection (e.g. it crashed or restarted).
+		/// A live, idle connection is never reported readable, so this cannot
+		/// false-negative on a healthy connection; it CAN still false-positive
+		/// right up until the daemon actually dies (this is a snapshot, not a
+		/// guarantee), so callers must still handle a transport exception on
+		/// the next real request either way -- this only catches the common
+		/// case of a cached connection that is already known-dead before that
+		/// request is even attempted, letting the caller reconnect
+		/// transparently instead of surfacing an avoidable exception.
+		/// </summary>
+		internal bool IsConnected
+		{
+			get
+			{
+				if (disposed)
+					return false;
+
+				try
+				{
+					return !(socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0);
+				}
+				catch (ObjectDisposedException)
+				{
+					return false;
+				}
+				catch (SocketException)
+				{
+					return false;
+				}
+			}
+		}
+
 		internal static string DefaultSocketPath
 		{
 			get

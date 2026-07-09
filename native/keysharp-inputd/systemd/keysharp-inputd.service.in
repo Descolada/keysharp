@@ -1,7 +1,16 @@
 [Unit]
 Description=Keysharp privileged Linux input broker
 Requires=keysharp-inputd.socket
-After=keysharp-inputd.socket systemd-udevd.service
+After=keysharp-inputd.socket systemd-udevd.service keyd.service
+# Soft ordering hint only (no Wants=/Requires=): if keyd is installed and
+# starts around the same time as this unit, let it grab raw physical devices
+# first so we correctly end up downstream of it (grabbing keyd's re-emitted
+# virtual keyboard, per protocol.h's vendor-masquerade design) rather than
+# racing it for the raw device. Harmless no-op if keyd.service does not exist
+# on this system -- systemd silently ignores an After= on a unit that isn't
+# present. Does not (and cannot) fully solve the race: this daemon is
+# socket-activated, so it may start on first client connection at any later
+# time regardless of boot ordering.
 
 [Service]
 Type=simple

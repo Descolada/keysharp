@@ -95,6 +95,12 @@ static void linux_release_synthetic_keys(void)
     ksi_linux_synth_release_all();
 }
 
+static void linux_periodic_maintenance(void)
+{
+    ksi_linux_devices_retry_incomplete_grabs();
+    ksi_linux_synth_retry_if_broken();
+}
+
 static int linux_set_block_input_mask(uint32_t block_mask)
 {
     return ksi_linux_devices_set_block_input_mask(block_mask);
@@ -120,6 +126,7 @@ static const ksi_platform_backend linux_backend = {
     .set_block_input_mask = linux_set_block_input_mask,
     .set_hook_event_callback = linux_set_hook_event_callback,
     .release_synthetic_keys = linux_release_synthetic_keys,
+    .periodic_maintenance = linux_periodic_maintenance,
 };
 
 const ksi_platform_backend *ksi_platform_backend_get(void)

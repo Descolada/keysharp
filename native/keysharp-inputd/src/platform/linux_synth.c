@@ -72,6 +72,9 @@
 static int uinput_fd = -1;
 /* Absolute pointer: ABS_X/Y with INPUT_PROP_POINTER for absolute MouseMove. */
 static int uinput_abs_fd = -1;
+/* Latched by emit_event_to() on a genuine uinput write failure (see there).
+ * Read by ksi_linux_synth_is_available() and ksi_linux_synth_retry_if_broken(). */
+static bool synth_write_failed;
 
 /* All uinput writes and the ACTUAL-device synthesis state they touch (uinput_fd,
  * synthesized_keys_down and the pacing counters) are accessed on a single thread -- the output sequencer, which drains
@@ -213,6 +216,15 @@ static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
     } while (nwritten < 0 && errno == EINTR);
 
     if (nwritten != (ssize_t)sizeof(event)) {
+        /* A write() to /dev/uinput does not block and does not return EAGAIN
+         * (see the comment above), so landing here means something is
+         * actually wrong with the device -- e.g. the kernel tore it down out
+         * from under us. Latch it so ksi_linux_synth_is_available() stops
+         * silently advertising a broken output, and so the periodic
+         * maintenance pass (ksi_linux_synth_retry_if_broken) attempts to
+         * recreate the uinput devices instead of leaving them dead for the
+         * rest of the process's life. */
+        synth_write_failed = true;
         return -1;
     }
 
@@ -269,15 +281,23 @@ static int emit_sync(void)
 
 static int send_key_code(int key_code, int value)
 {
-    if (emit_event(EV_KEY, (uint16_t)key_code, value) != 0 || emit_sync() != 0) {
+    if (emit_event(EV_KEY, (uint16_t)key_code, value) != 0) {
         return -1;
     }
 
+    /* Update bookkeeping as soon as the EV_KEY write lands, not only on full
+     * success: the kernel's input core applies a key event to its internal
+     * per-device state table immediately, independent of whether a following
+     * SYN_REPORT event is ever written. Doing this before (rather than only
+     * after) the SYN write means a SYN write failure can never leave
+     * synthesized_keys_down understating a key the kernel already considers
+     * held, which would otherwise let it survive a release-all sweep and
+     * strand it stuck down on the virtual device. */
     if (key_code >= 0 && key_code <= KEY_MAX) {
         synthesized_keys_down[key_code] = value != 0;
     }
 
-    return 0;
+    return emit_sync();
 }
 
 void ksi_linux_synth_add_logical_key_state(uint8_t *keys, size_t key_bytes)
@@ -854,7 +874,47 @@ void ksi_linux_synth_stop(void)
 
 bool ksi_linux_synth_is_available(void)
 {
-    return uinput_fd >= 0;
+    return uinput_fd >= 0 && !synth_write_failed;
+}
+
+/* Rate limit for ksi_linux_synth_retry_if_broken(): recreating the uinput
+ * devices is real ioctl/UI_DEV_DESTROY/UI_DEV_CREATE work, not something to
+ * repeat on every single main-loop tick if the underlying problem persists. */
+#define KSI_SYNTH_RETRY_INTERVAL_MS 3000u
+static uint64_t last_synth_retry_ms;
+
+/* Called periodically from the main loop. A uinput write failure previously
+ * had no consequence beyond a log line and a dropped event -- the daemon kept
+ * advertising synth/hook capability and kept trying (and failing) to write to
+ * the same broken fd for the rest of its life. This notices the latch set by
+ * emit_event_to() and attempts to recreate the devices from scratch. */
+void ksi_linux_synth_retry_if_broken(void)
+{
+    uint64_t now;
+
+    if (!synth_write_failed) {
+        return;
+    }
+
+    now = monotonic_ms();
+
+    if (now != 0 && last_synth_retry_ms != 0 && now - last_synth_retry_ms < KSI_SYNTH_RETRY_INTERVAL_MS) {
+        return;
+    }
+
+    last_synth_retry_ms = now;
+
+    fprintf(stderr, "inputd: synthetic output device write failed; recreating uinput devices\n");
+    ksi_linux_synth_stop();
+    synth_write_failed = false;
+    (void)ksi_linux_synth_start();
+
+    if (uinput_fd < 0) {
+        /* ksi_linux_synth_start() already logged the specific reason. Mark
+         * broken again so the next periodic pass retries instead of the
+         * daemon silently sitting on a dead synth output. */
+        synth_write_failed = true;
+    }
 }
 
 /* Resolve a keyboard synth input to the evdev key code it toggles and its
@@ -1274,6 +1334,17 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
         fprintf(stderr, "inputd: synthesis unavailable; %s could not be opened\n", KSI_UINPUT_PATH);
         return -1;
     }
+
+    /* pending_high_surrogate is a single process-global (see its declaration):
+     * it must never carry an unpaired high surrogate left over from a
+     * previous, unrelated batch (e.g. one client's malformed/truncated
+     * SendText ending mid-surrogate) into THIS batch, where it could splice
+     * with an unrelated leading low surrogate and emit the wrong codepoint.
+     * Each top-level batch is expected to be well-formed UTF-16 on its own,
+     * so starting every batch with a clean slate is always correct and only
+     * ever discards state that was already an error (an unpaired surrogate)
+     * from a prior call. */
+    pending_high_surrogate = 0;
 
     /* Enable per-event pacing for this batch (see emit_event_to). The chunk
      * counter is deliberately NOT reset here: it is shared and persists across

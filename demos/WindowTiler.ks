@@ -10,14 +10,13 @@
     WinMaximize), multi-monitor geometry (MonitorGet / MonitorGetWorkArea, which excludes panels/taskbars),
     dynamic Hotkey() registration, and an Overlay (Highlight) + ToolTip for feedback.
 
-    Hotkeys (Ctrl+Alt + a QWE/ASD/ZXC grid that mirrors screen position — no numpad needed):
+    Hotkeys (CapsLock + a QWE/ASD/ZXC grid that mirrors screen position — no numpad needed):
 
         Q W E       top-left    top-half     top-right
-        A S D   =   left-half   MAXIMIZE     right-half
+        A S D   =   left-half   centre       right-half
         Z X C       bottom-left bottom-half  bottom-right
 
-        Ctrl+Alt+F  centre (two-thirds, centred)
-        Ctrl+Alt+R  restore
+        CapsLock+R  maximize / restore
 
     Edit WindowTiler.Prefix / WindowTiler.Grid below if these clash with your desktop's shortcuts.
 
@@ -28,12 +27,12 @@
 
 class WindowTiler {
     ; --- config -------------------------------------------------------------
-    static Prefix := "^!"            ; Ctrl+Alt. Change to "#" (Super/Win/Cmd) etc. if you prefer.
+    static Prefix := "CapsLock & "   ; CapsLock chord. Change to "^!" (Ctrl+Alt) etc. if you prefer.
     static Grid := Map(              ; hotkey suffix -> region
         "q", "topleft",  "w", "top",     "e", "topright",
-        "a", "left",     "s", "maximize", "d", "right",
+        "a", "left",     "s", "center",  "d", "right",
         "z", "botleft",  "x", "bottom",  "c", "botright",
-        "f", "center",   "r", "restore")
+        "r", "togglemax")
 
     static hl := ""                  ; reused Highlight for the snap-target flash
     ; Stable timer callbacks (kept in-class so SetTimer can cancel/reschedule the same reference).
@@ -46,10 +45,10 @@ class WindowTiler {
         for suffix, region in this.Grid
             Hotkey(this.Prefix suffix, this.Handler(region), "On")
         HotkeyCard.Show("Window Tiler", [
-            ["Ctrl+Alt+ Q/W/E", "Top-left · top · top-right"],
-            ["Ctrl+Alt+ A/S/D", "Left · maximize · right"],
-            ["Ctrl+Alt+ Z/X/C", "Bottom-left · bottom · bottom-right"],
-            ["Ctrl+Alt+ F / R", "Centre · restore"] ])
+            ["CapsLock+ Q/W/E", "Top-left · top · top-right"],
+            ["CapsLock+ A/S/D", "Left · centre · right"],
+            ["CapsLock+ Z/X/C", "Bottom-left · bottom · bottom-right"],
+            ["CapsLock+ R", "Maximize / restore"] ])
     }
 
     static Handler(region) => (*) => this.Snap(region)
@@ -70,6 +69,18 @@ class WindowTiler {
                 WinMaximize(info.id)
                 this.Flash({x: info.l, y: info.t, w: info.w, h: info.h})
                 this.Tip("Maximize", 800)
+                return
+            }
+            if (region = "togglemax") {
+                if (WinGetMinMax(info.id) = 1) {
+                    WinRestore(info.id)
+                    this.Flash({x: info.l, y: info.t, w: 1, h: 1})   ; nothing to outline; just clear
+                    this.Tip("Restore", 800)
+                } else {
+                    WinMaximize(info.id)
+                    this.Flash({x: info.l, y: info.t, w: info.w, h: info.h})
+                    this.Tip("Maximize", 800)
+                }
                 return
             }
 

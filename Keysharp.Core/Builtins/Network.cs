@@ -200,7 +200,7 @@ namespace Keysharp.Builtins
 					return default;
 				}
 			});
-			t.Wait();
+			t.WaitWithoutInterruption();
 			return DefaultObject;
 		}
 

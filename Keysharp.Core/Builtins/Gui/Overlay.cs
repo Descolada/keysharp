@@ -241,8 +241,13 @@ namespace Keysharp.Builtins
 			public object Hide()
 			{
 				visible = false;
-				shown = false;
-				_ = Platform.Overlay.TryHideImageOverlay(OverlayId);
+
+				// Only mark ourselves hidden once the platform CONFIRMS the surface is gone. If the withdraw
+				// couldn't be confirmed (e.g. a dropped compositor hide), keep shown == true so Visible stays
+				// truthful and a later Hide re-attempts, instead of leaving a painted-but-"hidden" orphan.
+				if (Platform.Overlay.TryHideImageOverlay(OverlayId))
+					shown = false;
+
 				return this;
 			}
 

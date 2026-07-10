@@ -426,7 +426,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return readFrame(stdout);
 				});
 
-				if (!task.Wait(timeoutMs))
+				if (!task.WaitWithoutInterruption(timeoutMs))
 				{
 					ResetLocked();
 					throw new TimeoutException($"keysharp-helper --serve {mode} response timed out after {timeoutMs}ms");
@@ -458,7 +458,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				throw new HelperStartException(permissionStatus, message);
 			});
 
-			if (!task.Wait(timeoutMs))
+			if (!task.WaitWithoutInterruption(timeoutMs))
 				throw new TimeoutException($"keysharp-helper authorization timed out after {timeoutMs}ms");
 
 			task.GetAwaiter().GetResult();

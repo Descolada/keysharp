@@ -174,7 +174,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				var task = Task.Run(() => p.GetWorkAreaAsync());
 
-				if (!task.Wait(TimeoutMs))
+				if (!task.WaitWithoutInterruption(TimeoutMs))
 					return false;
 
 				var (x, y, w, h) = task.GetAwaiter().GetResult();
@@ -298,7 +298,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 						return null;
 
 					var task = Task.Run(() => p.WatchClipboardChangedAsync(e => handler(e.text, e.mimetypes)));
-					return task.Wait(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
+					return task.WaitWithoutInterruption(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
 				}
 				catch
 				{
@@ -343,7 +343,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return null;
 
 				var task = Task.Run(() => p.WatchWindowEventAsync(e => handler(e.type, e.json)));
-				return task.Wait(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
+				return task.WaitWithoutInterruption(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
 			}
 			catch
 			{
@@ -401,7 +401,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				var task = Task.Run(() => p.EvalAsync(js));
 
-				if (!task.Wait(TimeoutMs))
+				if (!task.WaitWithoutInterruption(TimeoutMs))
 					return null;
 
 				var (ok, result) = task.GetAwaiter().GetResult();
@@ -427,7 +427,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				var task = Task.Run(() => p.GetCursorPositionAsync());
 
-				if (!task.Wait(TimeoutMs))
+				if (!task.WaitWithoutInterruption(TimeoutMs))
 					return false;
 
 				var (rx, ry) = task.GetAwaiter().GetResult();
@@ -452,7 +452,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				var task = Task.Run(() => call(p));
 
-				if (!task.Wait(TimeoutMs))
+				// Pump the message queue while waiting on the extension's reply instead of freezing it — these
+				// calls run from hotkey actions / timers on the main thread, and a slow (cold-channel) reply must
+				// not stall hotkey processing and the UI.
+				if (!task.WaitWithoutInterruption(TimeoutMs))
 					return default;
 
 				return task.GetAwaiter().GetResult();
@@ -474,7 +477,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				var task = Task.Run(() => call(p));
 
-				if (!task.Wait(TimeoutMs))
+				if (!task.WaitWithoutInterruption(TimeoutMs))   // pump the queue while waiting (see RunExtension); overlay hide runs through here
 					return false;
 
 				return task.GetAwaiter().GetResult();
@@ -509,7 +512,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			{
 				var task = Task.Run(() => call(p));
 
-				if (!task.Wait(timeoutMs))
+				if (!task.WaitWithoutInterruption(timeoutMs))   // pump the queue while waiting (see RunExtension)
 					return OverlayShowResult.TimedOut;
 
 				return task.GetAwaiter().GetResult() ? OverlayShowResult.Shown : OverlayShowResult.Failed;

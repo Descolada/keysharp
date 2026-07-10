@@ -160,7 +160,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				var task = Task.Run(() => p.GetCursorPositionAsync());
 
-				if (!task.Wait(TimeoutMs))
+				if (!task.WaitWithoutInterruption(TimeoutMs))
 					return false;
 
 				(x, y) = task.GetAwaiter().GetResult();
@@ -185,7 +185,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				var task = Task.Run(() => p.GetWorkAreaAsync());
 
-				if (!task.Wait(TimeoutMs))
+				if (!task.WaitWithoutInterruption(TimeoutMs))
 					return false;
 
 				var (x, y, w, h) = task.GetAwaiter().GetResult();
@@ -282,7 +282,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				var task = Task.Run(() => p.CaptureAreaAsync(x, y, w, h));
 
-				if (!task.Wait(captureTimeoutMs))
+				if (!task.WaitWithoutInterruption(captureTimeoutMs))
 					return null;
 
 				var bytes = task.GetAwaiter().GetResult();
@@ -304,7 +304,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return null;
 
 				var task = Task.Run(() => p.WatchActiveWindowChangedAsync(handler));
-				return task.Wait(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
+				return task.WaitWithoutInterruption(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
 			}
 			catch
 			{
@@ -322,7 +322,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return null;
 
 				var task = Task.Run(() => p.WatchWindowEventAsync(e => handler(e.type, e.json)));
-				return task.Wait(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
+				return task.WaitWithoutInterruption(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
 			}
 			catch
 			{
@@ -342,7 +342,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return default;
 
 				var task = Task.Run(() => call(p));
-				return task.Wait(timeoutMs) ? task.GetAwaiter().GetResult() : default;
+				return task.WaitWithoutInterruption(timeoutMs) ? task.GetAwaiter().GetResult() : default;
 			}
 			catch
 			{
@@ -374,7 +374,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			{
 				var task = Task.Run(() => call(p));
 
-				if (!task.Wait(timeoutMs))
+				if (!task.WaitWithoutInterruption(timeoutMs))
 					return OverlayShowResult.TimedOut;
 
 				return task.GetAwaiter().GetResult() ? OverlayShowResult.Shown : OverlayShowResult.Failed;

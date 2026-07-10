@@ -143,8 +143,11 @@ class HotkeyCard {
     }
 
     static Hide(*) {
-        this.shown := false
         if IsObject(this.ov)
             this.ov.Hide()
+        ; ov.Hide keeps the overlay's own Visible=true if the compositor couldn't confirm the withdraw, so mirror the
+        ; REAL on-screen state into our click-to-dismiss gate: a dismiss the compositor dropped leaves the card
+        ; clickable (it retries on the next click) instead of permanently short-circuiting `shown` while it's still up.
+        this.shown := IsObject(this.ov) && this.ov.Visible
     }
 }

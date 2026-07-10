@@ -15,6 +15,15 @@ namespace Keysharp.Internals
 	{
 		bool Show(Bitmap image, int x, int y, int width, int height);
 		bool Move(int x, int y, int width, int height);
+
+		/// <summary>
+		/// Withdraw the on-screen surface. Returns true iff it is CONFIRMED gone (so the caller may forget the id);
+		/// false means the withdraw could not be confirmed — e.g. a dropped / timed-out compositor call — and the
+		/// caller must keep the backing mapped so a later Hide can re-attempt rather than orphaning the surface.
+		/// Must be idempotent: a call after a successful withdraw returns true without doing more work.
+		/// </summary>
+		bool TryHide();
+
 		nint Handle { get; }
 	}
 
@@ -95,11 +104,23 @@ namespace Keysharp.Internals
 
 			lock (sync)
 			{
-				if (!overlays.Remove(id, out backing))
+				if (!overlays.TryGetValue(id, out backing))
 					return false;
 			}
 
-			backing.Dispose();
+			// Verify the withdraw BEFORE forgetting the id. If the surface can't be confirmed gone (a dropped or
+			// timed-out compositor hide), keep the backing mapped so a later Hide re-attempts — dropping the id here
+			// while the surface is still painted is exactly what turned a transient hiccup into a permanent orphan.
+			if (!backing.TryHide())
+				return false;
+
+			lock (sync)
+			{
+				// Only forget it if it is still the same backing (a concurrent Show could have replaced it).
+				if (overlays.TryGetValue(id, out var current) && ReferenceEquals(current, backing))
+					_ = overlays.Remove(id);
+			}
+
 			return true;
 		}
 
@@ -213,6 +234,21 @@ namespace Keysharp.Internals
 
 		public bool Move(int x, int y, int width, int height) => inner?.Move(x, y, width, height) ?? false;
 
+		public bool TryHide()
+		{
+			var backing = inner;
+
+			if (backing == null)
+				return true;
+
+			// Keep `inner` on an unconfirmed withdraw so a later retry re-attempts it; only forget it once it is gone.
+			if (!backing.TryHide())
+				return false;
+
+			inner = null;
+			return true;
+		}
+
 		public void Dispose()
 		{
 			inner?.Dispose();
@@ -285,11 +321,14 @@ namespace Keysharp.Internals
 			return false;
 		}
 
-		public void Dispose()
+		public bool TryHide()
 		{
-			overlay?.Dispose();
-			overlay = null;
+			// Tearing down our own Wayland SHM surface is local and synchronous, so it either succeeds or throws.
+			try { overlay?.Dispose(); overlay = null; return true; }
+			catch { return false; }
 		}
+
+		public void Dispose() => _ = TryHide();
 	}
 
 	// Compositor-extension backing (GNOME/Cinnamon): hands the pixels to the shell as a PNG. A move asks the shell
@@ -299,6 +338,7 @@ namespace Keysharp.Internals
 	{
 		private readonly uint id;
 		private bool shown;
+		private bool hidden;
 
 		internal CompositorImageBacking(uint id) => this.id = id;
 
@@ -346,13 +386,31 @@ namespace Keysharp.Internals
 			return false;
 		}
 
-		public void Dispose()
+		public bool TryHide()
 		{
 			// Always ask the shell to drop the actor, even when our Show timed out (shown == false): the shell may
 			// still have created it, and HideImageOverlay is a no-op for an unknown id, so an unconditional hide
 			// reaps a possibly-orphaned actor without risk (the alternative left it on screen until process-death).
-			try { _ = Wl.WaylandBackend.Current?.TryHideImageOverlay(id); } catch { }
+			if (hidden)
+				return true;
+
+			try
+			{
+				// A definitive ack (actor removed, or unknown id) confirms the withdraw; no backend means there is
+				// nothing on this path to withdraw. A dropped / timed-out call returns false so the caller keeps us
+				// mapped and retries — that is what stops a lost hide from orphaning the actor for good.
+				if (Wl.WaylandBackend.Current?.TryHideImageOverlay(id) ?? true)
+				{
+					hidden = true;
+					return true;
+				}
+
+				return false;
+			}
+			catch { return false; }
 		}
+
+		public void Dispose() => _ = TryHide();
 	}
 #elif WINDOWS
 	internal sealed class WindowsOverlay : OverlayBase
@@ -437,15 +495,26 @@ namespace Keysharp.Internals
 			return display;
 		}
 
-		public void Dispose()
+		public bool TryHide()
 		{
+			var closed = true;
+
+			// InvokeOnUIThread is synchronous, so `closed`/`form` reflect the outcome once it returns.
 			Script.InvokeOnUIThread(() =>
 			{
-				try { form?.Close(); } catch { }
-				try { form?.Dispose(); } catch { }
-				form = null;
+				try
+				{
+					form?.Close();
+					form?.Dispose();
+					form = null;   // only reached when Close/Dispose didn't throw
+				}
+				catch { closed = false; }   // leave `form` set so a later retry can re-close it
 			});
+
+			return closed && form == null;
 		}
+
+		public void Dispose() => _ = TryHide();
 	}
 
 	internal sealed class LayeredOverlayForm : Form
@@ -661,7 +730,13 @@ namespace Keysharp.Internals
 				FormBorderStyle = Keysharp.Builtins.FormBorderStyle.None,
 				ShowInTaskbar = false,
 				TopMost = true,
-				Resizable = false,
+				// Must be resizable so PaintOwned can SHRINK the window, not just grow it: GTK3 forces AutoSize when
+				// !Resizable and ignores gtk_window_resize() on a non-resizable window, so a smaller PaintOwned size
+				// was a no-op and the previous (larger) window stretched the new smaller bitmap — an overlay that
+				// shrank in place (zoom-out, a shorter tooltip after a longer one, a shrinking highlight) blurred at
+				// its old size. The overlay is click-through + borderless + non-taskbar, so this never lets the user
+				// resize it; it only lets us set the exact size both ways. PaintOwned always sets form.Size explicitly.
+				Resizable = true,
 				BackgroundColor = Colors.Transparent
 			};
 			imageView = new ImageView { BackgroundColor = Colors.Transparent };
@@ -669,18 +744,29 @@ namespace Keysharp.Internals
 			form.SetClickThrough(true);
 		}
 
-		public void Dispose()
+		public bool TryHide()
 		{
+			var closed = true;
+
+			// InvokeOnUIThread is synchronous, so `closed`/`form` reflect the outcome once it returns.
 			Script.InvokeOnUIThread(() =>
 			{
-				try { form?.Close(); } catch { }
-				try { form?.Dispose(); } catch { }
-				form = null;
-				imageView = null;
-				displayed?.Dispose();
-				displayed = null;
+				try
+				{
+					form?.Close();
+					form?.Dispose();
+					form = null;   // only reached when Close/Dispose didn't throw
+					imageView = null;
+					displayed?.Dispose();
+					displayed = null;
+				}
+				catch { closed = false; }   // leave `form` set so a later retry can re-close it
 			});
+
+			return closed && form == null;
 		}
+
+		public void Dispose() => _ = TryHide();
 	}
 #endif
 }

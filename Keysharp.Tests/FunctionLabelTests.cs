@@ -67,7 +67,9 @@ namespace Keysharp.Tests
 		[Test, Category("Function"), NonParallelizable]
 		public void FuncParamCount() => Assert.IsTrue(TestScript("func-param-count", false));
 
-		[Test, Category("Function"), NonParallelizable]
+		// RequiresHook: registers a real global hotkey, which needs the keysharp-inputd hook and, on a desktop
+		// with the daemon, prompts for input-access permission. Excluded from the non-interactive curated CI set.
+		[Test, Category("Function"), Category("RequiresHook"), NonParallelizable]
 		public void HotkeyLocalFunc() => Assert.IsTrue(TestScript("func-hotkey-local", false));
 
 		public object TestFunc(object a) => a;

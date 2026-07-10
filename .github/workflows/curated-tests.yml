@@ -30,7 +30,10 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   BUILD_CONFIGURATION: ${{ inputs.configuration }}
-  CURATED_TEST_FILTER: Category=Assign|Category=BuiltInVars|Category=Class|Category=Collections|Category=Directives|Category=Flow|Category=Function|Category=Hotstring|Category=Math|Category=Misc|Category=Module|Category=Operator|Category=String|Category=Types|Category=FileAndDir|Category=Network|FullyQualifiedName~SchedulerTests|FullyQualifiedName~MessageFilterTests
+  # Category=RequiresHook is excluded: those tests need the keysharp-inputd global hook and, on a desktop with
+  # the daemon, prompt for input-access permission. The curated set must run without any user interaction, so
+  # hook-dependent tests do not belong in it. The full (interactive) test run does not apply this exclusion.
+  CURATED_TEST_FILTER: (Category=Assign|Category=BuiltInVars|Category=Class|Category=Collections|Category=Directives|Category=Flow|Category=Function|Category=Hotstring|Category=Math|Category=Misc|Category=Module|Category=Operator|Category=String|Category=Types|Category=FileAndDir|Category=Network|FullyQualifiedName~SchedulerTests|FullyQualifiedName~MessageFilterTests) & Category!=RequiresHook
   ETO_REPOSITORY: https://github.com/Descolada/Eto.git
   ETO_BRANCH: Keysharp
 

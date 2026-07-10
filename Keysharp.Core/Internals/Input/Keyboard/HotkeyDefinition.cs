@@ -625,6 +625,16 @@ namespace Keysharp.Internals.Input.Keyboard
 			if (kbd.blockMouseMove || ht.CursorClipActive || inputNeedsMouseHook || (hm.hsResetUponMouseClick && hm.enabledCount != 0))
 				hkd.whichHookNeeded |= HookType.Mouse;
 
+#if LINUX
+			// Global input hooks require a real session/seat (keysharp-inputd, or an interactive display). On a
+			// headless Linux host they can never be installed, so don't attempt to manifest them there: the
+			// hotkeys/hotstrings stay registered in memory (the passes above already ran) but no hook is started
+			// and no reader thread / inputd connection is opened. Non-headless Linux and the other platforms
+			// manifest as usual below.
+			if (Script.IsHeadless)
+				return DefaultObject;
+#endif
+
 			//Regardless of the type of hook needed, including none, we always need to start the reader queue.
 			//The presence of any hotkey/string should start the reader channel thread because even hotkeys
 			//which are received in MainWindow.WndProc() need to be forwarded to it.
@@ -638,7 +648,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 #if LINUX
 			if ((shk.Length != 0 || hm.shs.Count != 0) && hkd.whichHookNeeded != HookType.None)
-				ThrowIfRegisteredHotkeysHotstringsHooksUnavailable(ht, hkd.whichHookNeeded);
+				WarnIfRegisteredHotkeysHotstringsHooksUnavailable(ht, hkd.whichHookNeeded);
 #endif
 
 			// Fix for v1.0.34: If the auto-execute section uses the Hotkey command but returns before doing
@@ -655,7 +665,12 @@ namespace Keysharp.Internals.Input.Keyboard
 		}
 
 #if LINUX
-		private static void ThrowIfRegisteredHotkeysHotstringsHooksUnavailable(HookThread ht, HookType requiredHooks)
+		// When a script registers hotkeys/hotstrings that need a global hook but keysharp-inputd could not install
+		// it, surface a NON-FATAL, continuable warning instead of throwing: a missing hook must not abort the
+		// auto-execute section (which would, for a persistent script, leave the Eto/GTK loop with nothing to quit
+		// it -- see the func-hotkey-local hang) nor crash a plain call to a hotstring/hotkey API. On a desktop the
+		// warning surfaces via the standard continuable warning dialog; in the headless/test host it goes to stderr.
+		private static void WarnIfRegisteredHotkeysHotstringsHooksUnavailable(HookThread ht, HookType requiredHooks)
 		{
 			var missingHooks = HookType.None;
 
@@ -675,7 +690,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				_ => "keyboard and mouse hooks"
 			};
 			var reason = ht.GetHookActivationFailureReason();
-			var message = $"keysharp-inputd is required for Linux hotkeys/hotstrings, but the required {hookText} could not be installed.";
+			var message = $"keysharp-inputd is required for global Linux hotkeys/hotstrings, but the required {hookText} could not be installed, so they will not fire.";
 
 			if (!string.IsNullOrWhiteSpace(reason))
 				message += $" {reason}";
@@ -683,7 +698,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				message += " keysharp-inputd is unavailable.";
 
 			message += " Install and enable keysharp-inputd to use hotkeys/hotstrings on Linux.";
-			_ = Errors.OSErrorOccurred(null, message);
+			_ = Errors.ShowWarning(message);
 		}
 #endif
 

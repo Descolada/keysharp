@@ -158,10 +158,15 @@ namespace Keysharp.Internals.Os
 	{
 		public override PermissionResult RequestAccessibilityAutomation(bool? prompt = null, string operation = null)
 		{
-			return KeysharpInputdManager.EnsureCapabilities(
+			if (Script.IsHeadless)
+				return new PermissionResult(PermissionStatus.NotApplicable);
+
+			var result = KeysharpInputdManager.EnsureCapabilities(
 				KeysharpInputdClient.Capabilities.AccessibilityAutomation,
 				operation ?? "accessibility automation",
 				forcePrompt: prompt == true);
+
+			return result.IsGranted ? result : new PermissionResult(PermissionStatus.NotApplicable, result.Message);
 		}
 
 		public override PermissionResult RequestInputMonitoring(bool? prompt = null, string operation = null)

@@ -361,7 +361,10 @@ namespace Keysharp.Tests
 			Assert.AreEqual(origVal, oldVal);
 		}
 
-		[Test, Category("Hotstring"), NonParallelizable]
+		// RequiresHook: exercises real hotstring firing, which needs the global keyboard/mouse hook to install
+		// (keysharp-inputd on Linux). Excluded from the non-interactive curated CI set; the full interactive
+		// run still executes it and may prompt for input-access permission.
+		[Test, Category("Hotstring"), Category("RequiresHook"), NonParallelizable]
 		public void CreateHotstring()
 		{
 			//Can't seem to simulate uppercase here, so we can't test case sensitive hotstrings.

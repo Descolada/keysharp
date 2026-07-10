@@ -9,11 +9,14 @@ if [[ "${EUID}" -eq 0 ]]; then
 fi
 
 if [[ -z "${PREFIX:-}" ]]; then
+  PREFIX_EXPLICIT=false
   if [[ "${ROOT_INSTALL}" == "true" ]]; then
     PREFIX="/usr/local"
   else
     PREFIX="${HOME}/.local"
   fi
+else
+  PREFIX_EXPLICIT=true
 fi
 
 XDG_DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
@@ -427,6 +430,60 @@ cinnamon_preregister_extension() {
   return 0
 }
 
+# Reconcile a prior install living under the OTHER prefix. Install mode is chosen
+# purely by EUID (root -> /usr/local, user -> ${HOME}/.local), so a mode-switch
+# reinstall (root<->user) would otherwise drop a SECOND parallel copy and leave the
+# other prefix's binaries, its enabled root inputd daemon / setuid helper, and its
+# XDG desktop+mime entries behind: the stale root daemon keeps socket-activating the
+# old binary, and a leftover .desktop can still launch the old app on double-click.
+#   - Root install: actively remove a prior per-user install for the resolved
+#     desktop user (we have the privilege; a user install created no systemd units
+#     or setuid binaries, so removing its files is sufficient).
+#   - User install: we cannot touch the root-owned system copy or stop its daemon,
+#     so warn and point at the root uninstaller.
+# Skipped when PREFIX was set explicitly (a custom prefix has no well-defined
+# "other" install to reconcile).
+reconcile_other_prefix() {
+  [[ "${PREFIX_EXPLICIT}" == "true" ]] && return 0
+
+  if [[ "${ROOT_INSTALL}" == "true" ]]; then
+    local u home other_app other_bin other_apps other_mime other_icon other_mimeapps
+    u="$(resolve_target_user)"
+    [[ -z "${u}" ]] && return 0
+    home="$(getent passwd "${u}" | cut -d: -f6 2>/dev/null || true)"
+    [[ -z "${home}" ]] && return 0
+    other_app="${home}/.local/lib/keysharp"
+    [[ -d "${other_app}" ]] || return 0
+
+    other_bin="${home}/.local/bin"
+    other_apps="${home}/.local/share/applications"
+    other_mime="${home}/.local/share/mime/packages"
+    other_icon="${home}/.local/share/icons/hicolor/256x256/apps"
+    other_mimeapps="${other_apps}/mimeapps.list"
+    echo "Found a prior per-user Keysharp install at ${other_app}; removing it so this system-wide install is authoritative."
+    rm -rf "${other_app}"
+    rm -f "${other_bin}/keysharp" "${other_bin}/keyview" "${other_bin}/keysharp-inputd"
+    rm -f "${other_apps}/keysharp.desktop" "${other_apps}/keyview.desktop" "${other_apps}/keysharp-helper.desktop"
+    rm -f "${other_mime}/keysharp.xml" "${other_icon}/keysharp.png"
+    if [[ -f "${other_mimeapps}" ]]; then
+      sed -i '/^application\/x-keysharp=keysharp\.desktop$/d' "${other_mimeapps}" || true
+      sed -i '/^application\/x-keysharp-compiled=keysharp\.desktop$/d' "${other_mimeapps}" || true
+      sed -i '/^application\/x-autohotkey=keysharp\.desktop$/d' "${other_mimeapps}" || true
+    fi
+  else
+    if [[ -d /usr/local/lib/keysharp ]]; then
+      cat >&2 <<EOF
+Warning: a system-wide Keysharp install exists at /usr/local/lib/keysharp.
+This user-mode install will sit alongside it, and the system-wide install's
+privileged input daemon (keysharp-inputd) will keep serving its OLD binary,
+which can break input hooks/synthesis for this new install. To remove the
+system-wide install first, run the uninstaller shipped with it as root:
+  sudo ./uninstall.sh
+EOF
+    fi
+  fi
+}
+
 show_install_mode() {
   if [[ "${ROOT_INSTALL}" == "true" ]]; then
     cat <<EOF
@@ -545,14 +602,27 @@ check_dotnet
 maybe_run pkill -x '[Kk]eysharp' || true
 maybe_run pkill -x '[Kk]eyview' || true
 
+# On a root<->user mode-switch reinstall, clean up (or warn about) the install
+# under the other prefix so we don't leave a stale parallel copy / daemon behind.
+reconcile_other_prefix
+
 echo "Installing to ${APP_DIR_TARGET} (prefix=${PREFIX})"
+# Replace the payload wholesale instead of overlaying it. A plain `cp -a` merge
+# never deletes files removed or renamed between versions (e.g. the lib/ -> Lib/
+# library relocation), so they pile up as orphans the uninstaller would have wiped;
+# worse, a binary the new version dropped (e.g. an old keysharp-helper) would be
+# re-blessed setuid-root by the root block below, which keys off what is on disk.
+# Clearing first makes the installed tree an exact mirror of the new payload.
+# (APP_DIR_TARGET is ${PREFIX}/lib/keysharp — application files only, no user data —
+# so it is safe to remove; the running daemon's binary is replaced afterwards and
+# the socket is restarted below, and deleting a running ELF is harmless on Linux.)
+rm -rf "${APP_DIR_TARGET}"
 mkdir -p "${APP_DIR_TARGET}" "${BINDIR}"
 cp -a "${APP_DIR_SOURCE}/." "${APP_DIR_TARGET}/"
 
-# Pre-rename installs shipped the capture helper as keysharp-screencap (root-owned setuid) with its
-# own .desktop file; cp -a upgrades never remove them, so clean the legacy artifacts explicitly.
-rm -f "${APP_DIR_TARGET}/keysharp-screencap" \
-      "${BINDIR}/keysharp-screencap" \
+# Legacy (pre-rename) capture-helper artifacts that live OUTSIDE the app dir and so
+# are not covered by the wipe above.
+rm -f "${BINDIR}/keysharp-screencap" \
       "${DESKTOP_DIR}/keysharp-screencap.desktop"
 
 if [[ "${ROOT_INSTALL}" == "true" ]]; then

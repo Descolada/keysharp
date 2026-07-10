@@ -407,6 +407,15 @@ fi
 
 if [ -f /usr/lib/keysharp/keysharp-inputd ]; then
   echo "Configuring keysharp-inputd for reliable Linux input hooks, input synthesis, and BlockInput."
+  # A prior root *tarball* install writes its units to /etc/systemd/system, which
+  # systemd gives strict precedence over this package's units in
+  # /usr/lib/systemd/system. Left in place they would shadow the dpkg units and keep
+  # socket-activating the old /usr/local/lib/keysharp/keysharp-inputd binary. Remove
+  # the tarball-era units (and any leftover enable symlink) so the dpkg units are
+  # the ones activated; --install-input-access below runs daemon-reload + enable.
+  rm -f /etc/systemd/system/keysharp-inputd.service \
+        /etc/systemd/system/keysharp-inputd.socket \
+        /etc/systemd/system/sockets.target.wants/keysharp-inputd.socket || true
   if ! /usr/lib/keysharp/keysharp-inputd --install-input-access; then
     cat >&2 <<'WARN'
 Warning: keysharp-inputd --install-input-access did not complete successfully.
@@ -684,6 +693,13 @@ if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
   if [ "${_ks_removed_udev_rule}" = "true" ] && command -v udevadm >/dev/null 2>&1; then
     udevadm control --reload-rules || true
   fi
+
+  # Remove the root-owned input-permission trust store (the daemon's systemd
+  # StateDirectory). systemd never auto-deletes a StateDirectory, so without this a
+  # remove/purge leaves the "allow always" grants behind for a later reinstall to
+  # inherit. This branch runs only on remove/deconfigure, not on upgrade ("$1" =
+  # "upgrade"), so upgrades keep the user's decisions.
+  rm -rf /var/lib/keysharp-trust || true
 
   # Remove system-wide default MIME associations added by postinst.
   _mimeapps="/usr/share/applications/mimeapps.list"

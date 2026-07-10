@@ -165,6 +165,13 @@ if [[ "${ROOT_INSTALL}" == "true" ]]; then
 
   rm -f "${SYSTEMD_DIR}/keysharp-inputd.service" "${SYSTEMD_DIR}/keysharp-inputd.socket"
   maybe_run systemctl daemon-reload || true
+
+  # Remove the root-owned input-permission trust store (the daemon's systemd
+  # StateDirectory). systemd never auto-deletes a StateDirectory on stop/disable,
+  # so without this a full uninstall leaves the "allow always" grants behind and a
+  # later fresh reinstall silently inherits them. This runs only on uninstall, so
+  # upgrades (which re-run install.sh, not this) still keep the user's decisions.
+  rm -rf /var/lib/keysharp-trust
 fi
 
 rm -f "${BINDIR}/keysharp" "${BINDIR}/keyview" "${BINDIR}/keysharp-inputd"

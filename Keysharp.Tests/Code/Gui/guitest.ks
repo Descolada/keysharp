@@ -633,7 +633,7 @@ nud2 := MyGui.Add("UpDown", "xc+10 y+5 h20 vMyNud2 Range-2000-2000 Increment100 
 nud2.OnEvent("Change", "NudChange")
 
 MyGui.Add("Text", "xc+10 y+5", "UpDown: Range -1000-1000, def 0,`ninc 10 (mouse 80), hex.")
-nud3 := MyGui.Add("UpDown", "xc+10 y+5 h20 vMyNud2 Range-1000-1000 Increment10 hex 0x80", 0)
+nud3 := MyGui.Add("UpDown", "xc+10 y+5 h20 vMyNud3 Range-1000-1000 Increment10 hex 0x80", 0)
 nud3.OnEvent("Change", "NudChange")
 
 nudTxt := MyGui.Add("Text", "xc+10 y+5 w200", "Nud values:")
@@ -2253,7 +2253,7 @@ svgToHBITMAP(svgPath,width,height) {
 	clearColor := Buffer(16)
 	NumPut("float",1.0,"float",1.0,"float",1.0,"float",1.0,clearColor)
 	ComCall(48,ID2D1RenderTarget,"int") ;void ID2D1RenderTarget::BeginDraw()
-	ComCall(47,ID2D1RenderTarget,"Ptr",clearColor) ;void ID2D1RenderTarget::Clear(const D2D1_COLOR_F *clearColor)
+	ComCall(47,ID2D1RenderTarget,"Ptr",clearColor,"int") ;void ID2D1RenderTarget::Clear(const D2D1_COLOR_F *clearColor)
 	ComCall(116,ID2D1RenderTarget,"Ptr",ID2D1SvgDocument,"int") ;void ID2D1DeviceContext5::DrawSvgDocument(ID2D1SvgDocument *svgDocument)
 	ComCall(49,ID2D1RenderTarget,"Ptr",0,"Ptr",0) ;HRESULT ID2D1RenderTarget::EndDraw(D2D1_TAG *tag1,D2D1_TAG *tag2)
 
@@ -2980,7 +2980,7 @@ imgScreenClipBtn.OnEvent("Click", "LoadSC")
 imgOverlayBtn := MyGui.AddButton("xc+16 y+10 w230 h28", "Overlay Test (corner shapes + text)")
 imgOverlayBtn.OnEvent("Click", (*) => RunOverlayTest())
 MyGui.AddText("xc+16 y+12 w468", "ImageSearch fixture (killbill.png, native size) — Image Search finds this on screen:")
-MyGui.Add("Picture", "xc+16 y+6 w-1 h-1", A_WorkingDir . A_DirSeparator . "killbill.png")
+SrchPic := MyGui.Add("Picture", "xc+16 y+6 w-1 h-1", A_WorkingDir . A_DirSeparator . "killbill.png")
 imgSearchStatus := MyGui.AddText("xc+16 yc+330 w468 h40", "Image status: Not run")
 gStatus["image_main"] := imgSearchStatus
 MyGui.UseGroup()
@@ -3310,8 +3310,8 @@ ResetStatuses() {
 	SetStatus("input_mouse_readout", "Start, then click / wheel / move the mouse to see the last event and live counts.")
 	SetStatus("window_helper", "Helper status: Not run")
 	SetStatus("window_external", "External status: waiting for a target title")
-	SetStatus("pixel_color", "Pixel status: Not run")
-	SetStatus("pixel_image", "Image status: Not run")
+	SetStatus("pixel_main", "Pixel status: Not run")
+	SetStatus("image_main", "Image status: Not run")
 	SetStatus("clipboard_main", "Clipboard status: Not run")
 	SetStatus("clipboard_monitor", "Clipboard monitor: " (gClipboardMonitorEnabled ? "enabled" : "disabled"))
 	SetStatus("sound_main", "Sound status: Not run")

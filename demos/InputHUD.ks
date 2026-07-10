@@ -9,6 +9,10 @@
 
         - Two always-on-top overlays: a keyboard and a mouse. Keys/buttons glow while held — blue when you
           physically press them, amber when a script or remap injects them (Send).
+        - Lock keys also show their TOGGLE state as green "LED" lights: a Num/Caps/Scroll status strip in the
+          board's top-right corner (like a real keyboard's lock lights), plus a pip on the Caps key itself —
+          each lit green while that lock is on. Toggle is drawn independently of the press colour, so a key
+          reports BOTH whether it is held down (blue/amber) and whether its lock is on (green) at the same time.
         - The layout adapts to the OS: Win/Super/Alt/Menu on Windows & Linux, Command/Option/Control on macOS.
         - Both HUDs are separately draggable: hold Super/Win/Cmd and drag either one to reposition it.
         - Non-intrusive: it never swallows your input — everything you press still reaches your apps.
@@ -19,8 +23,9 @@
     Demonstrates cross-platform Keysharp: a single InputHook ("V H") capturing BOTH keyboard and mouse
     (OnKeyDown/OnKeyUp + OnMouseDown/OnMouseUp, KeyOpt("{All}","N") to notify-without-suppressing; the "H"
     option also surfaces input a hotkey/remap suppresses, so a remap's physical source and the #LButton used
-    to drag a HUD still register), telling physical from injected input via A_EventInfo.IsInjected, Overlay
-    canvases drawn with Image primitives (FillRoundRect/DrawText) and updated live via SetImage, live
+    to drag a HUD still register), telling physical from injected input via A_EventInfo.IsInjected, lock-key
+    toggle state polled with GetKeyState(key, "T") and surfaced as green LEDs, Overlay canvases drawn with
+    Image primitives (FillRoundRect/FillEllipse/DrawText) and updated live via SetImage, live
     repositioning through Overlay.X/Y, and a HotIf-scoped hotkey so the drag only captures the click while the
     cursor is over a HUD (so normal clicks pass straight through).
 
@@ -53,6 +58,16 @@ class InputHUD {
     static SynFill := "0xFFF5A623"       ; script-injected key (amber): Send/remap output, not a physical press
     static SynText := "0xFF1A1206"
     static SynEdge := "0xFFFFE3B0"
+    ; Lock-toggle LEDs (Num/Caps/Scroll). Green = ON — deliberately unlike the blue/amber press colours, so a key
+    ; can show its toggle (green LED) and its press (blue/amber fill) at once without the two being confused.
+    static LedOn    := "0xFF34D399"      ; toggled ON: green LED core
+    static LedGlow  := "0x6634D399"      ; ON: soft translucent halo around the core
+    static LedOnRim := "0xFFA7F3D0"      ; ON: bright rim
+    static LedOff   := "0xFF2A2F3A"      ; toggled OFF: recessed dark dot
+    static LedOffRim:= "0xFF434B5A"      ; OFF: faint rim
+    static LedLab   := "0xFF828C9E"      ; status-strip label (unlit)
+    static LedLabOn := "0xFFB9EED4"      ; status-strip label (lit)
+    static LedFont  := "Arial 8 bold"
 
     ; ---- state -------------------------------------------------------------
     static DPI := 1                      ; canvas render scale (A_ScreenScale): each overlay bitmap is drawn at physical resolution
@@ -65,6 +80,12 @@ class InputHUD {
     static mdown := Map()                ; "left"/"right"/"middle"/"x1"/"x2" -> "phys" | "synth"
     static wheelFlash := 0               ; -1 up, +1 down, 0 none
     static dispVk := Map()               ; vks the keyboard actually shows (gates re-render)
+    ; Lock keys: name -> {GetKeyState name, status-strip label}. Only these three carry a real toggle state.
+    static Locks := [["num","NumLock","Num"], ["caps","CapsLock","Caps"], ["scroll","ScrollLock","Scroll"]]
+    static toggle := Map()               ; lock name ("num"/"caps"/"scroll") -> Bool: is that lock currently on
+    static leds := []                    ; pre-laid-out status-strip LEDs (built alongside the keyboard)
+    static togPoll := true               ; a lock key fired -> refresh toggle state on the next tick
+    static togTick := 0                  ; slow-poll counter (catches lock changes made by other apps)
     static isMac := false
     static kbDirty := true               ; a render is pending (rendered on the main-thread tick)
     static msDirty := true
@@ -90,6 +111,7 @@ class InputHUD {
         this.Geo := this.isMac ? 1 : this.DPI
         this.ms := {ov: Overlay(0, 0, 118, 188, this.DPI), x: 0, y: 0, w: 118, h: 188, pw: Round(118 * this.Geo), ph: Round(188 * this.Geo)}
         this.BuildKeyboard()
+        this.RefreshToggles()            ; seed the lock LEDs so the first paint already shows the real state
         this.Place()
         this.RenderKeyboard()
         this.RenderMouse()
@@ -102,12 +124,22 @@ class InputHUD {
         HotkeyCard.Show("Input HUD", [
             ["Type / click", "Keys & buttons light up as you press"],
             ["Blue vs amber", "Blue = physical; amber = script-injected (Send / remap)"],
+            ["Green LED", "Num / Caps / Scroll lock is toggled on"],
             ["Super/Win/Cmd + drag", "Move a HUD"],
             ["Ctrl+Alt+Shift+Q", "Quit"] ])
     }
 
     ; Redraw whatever changed, on the main/UI thread. Coalesces bursts of input into one paint per tick.
     static Tick() {
+        ; Lock LEDs: refresh promptly after a lock key fires (togPoll), and on a slow safety poll (~200ms) so a
+        ; lock toggled by another app is still picked up. Throttled so we never hammer GetKeyState (on Wayland it
+        ; can round-trip the input daemon). Num/Scroll aren't drawn keys, so polling is the only way to see them.
+        this.togTick += 1
+        if (this.togPoll || this.togTick >= 12) {
+            this.togPoll := false, this.togTick := 0
+            if this.RefreshToggles()
+                this.kbDirty := true
+        }
         if this.kbDirty {
             this.kbDirty := false
             this.RenderKeyboard()
@@ -160,6 +192,27 @@ class InputHUD {
         }
         local lw := Round(maxR + this.Pad), lh := Round(maxB + this.Pad)
         this.kb := {ov: Overlay(0, 0, lw, lh, this.DPI), x: 0, y: 0, w: lw, h: lh, pw: Round(lw * this.Geo), ph: Round(lh * this.Geo), keys: keys}
+        this.BuildLeds(lw, navX)         ; status-light strip in the empty top-right corner, above the nav cluster
+    }
+
+    ; Lays out the Num/Caps/Scroll status LEDs in the empty top-right corner of the board (where a real keyboard's
+    ; lock lights live): three round LEDs evenly spaced across the width of the nav cluster below them, each with a
+    ; small label. Positions/labels are measured once here so RenderKeyboard just fills them per toggle state.
+    static BuildLeds(lw, navX) {
+        local P := this.U + this.G
+        local left := this.Pad + navX * P            ; left edge of the nav cluster below
+        local band := (lw - this.Pad - left) / this.Locks.Length
+        local d := 9                                 ; LED diameter (logical px)
+        local tmp := Image.Create(1, 1)
+        this.leds := []
+        for i, lk in this.Locks {
+            local cx := left + (i - 0.5) * band      ; centre of this LED's slot (i is 1-based)
+            local tw := 0, th := 0
+            tmp.MeasureText(lk[3], this.LedFont, &tw, &th)
+            this.leds.Push({name: lk[1], label: lk[3], x: cx - d / 2, y: this.Pad + 1, d: d,
+                            lx: cx - tw / 2, ly: this.Pad + 1 + d + 2})
+        }
+        tmp.Dispose()
     }
 
     ; The bottom modifier row differs per OS (Command/Option on macOS; Win/Alt/Menu elsewhere).
@@ -182,7 +235,9 @@ class InputHUD {
             tmp.MeasureText(label, this.Font, &tw, &th)
             tmp.Dispose()
         }
-        return {vk: vk, label: label, px: px, py: py, pw: pw, tx: px + (pw - tw) / 2, ty: py + (this.U - th) / 2}
+        ; A lock key on the board (only Caps, here) carries a toggle name so it gets an on-key toggle pip.
+        local tog := (vk = 20) ? "caps" : (vk = 144) ? "num" : (vk = 145) ? "scroll" : ""
+        return {vk: vk, label: label, tog: tog, px: px, py: py, pw: pw, tx: px + (pw - tw) / 2, ty: py + (this.U - th) / 2}
     }
 
     static RenderKeyboard() {
@@ -197,9 +252,48 @@ class InputHUD {
                 img.DrawRoundRect(k.px + 0.5, k.py + 0.5, k.pw - 1, this.U - 1, 6, src = "synth" ? this.SynEdge : this.LitEdge, 1.5)
             if (k.label != "")
                 img.DrawText(k.label, k.tx, k.ty, src = "synth" ? this.SynText : src = "phys" ? this.LitText : this.KeyText, this.Font)
+            if (k.tog != "")                                          ; a lock key on the board: toggle pip in its corner
+                this.DrawLed(img, k.px + k.pw - 9, k.py + 3, 7, this.IsLockOn(k.tog), false)
+        }
+        ; Keyboard status lights (Num / Caps / Scroll) in the top-right corner — the toggle state at a glance,
+        ; including the two locks that have no key on this layout.
+        for led in this.leds {
+            local on := this.IsLockOn(led.name)
+            this.DrawLed(img, led.x, led.y, led.d, on)
+            img.DrawText(led.label, led.lx, led.ly, on ? this.LedLabOn : this.LedLab, this.LedFont)
         }
         kb.ov.SetImage(img)
         img.Dispose()
+    }
+
+    static IsLockOn(name) => this.toggle.Has(name) && this.toggle[name]
+
+    ; Draws a round status LED in the bounding box (x, y, d, d): a glowing green dot when on, a recessed dark
+    ; dot when off. Used for both the status strip (with halo) and the smaller on-key toggle pips (halo off, so
+    ; the halo can't bleed into a key's centred label).
+    static DrawLed(img, x, y, d, on, halo := true) {
+        if on {
+            if halo
+                img.FillEllipse(x - 2, y - 2, d + 4, d + 4, this.LedGlow)  ; soft halo
+            img.FillEllipse(x, y, d, d, this.LedOn)
+            img.DrawEllipse(x, y, d, d, this.LedOnRim, 1)
+        } else {
+            img.FillEllipse(x, y, d, d, this.LedOff)
+            img.DrawEllipse(x, y, d, d, this.LedOffRim, 1)
+        }
+    }
+
+    ; Polls the three lock keys' toggle state (GetKeyState "T") into this.toggle; returns true if any changed.
+    ; Cheap on X11 (reads Xkb state directly); on Wayland it reads the input daemon's LED snapshot — the same
+    ; daemon that already serves this HUD's physical hook (so if keys light up at all, this works too).
+    static RefreshToggles() {
+        local changed := false
+        for lk in this.Locks {
+            local on := GetKeyState(lk[2], "T") ? true : false
+            if (!this.toggle.Has(lk[1]) || this.toggle[lk[1]] != on)
+                this.toggle[lk[1]] := on, changed := true
+        }
+        return changed
     }
 
     static RenderMouse() {
@@ -266,6 +360,8 @@ class InputHUD {
         ; matches what we recorded, so an injected up can't wipe a physical hold (or vice versa) — this also
         ; absorbs the unbalanced ups a passive monitor sees (keys held before start, OS-synthesized releases,
         ; the masking LCtrl on Win-hotkey release). ExpandVk fans a generic Ctrl/Shift/Alt out to both sides.
+        if (vk = 20 || vk = 144 || vk = 145)     ; a lock key: its toggle may have just flipped — refresh next tick
+            this.togPoll := true
         local src := A_EventInfo.IsInjected ? "synth" : "phys"
         for v in this.ExpandVk(vk) {
             if isDown {

@@ -175,6 +175,13 @@ namespace Eto.Forms
         // compositor re-resolves the matching desktop file.
         [DllImport("libgdk-3.so.0")]
         private static extern void gdk_wayland_window_set_application_id(IntPtr window, [MarshalAs(UnmanagedType.LPUTF8Str)] string appId);
+
+        // Makes a toplevel override-redirect (X11): the window manager ignores it entirely, so it is placed and
+        // sized exactly as asked (no gravity/keep-on-screen nudging when a live HUD resizes every frame) AND it
+        // sits in the top stacking layer, above every managed window — including _NET_WM_STATE_ABOVE / Eto
+        // +AlwaysOnTop ones. Must be set on a realized-but-unmapped GdkWindow so it takes effect at map time.
+        [DllImport("libgdk-3.so.0")]
+        private static extern void gdk_window_set_override_redirect(IntPtr window, bool overrideRedirect);
 #endif
 
         // On Wayland a compositor (e.g. KWin) derives a window's titlebar/taskbar icon from its xdg-toplevel
@@ -244,6 +251,41 @@ namespace Eto.Forms
                     // On the Wayland backend GTK pushes the input region to the wl_surface only on the next
                     // frame (on X11 it applies immediately), so force a redraw to make it take effect.
                     gtkWin.QueueDraw();
+                }
+#endif
+            }
+            catch
+            {
+            }
+        }
+
+        // Makes an image-overlay window override-redirect so it sits in the topmost X stacking layer, above EVERY
+        // managed window — including _NET_WM_STATE_ABOVE / +AlwaysOnTop ones — so e.g. a highlight drawn over an
+        // always-on-top window is actually visible. Earlier this used a DOCK type hint, but on Muffin DOCK shares
+        // META_LAYER_TOP with ABOVE windows, so a focused always-on-top window still stacked over the overlay.
+        // (Override-redirect also unmanages the window, but the overlay is already placed correctly via form.Location
+        // without it, and the Drawable's 1:1 blit — not the WM — is what fixed the live-zoom scaling artifacts;
+        // stacking above AlwaysOnTop is the reason this exists.)
+        //
+        // Override-redirect is an X11 concept, applied to a realized-but-unmapped GdkWindow so it lands before map
+        // (hence the explicit Realize()). SKIPPED on Wayland: it is meaningless there and would mark the toplevel a
+        // temp/override surface that may never get an xdg role and so never map — leaving the Eto fallback overlay
+        // invisible (Wayland's real overlay path is the layer-shell backing anyway).
+        internal static void SetFormOverlayTopmost(Form form)
+        {
+            if (form == null || Keysharp.Internals.Platform.Desktop.IsWaylandSession)
+                return;
+
+            try
+            {
+#if LINUX
+                if (form.ToNative() is Gtk.Window gtkWin)
+                {
+                    if (gtkWin.Window == null)
+                        gtkWin.Realize();   // create the (still unmapped) GdkWindow so the attribute lands before map
+
+                    if (gtkWin.Window is Gdk.Window gdkWin)
+                        gdk_window_set_override_redirect(gdkWin.Handle, true);
                 }
 #endif
             }

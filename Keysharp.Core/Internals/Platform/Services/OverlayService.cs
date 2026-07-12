@@ -623,7 +623,19 @@ namespace Keysharp.Internals
 	internal sealed class EtoImageOverlay : IImageOverlayBacking
 	{
 		private Keysharp.Builtins.KeysharpForm form;
+#if LINUX
+		// Linux draws the bitmap through a Drawable that blits it 1:1 (natural size, top-left aligned), NOT Eto's
+		// ImageView. ImageView's GTK DrawingArea rescales its image to the widget's CURRENT allocation on every paint
+		// (Math.Min(scaleW, scaleH), centred), and a top-level GTK window only adopts a new allocation after the WM's
+		// asynchronous ConfigureNotify round-trip. So while an overlay resizes live (a zoom drag, a shrinking tooltip
+		// or highlight) a paint lands at a STALE allocation and the new bitmap is scaled up (huge/blurry), down
+		// (flicker), to zero (vanishes) or off-aspect (shifted). A 1:1 blit removes the scaling: a lagging allocation
+		// can at most clip or leave a transparent margin on the far edge for the single frame before it catches up.
+		// PaintOwned already sizes the bitmap to the exact window size, so the blit is pixel-exact in steady state.
+		private Eto.Forms.Drawable imageSurface;
+#else
 		private ImageView imageView;
+#endif
 		private Bitmap displayed;
 		private int shownW, shownH;
 
@@ -712,10 +724,21 @@ namespace Keysharp.Internals
 			}
 #endif
 
-			imageView.Image = displayed;
-			old?.Dispose();
 			form.Size = size;
+#if LINUX
+			// The Drawable holds no image of its own — it reads `displayed` in its Paint handler. Resize it to the
+			// window, then Invalidate. This immediate Invalidate is also what repaints a SAME-SIZE content change
+			// (a Highlight recolour, an opacity re-push, a same-size tooltip text swap) — cases where SizeChanged in
+			// EnsureForm never fires — so it is NOT redundant with that handler; the two cover different cases.
+			imageSurface.Size = size;
+			imageSurface.Invalidate();
+#else
+			imageView.Image = displayed;
 			imageView.Size = size;
+#endif
+			// Free the previous frame only now that the view/Drawable references the NEW bitmap: on macOS imageView
+			// still points at `old` until the assignment above, so disposing earlier briefly freed the live image.
+			old?.Dispose();
 			shownW = width;
 			shownH = height;
 		}
@@ -739,9 +762,43 @@ namespace Keysharp.Internals
 				Resizable = true,
 				BackgroundColor = Colors.Transparent
 			};
+#if LINUX
+			imageSurface = new Eto.Forms.Drawable { BackgroundColor = Colors.Transparent };
+			// Make the underlying GTK EventBox windowless so the transparent, click-through form shows through the
+			// drawable instead of it painting its own opaque window (same recipe as KeysharpLinkLabel).
+			try
+			{
+				if (imageSurface.ToNative() is Gtk.EventBox eventBox)
+					eventBox.VisibleWindow = false;
+			}
+			catch { }
+			imageSurface.Paint += (s, e) =>
+			{
+				// Clear to transparent first so a lagging-large allocation leaves no ghost of the previous frame in
+				// the margin, then blit the bitmap 1:1 at the top-left (which the window's Location already tracks).
+				e.Graphics.Clear();
+				var d = displayed;
+
+				if (d != null)
+					e.Graphics.DrawImage(d, 0, 0);
+			};
+			// Repaint whenever the widget's allocation actually changes. A GTK window adopts its new size only after
+			// the WM's async ConfigureNotify, so a frame painted mid-resize is clipped to a stale allocation; without
+			// this, a resize whose final allocation lands after the last Invalidate stays cropped until the next size
+			// change. Re-blitting on each real allocation guarantees the settled frame shows the whole bitmap.
+			imageSurface.SizeChanged += (s, e) => imageSurface?.Invalidate();
+			form.Content = imageSurface;
+#else
 			imageView = new ImageView { BackgroundColor = Colors.Transparent };
 			form.Content = imageView;
+#endif
 			form.SetClickThrough(true);
+			// Take the overlay out of WM control (override-redirect): it is placed at exact pixels (no reposition
+			// when a live HUD resizes every frame) AND kept in the topmost layer, above even +AlwaysOnTop windows,
+			// so a highlight over an always-on-top window is visible. Set before the form is mapped.
+#if LINUX
+			Eto.Forms.EtoExtensions.SetFormOverlayTopmost(form);
+#endif
 		}
 
 		public bool TryHide()
@@ -756,7 +813,11 @@ namespace Keysharp.Internals
 					form?.Close();
 					form?.Dispose();
 					form = null;   // only reached when Close/Dispose didn't throw
+#if LINUX
+					imageSurface = null;
+#else
 					imageView = null;
+#endif
 					displayed?.Dispose();
 					displayed = null;
 				}

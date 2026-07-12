@@ -553,9 +553,17 @@ namespace Keysharp.Internals
 			if (!IsHandleCreated)
 				_ = Handle;
 
-			Bounds = new Rectangle(x, y, width, height);
-			_ = WindowsAPI.SetWindowPos(Handle, new nint(WindowsAPI.HWND_TOPMOST), x, y, width, height, WindowsAPI.SWP_NOACTIVATE);
+			// One UpdateLayeredWindow moves, resizes AND repaints the layered surface atomically (it takes the new
+			// position, size and pixels together). Moving/resizing the window FIRST — via Bounds or a sizing SetWindowPos
+			// — briefly leaves it at the new top-left with the PREVIOUS (smaller) surface still showing; the compositor
+			// runs on its own vsync and can catch that half-step, which reads as the overlay snapping toward the top-left
+			// and back on nearly every frame of a live resize (a zoom-drag, a mouse-following highlight). So change
+			// position and size ONLY through UpdateLayered — never with a separate window move that precedes the repaint.
 			UpdateLayered(image, x, y, width, height);
+			// Keep it topmost and visible WITHOUT moving or resizing (SWP_NOMOVE|SWP_NOSIZE), so z-order upkeep can't
+			// reintroduce that half-step.
+			_ = WindowsAPI.SetWindowPos(Handle, new nint(WindowsAPI.HWND_TOPMOST), 0, 0, 0, 0,
+										WindowsAPI.SWP_NOACTIVATE | WindowsAPI.SWP_NOMOVE | WindowsAPI.SWP_NOSIZE);
 			_ = WindowsAPI.ShowWindow(Handle, WindowsAPI.SW_SHOWNOACTIVATE);
 		}
 

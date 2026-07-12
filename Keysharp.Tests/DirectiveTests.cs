@@ -58,5 +58,37 @@ namespace Keysharp.Tests
 
 		[Test, Category("Directives")]
 		public void Misc() => Assert.IsTrue(TestScript("directive-misc", false));
+
+		[Test, Category("Directives")]
+		public void RequiresCapability()
+		{
+			// `#Requires capability <names>` must lower to a RequestCapabilities(...) call in the auto-exec
+			// section, so a script's permissions are prompted at startup rather than sprung on first use.
+			// A bare version requirement (`#Requires AutoHotkey v2.0`) must NOT emit one. Assert on the
+			// generated C# (emitCode: true) so the check never contacts the permission daemon.
+			var ch = new CompilerHelper();
+
+			var (arr, code) = ch.CompileCodeToByteArray(
+				"#Requires AutoHotkey v2.0\n#Requires capability ScreenCapture, InputMonitoring\nx := 1\n",
+				"reqcap-emit", null, false, true);
+			Assert.IsNotNull(arr, code);
+			Assert.IsTrue(code.Contains("RequestCapabilities(\"ScreenCapture, InputMonitoring\")"),
+				"the capability directive should emit a RequestCapabilities call; generated:\n" + code);
+
+			// The plural alias also works.
+			var (arrPl, codePl) = ch.CompileCodeToByteArray(
+				"#Requires AutoHotkey v2.0\n#Requires capabilities InputMonitoring\nx := 1\n",
+				"reqcap-plural", null, false, true);
+			Assert.IsNotNull(arrPl, codePl);
+			Assert.IsTrue(codePl.Contains("RequestCapabilities(\"InputMonitoring\")"),
+				"the plural `#Requires capabilities` alias should emit a RequestCapabilities call");
+
+			// Control: a version-only #Requires must NOT emit a capability request.
+			var (arrNone, codeNone) = ch.CompileCodeToByteArray(
+				"#Requires AutoHotkey v2.0\nx := 1\n", "reqcap-none", null, false, true);
+			Assert.IsNotNull(arrNone, codeNone);
+			Assert.IsFalse(codeNone.Contains("RequestCapabilities"),
+				"a version-only #Requires must not emit RequestCapabilities");
+		}
 	}
 }

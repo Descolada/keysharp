@@ -28,6 +28,7 @@
 *.msi
 *.user
 *.zip
+*.ini
 /Keysharp.Tests/Code/Gui/methpropskeysharp.txt
 /Keysharp.Tests/Code/test-text-file-out.txt
 /Keysharp.Tests/Code/Gui/guitest.deps.json

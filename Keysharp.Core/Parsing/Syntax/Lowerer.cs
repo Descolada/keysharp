@@ -1433,6 +1433,21 @@ namespace Keysharp.Parsing.Syntax
 					return null;
 				// #ErrorStdOut: send uncaught errors to stderr instead of a dialog (runtime honors MainScript.ErrorStdOut).
 				case "ERRORSTDOUT": return Set("MainScript.ErrorStdOut", True);
+				// #Requires capability <Name, ...>: request the listed platform capabilities at startup so a script's
+				// permissions are resolved up front (one batched prompt) rather than sprung on the user the first time
+				// a gated feature runs. Emitted at the directive's position in the auto-exec, i.e. before the script's
+				// own hotkeys/hooks/actions. A version requirement (`#Requires AutoHotkey v2.0`) carries no capability
+				// list and is handled by the compatibility scan (ScanRequires/MapRequires) — a no-op here.
+				case "REQUIRES":
+				{
+					var reqParts = args.Split((char[])null, 2, System.StringSplitOptions.RemoveEmptyEntries);
+					if (reqParts.Length == 2
+						&& (reqParts[0].Equals("capability", System.StringComparison.OrdinalIgnoreCase)
+							|| reqParts[0].Equals("capabilities", System.StringComparison.OrdinalIgnoreCase))
+						&& reqParts[1].Trim() is { Length: > 0 } caps)
+						return ExprStmt(Inv(Access("Keysharp.Builtins.Ks.RequestCapabilities"), Str(caps)));
+					return null;
+				}
 				// #Warn config is applied in a prescan (PrescanWarnDirectives) so it is location-independent (per the
 				// docs); here it is a no-op. #Nullable / #NoDynamicVars are recognized compile-time hints with no effect.
 				case "WARN":

@@ -236,53 +236,32 @@ static bool is_protected_exe(const char *path)
     return info.st_uid == 0 && (info.st_mode & (S_IWGRP | S_IWOTH)) == 0;
 }
 
-/* Reads /proc/<pid>/cmdline and formats it for display into command_line_buffer,
- * skipping argv[0].  Used by the protected-path fast path which doesn't need to
- * hash the file content. */
-static void read_cmdline_display(
+/* Produces a stable identity hash for executables in protected (root-owned,
+ * non-world-writable) locations.  Uses the path STRING — not file content — so
+ * the record survives package updates, PLUS the process's full command line, so
+ * each distinct invocation (in particular each script path carried in argv) is a
+ * separate trust identity and prompts separately.  Also fills command_line_buffer
+ * (argv0 skipped) for the prompt's display text.  A missing/empty cmdline degrades
+ * gracefully to a path-only identity rather than failing. */
+static int hash_protected_path_identity(
+    const char *exe_path,
     pid_t pid,
     char *command_line_buffer,
-    size_t command_line_buffer_size)
+    size_t command_line_buffer_size,
+    char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u])
 {
+    static const uint8_t domain[] = "Keysharp-protected-path-identity-v2";
     char proc_path[64];
     uint8_t buffer[8192];
+    ksi_sha256_ctx ctx;
     size_t display_length = 0u;
     bool skipping_argv0 = true;
     ssize_t bytes_read;
-    int fd;
-
-    if (command_line_buffer == NULL || command_line_buffer_size == 0u)
-        return;
-
-    command_line_buffer[0] = '\0';
-    (void)snprintf(proc_path, sizeof(proc_path), "/proc/%ld/cmdline", (long)pid);
-    fd = open(proc_path, O_RDONLY | O_CLOEXEC);
-
-    if (fd < 0)
-        return;
-
-    while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
-        append_argument_display(
-            command_line_buffer, command_line_buffer_size, &display_length, &skipping_argv0,
-            buffer, (size_t)bytes_read);
-    }
-
-    while (display_length > 0u && command_line_buffer[display_length - 1u] == ' ')
-        command_line_buffer[--display_length] = '\0';
-
-    close(fd);
-}
-
-/* Produces a stable identity hash for executables in protected (root-owned,
- * non-world-writable) locations.  Uses only the path string — not file
- * content — so the trust record survives package updates. */
-static int hash_protected_path_identity(
-    const char *exe_path,
-    char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u])
-{
-    static const uint8_t domain[] = "Keysharp-protected-path-identity-v1";
-    ksi_sha256_ctx ctx;
+    int cmdline_fd;
     int result = -1;
+
+    if (command_line_buffer != NULL && command_line_buffer_size != 0u)
+        command_line_buffer[0] = '\0';
 
     if (sha256_ctx_init(&ctx) != 0)
         return -1;
@@ -290,6 +269,28 @@ static int hash_protected_path_identity(
     if (sha256_ctx_update(&ctx, domain, sizeof(domain)) != 0
         || sha256_ctx_update(&ctx, exe_path, strlen(exe_path)) != 0)
         goto cleanup;
+
+    (void)snprintf(proc_path, sizeof(proc_path), "/proc/%ld/cmdline", (long)pid);
+    cmdline_fd = open(proc_path, O_RDONLY | O_CLOEXEC);
+
+    if (cmdline_fd >= 0) {
+        while ((bytes_read = read(cmdline_fd, buffer, sizeof(buffer))) > 0) {
+            if (sha256_ctx_update(&ctx, buffer, (size_t)bytes_read) != 0) {
+                close(cmdline_fd);
+                goto cleanup;
+            }
+
+            append_argument_display(
+                command_line_buffer, command_line_buffer_size, &display_length, &skipping_argv0,
+                buffer, (size_t)bytes_read);
+        }
+
+        close(cmdline_fd);
+
+        if (command_line_buffer != NULL)
+            while (display_length > 0u && command_line_buffer[display_length - 1u] == ' ')
+                command_line_buffer[--display_length] = '\0';
+    }
 
     result = sha256_ctx_finish(&ctx, output);
 
@@ -1546,13 +1547,15 @@ int ksi_permissions_identify_process(
     path_buffer[path_length] = '\0';
 
     if (is_protected_exe(path_buffer)) {
-        /* Fast path: root-owned, non-world-writable — only a privileged actor
-         * can replace this binary, so the path alone is a safe trust identity.
-         * Skipping the content read eliminates the O(filesize) startup cost and
-         * lets trust records survive package updates. */
+        /* Fast path: root-owned, non-world-writable — only a privileged actor can
+         * replace this binary, so the path (not its content) is a safe, stable
+         * exe identity; skipping the content read eliminates the O(filesize)
+         * startup cost and lets records survive package updates. The command line
+         * is folded in too, so each script (its path in argv) is trusted — and
+         * prompted for — separately rather than all sharing the binary's grant. */
         close(fd);
-        read_cmdline_display(pid, command_line_buffer, command_line_buffer_size);
-        return hash_protected_path_identity(path_buffer, hash_buffer);
+        return hash_protected_path_identity(
+            path_buffer, pid, command_line_buffer, command_line_buffer_size, hash_buffer);
     }
 
     if (hash_process_identity(fd, pid, command_line_buffer, command_line_buffer_size, hash_buffer) != 0) {

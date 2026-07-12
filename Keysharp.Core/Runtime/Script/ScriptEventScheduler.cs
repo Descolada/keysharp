@@ -863,7 +863,10 @@ internal bool HasBlockedQueuedWork
 			if (!skipUninterruptible && !threads.IsInterruptible())
 				return ScriptEventExecutionResult.GlobalBlocked;
 
-			if (priority < threads.CurrentThread.priority)
+			// Emergencies (OnExit, a non-buffered OnMessage) must launch regardless of the current thread's priority,
+			// just as they ignore #MaxThreads and interruptibility above. Matches AHK: "the OnExit callback function
+			// will always run when called for, regardless of the current thread's priority."
+			if (!allowEmergencyOverflow && priority < threads.CurrentThread.priority)
 				return ScriptEventExecutionResult.Dropped;
 
 			return threads.TryPushThreadVariables(priority, skipUninterruptible, isCritical, true, allowEmergencyOverflow, out threadVariables)

@@ -95,7 +95,27 @@ namespace Keysharp.Internals
 			Accessors.A_ExitReason = exitReason.ToString();
 			var allowInterruptionPrev = fd.allowInterruption;
 			fd.allowInterruption = false;
-			var result = script.onExitHandlers.InvokeEventHandlers(Accessors.A_ExitReason, exitCode);
+
+			// Invoke OnExit callbacks — UNLESS a nested exit is requested while they are already running (a callback
+			// that errors or calls ExitApp/Reload): then skip straight to termination so we don't re-run them and loop
+			// forever. InvokeExitHandlers (not InvokeEventHandlers) launches each as an EMERGENCY (like a synchronous
+			// window-message response) so it starts despite the allowInterruption=false just set above, and honours a
+			// non-zero (veto) return without force-exiting.
+			object result = null;
+
+			if (!fd.exitHandlersRunning)
+			{
+				fd.exitHandlersRunning = true;
+
+				try
+				{
+					result = script.onExitHandlers.InvokeExitHandlers(Accessors.A_ExitReason, ec);
+				}
+				finally
+				{
+					fd.exitHandlersRunning = false;
+				}
+			}
 
 			if (exitReason >= Keysharp.Builtins.Flow.ExitReasons.None && result.Al() != 0L)
 			{

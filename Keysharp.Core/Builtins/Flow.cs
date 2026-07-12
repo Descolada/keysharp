@@ -467,6 +467,11 @@ namespace Keysharp.Builtins
 		/// </summary>
 		internal bool allowInterruption = true;
 		internal bool callingCritical;
+		// True while OnExit callbacks are being invoked. A nested exit request during that window (a callback that
+		// throws, errors, or calls ExitApp/Reload) must terminate directly instead of re-running the callbacks — see
+		// ExitAppInternal. Matches AHK: an OnExit error terminates the script, and calling ExitApp in a callback
+		// prevents the remaining callbacks.
+		internal bool exitHandlersRunning;
 		internal Timer1 mainTimer;
 		internal int NoSleep = -1;
 		internal bool persistentValueSetByUser;

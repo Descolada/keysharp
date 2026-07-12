@@ -184,7 +184,22 @@ namespace Keysharp.Internals.Scripting
 		/// </summary>
 		/// <param name="args">The parameters to pass to each event handler.</param>
 		/// <returns>The result of the last event handler that was called.</returns>
-		internal object InvokeEventHandlers(params object[] args)
+		internal object InvokeEventHandlers(params object[] args) =>
+			InvokeHandlers(args, skipUninterruptible: false, allowEmergencyOverflow: false, checkPersistence: true);
+
+		/// <summary>
+		/// Invoke handlers as part of the exit sequence (i.e. OnExit). Each is launched on a pseudo-thread with the
+		/// admission AHK specifies for the OnExit thread: skipUninterruptible (starts even though the exit sequence
+		/// has disabled interruption) and allowEmergencyOverflow (does not obey #MaxThreads — always launches). While
+		/// it runs it is uninterruptible because ExitAppInternal keeps allowInterruption=false throughout. Persistence
+		/// is NOT checked here (checkPersistence: false) — the caller (ExitAppInternal) drives the real exit and
+		/// honours any non-zero (veto) return. Without this admission, OnExit handlers silently never run: the exit
+		/// path sets allowInterruption=false first, so a normal (interruptible) start request is refused at the gate.
+		/// </summary>
+		internal object InvokeExitHandlers(params object[] args) =>
+			InvokeHandlers(args, skipUninterruptible: true, allowEmergencyOverflow: true, checkPersistence: false);
+
+		private object InvokeHandlers(object[] args, bool skipUninterruptible, bool allowEmergencyOverflow, bool checkPersistence)
 		{
 			object result = null;
 			var snapshot = GetSnapshot();
@@ -195,6 +210,41 @@ namespace Keysharp.Internals.Scripting
 			var inst = args.Length > 0 ? args[0].GetControl() : null;
 			var script = Script.TheScript;
 			var oldEventInfo = A_EventInfo;
+
+			// Run one handler in a fresh pseudo-thread on the given scheduler's own thread. Kept as a LOCAL function
+			// so it captures the admission flags/args/script/inst/result rather than threading them through a separate
+			// static method and its two call sites. For the OnExit sequence both admission flags are set (see
+			// InvokeExitHandlers): skipUninterruptible starts the thread even though the exit sequence has disabled
+			// interruption, and allowEmergencyOverflow bypasses #MaxThreads. That thread still runs UNINTERRUPTIBLE for
+			// free: ExitAppInternal holds allowInterruption=false for the whole handler, so any hotkey/menu/timer that
+			// tries to launch while it runs is refused at that same gate. Do NOT also pass isCritical: on a veto the
+			// exit is cancelled and the script keeps running, and a leftover Critical scope then wedges later thread
+			// launches (subsequent timers/hotkeys stop firing).
+			ScriptEventExecutionResult RunHandler(ScriptEventScheduler scheduler, IFuncObj handler)
+			{
+				using var thread = scheduler.StartPseudoThreadScope(0, skipUninterruptible, false, allowEmergencyOverflow);
+
+				if (!thread.Started)
+					return thread.Result;
+
+				try
+				{
+					var tv = thread.ThreadVariables;
+					tv.eventInfo = oldEventInfo;
+					tv.hwndLastUsed = 0L;
+
+					if (inst is Control ctrl && ctrl.FindForm() is Form form)
+						script.HwndLastUsed = form.Handle;
+
+					result = handler.Call(args);
+				}
+				catch (Exception ex)
+				{
+					_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+				}
+
+				return ScriptEventExecutionResult.Executed;
+			}
 
 			foreach (var entry in snapshot)
 			{
@@ -216,12 +266,11 @@ namespace Keysharp.Internals.Scripting
 				}
 				else if (targetScheduler.OwnsCurrentThread)
 				{
-					executionResult = InvokeEventHandlerOnSchedulerThread(targetScheduler, script, handler, args, oldEventInfo, inst, out result);
+					executionResult = RunHandler(targetScheduler, handler);
 				}
 				else
 				{
-					executionResult = targetScheduler.InvokeSynchronous(() =>
-						InvokeEventHandlerOnSchedulerThread(targetScheduler, script, handler, args, oldEventInfo, inst, out result));
+					executionResult = targetScheduler.InvokeSynchronous(() => RunHandler(targetScheduler, handler));
 				}
 
 				if (executionResult != ScriptEventExecutionResult.Executed)
@@ -231,36 +280,10 @@ namespace Keysharp.Internals.Scripting
 					break;
 			}
 
-			script.ExitIfNotPersistent();
+			if (checkPersistence)
+				script.ExitIfNotPersistent();
+
 			return result;
-		}
-
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		private static ScriptEventExecutionResult InvokeEventHandlerOnSchedulerThread(ScriptEventScheduler targetScheduler, Script script, IFuncObj handler, object[] obj, object eventInfo, Control inst, out object result)
-		{
-			result = null;
-			using var thread = targetScheduler.StartPseudoThreadScope(0, false, false, false);
-
-			if (!thread.Started)
-				return thread.Result;
-
-			try
-			{
-				var tv = thread.ThreadVariables;
-				tv.eventInfo = eventInfo;
-				tv.hwndLastUsed = 0L;
-
-				if (inst is Control ctrl && ctrl.FindForm() is Form form)
-					script.HwndLastUsed = form.Handle;
-
-				result = handler.Call(obj);
-			}
-			catch (Exception ex)
-			{
-				_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
-			}
-
-			return ScriptEventExecutionResult.Executed;
 		}
 
 		internal static bool RemoveOwned<TKey>(ConcurrentDictionary<TKey, CallbackRegistry<TRegistration>> hubs, ScriptEventScheduler scheduler)

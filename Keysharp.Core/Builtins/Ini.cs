@@ -203,7 +203,7 @@ namespace Keysharp.Builtins
 					var val = secdkt.GetOrAdd<string, string, string>(k, def);
 					_ = sb.Append(val);
 				}
-				else if (def.Length > 0)
+				else if (@default != null)      // a default was supplied (even "") -> return it instead of throwing
 					_ = sb.Append(def);
 				else
 				{

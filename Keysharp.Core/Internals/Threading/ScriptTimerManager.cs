@@ -13,7 +13,6 @@ namespace Keysharp.Internals.Threading
 
 		internal long PeriodMs { get; set; }
 		internal long NextDueTick { get; set; }
-		internal long Priority { get; set; }
 		internal bool RunOnce { get; set; }
 		internal bool Enabled { get; set; }
 		internal bool Queued { get; set; }
@@ -44,6 +43,9 @@ namespace Keysharp.Internals.Threading
 
 	internal sealed class ScriptTimerManager : IDisposable
 	{
+		// Backoff before re-checking a run-once timer that was deferred because its priority was below the current
+		// thread's (it has no period of its own). Small so it fires promptly once the higher-priority thread ends.
+		private const long PriorityBlockedRetryMs = 15;
 		private readonly object gate = new();
 		private readonly Dictionary<(IFuncObj Callback, ScriptEventScheduler OwnerScheduler), ScriptTimerState> timers = new(ScriptTimerKeyComparer.Instance);
 		private readonly AutoResetEvent wakeEvent = new(false);
@@ -210,6 +212,28 @@ namespace Keysharp.Internals.Threading
 
 				timer.RunningCount++;
 			}
+		}
+
+		// A due timer whose priority is lower than the current thread's cannot run yet (a lower-priority thread may
+		// not interrupt a higher-priority one). Re-arm it WITHOUT consuming it — so a run-once timer isn't destroyed
+		// (MarkCallbackStarted would set DeletePending) but instead fires once the higher-priority thread ends. A
+		// run-once retries after a short backoff (it has no period); a periodic waits its normal period. The forward
+		// NextDueTick also keeps the pump from re-serving it in a tight loop.
+		internal void DeferPriorityBlocked(ScriptTimerState timer)
+		{
+			if (timer == null)
+				return;
+
+			lock (gate)
+			{
+				if (disposed)
+					return;
+
+				timer.Queued = false;
+				timer.NextDueTick = Environment.TickCount64 + (timer.RunOnce ? PriorityBlockedRetryMs : Math.Max(1, timer.PeriodMs));
+			}
+
+			Wake();
 		}
 
 		internal void MarkCallbackFinished(ScriptTimerState timer)

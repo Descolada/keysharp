@@ -541,7 +541,10 @@ namespace Keysharp.Internals.Os.Windows
 				if ((DateTime.UtcNow - dtStart).TotalMilliseconds > ms)
 					break;
 
-				Keysharp.Internals.Flow.Sleep(100);
+				// Pump messages (so the clipboard's current owner can respond) but stay uninterruptible while waiting:
+				// a hotkey or timer launched here might itself touch the clipboard and corrupt this operation. Matches
+				// AutoHotkey's SLEEP_WITHOUT_INTERRUPTION in Clipboard::Open().
+				Keysharp.Internals.Flow.SleepWithoutInterruption(100);
 			}
 
 			return open;

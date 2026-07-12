@@ -13,6 +13,12 @@ namespace Keysharp.Internals.Scripting
 		internal ScriptEventScheduler OwnerScheduler { get; private set; }
 		internal bool IsActive { get; private set; }
 
+		/// <summary>
+		/// The thread priority this registration launches its callback at (default 0). Timers set it from SetTimer's
+		/// priority argument; menu items from Menu.Add's "Pn" option. Most registrations leave it 0.
+		/// </summary>
+		internal long Priority { get; set; }
+
 		internal void SetActive(bool active)
 			=> Set(OwnerScheduler, active);
 

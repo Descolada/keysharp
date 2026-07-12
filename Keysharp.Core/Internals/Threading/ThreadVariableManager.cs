@@ -1,4 +1,4 @@
-using Keysharp.Builtins;
+﻿using Keysharp.Builtins;
 namespace Keysharp.Internals.Threading
 {
 	internal class ThreadVariableManager
@@ -63,26 +63,7 @@ namespace Keysharp.Internals.Threading
 					if (!tv.isCritical)
 						tv.isCritical = isCritical;
 
-					if (script.uninterruptibleTime != 0 || tv.isCritical) // v1.0.38.04.
-					{
-						tv.allowThreadToBeInterrupted = false;
-
-						if (tv.isCritical || script.uninterruptibleTime < 0)
-						{
-							tv.UninterruptibleDuration = -1;
-						}
-						else
-						{
-							// For backward compatibility, "lock in" the time this thread will become interruptible
-							// because that's how previous versions behaved (i.e. 'Thread "Interrupt", NewTimeout'
-							// doesn't affect the current thread, only the thread creation behavior in the future).
-							// This also makes it more predictable, since AllowThreadToBeInterrupted is only changed
-							// when IsInterruptible() is called, which might not happen in between changes to the setting.
-							// For explanation of why two fields instead of one are used, see comments in IsInterruptible().
-							tv.threadStartTick = Environment.TickCount64;
-							tv.UninterruptibleDuration = script.uninterruptibleTime;
-						}
-					}
+					tv.ApplyUninterruptibleStartupWindow();
 				}
 			}
 

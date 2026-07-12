@@ -192,6 +192,15 @@ namespace Keysharp.Runtime
 		internal MainWindow mainWindow;
 		internal Gui mainWindowGui;
 		internal MenuType menuIsVisible = MenuType.None;
+
+		/// <summary>
+		/// True while a menu (tray, popup, or menu bar) is displayed. Mirrors AutoHotkey's g_MenuIsVisible: timers are
+		/// held (see the scheduler pump) and the keyboard hook passes keystrokes through natively while it is set.
+		/// </summary>
+		internal bool IsMenuVisible => menuIsVisible != MenuType.None;
+
+		internal void SetMenuVisible(bool visible) => menuIsVisible = visible ? MenuType.Popup : MenuType.None;
+
 		internal int nMessageBoxes;
 		internal CallbackRegistry<CallbackRegistration> onErrorHandlers = new();
 		internal CallbackRegistry<CallbackRegistration> onExitHandlers = new();

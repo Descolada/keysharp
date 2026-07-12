@@ -220,9 +220,9 @@ namespace Keysharp.Internals.Scripting
 			// tries to launch while it runs is refused at that same gate. Do NOT also pass isCritical: on a veto the
 			// exit is cancelled and the script keeps running, and a leftover Critical scope then wedges later thread
 			// launches (subsequent timers/hotkeys stop firing).
-			ScriptEventExecutionResult RunHandler(ScriptEventScheduler scheduler, IFuncObj handler)
+			ScriptEventExecutionResult RunHandler(ScriptEventScheduler scheduler, IFuncObj handler, long priority)
 			{
-				using var thread = scheduler.StartPseudoThreadScope(0, skipUninterruptible, false, allowEmergencyOverflow);
+				using var thread = scheduler.StartPseudoThreadScope(priority, skipUninterruptible, false, allowEmergencyOverflow);
 
 				if (!thread.Started)
 					return thread.Result;
@@ -256,6 +256,7 @@ namespace Keysharp.Internals.Scripting
 				if (handler == null)
 					continue;
 
+				var priority = entry.Priority;   // per-registration thread priority (0 except for menu items' "Pn")
 				var targetScheduler = entry.OwnerScheduler ?? script.EventScheduler;
 				ScriptEventExecutionResult executionResult;
 
@@ -266,11 +267,11 @@ namespace Keysharp.Internals.Scripting
 				}
 				else if (targetScheduler.OwnsCurrentThread)
 				{
-					executionResult = RunHandler(targetScheduler, handler);
+					executionResult = RunHandler(targetScheduler, handler, priority);
 				}
 				else
 				{
-					executionResult = targetScheduler.InvokeSynchronous(() => RunHandler(targetScheduler, handler));
+					executionResult = targetScheduler.InvokeSynchronous(() => RunHandler(targetScheduler, handler, priority));
 				}
 
 				if (executionResult != ScriptEventExecutionResult.Executed)

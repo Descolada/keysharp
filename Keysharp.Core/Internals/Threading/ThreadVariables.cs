@@ -1,4 +1,4 @@
-using Keysharp.Builtins;
+﻿using Keysharp.Builtins;
 namespace Keysharp.Internals.Threading
 {
 	public class ThreadConfigData
@@ -117,6 +117,27 @@ namespace Keysharp.Internals.Threading
 		}
 
 		internal StringBuilder RegSb => regsb != null ? regsb : regsb = new StringBuilder(1024);
+
+		// Every newly launched thread is uninterruptible for a startup window (the "Thread Interrupt" time) unless
+		// that time is 0; a Critical thread stays uninterruptible indefinitely (-1). The becoming-interruptible moment
+		// is locked in at launch so a later Thread('Interrupt', n) only affects FUTURE threads. See IsInterruptible().
+		internal void ApplyUninterruptibleStartupWindow()
+		{
+			var script = Script.TheScript;
+
+			if (script.uninterruptibleTime != 0 || isCritical)
+			{
+				allowThreadToBeInterrupted = false;
+
+				if (isCritical || script.uninterruptibleTime < 0)
+					UninterruptibleDuration = -1;
+				else
+				{
+					threadStartTick = Environment.TickCount64;
+					UninterruptibleDuration = script.uninterruptibleTime;
+				}
+			}
+		}
 
 		/// <summary>
 		/// The fields in this function must be kept in sync with the fields declared above.

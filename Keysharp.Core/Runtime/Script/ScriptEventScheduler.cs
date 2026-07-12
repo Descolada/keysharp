@@ -1,4 +1,4 @@
-using Keysharp.Builtins;
+﻿using Keysharp.Builtins;
 using Keysharp.Internals.Invoke;
 using Keysharp.Runtime.Keyboard;
 using Keysharp.Internals.Threading;
@@ -682,12 +682,13 @@ internal bool HasBlockedQueuedWork
 
 				var threads = script.Threads;
 
-				// The thread pool is exhausted or the current thread is uninterruptible: a GLOBAL condition that blocks
-				// every queued event equally (the thread-launch path reports the same via TryStartPseudoThread). YIELD the
-				// pump rather than dropping-and-continuing. Returning Dropped here made TryProcessNextQueuedEvent report
-				// Executed, so the pump kept looping while the timer thread refilled the queue — a livelock that pinned
-				// normalQueue, pegged the CPU, and starved the running pseudo-threads so their slots never freed.
-				if (!threads.AnyThreadsAvailable() || !threads.IsInterruptible())
+				// The thread pool is exhausted, the current thread is uninterruptible, or a menu is displayed: a GLOBAL
+				// condition that blocks every queued event equally (the thread-launch path reports the same via
+				// TryStartPseudoThread). YIELD the pump rather than dropping-and-continuing. Returning Dropped here made
+				// TryProcessNextQueuedEvent report Executed, so the pump kept looping while the timer thread refilled the
+				// queue — a livelock that pinned normalQueue, pegged the CPU, and starved the running pseudo-threads so
+				// their slots never freed. Holding timers while a menu is open matches AutoHotkey's g_MenuIsVisible check.
+				if (!threads.AnyThreadsAvailable() || !threads.IsInterruptible() || script.IsMenuVisible)
 					return ScriptEventExecutionResult.GlobalBlocked;
 
 				// Timers are disabled (A_AllowTimers) but other, non-timer queued work may still run, so drop just this
@@ -695,6 +696,16 @@ internal bool HasBlockedQueuedWork
 				if (!Keysharp.Builtins.Ks.A_AllowTimers.Ab() && script.totalExistingThreads > 0)
 				{
 					timers.ReleaseQueuedTimer(timer);
+					return ScriptEventExecutionResult.Dropped;
+				}
+
+				// Per-event priority admission (the global conditions were handled above): a lower-priority timer may
+				// not interrupt a higher-priority current thread. Defer it (re-arm, NOT consume) so a run-once timer is
+				// preserved and fires once the higher thread ends — the forward NextDueTick avoids a tight re-serve
+				// loop — then drop THIS event so the pump keeps serving other (possibly higher-priority) queued work.
+				if (timer.Priority < threads.CurrentThread.priority)
+				{
+					timers.DeferPriorityBlocked(timer);
 					return ScriptEventExecutionResult.Dropped;
 				}
 
@@ -706,6 +717,11 @@ internal bool HasBlockedQueuedWork
 
 					if (thread.Started)
 					{
+						// Timers honour the Thread-Interrupt uninterruptible startup window like any new thread. The launch
+						// passed skipUninterruptible=true (the pump vetted admission above), which also skips the window setup,
+						// so apply it here.
+						thread.ThreadVariables.ApplyUninterruptibleStartupWindow();
+
 						executed = true;
 
 						try

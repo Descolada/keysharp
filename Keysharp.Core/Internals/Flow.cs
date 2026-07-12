@@ -231,9 +231,10 @@ namespace Keysharp.Internals
 		internal static void SleepWithoutInterruption(int duration = IntervalUnspecified)
 		{
 			var fd = Script.TheScript.FlowData;
-			fd.allowInterruption = false;
+			var allowInterruptionPrev = fd.allowInterruption;   // save/restore (matches AHK's g_AllowInterruption_prev)
+			fd.allowInterruption = false;                       // so a caller already uninterruptible (e.g. Critical) stays so
 			Sleep(duration);
-			fd.allowInterruption = true;
+			fd.allowInterruption = allowInterruptionPrev;
 		}
 
 		internal static bool PollUntil(Func<bool> condition, int timeoutMs, int pollIntervalMs)

@@ -1,4 +1,4 @@
-using Keysharp.Runtime;
+﻿using Keysharp.Runtime;
 using CallbackHub = Keysharp.Internals.Scripting.CallbackRegistry<Keysharp.Internals.Scripting.CallbackRegistration>;
 
 namespace Keysharp.Builtins
@@ -93,6 +93,13 @@ namespace Keysharp.Builtins
 			Script.TheScript.GuiData.allMenus[menuId] = new(this);
 			GetMenu().Name = $"Menu_{menuId}";
 			dummyHandle = Handle;//Must access the handle once to force creation.
+			// Track menu visibility (AutoHotkey's g_MenuIsVisible) so timers are held and the keyboard hook passes
+			// keystrokes through while this menu is open. Closed fires on every backend; Opened only on WinForms, so
+			// the other backends set the flag in Show() instead.
+			MenuItem.Closed += (_, _) => Script.TheScript.SetMenuVisible(false);
+#if WINDOWS
+			MenuItem.Opened += (_, _) => Script.TheScript.SetMenuVisible(true);
+#endif
 		}
 
 		internal bool RemoveOwnedHandlers(ScriptEventScheduler scheduler)
@@ -480,6 +487,11 @@ namespace Keysharp.Builtins
 				if (x == null) _x = def.X;
 				if (y == null) _y = def.Y;
 				var pt = new Point(_x, _y);
+#if !WINDOWS
+				// Non-WinForms backends don't raise Opened, so mark the menu visible here (the ctor's Closed handler
+				// clears it). WinForms uses Opened/Closed for this and needs nothing extra.
+				Script.TheScript.SetMenuVisible(true);
+#endif
 
 				if (!shouldWait)
 				{
@@ -549,6 +561,11 @@ namespace Keysharp.Builtins
 
 		internal void Tsmi_Click(object sender, EventArgs e)
 		{
+			// The menu is closing as this item is chosen; clear visibility up front so the callback (and any timer it
+			// starts) isn't held by the menu-visible guard, regardless of whether Click or Closed fires first. Matches
+			// AutoHotkey clearing g_MenuIsVisible before the menu item's subroutine runs.
+			Script.TheScript.SetMenuVisible(false);
+
 			if (sender is ToolStripMenuItem tsmi)
 			{
 				if (clickHandlers.TryGetValue(tsmi, out var handler))
@@ -653,6 +670,8 @@ namespace Keysharp.Builtins
 					Default = "&Open";
 				}
 
+				Keysharp.Internals.Scripting.CallbackRegistration clickReg = null;
+
 				if (funcorsub is Menu mnu)
 				{
 					var fromMenuItems = mnu.GetMenu().Items;
@@ -676,7 +695,12 @@ namespace Keysharp.Builtins
 #endif
 				}
 				else
-					clickHandlers.GetOrAdd(item, static _ => new()).ModifyEventHandlers(Functions.GetFuncObj(funcorsub, null, true), 1);
+				{
+					// Create the registration explicitly (not ModifyEventHandlers) so the "Pn" option parsed below can
+					// set its Priority — the priority then travels with the registration to the launch.
+					clickReg = new Keysharp.Internals.Scripting.CallbackRegistration(Functions.GetFuncObj(funcorsub, null, true), Script.TheScript?.EventScheduler, true);
+					clickHandlers.GetOrAdd(item, static _ => new()).Add(clickReg);
+				}
 
 				foreach (Range r in options.AsSpan().SplitAny(Spaces))
 				{
@@ -687,7 +711,7 @@ namespace Keysharp.Builtins
 						var temp = 0;
 						var tempbool = false;
 
-						if (Options.TryParse(opt, "P", ref temp)) { }
+						if (Options.TryParse(opt, "P", ref temp)) { if (clickReg != null) clickReg.Priority = temp; }
 						else if (Options.TryParse(opt, "Radio", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { }
 						else if (Options.TryParse(opt, "Right", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true))
 						{

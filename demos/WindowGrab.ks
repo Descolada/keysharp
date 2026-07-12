@@ -2,7 +2,7 @@
 #Requires capability InputMonitoring   ; the mouse hook; moving/fading foreign windows uses X11/compositor, not a gated capability (macOS asks for Accessibility on first use)
 #SingleInstance Force
 #import KS { A_ScreenScale }     ; A_ScreenScale is a Keysharp addition (per-platform DPI scale factor), so it lives in the KS module
-#include HotkeyCard.ks
+#include Shell.ks
 
 /*
     WindowGrab — grab ANY window from ANY point with the mouse (no title bar needed, without activating it):
@@ -34,16 +34,22 @@ class WindowGrab {
 
     static Install() {
         SetWinDelay(-1)
-        HotkeyCard.SetTrayIcon("✋")
+        Shell.SetTrayIcon("✋")
         Hotkey(this.ModMove "LButton", (*) => this.MoveGrab())
         Hotkey(this.ModFade "RButton", (*) => this.FadeGrab())
         Hotkey("^!+q", (*) => ExitApp())                 ; Ctrl+Alt+Shift+Q — the shared demo-quit chord
-        HotkeyCard.Show("Window Grab", [
+        local lines := [
             [this.PrettyMod() " + Left-drag", "Move the window under the cursor"],
             [this.PrettyMod() " + Right-drag", "Fade it — left clearer, right opaque"],
             [this.PrettyMod() " + Right-click", "Toggle 50% / opaque"],
             ["Esc (while dragging)", "Cancel — snap back to where it started"],
-            ["Ctrl+Alt+Shift+Q", "Exit"] ])
+            ["Ctrl+Alt+Shift+Q", "Exit"] ]
+        ; On stock Linux desktops Super+drag is the compositor's OWN window-move gesture, so it fights this demo.
+        ; Point those users at the one-line rebind (Windows never sees this row — the gesture is conflict-free there).
+        if (DirExist("/usr/share/fonts") && !DirExist("/System/Library/CoreServices"))
+            lines.Push(["Linux", "Super+drag clashing? Edit ModMove/ModFade at the top of the script"])
+        Shell.Show("Window Grab", lines)
+        Shell.SetTrayMenu([])              ; no tray-friendly actions (grabs need the cursor over a window) -> just Show shortcuts + Exit
     }
 
     ; --- Win+Left: move the window under the cursor, following the mouse --------------------------------
@@ -51,11 +57,15 @@ class WindowGrab {
         CoordMode("Mouse", "Screen")
         MouseGetPos(&gx, &gy, &id)                 ; id = TOP-LEVEL window under the cursor (no activation)
 
-        if !this.Movable(id)
+        if !this.Movable(id) {
+            this.Tip("Point at a window to grab it", 1200)
             return
+        }
 
         WinGetPos(&wx, &wy, , , id)
         offX := gx - wx, offY := gy - wy           ; keep the grab point under the cursor
+        dragged := false                           ; did the cursor travel a real distance during the grab?
+        lastX := "", lastY := ""                   ; skip re-issuing WinMove while the cursor is stationary
 
         while GetKeyState("LButton", "P") {         ; physical button state (works with no mouse hook)
             if GetKeyState("Escape", "P") {          ; Esc aborts the move: snap the window back to its start
@@ -64,8 +74,21 @@ class WindowGrab {
                 return
             }
             MouseGetPos(&mx, &my)
-            try WinMove(mx - offX, my - offY, , , id)
+            if (!dragged && (Abs(mx - gx) >= this.DragThreshold || Abs(my - gy) >= this.DragThreshold))
+                dragged := true
+            if (mx != lastX || my != lastY) {        ; the cursor moved -> follow it (else a 125 Hz no-op)
+                try WinMove(mx - offX, my - offY, , , id)
+                lastX := mx, lastY := my
+            }
             Sleep this.PollMs
+        }
+        ; Dragged a real distance but the window never left its start? The platform silently blocked the move
+        ; (macOS without Accessibility, or Wayland without a compositor backend). Checked after the drag, when every
+        ; WinMove has been processed, so a working move always ends elsewhere — this never false-fires on Windows/X11.
+        if dragged {
+            WinGetPos(&nx, &ny, , , id)
+            if (nx = wx && ny = wy)
+                this.Tip("Can't move this window — macOS needs Accessibility; Wayland needs a compositor backend.", 3000)
         }
     }
 
@@ -73,10 +96,13 @@ class WindowGrab {
     static FadeGrab() {
         CoordMode("Mouse", "Screen")
         MouseGetPos(&sx, &sy, &id)
-        if !this.Movable(id)
+        if !this.Movable(id) {
+            this.Tip("Point at a window to grab it", 1200)
             return
+        }
         start := this.GetAlpha(id)
         dragged := false
+        lastAlpha := ""                            ; skip re-applying an unchanged opacity every tick
         ; On Windows/Linux the drag distance is in PHYSICAL screen pixels, so on a 200% display the same hand
         ; movement covers twice as many pixels and the fade would run twice as fast — divide by the DPI scale so
         ; a given *perceived* drag maps to the same opacity change at any scaling. macOS already reports the
@@ -98,8 +124,11 @@ class WindowGrab {
                 dragged := true
             if dragged {
                 alpha := Max(this.MinAlpha, Min(255, Round(start + dx)))   ; right(+) = opaque, left(-) = transparent
-                try WinSetTransparent(alpha, id)
-                this.Tip("Opacity " Round(alpha / 255 * 100) "%", 0)
+                if (alpha != lastAlpha) {            ; only touch the window / redraw the tip when it actually changed
+                    try WinSetTransparent(alpha, id)
+                    this.Tip("Opacity " Round(alpha / 255 * 100) "%", 0)
+                    lastAlpha := alpha
+                }
             }
             Sleep this.PollMs
         }
@@ -120,11 +149,12 @@ class WindowGrab {
 
     ; Current alpha 0..255 (WinGetTransparent returns "" when the window has no transparency = opaque).
     static GetAlpha(id) {
-        t := WinGetTransparent(id)
+        local t := ""
+        try t := WinGetTransparent(id)               ; a window closed mid-gesture reads back as opaque, not a crash
         return (t = "" || t = "Off") ? 255 : t
     }
 
-    ; Guard: a real, movable top-level window (ignore the desktop / no match / our own tooltip).
+    ; Guard: a real top-level window exists under the cursor (rejects the no-match / 0-handle case).
     static Movable(id) => id && WinExist(id)
 
     static PrettyMod() => this.ModMove = "#" ? "Super/Win/Cmd" : this.ModMove

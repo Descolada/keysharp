@@ -1,8 +1,8 @@
 #Requires AutoHotkey v2.0
 #Requires capability InputMonitoring   ; the CapsLock-chord keyboard hook (macOS asks for Accessibility on first window move)
 #SingleInstance Force
-#import KS { Highlight, A_ScreenScale }   ; A_ScreenScale (per-platform DPI scale factor) is used by the included HotkeyCard
-#include HotkeyCard.ks
+#import KS { Highlight, A_ScreenScale }   ; A_ScreenScale (per-platform DPI scale factor) is used by the included Shell
+#include Shell.ks
 
 /*
     WindowTiler — snap the active window to halves, quarters, thirds, or a grid on its current monitor,
@@ -79,7 +79,8 @@ class WindowTiler {
 
     static Install() {
         SetWinDelay(-1)             ; no post-move delay -> snappy tiling
-        HotkeyCard.SetTrayIcon("📐")
+        Shell.SetTrayIcon("📐")
+        this.ModeIndex := this.SavedMode()                           ; restore the region mode chosen last run
         for key in this.Keys
             Hotkey(this.Prefix key, this.Handler(key), "On")
         Hotkey(this.Prefix "r", (*) => this.ToggleMax(), "On")       ; maximize/restore — mode-independent
@@ -87,6 +88,27 @@ class WindowTiler {
             Hotkey(this.Prefix i, this.ModeHandler(i), "On")         ; CapsLock+1..N switch modes
         Hotkey("^!+q", (*) => ExitApp())                             ; Ctrl+Alt+Shift+Q — shared demo-quit chord and
         this.ShowCard()                                              ; the keyboard escape hatch to reclaim CapsLock
+        this.ShowTrayMenu()                                          ; tray: a "Region mode" switcher
+    }
+
+    ; The region mode persists across runs in demos/Settings.ini. Clamp defensively in case Modes changed or the
+    ; file was hand-edited, so a bad value can never crash startup or index outside Modes.
+    static SavedMode() {
+        try {
+            local m := Integer(Shell.GetSetting("Window Tiler", "Mode", "1"))
+            if (m >= 1 && m <= this.Modes.Length)
+                return m
+        }
+        return 1
+    }
+
+    ; Demo tray menu: a "Region mode" submenu with the active mode checkmarked. Rebuilt on every switch so the
+    ; checkmark tracks the mode even when changed from the keyboard. Shell appends "Show shortcuts" + "Exit".
+    static ShowTrayMenu() {
+        local modes := []
+        for i, mode in this.Modes
+            modes.Push([mode.name, this.ModeHandler(i), i = this.ModeIndex])
+        Shell.SetTrayMenu([ ["Region mode", modes] ])
     }
 
     static Handler(key) => (*) => this.Snap(key)
@@ -106,9 +128,9 @@ class WindowTiler {
             WinRestore(info.id)                          ; un-maximize so the resize takes effect
             WinMove(r.x, r.y, r.w, r.h, info.id)
             this.Flash(r)
-            this.Tip(this.PosLabel(frac), 800)
+            this.Tip(this.PosLabel(frac), 800, info)
         } catch as e
-            this.Tip("Tile failed: " e.Message, 2500)
+            this.Tip("Tile failed: " e.Message, 2500, info)
     }
 
     static ToggleMax() {
@@ -119,33 +141,40 @@ class WindowTiler {
             if (WinGetMinMax(info.id) = 1) {
                 WinRestore(info.id)
                 this.Flash({x: info.l, y: info.t, w: 1, h: 1})   ; nothing to outline; just clear
-                this.Tip("Restore", 800)
+                this.Tip("Restore", 800, info)
             } else {
                 WinMaximize(info.id)
                 this.Flash({x: info.l, y: info.t, w: info.w, h: info.h})
-                this.Tip("Maximize", 800)
+                this.Tip("Maximize", 800, info)
             }
         } catch as e
-            this.Tip("Tile failed: " e.Message, 2500)
+            this.Tip("Maximize/restore failed: " e.Message, 2500, info)
     }
 
     static SwitchMode(i) {
         if (i < 1 || i > this.Modes.Length)
             return
         this.ModeIndex := i
-        this.ShowCard()                                  ; refresh the card so the active-mode marker moves
+        Shell.SetSetting("Window Tiler", "Mode", i)   ; remember it for next run
+        this.ShowCard()                                    ; refresh the card so the active-mode marker moves
+        this.ShowTrayMenu()                                ; move the tray submenu's active-mode checkmark
         this.Tip("Mode " i "/" this.Modes.Length ":  " this.Modes[i].name, 1200)
     }
 
     ; Active window + the work area of the monitor it mostly sits on.
     static ActiveWindowArea() {
         local id := WinActive("A")
-        if !id
+        if !id {
+            this.Tip("No active window to tile", 900)   ; so a snap key over the desktop isn't met with silence
             return 0
-        WinGetPos(&wx, &wy, &ww, &wh, id)
-        local mon := this.MonitorAt(wx + ww // 2, wy + wh // 2)
-        MonitorGetWorkArea(mon, &l, &t, &r, &b)
-        return {id: id, l: l, t: t, r: r, b: b, w: r - l, h: b - t}
+        }
+        try {                                           ; a window vanishing between WinActive and the query -> no-op
+            WinGetPos(&wx, &wy, &ww, &wh, id)
+            local mon := this.MonitorAt(wx + ww // 2, wy + wh // 2)
+            MonitorGetWorkArea(mon, &l, &t, &r, &b)
+            return {id: id, l: l, t: t, r: r, b: b, w: r - l, h: b - t}
+        }
+        return 0
     }
 
     static MonitorAt(x, y) {
@@ -183,12 +212,12 @@ class WindowTiler {
     ; Rebuild the cheat-sheet card, marking the active mode. Called on install and on every mode switch.
     static ShowCard() {
         local lines := [
-            [this.KeyLabel("Q…C"), "Snap to a region of the active mode"],
+            [this.KeyLabel("Q…C"), "Snap the active window — keys mirror screen position"],
             [this.KeyLabel("R"),   "Maximize / restore"] ]
         for i, mode in this.Modes
             lines.Push([this.KeyLabel(i), (i = this.ModeIndex ? "● " : "○ ") mode.name])
-        lines.Push(["Ctrl+Alt+Shift+Q", "Exit (restores CapsLock)"])
-        HotkeyCard.Show("Window Tiler", lines)
+        lines.Push(["Ctrl+Alt+Shift+Q", "Exit"])
+        Shell.Show("Window Tiler", lines)
     }
 
     ; Pretty keycap text: "CapsLock & " -> "CapsLock + q" (leaves symbolic prefixes like "^!" untouched).
@@ -208,9 +237,14 @@ class WindowTiler {
         SetTimer(this.hideFlash, -380)
     }
 
-    static Tip(msg, ms := 1500) {
+    ; `area` (an {l,t,r,b} rect, e.g. the active window's monitor from ActiveWindowArea) centres the tip on THAT
+    ; monitor; omit it for the primary. So a snap confirmation lands on the screen you're tiling on, not always #1.
+    static Tip(msg, ms := 1500, area := 0) {
         CoordMode("ToolTip", "Screen")
-        MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
+        if IsObject(area)
+            l := area.l, t := area.t, r := area.r, b := area.b
+        else
+            MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
         ToolTip(msg, (l + r) // 2 - StrLen(msg) * 3, t + 30)   ; brief action label, centred near the top
         SetTimer(this.clearTip, 0)
         if (ms > 0)

@@ -2,7 +2,7 @@
 #Requires capability InputMonitoring, InputInjection   ; the hotkey keyboard hook + Send (paste); macOS asks for Accessibility on first paste-back
 #SingleInstance Force
 #import KS { A_ScreenScale }     ; A_ScreenScale is a Keysharp addition (per-platform DPI scale factor), so it lives in the KS module
-#include HotkeyCard.ks
+#include Shell.ks
 
 /*
     ClipboardHistory — remembers the text you copy and lets you pick an earlier clip and paste it, through
@@ -26,7 +26,7 @@
 class ClipboardHistory {
     ; --- config -------------------------------------------------------------
     static Max := 40                 ; how many recent text clips to keep
-    static Visible := 12             ; how many to show in the picker at once
+    static Visible := 9              ; show 9 so every visible row maps to a 1–9 quick-paste key
     static ShowHotkey := "^!v"       ; Ctrl+Alt+V toggles the picker
 
     ; --- state --------------------------------------------------------------
@@ -44,8 +44,10 @@ class ClipboardHistory {
         if DirExist("/System/Library/CoreServices")   ; macOS pastes with Cmd+V
             this.pasteKeys := "#v"
 
-        HotkeyCard.SetTrayIcon("📋")
+        Shell.SetTrayIcon("📋")
         OnClipboardChange((dt, *) => this.OnClip(dt))  ; lambda keeps `this`; also keeps the script alive
+        this.Remember(A_Clipboard)                     ; seed with whatever's already copied so the first open isn't empty
+                                                       ; (Remember ignores blank/unset; non-text reads back as "" and is skipped)
         Hotkey(this.ShowHotkey, (*) => this.Toggle())
         Hotkey("^!+q", (*) => ExitApp())               ; Ctrl+Alt+Shift+Q — the shared demo-quit chord
 
@@ -60,19 +62,25 @@ class ClipboardHistory {
             Hotkey("*" A_Index, this.Pick(A_Index))
         HotIf()
 
-        HotkeyCard.Show("Clipboard History", [
+        Shell.Show("Clipboard History", [
             ["Ctrl+Alt+V", "Open / close the picker"],
-            ["1 – 9", "Paste that clip"],
-            ["Up / Down + Enter", "Pick & paste"],
-            ["Esc", "Close without pasting"],
             ["Ctrl+Alt+Shift+Q", "Exit"] ])
+        Shell.SetTrayMenu([ ["Clear history", (*) => this.ClearHistory()] ])
+    }
+
+    static ClearHistory() {
+        this.clips := []
+        if this.shown
+            this.Close()
+        this.Tip("Clipboard history cleared.")
     }
 
     static Pick(n) => (*) => this.PickIndex(n)   ; per-digit handler with n captured by value
 
     ; --- clipboard capture --------------------------------------------------
-    ; dataType 1 = text (or files, which read back as ""); 0 = empty; 2 = other.
-    static OnClip(dataType, *) {
+    ; dataType 1 = text (or files, which read back as ""); 0 = empty; 2 = other. (The registered wrapper lambda
+    ; already absorbs OnClipboardChange's extra args, so this handler only needs dataType.)
+    static OnClip(dataType) {
         if (dataType != 1)
             return
         text := A_Clipboard
@@ -172,7 +180,7 @@ class ClipboardHistory {
         ; Everything below is authored in LOGICAL units: the canvas is a physical-resolution bitmap (Image.Create's
         ; scale arg = dpi) so it stays crisp, and it's centred by its on-screen size (w/h scaled by geo). geo
         ; matches the OS coordinate system — physical px on Windows/Linux (geo = dpi), logical points on macOS
-        ; (geo = 1, Cocoa handles HiDPI itself). See HotkeyCard/InputHUD for the same pattern.
+        ; (geo = 1, Cocoa handles HiDPI itself). See Shell/InputHUD for the same pattern.
         local dpi := A_ScreenScale
         local geo := DirExist("/System/Library/CoreServices") ? 1 : dpi
 
@@ -180,7 +188,7 @@ class ClipboardHistory {
         img.FillRoundRect(0, 0, w, h, 12, "0xF01C1F28")
         img.DrawRoundRect(1, 1, w - 2, h - 2, 12, "0xFF3C4353", 1.5)
         img.DrawText("Clipboard History", pad, pad, "0xFF5EC8FF", "Arial 12 bold")
-        img.DrawText("Enter paste · Esc cancel", w - 196, pad + 3, "0xFF7A8698", "Arial 9")
+        img.DrawText("1–9 · ↑↓ + Enter · Esc", w - 196, pad + 3, "0xFF7A8698", "Arial 9")
         img.DrawLine(pad, pad + titleH - 8, w - pad, pad + titleH - 8, "0xFF333A48", 1)
 
         local y := pad + titleH
@@ -206,7 +214,7 @@ class ClipboardHistory {
     }
 
     ; A single-line, length-capped preview of a clip.
-    static Preview(text, cap := 80) {
+    static Preview(text, cap := 86) {
         s := Trim(RegExReplace(text, "\s+", " "))
         return StrLen(s) > cap ? SubStr(s, 1, cap - 3) "..." : s
     }
@@ -216,7 +224,8 @@ class ClipboardHistory {
         MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
         ToolTip(msg, (l + r) // 2 - StrLen(msg) * 3, t + 40)
         SetTimer(this.clearTip, 0)
-        SetTimer(this.clearTip, -ms)
+        if (ms > 0)                                    ; match the sibling demos' Tip(): ms=0 means "leave it up"
+            SetTimer(this.clearTip, -ms)
     }
 }
 

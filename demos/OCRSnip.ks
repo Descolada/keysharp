@@ -4,7 +4,7 @@
 
 #import "Ks" { * }
 #include ../Keysharp/Scripts/OCR.ks
-#include HotkeyCard.ks
+#include Shell.ks
 
 /*
     OCR Snip demo for Keysharp's Image, Overlay and OCR.ks APIs.
@@ -70,17 +70,20 @@ class OCRSnip {
         ; macOS: Ctrl+LButton is a system secondary-click, so build the trigger on Cmd+Shift there instead.
         if DirExist("/System/Library/CoreServices")
             this.ArmMods := "#+"
-        HotkeyCard.SetTrayIcon("🔎")
+        Shell.SetTrayIcon("🔎")
         Hotkey(this.ArmMods "LButton", (*) => this.Start(true))     ; hold the modifier + press-drag = snip NOW
         Hotkey(this.ArmMods this.ArmKey, (*) => this.Start(false))  ; hands-free: arm, then drag when ready
         Hotkey(this.ArmMods "Backspace", (*) => this.ClearWordOverlays())
         Hotkey(this.ExitHotkey, (*) => this.Exit())
-        HotkeyCard.Show("OCR Snip", [
+        Shell.Show("OCR Snip", [
             [this.PrettyMods() " + drag", "Snip now — hold and drag a box to OCR"],
             [this.PrettyMods() "+O", "Arm hands-free, then drag when ready"],
             ["Esc / Right-click", "Cancel the snip in progress"],
             [this.PrettyMods() "+Backspace", "Clear the word boxes"],
             ["Ctrl+Alt+Shift+Q", "Exit"] ])
+        Shell.SetTrayMenu([
+            ["Snip a region", (*) => this.Start(false)],   ; arm hands-free (a tray click can't hold-and-drag)
+            ["Clear word boxes", (*) => this.ClearWordOverlays()] ])
     }
 
     ; Human-readable modifier label for the cheat-sheet (Ctrl+Shift, or Cmd+Shift on macOS).
@@ -100,27 +103,29 @@ class OCRSnip {
 
         this.Active := true
 
-        ; Block the left mouse button (down AND up) from the app for the duration of the snip, so dragging
-        ; the selection rectangle doesn't also select text/objects under the click-through overlay. This
-        ; installs the mouse hook, which also makes GetKeyState("LButton","P") read the hook's tracked state.
-        this.SetButtonBlock(true)
-
-        this.ClearWordOverlays(false)
-
-        this.PreviousCursor := A_Cursor
-        this.PreviousMouseCoordMode := A_CoordModeMouse
-        CoordMode("Mouse", "Screen")
-
-        ; Fast path: the Ctrl+Shift+LButton is already held, so capture its position as the drag anchor NOW —
-        ; before the overlay setup below, which on Wayland/KWin is several compositor round-trips. Reading the
-        ; anchor only after setup (as the keyboard path does) would let a quick press-drag-release finish first
-        ; and anchor at the wrong point; capturing up front mirrors WindowGrab's read-then-loop ordering.
-        if immediate {
-            MouseGetPos(&ax, &ay)
-            this.AnchorX := ax, this.AnchorY := ay
-        }
-
+        ; Open the try BEFORE installing the button-block, so the finally ALWAYS restores SetButtonBlock(false)
+        ; and Active — otherwise an exception during setup could leave the left mouse button globally suppressed.
         try {
+            ; Block the left mouse button (down AND up) from the app for the duration of the snip, so dragging
+            ; the selection rectangle doesn't also select text/objects under the click-through overlay. This
+            ; installs the mouse hook, which also makes GetKeyState("LButton","P") read the hook's tracked state.
+            this.SetButtonBlock(true)
+
+            this.ClearWordOverlays(false)
+
+            this.PreviousCursor := A_Cursor
+            this.PreviousMouseCoordMode := A_CoordModeMouse
+            CoordMode("Mouse", "Screen")
+
+            ; Fast path: the Ctrl+Shift+LButton is already held, so capture its position as the drag anchor NOW —
+            ; before the overlay setup below, which on Wayland/KWin is several compositor round-trips. Reading the
+            ; anchor only after setup (as the keyboard path does) would let a quick press-drag-release finish first
+            ; and anchor at the wrong point; capturing up front mirrors WindowGrab's read-then-loop ordering.
+            if immediate {
+                MouseGetPos(&ax, &ay)
+                this.AnchorX := ax, this.AnchorY := ay
+            }
+
             A_Cursor := "Cross"
 
             this.Desktop := this.GetVirtualDesktop()
@@ -142,10 +147,14 @@ class OCRSnip {
 
             this.StatusTip("OCR running...", 0)
             result := OCR.FromRect(rect.x, rect.y, rect.w, rect.h, {scale: this.OcrScale})
+            if (Trim(result.Text) = "") {                ; nothing recognized — leave the user's clipboard intact
+                this.StatusTip("No text found in the selection — clipboard left unchanged.", 2000)
+                return
+            }
             A_Clipboard := result.Text
             this.DrawWordOverlays(result.Words)
 
-            this.StatusTip("Copied " result.Words.Length " OCR word(s) to the clipboard.", 2500)
+            this.StatusTip("Copied " result.Words.Length " OCR word(s) to the clipboard — hover a box to see its text.", 2500)
         } catch as err {
             this.TeardownTracking()
             this.RestoreCursorAndCoordMode()
@@ -373,11 +382,11 @@ class OCRSnip {
 
         ; Faint full-screen guide lines for precise alignment (1px each; repositioned as the cursor moves)...
         this.GuideV := Overlay(mx, d.y, 1, d.h)
-        this.GuideV.Clear("0x40FFFFFF")
+        this.GuideV.Clear("0x661A73E8")
         this.GuideV.Show()
 
         this.GuideH := Overlay(d.x, my, d.w, 1)
-        this.GuideH.Clear("0x40FFFFFF")
+        this.GuideH.Clear("0x661A73E8")
         this.GuideH.Show()
 
         ; ...a bold crosshair reticle at the pointer (drawn once into a small overlay that just gets moved)...
@@ -472,7 +481,7 @@ class OCRSnip {
         this.TeardownTracking()
         this.ClearWordOverlays(false)
         this.RestoreCursorAndCoordMode()
-        ExitApp()
+        ExitApp()                                    ; OnExit (in Shell) flushes batched settings on the way out
     }
 
     ; Polls the cursor against the stored OCR word rects and shows the recognized text of the word under it

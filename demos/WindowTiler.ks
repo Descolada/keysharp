@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Requires capability InputMonitoring   ; the CapsLock-chord keyboard hook (macOS asks for Accessibility on first window move)
 #SingleInstance Force
 #import KS { Highlight, A_ScreenScale }   ; A_ScreenScale (per-platform DPI scale factor) is used by the included HotkeyCard
 #include HotkeyCard.ks
@@ -18,6 +19,7 @@
         Z X C       bottom row    |
 
         CapsLock+R           maximize / restore (works in any mode)
+        Ctrl+Alt+Shift+Q     quit — also the keyboard way to reclaim CapsLock's normal toggle
         CapsLock+1/2/3/4     switch the region mode:
 
             1  Halves + Quarters — halves on the edges, quarters in the corners, a centred 2/3
@@ -83,7 +85,8 @@ class WindowTiler {
         Hotkey(this.Prefix "r", (*) => this.ToggleMax(), "On")       ; maximize/restore — mode-independent
         for i, mode in this.Modes
             Hotkey(this.Prefix i, this.ModeHandler(i), "On")         ; CapsLock+1..N switch modes
-        this.ShowCard()
+        Hotkey("^!+q", (*) => ExitApp())                             ; Ctrl+Alt+Shift+Q — shared demo-quit chord and
+        this.ShowCard()                                              ; the keyboard escape hatch to reclaim CapsLock
     }
 
     static Handler(key) => (*) => this.Snap(key)
@@ -184,6 +187,7 @@ class WindowTiler {
             [this.KeyLabel("R"),   "Maximize / restore"] ]
         for i, mode in this.Modes
             lines.Push([this.KeyLabel(i), (i = this.ModeIndex ? "● " : "○ ") mode.name])
+        lines.Push(["Ctrl+Alt+Shift+Q", "Exit (restores CapsLock)"])
         HotkeyCard.Show("Window Tiler", lines)
     }
 

@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Requires capability InputMonitoring   ; the passive keyboard/mouse hook; prompted at startup by this directive
 #SingleInstance Force
 #import KS { A_ScreenScale }     ; A_ScreenScale is a Keysharp addition (per-platform DPI scale factor), so it lives in the KS module
 #include HotkeyCard.ks
@@ -14,20 +15,24 @@
           each lit green while that lock is on. Toggle is drawn independently of the press colour, so a key
           reports BOTH whether it is held down (blue/amber) and whether its lock is on (green) at the same time.
         - The layout adapts to the OS: Win/Super/Alt/Menu on Windows & Linux, Command/Option/Control on macOS.
-        - Both HUDs are separately draggable: hold Super/Win/Cmd and drag either one to reposition it.
+        - Both HUDs are separately draggable AND zoomable: left-drag either one to reposition it, or right-drag
+          it to scale it — drag right to enlarge, left to shrink. Only clicks that land ON a HUD are captured;
+          clicks anywhere else pass straight through the click-through overlays.
         - Non-intrusive: it never swallows your input — everything you press still reaches your apps.
 
-        Hold Super/Win/Cmd + drag  ...  move a HUD
-        Ctrl+Alt+Shift+Q           ...  quit
+        Left-drag a HUD    ...  move it
+        Right-drag a HUD   ...  zoom it (right = bigger, left = smaller)
+        Ctrl+Alt+Shift+Q   ...  quit
 
     Demonstrates cross-platform Keysharp: a single InputHook ("V H") capturing BOTH keyboard and mouse
     (OnKeyDown/OnKeyUp + OnMouseDown/OnMouseUp, KeyOpt("{All}","N") to notify-without-suppressing; the "H"
-    option also surfaces input a hotkey/remap suppresses, so a remap's physical source and the #LButton used
+    option also surfaces input a hotkey/remap suppresses, so a remap's physical source and the LButton used
     to drag a HUD still register), telling physical from injected input via A_EventInfo.IsInjected, lock-key
     toggle state polled with GetKeyState(key, "T") and surfaced as green LEDs, Overlay canvases drawn with
-    Image primitives (FillRoundRect/FillEllipse/DrawText) and updated live via SetImage, live
-    repositioning through Overlay.X/Y, and a HotIf-scoped hotkey so the drag only captures the click while the
-    cursor is over a HUD (so normal clicks pass straight through).
+    Image primitives (FillRoundRect/FillEllipse/DrawText) and updated live via SetImage, live repositioning
+    through Overlay.X/Y and live rescaling via Overlay.Scale (Win/Linux) or logical W/H (macOS) — re-rendered at
+    DPI*zoom to stay crisp and centre-anchored so it scales in place — and HotIf-scoped hotkeys so the drag/zoom
+    only capture the click while the cursor is over a HUD (so normal clicks pass straight through).
 
     Note: amber (injected) only lights for keys the hook can observe — on Linux that means the sender used
     SendMode "Event" (the default "Input"/SendInput bypasses the hook); on Windows, cross-process injections.
@@ -74,8 +79,8 @@ class InputHUD {
     static Geo := 1                      ; on-screen geometry scale: DPI where the OS places in physical px (Win/Linux), 1 where it
                                          ; places in logical points and handles HiDPI itself (macOS) — mirrors the GUI's DpiScale
     static ih := ""
-    static kb := ""                      ; {ov, x, y, w, h (logical render size), pw, ph (physical on-screen size), keys[]}
-    static ms := ""                      ; {ov, x, y, w, h (logical render size), pw, ph (physical on-screen size)}
+    static kb := ""                      ; {ov, cx, cy (fixed centre = zoom anchor), x, y (derived top-left), w, h (logical render size), pw, ph (physical on-screen size), zoom, keys[]}
+    static ms := ""                      ; {ov, cx, cy (fixed centre = zoom anchor), x, y (derived top-left), w, h (logical render size), pw, ph (physical on-screen size), zoom}
     static down := Map()                 ; vk -> "phys" | "synth"  (pressed keys, keyed by origin)
     static mdown := Map()                ; "left"/"right"/"middle"/"x1"/"x2" -> "phys" | "synth"
     static wheelFlash := 0               ; -1 up, +1 down, 0 none
@@ -89,6 +94,13 @@ class InputHUD {
     static isMac := false
     static kbDirty := true               ; a render is pending (rendered on the main-thread tick)
     static msDirty := true
+    ; Zoom (right-drag over a HUD): each HUD carries its own on-screen scale factor. Horizontal drag distance
+    ; maps to the scale — drag right to enlarge, left to shrink — clamped to [ZoomMin, ZoomMax].
+    static ZoomMin  := 0.5
+    static ZoomMax  := 3.0
+    static ZoomSens := 300               ; px of horizontal drag per doubling (or halving) of a HUD's scale
+    static ZoomEase := 0.5               ; per-tick easing toward the drag's target scale (1 = instant, no smoothing)
+    static busy := false                 ; a drag/zoom loop is running — blocks a second one from starting on top of it
     ; Stable timer callbacks (kept in-class so SetTimer can cancel/reschedule the same reference).
     static wheelOff := (*) => (InputHUD.wheelFlash := 0, InputHUD.msDirty := true)
 
@@ -109,7 +121,7 @@ class InputHUD {
         ; handles HiDPI itself — the overlay is still drawn from the physical-resolution canvas).
         this.DPI := A_ScreenScale
         this.Geo := this.isMac ? 1 : this.DPI
-        this.ms := {ov: Overlay(0, 0, 118, 188, this.DPI), x: 0, y: 0, w: 118, h: 188, pw: Round(118 * this.Geo), ph: Round(188 * this.Geo)}
+        this.ms := {ov: Overlay(0, 0, 118, 188, this.DPI), cx: 0, cy: 0, x: 0, y: 0, w: 118, h: 188, pw: Round(118 * this.Geo), ph: Round(188 * this.Geo), zoom: 1}
         this.BuildKeyboard()
         this.RefreshToggles()            ; seed the lock LEDs so the first paint already shows the real state
         this.Place()
@@ -125,7 +137,8 @@ class InputHUD {
             ["Type / click", "Keys & buttons light up as you press"],
             ["Blue vs amber", "Blue = physical; amber = script-injected (Send / remap)"],
             ["Green LED", "Num / Caps / Scroll lock is toggled on"],
-            ["Super/Win/Cmd + drag", "Move a HUD"],
+            ["Left-drag a HUD", "Move it"],
+            ["Right-drag a HUD", "Zoom it (right = bigger, left = smaller)"],
             ["Ctrl+Alt+Shift+Q", "Quit"] ])
     }
 
@@ -191,7 +204,7 @@ class InputHUD {
             this.dispVk[k.vk] := true
         }
         local lw := Round(maxR + this.Pad), lh := Round(maxB + this.Pad)
-        this.kb := {ov: Overlay(0, 0, lw, lh, this.DPI), x: 0, y: 0, w: lw, h: lh, pw: Round(lw * this.Geo), ph: Round(lh * this.Geo), keys: keys}
+        this.kb := {ov: Overlay(0, 0, lw, lh, this.DPI), cx: 0, cy: 0, x: 0, y: 0, w: lw, h: lh, pw: Round(lw * this.Geo), ph: Round(lh * this.Geo), keys: keys, zoom: 1}
         this.BuildLeds(lw, navX)         ; status-light strip in the empty top-right corner, above the nav cluster
     }
 
@@ -242,7 +255,9 @@ class InputHUD {
 
     static RenderKeyboard() {
         local kb := this.kb
-        local img := Image.Create(kb.w, kb.h, , this.DPI)
+        local z := this.Geometry(kb)     ; snapshot the zoom ONCE; the bitmap, on-screen size and position all use z
+        ; Draw the (fixed) logical layout at DPI * z so the on-screen bitmap stays crisp at any zoom level.
+        local img := Image.Create(kb.w, kb.h, , this.DPI * z)
         img.FillRoundRect(0, 0, kb.w, kb.h, 14, this.Bg)
         img.DrawRoundRect(1, 1, kb.w - 2, kb.h - 2, 14, this.Border, 2)
         for k in kb.keys {
@@ -262,6 +277,7 @@ class InputHUD {
             this.DrawLed(img, led.x, led.y, led.d, on)
             img.DrawText(led.label, led.lx, led.ly, on ? this.LedLabOn : this.LedLab, this.LedFont)
         }
+        this.ApplyGeom(kb, z)            ; size + position the overlay with the SAME z the bitmap used — one clean repaint
         kb.ov.SetImage(img)
         img.Dispose()
     }
@@ -298,7 +314,8 @@ class InputHUD {
 
     static RenderMouse() {
         local ms := this.ms
-        local img := Image.Create(ms.w, ms.h, , this.DPI)
+        local z := this.Geometry(ms)
+        local img := Image.Create(ms.w, ms.h, , this.DPI * z)
         img.FillRoundRect(0, 0, ms.w, ms.h, 12, this.Bg)
 
         local bx := 20, by := 14, bw := ms.w - 40, bh := ms.h - 34
@@ -325,6 +342,7 @@ class InputHUD {
         img.FillRoundRect(bx - 3, by + btnH + 30, 6, 16, 3, this.BtnFill("x1"))
 
         img.DrawText("Mouse", bx, ms.h - 16, this.KeyText, "Arial 9")
+        this.ApplyGeom(ms, z)
         ms.ov.SetImage(img)
         img.Dispose()
     }
@@ -343,7 +361,7 @@ class InputHUD {
     static HookInput() {
         ; "V" (VisibleText + VisibleNonText) = never suppress: this is a passive monitor, so every key still
         ; reaches your focused app. "H" collects each event BEFORE hotkey processing, so we also see input a
-        ; hotkey/remap suppresses — a remap's physical source key, or the #LButton used to drag a HUD — not
+        ; hotkey/remap suppresses — a remap's physical source key, or the LButton used to drag a HUD — not
         ; just what passes through. KeyOpt("{All}","N") makes every key fire OnKeyDown/OnKeyUp.
         this.ih := InputHook("V H")
         this.ih.KeyOpt("{All}", "N")
@@ -423,12 +441,16 @@ class InputHUD {
     }
 
     ; ======================================================================
-    ; Dragging — a Super/Win/Cmd + LButton hotkey scoped (via HotIf) to "cursor is over a HUD", so the
-    ; press is captured only there; plain clicks pass through the click-through overlays untouched.
+    ; Dragging & zooming — plain Left/Right-button hotkeys scoped (via HotIf) to "cursor is over a HUD", so a
+    ; press is captured ONLY over a HUD; clicks anywhere else pass through the click-through overlays untouched.
+    ; Left-drag moves a HUD; right-drag scales it (right = enlarge, left = shrink). No modifier is needed
+    ; (unlike WindowGrab's Super+drag): a plain button and a Super+button are mutually-exclusive hotkey
+    ; variants, so InputHUD and WindowGrab can run together without their drag gestures colliding.
     ; ======================================================================
     static SetupDrag() {
         HotIf((*) => this.OverHud() != "")
-        Hotkey("#LButton", (*) => this.DragHud())
+        Hotkey("LButton", (*) => this.DragHud())
+        Hotkey("RButton", (*) => this.ZoomHud())
         HotIf()
     }
 
@@ -446,21 +468,100 @@ class InputHUD {
 
     static DragHud() {
         local which := this.OverHud()
-        if (which = "")
+        if (which = "" || this.busy)                 ; ignore a press that lands mid-drag/zoom (see ZoomHud)
             return
         local o := (which = "kb") ? this.kb : this.ms
-        CoordMode("Mouse", "Screen")
-        MouseGetPos(&gx, &gy)
-        local offX := gx - o.x, offY := gy - o.y
-        ; No workaround needed to light LButton here: with the InputHook's "H" option the #LButton press is
-        ; reported to OnMouseDown (as physical) even though this hotkey suppresses it, so the HUD lights it.
-        while GetKeyState("LButton", "P") {
-            MouseGetPos(&mx, &my)
-            o.x := mx - offX, o.y := my - offY
-            o.ov.X := o.x, o.ov.Y := o.y
-            Sleep 8
+        this.busy := true
+        try {
+            CoordMode("Mouse", "Screen")
+            MouseGetPos(&gx, &gy)
+            local offX := gx - o.cx, offY := gy - o.cy   ; grab offset from the HUD's centre (the zoom anchor)
+            ; No workaround needed to light LButton here: with the InputHook's "H" option the LButton press is
+            ; reported to OnMouseDown (as physical) even though this hotkey suppresses it, so the HUD lights it.
+            while GetKeyState("LButton", "P") {
+                MouseGetPos(&mx, &my)
+                o.cx := mx - offX, o.cy := my - offY     ; move the centre; x/y follow (size is unchanged mid-drag)
+                o.x := Round(o.cx - o.pw / 2), o.y := Round(o.cy - o.ph / 2)
+                o.ov.X := o.x, o.ov.Y := o.y
+                Sleep 8
+            }
+        } finally {
+            this.busy := false
         }
     }
+
+    ; Right-drag over a HUD scales it: the horizontal distance from where the drag began sets the zoom factor
+    ; (right = enlarge, left = shrink); the HUD scales around its fixed centre (cx/cy). Like DragHud this runs as a
+    ; hotkey pseudo-thread and loops while RButton is held; it writes ONLY o.zoom and flips the dirty flag, so the
+    ; main-thread tick derives all geometry and redraws the crisp bitmap (this thread never draws or resizes).
+    static ZoomHud() {
+        local which := this.OverHud()
+        ; Guard against re-entry: a mouse button can retrigger its hotkey mid-drag (autorepeat, the InputHook "H"
+        ; re-surfacing the held press, a bounced event). A second ZoomHud starting on top of the first captures its
+        ; OWN startX/startZoom, and the two loops then drive o.zoom toward different targets — which is what made the
+        ; HUD suddenly jump to a huge or tiny size. One `busy` flag lets only one drag/zoom loop run at a time.
+        if (which = "" || this.busy)
+            return
+        local o := (which = "kb") ? this.kb : this.ms
+        this.busy := true
+        try {
+            CoordMode("Mouse", "Screen")
+            MouseGetPos(&startX)
+            local startZoom := o.zoom
+            while GetKeyState("RButton", "P") {
+                MouseGetPos(&mx)
+                ; Exponential target: every ZoomSens px of travel doubles (right) or halves (left) the scale, so the
+                ; gesture feels symmetric. Ease the actual scale toward that target instead of snapping to it, so a
+                ; fast flick ramps smoothly over a few ticks; settle exactly on target so a resting mouse stops
+                ; re-rendering. Only redraw when the (clamped) scale actually changed.
+                local target := this.ClampZoom(startZoom * (2 ** ((mx - startX) / this.ZoomSens)))
+                local next := o.zoom + (target - o.zoom) * this.ZoomEase
+                if (Abs(target - next) < 0.004)
+                    next := target
+                if (next != o.zoom) {
+                    o.zoom := next               ; the ONLY shared write; the tick derives x/y/pw/ph from it
+                    if (which = "kb")
+                        this.kbDirty := true
+                    else
+                        this.msDirty := true
+                }
+                Sleep 8
+            }
+        } finally {
+            this.busy := false
+        }
+    }
+
+    ; Snapshots a HUD's zoom ONCE and derives its on-screen geometry from that single value: the cached on-screen
+    ; size (pw/ph) and top-left (x/y), positioned so the HUD's fixed CENTRE (cx/cy — set by Place, moved by a drag)
+    ; stays put as it scales. Returns z so the caller renders the bitmap at the SAME zoom it will be displayed at.
+    ; The zoom loop only ever writes `zoom` (one field), so a render tick that interleaves with it can never read a
+    ; half-updated geometry — which was the cause of the board briefly rendering at one scale but showing at another
+    ; (a huge, blurry, off-centre frame). All geometry is computed here, on the render's own (main) thread.
+    static Geometry(o) {
+        local z := o.zoom
+        o.pw := Round(o.w * this.Geo * z)
+        o.ph := Round(o.h * this.Geo * z)
+        o.x := Round(o.cx - o.pw / 2)
+        o.y := Round(o.cy - o.ph / 2)
+        return z
+    }
+
+    ; Pushes the geometry onto the overlay using the SAME z the bitmap was rendered at, as a SILENT size change so
+    ; the SetImage that follows is the only repaint: on Windows/Linux the on-screen size rides Overlay.Scale (= DPI*z)
+    ; — changing Scale just re-defines the canvas, it doesn't repaint — while macOS carries the zoom in the logical
+    ; W/H (Cocoa renders the HiDPI backing itself). Position is set here too so size and position land together.
+    static ApplyGeom(o, z) {
+        if this.isMac {
+            o.ov.W := Round(o.w * z)
+            o.ov.H := Round(o.h * z)
+        } else {
+            o.ov.Scale := this.DPI * z
+        }
+        o.ov.X := o.x, o.ov.Y := o.y
+    }
+
+    static ClampZoom(z) => Min(this.ZoomMax, Max(this.ZoomMin, z))
 
     ; ======================================================================
     static Place() {
@@ -470,10 +571,13 @@ class InputHUD {
         ; Anchored to the bottom-LEFT (keyboard first, mouse to its right) so the pair clears the HotkeyCard,
         ; which sits at the bottom-right.
         local gap := Round(20 * this.Geo), margin := Round(40 * this.Geo)
-        this.kb.x := l + margin
-        this.kb.y := b - this.kb.ph - margin
-        this.ms.x := this.kb.x + this.kb.pw + gap
-        this.ms.y := b - this.ms.ph - margin
+        local kbX := l + margin, kbY := b - this.kb.ph - margin
+        local msX := kbX + this.kb.pw + gap, msY := b - this.ms.ph - margin
+        ; The zoom anchor is each HUD's CENTRE (cx/cy); x/y/pw/ph are then derived from it by Geometry.
+        this.kb.cx := kbX + this.kb.pw / 2, this.kb.cy := kbY + this.kb.ph / 2
+        this.ms.cx := msX + this.ms.pw / 2, this.ms.cy := msY + this.ms.ph / 2
+        this.Geometry(this.kb)
+        this.Geometry(this.ms)
         this.kb.ov.X := this.kb.x, this.kb.ov.Y := this.kb.y
         this.ms.ov.X := this.ms.x, this.ms.ov.Y := this.ms.y
     }

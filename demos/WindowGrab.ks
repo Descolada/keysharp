@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Requires capability InputMonitoring   ; the mouse hook; moving/fading foreign windows uses X11/compositor, not a gated capability (macOS asks for Accessibility on first use)
 #SingleInstance Force
 #import KS { A_ScreenScale }     ; A_ScreenScale is a Keysharp addition (per-platform DPI scale factor), so it lives in the KS module
 #include HotkeyCard.ks
@@ -9,6 +10,8 @@
         Win + Left-drag    move the window under the cursor around the screen
         Win + Right-drag   fade the window under the cursor: drag LEFT = more transparent, RIGHT = opaque
         Win + Right-click   (no drag) toggle: opaque -> 50% transparent -> opaque
+        Esc  (while dragging)  cancel — snap the window back to where the grab started
+        Ctrl+Alt+Shift+Q   quit
 
     Demonstrates cross-platform Keysharp: mouse-button hotkeys with a modifier, finding the window under the
     cursor without focusing it (MouseGetPos's window output / WinFromPoint), moving it live with WinMove,
@@ -34,10 +37,13 @@ class WindowGrab {
         HotkeyCard.SetTrayIcon("✋")
         Hotkey(this.ModMove "LButton", (*) => this.MoveGrab())
         Hotkey(this.ModFade "RButton", (*) => this.FadeGrab())
+        Hotkey("^!+q", (*) => ExitApp())                 ; Ctrl+Alt+Shift+Q — the shared demo-quit chord
         HotkeyCard.Show("Window Grab", [
             [this.PrettyMod() " + Left-drag", "Move the window under the cursor"],
             [this.PrettyMod() " + Right-drag", "Fade it — left clearer, right opaque"],
-            [this.PrettyMod() " + Right-click", "Toggle 50% / opaque"] ])
+            [this.PrettyMod() " + Right-click", "Toggle 50% / opaque"],
+            ["Esc (while dragging)", "Cancel — snap back to where it started"],
+            ["Ctrl+Alt+Shift+Q", "Exit"] ])
     }
 
     ; --- Win+Left: move the window under the cursor, following the mouse --------------------------------
@@ -52,6 +58,11 @@ class WindowGrab {
         offX := gx - wx, offY := gy - wy           ; keep the grab point under the cursor
 
         while GetKeyState("LButton", "P") {         ; physical button state (works with no mouse hook)
+            if GetKeyState("Escape", "P") {          ; Esc aborts the move: snap the window back to its start
+                try WinMove(wx, wy, , , id)
+                this.Tip("Move cancelled", 900)
+                return
+            }
             MouseGetPos(&mx, &my)
             try WinMove(mx - offX, my - offY, , , id)
             Sleep this.PollMs
@@ -73,6 +84,14 @@ class WindowGrab {
         scale := DirExist("/System/Library/CoreServices") ? 1 : A_ScreenScale
 
         while GetKeyState("RButton", "P") {
+            if GetKeyState("Escape", "P") {          ; Esc aborts the fade: restore the opacity we started with
+                if (start >= 255)
+                    try WinSetTransparent("Off", id)
+                else
+                    try WinSetTransparent(start, id)
+                this.Tip("Fade cancelled", 900)
+                return
+            }
             MouseGetPos(&mx, &my)
             dx := (mx - sx) / scale
             if (!dragged && Abs(dx) >= this.DragThreshold)

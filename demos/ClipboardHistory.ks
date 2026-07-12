@@ -1,4 +1,5 @@
 #Requires AutoHotkey v2.0
+#Requires capability InputMonitoring, InputInjection   ; the hotkey keyboard hook + Send (paste); macOS asks for Accessibility on first paste-back
 #SingleInstance Force
 #import KS { A_ScreenScale }     ; A_ScreenScale is a Keysharp addition (per-platform DPI scale factor), so it lives in the KS module
 #include HotkeyCard.ks
@@ -11,7 +12,7 @@
         1 – 9        paste that clip instantly
         Up / Down    move the selection (wraps); Enter pastes it
         Esc          close without pasting  (Ctrl+Alt+V also toggles it closed)
-    The chosen clip is pasted back into the window you were in.
+    Ctrl+Alt+Shift+Q exits the demo. The chosen clip is pasted back into the window you were in.
 
     Demonstrates cross-platform Keysharp: clipboard monitoring (OnClipboardChange), reading/writing text
     (A_Clipboard), an Overlay rendered with Image primitives (a nicer, fully-styled list than a native
@@ -46,6 +47,7 @@ class ClipboardHistory {
         HotkeyCard.SetTrayIcon("📋")
         OnClipboardChange((dt, *) => this.OnClip(dt))  ; lambda keeps `this`; also keeps the script alive
         Hotkey(this.ShowHotkey, (*) => this.Toggle())
+        Hotkey("^!+q", (*) => ExitApp())               ; Ctrl+Alt+Shift+Q — the shared demo-quit chord
 
         ; Navigation keys, live ONLY while the picker is open (HotIf), so they pass through the rest of
         ; the time. Registered once here.
@@ -62,7 +64,8 @@ class ClipboardHistory {
             ["Ctrl+Alt+V", "Open / close the picker"],
             ["1 – 9", "Paste that clip"],
             ["Up / Down + Enter", "Pick & paste"],
-            ["Esc", "Close without pasting"] ])
+            ["Esc", "Close without pasting"],
+            ["Ctrl+Alt+Shift+Q", "Exit"] ])
     }
 
     static Pick(n) => (*) => this.PickIndex(n)   ; per-digit handler with n captured by value

@@ -1,5 +1,5 @@
 #Requires AutoHotkey v2.0
-#Requires capability ScreenCapture, InputMonitoring
+#Requires capability ScreenCapture, InputMonitoring   ; prompts at startup (before any snip) so the screen-capture grant isn't sprung on you mid-drag
 #SingleInstance Force
 
 #import "Ks" { * }
@@ -10,18 +10,29 @@
     OCR Snip demo for Keysharp's Image, Overlay and OCR.ks APIs.
 
     Hotkeys:
-        Ctrl+Shift+O         Start a snip.
+        Ctrl+Shift + drag    Snip now — hold Ctrl+Shift and drag a box in one motion; OCR runs on release.
+        Ctrl+Shift+O         Arm a snip hands-free, then drag the box when you're ready.
+        Esc / Right-click    Cancel the snip in progress.
         Ctrl+Shift+Backspace Clear the current OCR word overlays.
-        Ctrl+Shift+Esc       Exit.
+        Ctrl+Alt+Shift+Q     Exit.
+
+    The primary gesture is a single hold-and-drag (like WindowGrab): press Ctrl+Shift and drag the selection
+    box in one motion, so you never arm-then-reach-for-the-mouse. Ctrl+Shift+O still arms hands-free for when
+    you want the crosshair to follow the cursor before you commit. On macOS the modifier is Cmd+Shift (Ctrl+
+    click is a system secondary-click there). Ctrl+Shift + LButton is chosen so it never collides with
+    WindowGrab's Super+drag or InputHUD's bare drag when all the demos run together.
 
     The selected text is copied to the clipboard. Recognized words are boxed with
     transparent rounded overlays so the source screen remains clickable.
 */
 
 class OCRSnip {
-    static StartHotkey := "^+o"
-    static ClearHotkey := "^+Backspace"
-    static ExitHotkey := "^+Esc"
+    ; The snip modifier drives BOTH the hold-and-drag gesture (ArmMods + LButton) and the hands-free keyboard
+    ; arm (ArmMods + ArmKey) and Clear (ArmMods + Backspace), so one field keeps them in sync. Defaults to
+    ; Ctrl+Shift on Win/Linux; switched to Cmd+Shift on macOS in Install (Ctrl+click is a secondary-click there).
+    static ArmMods := "^+"
+    static ArmKey := "o"               ; hands-free arm key -> Ctrl+Shift+O (kept for muscle memory)
+    static ExitHotkey := "^!+q"        ; Ctrl+Alt+Shift+Q — matches InputHUD; avoids Ctrl+Shift+Esc (= Windows Task Manager)
 
     static MinSize := 6
     static PollMs := 10
@@ -56,17 +67,26 @@ class OCRSnip {
 
     static Install() {
         this.hoverTimer := ObjBindMethod(this, "HoverCheck")
+        ; macOS: Ctrl+LButton is a system secondary-click, so build the trigger on Cmd+Shift there instead.
+        if DirExist("/System/Library/CoreServices")
+            this.ArmMods := "#+"
         HotkeyCard.SetTrayIcon("🔎")
-        Hotkey(this.StartHotkey, (*) => this.Start())
-        Hotkey(this.ClearHotkey, (*) => this.ClearWordOverlays())
+        Hotkey(this.ArmMods "LButton", (*) => this.Start(true))     ; hold the modifier + press-drag = snip NOW
+        Hotkey(this.ArmMods this.ArmKey, (*) => this.Start(false))  ; hands-free: arm, then drag when ready
+        Hotkey(this.ArmMods "Backspace", (*) => this.ClearWordOverlays())
         Hotkey(this.ExitHotkey, (*) => this.Exit())
         HotkeyCard.Show("OCR Snip", [
-            ["Ctrl+Shift+O", "Start a snip — drag a box to OCR"],
-            ["Ctrl+Shift+Backspace", "Clear the word boxes"],
-            ["Ctrl+Shift+Esc", "Exit"] ])
+            [this.PrettyMods() " + drag", "Snip now — hold and drag a box to OCR"],
+            [this.PrettyMods() "+O", "Arm hands-free, then drag when ready"],
+            ["Esc / Right-click", "Cancel the snip in progress"],
+            [this.PrettyMods() "+Backspace", "Clear the word boxes"],
+            ["Ctrl+Alt+Shift+Q", "Exit"] ])
     }
 
-    static Start(*) {
+    ; Human-readable modifier label for the cheat-sheet (Ctrl+Shift, or Cmd+Shift on macOS).
+    static PrettyMods() => this.ArmMods = "#+" ? "Cmd+Shift" : "Ctrl+Shift"
+
+    static Start(immediate := false) {
         local rect, result
 
         if this.Active
@@ -91,7 +111,14 @@ class OCRSnip {
         this.PreviousMouseCoordMode := A_CoordModeMouse
         CoordMode("Mouse", "Screen")
 
-
+        ; Fast path: the Ctrl+Shift+LButton is already held, so capture its position as the drag anchor NOW —
+        ; before the overlay setup below, which on Wayland/KWin is several compositor round-trips. Reading the
+        ; anchor only after setup (as the keyboard path does) would let a quick press-drag-release finish first
+        ; and anchor at the wrong point; capturing up front mirrors WindowGrab's read-then-loop ordering.
+        if immediate {
+            MouseGetPos(&ax, &ay)
+            this.AnchorX := ax, this.AnchorY := ay
+        }
 
         try {
             A_Cursor := "Cross"
@@ -99,7 +126,7 @@ class OCRSnip {
             this.Desktop := this.GetVirtualDesktop()
             this.SetupTracking()
 
-            rect := this.SelectRect()
+            rect := this.SelectRect(immediate)
             this.TeardownTracking()
             this.RestoreCursorAndCoordMode()
 
@@ -148,30 +175,37 @@ class OCRSnip {
         try Hotkey("*LButton Up", this.block, state)
     }
 
-    static SelectRect() {
+    static SelectRect(immediate := false) {
         ; ALL overlay moves happen here, coalesced: OnMouseMove only records the newest pointer position and
         ; flags it, and this loop applies it at most once per tick. That way a fast flick — which can fire far
         ; more move events than the compositor can process window-moves for — can never back up a queue of
         ; stale moves behind the cursor (each guide/reticle/box move is a compositor round-trip on Wayland).
-        ; Phase 1: keep the crosshair on the pointer until the left button goes down.
-        Loop {
-            if this.CancelPressed()
-                return ""
+        ; Phase 1: keep the crosshair on the pointer until the left button goes down. Skipped on the hold-drag
+        ; fast path (immediate=true): the Ctrl+Shift+LButton press that armed the snip is ALREADY down and is
+        ; the anchor, so the box must start growing on that very press — no separate arm-then-click step.
+        if !immediate {
+            Loop {
+                if this.CancelPressed()
+                    return ""
 
-            if this.moveDirty {
-                this.moveDirty := false
-                this.SyncTracking()
+                if this.moveDirty {
+                    this.moveDirty := false
+                    this.SyncTracking()
+                }
+
+                if GetKeyState("LButton", "P")
+                    break
+
+                Sleep(this.PollMs)
             }
 
-            if GetKeyState("LButton", "P")
-                break
-
-            Sleep(this.PollMs)
+            ; Keyboard-arm path: anchor at the point where the button just went down. (The fast path already
+            ; captured its anchor in Start, before the overlay setup, so it is intentionally not re-read here.)
+            MouseGetPos(&ax, &ay)
+            this.AnchorX := ax, this.AnchorY := ay
+            this.curX := ax, this.curY := ay
         }
 
-        MouseGetPos(&ax, &ay)
-        this.AnchorX := ax, this.AnchorY := ay
-        this.curX := ax, this.curY := ay
         this.Dragging := true
         this.moveDirty := true
 

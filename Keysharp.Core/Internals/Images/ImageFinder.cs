@@ -40,6 +40,32 @@ namespace Keysharp.Internals.Images
 		/// default (1) keeps the legacy early-exit; the others rank every match the scan finds.
 		/// </summary>
 		internal Point? Find(Bitmap findImage, long trans = -1, int direction = 1)
+			=> FindCore(findImage, trans, direction, null);
+
+		/// <summary>
+		/// Returns EVERY match of <paramref name="findImage"/> in the source image as a list of top-left
+		/// corners, ordered by the same <paramref name="direction"/> (1-9) ranking <see cref="Find"/> uses to
+		/// choose its single winner. Overlapping matches are ALL included (a needle can match at adjacent
+		/// offsets). When every needle pixel is the trans wildcard color a single match at (0,0) is returned.
+		/// The one row-major SIMD scan is shared with <see cref="Find"/> via <see cref="FindCore"/>; only the
+		/// per-match handling differs (collect-all here vs keep-best/early-exit for Find).
+		/// </summary>
+		internal List<Point> FindAll(Bitmap findImage, long trans = -1, int direction = 1)
+		{
+			var collector = new List<Point>();
+			var single = FindCore(findImage, trans, direction, collector);
+
+			// The all-trans-needle case (and any invalid-dimension case) returns from FindCore before the scan
+			// with an empty collector; surface a valid single result as the one match.
+			if (collector.Count == 0 && single.HasValue)
+				collector.Add(single.Value);
+
+			return collector;
+		}
+
+		// Shared setup + scan for Find (collector == null) and FindAll (collector != null). With a collector,
+		// early-exit is forced off and every verified match is appended and then sorted into direction order.
+		private Point? FindCore(Bitmap findImage, long trans, int direction, List<Point> collector)
 		{
 			if (sourceImage == null || findImage == null)
 				throw new InvalidOperationException();
@@ -67,7 +93,8 @@ namespace Keysharp.Internals.Images
 				// its ranking, so it alone can early-exit on the first match; every other direction
 				// ranks the matches the single scan finds, needing no extra pass or pixel copy.
 				var rank = DecodeDirection(direction);
-				var earlyExit = !rank.PrimaryIsCol && !rank.RowDesc && !rank.ColDesc && !rank.CenterSeek;
+				// Collecting every match (FindAll) must visit them all, so it can never early-exit.
+				var earlyExit = collector == null && !rank.PrimaryIsCol && !rank.RowDesc && !rank.ColDesc && !rank.CenterSeek;
 
 				// 0 → trans pixel (matches any screen color), 0xFFFFFFFF → must compare.
 				uint[] fndMask = null;
@@ -150,7 +177,7 @@ namespace Keysharp.Internals.Images
 					{
 						return SearchForNeedle(srcPtr, srcW, srcH, fndPtr, maskPtr, fndW, fndH,
 											   anchor % fndW, anchor / fndW, probe, rowOrderPtr, Variation,
-											   rank, earlyExit);
+											   rank, earlyExit, collector);
 					}
 				}
 			}
@@ -280,7 +307,7 @@ namespace Keysharp.Internals.Images
 			uint* src, int srcW, int srcH,
 			uint* fnd, uint* mask, int fndW, int fndH,
 			int anchorX, int anchorY, int probe, int* rowOrder, byte variation,
-			ScanRank rank, bool earlyExit)
+			ScanRank rank, bool earlyExit, List<Point> collector)
 		{
 			var anchorRgb = fnd[anchorY * fndW + anchorX];
 			var probeX = probe >= 0 ? probe % fndW : 0;
@@ -374,10 +401,12 @@ namespace Keysharp.Internals.Images
 
 							if (VerifyMatch(src, srcW, fnd, mask, fndW, fndH, c0, row, rowOrder, variation))
 							{
-								if (earlyExit)
+								if (collector != null)
+									collector.Add(new Point(c0, row));
+								else if (earlyExit)
 									return new Point(c0, row);
-
-								TrackBest(c0, row);
+								else
+									TrackBest(c0, row);
 							}
 						}
 					}
@@ -404,12 +433,23 @@ namespace Keysharp.Internals.Images
 
 					if (VerifyMatch(src, srcW, fnd, mask, fndW, fndH, c0, row, rowOrder, variation))
 					{
-						if (earlyExit)
+						if (collector != null)
+							collector.Add(new Point(c0, row));
+						else if (earlyExit)
 							return new Point(c0, row);
-
-						TrackBest(c0, row);
+						else
+							TrackBest(c0, row);
 					}
 				}
+			}
+
+			// FindAll: sort the collected matches by the same directional ranking key so they come back in the
+			// requested scan order (top-left first for the default). The return value is unused in this path —
+			// FindAll reads the collector — so return null.
+			if (collector != null)
+			{
+				collector.Sort((a, b) => Key(a.X, a.Y).CompareTo(Key(b.X, b.Y)));
+				return null;
 			}
 
 			return bestX >= 0 ? new Point(bestX, bestY) : null;
@@ -592,16 +632,21 @@ namespace Keysharp.Internals.Images
 		private static unsafe int ScanRowExact(uint* rowPtr, int width, uint target, bool ltr)
 		{
 			var col = 0;
+			// RGB-only match: alpha is ignored (capture alpha is unreliable), so both the pixel and the target are
+			// masked to 0x00RRGGBB before comparing. This keeps variation-0 consistent with the variation>0 path
+			// (ScanRowVariation forces the alpha-channel diff to 0 via RgbOnlyMask) and with the sub-image Search.
+			var rgbTarget = target & 0x00FFFFFFu;
 
 			if (Vector128.IsHardwareAccelerated && width >= Vector128<uint>.Count)
 			{
-				var vTarget = Vector128.Create(target);
+				var vRgbMask = Vector128.Create(0x00FFFFFFu);
+				var vTarget = Vector128.Create(rgbTarget);
 				// Bestmatch tracks the rightmost column when scanning RTL; -1 means no match yet.
 				var bestRtl = -1;
 
 				for (; col + Vector128<uint>.Count <= width; col += Vector128<uint>.Count)
 				{
-					var loaded = Vector128.LoadUnsafe(ref *(uint*)(rowPtr + col));
+					var loaded = Vector128.LoadUnsafe(ref *(uint*)(rowPtr + col)) & vRgbMask;
 					var matched = Vector128.Equals(loaded, vTarget);
 					var mask = matched.ExtractMostSignificantBits();
 
@@ -616,7 +661,7 @@ namespace Keysharp.Internals.Images
 
 				for (; col < width; col++)
 				{
-					if (rowPtr[col] != target)
+					if ((rowPtr[col] & 0x00FFFFFFu) != rgbTarget)
 						continue;
 
 					if (ltr)
@@ -632,13 +677,13 @@ namespace Keysharp.Internals.Images
 			if (ltr)
 			{
 				for (; col < width; col++)
-					if (rowPtr[col] == target)
+					if ((rowPtr[col] & 0x00FFFFFFu) == rgbTarget)
 						return col;
 			}
 			else
 			{
 				for (var c = width - 1; c >= 0; c--)
-					if (rowPtr[c] == target)
+					if ((rowPtr[c] & 0x00FFFFFFu) == rgbTarget)
 						return c;
 			}
 

@@ -514,6 +514,22 @@ namespace Keysharp.Internals.Invoke
 			return addr;
 		}
 
+		internal static long GetSizeProperty(object item, bool throwIfZero = false)
+		{
+			long size = 0L;
+
+			if (item is Keysharp.Builtins.Buffer buf)//Buffer exposes Size directly; fast and the common case.
+				size = buf.Size.Al();
+			else if (item is Any kso && Script.GetPropertyValueOrNull(kso, "size") is object p)
+				size = p.Al();
+			//A raw address (long) or anything else carries no size; size stays 0.
+
+			if (throwIfZero && size == 0L)
+				return (long)Errors.TypeErrorOccurred(item, typeof(long), DefaultErrorLong);
+
+			return size;
+		}
+
 		internal static T SafeGetProperty<T>(object item, string name) => (T)item.GetType().GetProperty(name, typeof(T))?.GetValue(item);
 
 		internal static bool SafeHasProperty(object item, string name) =>

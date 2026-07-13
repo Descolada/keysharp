@@ -29,6 +29,26 @@ namespace Keysharp.Tests
 			return (long)rgba[offset];
 		}
 
+		// A &match ByRef backed by a captured local; the current written value is read back via .__Value.
+		private static Keysharp.Builtins.VarRef MakeRef()
+		{
+			object v = null;
+			return new Keysharp.Builtins.VarRef(() => v, x => v = x);
+		}
+
+		// Reads a named own-property (e.g. "x"/"y"/"color") off a search-match object as a long.
+		private static long MProp(object matchObj, string name) => (long)Script.GetPropertyValueOrNull(matchObj, name);
+
+		// A NON-Buffer object exposing Ptr + Size own-properties backed by a real Buffer's memory, to prove the
+		// FromBuffer/SetPixelData duck-typing (any object with Ptr+Size works, not only a Buffer).
+		private static Keysharp.Builtins.KeysharpObject PtrSizeView(Keysharp.Builtins.Buffer buf)
+		{
+			var o = new Keysharp.Builtins.KeysharpObject();
+			o.DefinePropInternal("Ptr", new Keysharp.Builtins.OwnPropsDesc(o, buf.Ptr));
+			o.DefinePropInternal("Size", new Keysharp.Builtins.OwnPropsDesc(o, buf.Size));
+			return o;
+		}
+
 		[Test, Category("Image")]
 		public void ImageFromFileDimensions()
 		{
@@ -77,7 +97,7 @@ namespace Keysharp.Tests
 			var img = KeysharpImage.Create(null, 8, 6) as KeysharpImage;
 			var copy = img.Copy() as KeysharpImage;
 			Assert.AreSame(img, img.FillRect(1, 1, 3, 2, "Red"));
-			Assert.AreEqual(0xFF0000L, (long)img.GetPixel(1, 1));
+			Assert.AreEqual(0xFFFF0000L, (long)img.GetPixel(1, 1));
 			Assert.AreEqual(255L, RgbaByte(img, 1, 1, 3));
 			Assert.AreEqual(0L, RgbaByte(copy, 1, 1, 3));
 		}
@@ -92,8 +112,8 @@ namespace Keysharp.Tests
 			_ = img.FillRect(1, 1, 8, 8, "Red");
 			_ = img.FillEllipse(4, 4, 6, 6, "Blue");
 			_ = img.DrawRect(0, 0, 12, 12, "Lime", 1);
-			Assert.AreEqual(0x0000FFL, (long)img.GetPixel(6, 6));
-			Assert.AreEqual(0x00FF00L, (long)img.GetPixel(0, 0));
+			Assert.AreEqual(0xFF0000FFL, (long)img.GetPixel(6, 6));
+			Assert.AreEqual(0xFF00FF00L, (long)img.GetPixel(0, 0));
 		}
 
 		[Test, Category("Image")]
@@ -129,7 +149,7 @@ namespace Keysharp.Tests
 			_ = src.FillRect(0, 0, 3, 3, "0xFF112233");
 			var dst = KeysharpImage.Create(null, 8, 8) as KeysharpImage;
 			_ = dst.DrawImage(src, 2, 1);
-			Assert.AreEqual(0x112233L, (long)dst.GetPixel(3, 2));
+			Assert.AreEqual(0xFF112233L, (long)dst.GetPixel(3, 2));
 			Assert.AreEqual(0xFFL, RgbaByte(dst, 3, 2, 3));
 		}
 
@@ -366,7 +386,7 @@ namespace Keysharp.Tests
 			{
 				var img = KeysharpImage.FromFile(null,path) as KeysharpImage;
 				_ = img.SetPixel(3, 4, 0x123456L);
-				Assert.AreEqual(0x123456L, (long)img.GetPixel(3, 4));
+				Assert.AreEqual(0xFF123456L, (long)img.GetPixel(3, 4));
 			}
 			finally { File.Delete(path); }
 		}
@@ -418,11 +438,17 @@ namespace Keysharp.Tests
 				needleBmp.Dispose();
 
 				var img = KeysharpImage.FromFile(null,haystack) as KeysharpImage;
-				var result = img.Search(needle);
-				Assert.IsInstanceOf<Keysharp.Builtins.Array>(result, "Search should return a match array.");
-				var arr = (Keysharp.Builtins.Array)result;
-				Assert.AreEqual(10L, arr[1L]);
-				Assert.AreEqual(3L, arr[2L]);
+				var match = MakeRef();
+				var found = img.Search(match, needle);
+				Assert.AreEqual(1L, found, "Search should return true on a hit.");
+				Assert.AreEqual(10L, MProp(match.__Value, "x"));
+				Assert.AreEqual(3L, MProp(match.__Value, "y"));
+
+				// A miss returns false and leaves &match falsy ("").
+				var noMatch = KeysharpImage.Create(null, 6, 6, "Magenta") as KeysharpImage;
+				var miss = MakeRef();
+				Assert.AreEqual(0L, img.Search(miss, noMatch));
+				Assert.AreEqual("", miss.__Value);
 			}
 			finally { File.Delete(haystack); File.Delete(needle); }
 		}
@@ -442,17 +468,20 @@ namespace Keysharp.Tests
 			_ = img.FillRect(10, 6, 3, 3, "Red");
 			var needle = KeysharpImage.Create(null, 3, 3, "Red") as KeysharpImage;
 
-			var first = (Keysharp.Builtins.Array)img.Search(needle);
-			Assert.AreEqual(2L, first[1L]);
-			Assert.AreEqual(2L, first[2L]);
+			var first = MakeRef();
+			Assert.AreEqual(1L, img.Search(first, needle));
+			Assert.AreEqual(2L, MProp(first.__Value, "x"));
+			Assert.AreEqual(2L, MProp(first.__Value, "y"));
 
-			var last = (Keysharp.Builtins.Array)img.Search(needle, 0, null, 4);
-			Assert.AreEqual(10L, last[1L]);
-			Assert.AreEqual(6L, last[2L]);
+			var last = MakeRef();
+			Assert.AreEqual(1L, img.Search(last, needle, 0, null, 4));
+			Assert.AreEqual(10L, MProp(last.__Value, "x"));
+			Assert.AreEqual(6L, MProp(last.__Value, "y"));
 
-			var wild = (Keysharp.Builtins.Array)img.Search(needle, 0, "Red");
-			Assert.AreEqual(0L, wild[1L]);
-			Assert.AreEqual(0L, wild[2L]);
+			var wild = MakeRef();
+			Assert.AreEqual(1L, img.Search(wild, needle, 0, "Red"));
+			Assert.AreEqual(0L, MProp(wild.__Value, "x"));
+			Assert.AreEqual(0L, MProp(wild.__Value, "y"));
 		}
 
 		[Test, Category("Image")]
@@ -464,14 +493,25 @@ namespace Keysharp.Tests
 			var img = KeysharpImage.Create(null, 16, 10, "Black") as KeysharpImage;
 			_ = img.SetPixel(7, 4, 0x30A060L);
 
-			var hit = (Keysharp.Builtins.Array)img.SearchPixel(0x30A060L);
-			Assert.AreEqual(7L, hit[1L]);
-			Assert.AreEqual(4L, hit[2L]);
+			var hit = MakeRef();
+			Assert.AreEqual(1L, img.SearchPixel(hit, 0x30A060L));
+			Assert.AreEqual(7L, MProp(hit.__Value, "x"));
+			Assert.AreEqual(4L, MProp(hit.__Value, "y"));
+			// match.color is the ACTUAL matched pixel's full ARGB (opaque here, so 0xFF-prefixed).
+			Assert.AreEqual(0xFF30A060L, MProp(hit.__Value, "color"));
 
-			// Within variation: a nearby color still matches; far off does not.
-			var near = (Keysharp.Builtins.Array)img.SearchPixel(0x32A262L, 4);
-			Assert.AreEqual(7L, near[1L]);
-			Assert.AreEqual("", img.SearchPixel(0xFFFFFFL));
+			// Within variation: a nearby color still matches; far off does not (returns false + falsy match).
+			var near = MakeRef();
+			Assert.AreEqual(1L, img.SearchPixel(near, 0x32A262L, 4));
+			Assert.AreEqual(7L, MProp(near.__Value, "x"));
+
+			var none = MakeRef();
+			Assert.AreEqual(0L, img.SearchPixel(none, 0xFFFFFFL));
+			Assert.AreEqual("", none.__Value);
+
+			// 3 or 4 args (neither whole-image nor region) is a ValueError.
+			Assert.Throws<Keysharp.Builtins.KeysharpException>(() => img.SearchPixel(MakeRef(), 1L, 2L, 3L));
+			Assert.Throws<Keysharp.Builtins.KeysharpException>(() => img.SearchPixel(MakeRef(), 1L, 2L, 3L, 4L));
 		}
 
 		[Test, Category("Image")]
@@ -483,8 +523,8 @@ namespace Keysharp.Tests
 			var img = KeysharpImage.Create(null, 24, 24) as KeysharpImage;
 			_ = img.FillRoundRect(0, 0, 24, 24, 8, "Red");
 			// Centre and edge midpoints are inside the pill; the extreme corner is outside (transparent).
-			Assert.AreEqual(0xFF0000L, (long)img.GetPixel(12, 12));
-			Assert.AreEqual(0xFF0000L, (long)img.GetPixel(12, 0));
+			Assert.AreEqual(0xFFFF0000L, (long)img.GetPixel(12, 12));
+			Assert.AreEqual(0xFFFF0000L, (long)img.GetPixel(12, 0));
 			Assert.AreEqual(0L, RgbaByte(img, 0, 0, 3));
 
 			// Radius 0 degrades to a plain rectangle: the corner IS filled.
@@ -573,7 +613,7 @@ namespace Keysharp.Tests
 				// Flip is an exact (nearest-neighbour) transform; x=2 maps to 19-2=17. The edit must
 				// persist across the transform (regression test for the "Invalidate discards SetPixel" bug).
 				_ = img.Flip();
-				Assert.AreEqual(0xAB12CDL, (long)img.GetPixel(17, 3));
+				Assert.AreEqual(0xFFAB12CDL, (long)img.GetPixel(17, 3));
 			}
 			finally { File.Delete(path); }
 		}
@@ -593,6 +633,380 @@ namespace Keysharp.Tests
 				Assert.AreEqual(1.0, img.ScaleY);
 			}
 			finally { File.Delete(path); }
+		}
+
+		[Test, Category("Image")]
+		public void ImageGetPixelReturnsAlphaForSemiTransparentSetPixel()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// GetPixel now returns the full 32-bit ARGB, so a semi-transparent SetPixel must round-trip its
+			// alpha byte (not just the RGB) rather than reading back as opaque.
+			var img = KeysharpImage.Create(null, 8, 6) as KeysharpImage;
+			_ = img.SetPixel(2, 3, "0x80112233");
+			Assert.AreEqual(0x80112233L, (long)img.GetPixel(2, 3));
+		}
+
+		[Test, Category("Image")]
+		public void ImageResizeAbsoluteAndAspect()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var path = MakeImageFile(20, 10);   // a 2:1 image
+
+			try
+			{
+				// Absolute resize to an exact pixel size, chainable, and folding the density into ScaleX/ScaleY.
+				var img = KeysharpImage.FromFile(null, path) as KeysharpImage;
+				Assert.AreSame(img, img.Resize(40, 20));
+				Assert.AreEqual(40L, img.Width);
+				Assert.AreEqual(20L, img.Height);
+				Assert.AreEqual(2.0, img.ScaleX);   // 40 / 20
+				Assert.AreEqual(2.0, img.ScaleY);   // 20 / 10
+
+				// A negative dimension keeps the aspect ratio: Resize(-1, 10) on a 2:1 image -> 20x10.
+				var img2 = KeysharpImage.FromFile(null, path) as KeysharpImage;
+				_ = img2.Resize(-1, 10);
+				Assert.AreEqual(20L, img2.Width);
+				Assert.AreEqual(10L, img2.Height);
+
+				// Zero, or both dimensions negative, is a ValueError.
+				var img3 = KeysharpImage.FromFile(null, path) as KeysharpImage;
+				Assert.Throws<Keysharp.Builtins.KeysharpException>(() => img3.Resize(0, 10));
+				Assert.Throws<Keysharp.Builtins.KeysharpException>(() => img3.Resize(-1, -1));
+			}
+			finally { File.Delete(path); }
+		}
+
+		[Test, Category("Image")]
+		public void ImageFromBufferRoundTrips()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// Pack a known image (with a semi-transparent pixel) via GetPixelData(4), rebuild it with
+			// FromBuffer(4), and confirm dimensions + pixels (including alpha) survive the round-trip.
+			var src = KeysharpImage.Create(null, 4, 3, "0xFF204060") as KeysharpImage;
+			_ = src.SetPixel(1, 1, "0x80AABBCC");
+			var buf = src.GetPixelData(4L) as Keysharp.Builtins.Buffer;
+
+			var rebuilt = KeysharpImage.FromBuffer(null, buf, 4L, 3L, 4L) as KeysharpImage;
+			Assert.IsNotNull(rebuilt);
+			Assert.AreEqual(4L, rebuilt.Width);
+			Assert.AreEqual(3L, rebuilt.Height);
+			Assert.AreEqual((long)src.GetPixel(0, 0), (long)rebuilt.GetPixel(0, 0));
+			Assert.AreEqual(0x80AABBCCL, (long)rebuilt.GetPixel(1, 1));
+
+			// bpp=1: each gray byte becomes an opaque gray pixel (R==G==B, A=255).
+			var gray = src.GetPixelData(1L) as Keysharp.Builtins.Buffer;
+			var fromGray = KeysharpImage.FromBuffer(null, gray, 4L, 3L, 1L) as KeysharpImage;
+			var gp = (long)fromGray.GetPixel(0, 0);
+			Assert.AreEqual(0xFFL, (gp >> 24) & 0xFF);
+			Assert.AreEqual((gp >> 16) & 0xFF, (gp >> 8) & 0xFF);
+			Assert.AreEqual((gp >> 8) & 0xFF, gp & 0xFF);
+
+			// A buffer too small for the requested dimensions is a ValueError.
+			Assert.Throws<Keysharp.Builtins.KeysharpException>(() => KeysharpImage.FromBuffer(null, buf, 8L, 8L, 4L));
+		}
+
+		[Test, Category("Image")]
+		public void ImageSetPixelDataRoundTrips()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// GetPixelData(4) from a source, SetPixelData into a same-size blank target: pixels must match.
+			var src = KeysharpImage.Create(null, 4, 3, "0xFF3366AA") as KeysharpImage;
+			_ = src.SetPixel(2, 1, "0x80112233");
+			var buf = src.GetPixelData(4L) as Keysharp.Builtins.Buffer;
+
+			var target = KeysharpImage.Create(null, 4, 3) as KeysharpImage;   // fully transparent
+			Assert.AreSame(target, target.SetPixelData(buf, 4L));
+			Assert.AreEqual((long)src.GetPixel(0, 0), (long)target.GetPixel(0, 0));
+			Assert.AreEqual(0x80112233L, (long)target.GetPixel(2, 1));
+
+			// The buffer must be EXACTLY Width*Height*bpp bytes for the current dimensions.
+			var wrongSize = KeysharpImage.Create(null, 8, 8) as KeysharpImage;
+			Assert.Throws<Keysharp.Builtins.KeysharpException>(() => wrongSize.SetPixelData(buf, 4L));
+		}
+
+		[Test, Category("Image")]
+		public void ImageBufferDuckTypingAcceptsPtrSizeObject()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// FromBuffer / SetPixelData accept a Buffer OR any object exposing Ptr + Size (AHK duck-typing, like
+			// StrGet). Build a NON-Buffer object whose Ptr/Size point at a real Buffer's memory and assert it
+			// produces the SAME image as passing the Buffer directly.
+			var src = KeysharpImage.Create(null, 4, 3, "0xFF204060") as KeysharpImage;
+			_ = src.SetPixel(1, 1, "0x80AABBCC");
+			var buf = src.GetPixelData(4L) as Keysharp.Builtins.Buffer;
+			var view = PtrSizeView(buf);   // keeps buf referenced (alive) for the duration of the test
+
+			// FromBuffer with the duck-typed object matches FromBuffer with the Buffer, pixel for pixel.
+			var fromBuffer = KeysharpImage.FromBuffer(null, buf, 4L, 3L, 4L) as KeysharpImage;
+			var fromView = KeysharpImage.FromBuffer(null, view, 4L, 3L, 4L) as KeysharpImage;
+			Assert.IsNotNull(fromView);
+			Assert.AreEqual(fromBuffer.Width, fromView.Width);
+			Assert.AreEqual(fromBuffer.Height, fromView.Height);
+
+			for (var y = 0; y < 3; y++)
+				for (var x = 0; x < 4; x++)
+					Assert.AreEqual((long)fromBuffer.GetPixel(x, y), (long)fromView.GetPixel(x, y), $"FromBuffer pixel ({x},{y})");
+
+			// SetPixelData with the duck-typed object matches SetPixelData with the Buffer.
+			var t1 = KeysharpImage.Create(null, 4, 3) as KeysharpImage;
+			var t2 = KeysharpImage.Create(null, 4, 3) as KeysharpImage;
+			_ = t1.SetPixelData(buf, 4L);
+			_ = t2.SetPixelData(view, 4L);
+
+			for (var y = 0; y < 3; y++)
+				for (var x = 0; x < 4; x++)
+					Assert.AreEqual((long)t1.GetPixel(x, y), (long)t2.GetPixel(x, y), $"SetPixelData pixel ({x},{y})");
+
+			// An object with neither Ptr nor Size is rejected with a ValueError.
+			var bogus = new Keysharp.Builtins.KeysharpObject();
+			Assert.Throws<Keysharp.Builtins.KeysharpException>(() => KeysharpImage.FromBuffer(null, bogus, 4L, 3L, 4L));
+			Assert.Throws<Keysharp.Builtins.KeysharpException>(() => t1.SetPixelData(bogus, 4L));
+
+			GC.KeepAlive(buf);
+		}
+
+		[Test, Category("Image")]
+		public void ImageGrayscaleEqualizesChannels()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var img = KeysharpImage.Create(null, 4, 4) as KeysharpImage;
+			_ = img.FillRect(0, 0, 4, 4, "0xFF3060A0");
+			_ = img.Grayscale();
+			var r = RgbaByte(img, 1, 1, 0);
+			var g = RgbaByte(img, 1, 1, 1);
+			var b = RgbaByte(img, 1, 1, 2);
+			Assert.AreEqual(r, g);
+			Assert.AreEqual(g, b);
+			// gray = round(0.299*0x30 + 0.587*0x60 + 0.114*0xA0) = 89
+			Assert.AreEqual(89L, r);
+			Assert.AreEqual(255L, RgbaByte(img, 1, 1, 3));   // alpha preserved
+		}
+
+		[Test, Category("Image")]
+		public void ImageOpacityHalvesAlpha()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var img = KeysharpImage.Create(null, 4, 4, "0xFF112233") as KeysharpImage;
+			_ = img.Opacity(0.5);
+			Assert.AreEqual(128L, RgbaByte(img, 0, 0, 3));   // round(255 * 0.5) = 128
+			// RGB is preserved.
+			Assert.AreEqual(0x11L, RgbaByte(img, 0, 0, 0));
+			Assert.AreEqual(0x22L, RgbaByte(img, 0, 0, 1));
+			Assert.AreEqual(0x33L, RgbaByte(img, 0, 0, 2));
+		}
+
+		[Test, Category("Image")]
+		public void ImageBrightnessSaturatesToWhite()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var img = KeysharpImage.Create(null, 4, 4, "0xFF204060") as KeysharpImage;
+			_ = img.Brightness(1);   // +255 to every RGB channel -> saturates to white
+			Assert.AreEqual(255L, RgbaByte(img, 0, 0, 0));
+			Assert.AreEqual(255L, RgbaByte(img, 0, 0, 1));
+			Assert.AreEqual(255L, RgbaByte(img, 0, 0, 2));
+			Assert.AreEqual(255L, RgbaByte(img, 0, 0, 3));   // alpha untouched
+		}
+
+		[Test, Category("Image")]
+		public void ImageContrastFlattensTo128()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var img = KeysharpImage.Create(null, 4, 4, "0xFF204060") as KeysharpImage;
+			_ = img.Contrast(-1);   // factor (1 + amount) = 0 -> every channel collapses to 128
+			Assert.AreEqual(128L, RgbaByte(img, 0, 0, 0));
+			Assert.AreEqual(128L, RgbaByte(img, 0, 0, 1));
+			Assert.AreEqual(128L, RgbaByte(img, 0, 0, 2));
+		}
+
+		[Test, Category("Image")]
+		public void ImageSearchAllFindsEveryMatch()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// Two identical solid-red 3x3 blocks at (2,2) and (10,6) in a black haystack; a 3x3 red needle must
+			// find BOTH, ordered by the default (row-major, top-left) scan direction.
+			var img = KeysharpImage.Create(null, 20, 12, "Black") as KeysharpImage;
+			_ = img.FillRect(2, 2, 3, 3, "Red");
+			_ = img.FillRect(10, 6, 3, 3, "Red");
+			var needle = KeysharpImage.Create(null, 3, 3, "Red") as KeysharpImage;
+
+			var matchesRef = MakeRef();
+			Assert.AreEqual(1L, img.SearchAll(matchesRef, needle));
+			var all = matchesRef.__Value as Keysharp.Builtins.Array;
+			Assert.IsNotNull(all);
+			Assert.AreEqual(2, all.Count);
+
+			var m1 = all[1L];
+			Assert.AreEqual(2L, MProp(m1, "x"));
+			Assert.AreEqual(2L, MProp(m1, "y"));
+
+			var m2 = all[2L];
+			Assert.AreEqual(10L, MProp(m2, "x"));
+			Assert.AreEqual(6L, MProp(m2, "y"));
+
+			// No matches -> returns false and sets &matches to an EMPTY Array (not "").
+			var none = KeysharpImage.Create(null, 6, 6, "Blue") as KeysharpImage;
+			var emptyRef = MakeRef();
+			Assert.AreEqual(0L, none.SearchAll(emptyRef, needle));
+			Assert.IsInstanceOf<Keysharp.Builtins.Array>(emptyRef.__Value);
+			Assert.AreEqual(0, ((Keysharp.Builtins.Array)emptyRef.__Value).Count);
+		}
+
+		[Test, Category("Image")]
+		public void ImageSearchRegionFormRestrictsAndReportsAbsolute()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// Two red 3x3 blocks at (2,2) and (12,7) in a black haystack. A region covering only the
+			// bottom-right one must find that match and report ABSOLUTE coords (12,7), not region-relative.
+			var img = KeysharpImage.Create(null, 24, 16, "Black") as KeysharpImage;
+			_ = img.FillRect(2, 2, 3, 3, "Red");
+			_ = img.FillRect(12, 7, 3, 3, "Red");
+			var needle = KeysharpImage.Create(null, 3, 3, "Red") as KeysharpImage;
+
+			// Region (10,5,10,8) contains only the (12,7) block.
+			var m = MakeRef();
+			Assert.AreEqual(1L, img.Search(m, 10, 5, 10, 8, needle));
+			Assert.AreEqual(12L, MProp(m.__Value, "x"));
+			Assert.AreEqual(7L, MProp(m.__Value, "y"));
+
+			// A region around only the top-left block excludes the bottom-right one.
+			var m2 = MakeRef();
+			Assert.AreEqual(1L, img.Search(m2, 0, 0, 8, 8, needle));
+			Assert.AreEqual(2L, MProp(m2.__Value, "x"));
+			Assert.AreEqual(2L, MProp(m2.__Value, "y"));
+
+			// SearchAll over the whole image finds both; a region finds only the one inside it.
+			var allRef = MakeRef();
+			Assert.AreEqual(1L, img.SearchAll(allRef, needle));
+			Assert.AreEqual(2, ((Keysharp.Builtins.Array)allRef.__Value).Count);
+
+			var regionRef = MakeRef();
+			Assert.AreEqual(1L, img.SearchAll(regionRef, 10, 5, 10, 8, needle));
+			var regionArr = (Keysharp.Builtins.Array)regionRef.__Value;
+			Assert.AreEqual(1, regionArr.Count);
+			Assert.AreEqual(12L, MProp(regionArr[1L], "x"));
+			Assert.AreEqual(7L, MProp(regionArr[1L], "y"));
+
+			// SearchPixel region form also reports absolute coordinates.
+			var px = MakeRef();
+			Assert.AreEqual(1L, img.SearchPixel(px, 10, 5, 10, 8, "Red"));
+			Assert.AreEqual(12L, MProp(px.__Value, "x"));
+			Assert.AreEqual(7L, MProp(px.__Value, "y"));
+		}
+
+		[Test, Category("Image")]
+		public void ImageSearchEmptyRegionReturnsNoMatchWithoutThrowing()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// A region that is empty after clamping (origin AT/PAST an edge, or a non-positive size) genuinely
+			// contains zero pixels, so every search must return "not found" and must NOT throw. Regression: an
+			// empty region used to crop to a degenerate 1x1 transparent canvas that the finder phantom-matched at
+			// (0,0); SearchPixel then read GetPixel at the absolute origin (>= Width) and threw. Use a solid-black
+			// canvas and black/high-variation searches so a surviving phantom (0,0) would be caught.
+			var img = KeysharpImage.Create(null, 10, 8, "Black") as KeysharpImage;
+			var needle = KeysharpImage.Create(null, 2, 2, "Black") as KeysharpImage;
+
+			// Origin AT the right edge -> width clamps to 0. This is the exact case that used to throw.
+			var p1 = MakeRef();
+			long r1 = 1;
+			Assert.DoesNotThrow(() => r1 = (long)img.SearchPixel(p1, 10, 0, 4, 4, "Black"));
+			Assert.AreEqual(0L, r1);
+			Assert.AreEqual("", p1.__Value);
+
+			// Origin PAST the bottom edge, with high variation (a phantom transparent pixel would match).
+			var p2 = MakeRef();
+			Assert.AreEqual(0L, img.SearchPixel(p2, 0, 8, 4, 4, "Black", 255));
+			Assert.AreEqual("", p2.__Value);
+
+			// Non-positive width.
+			var p3 = MakeRef();
+			Assert.AreEqual(0L, img.SearchPixel(p3, 0, 0, 0, 4, "Black"));
+			Assert.AreEqual("", p3.__Value);
+
+			// Search over an empty region -> false + falsy match, no throw.
+			var s = MakeRef();
+			Assert.AreEqual(0L, img.Search(s, 10, 0, 4, 4, needle));
+			Assert.AreEqual("", s.__Value);
+
+			// SearchAll over an empty region -> false + empty array, no throw.
+			var a = MakeRef();
+			Assert.AreEqual(0L, img.SearchAll(a, 0, 8, 4, 4, needle));
+			Assert.IsInstanceOf<Keysharp.Builtins.Array>(a.__Value);
+			Assert.AreEqual(0, ((Keysharp.Builtins.Array)a.__Value).Count);
+		}
+
+		[Test, Category("Image")]
+		public void ImageDisposedThrows()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var img = KeysharpImage.Create(null, 8, 6) as KeysharpImage;
+			_ = img.Dispose();
+			// Every public member throws after Dispose (a property and a transform shown here).
+			Assert.Throws<Keysharp.Builtins.KeysharpException>(() => { _ = img.Width; });
+			Assert.Throws<Keysharp.Builtins.KeysharpException>(() => img.Scale(2));
+		}
+
+		[Test, Category("Image")]
+		public void ImageMutableDrawImageDoesNotLeakSources()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// A mutable (live Overlay) canvas applies draws EAGERLY, so a repeated DrawImage must dispose each
+			// loaded source copy immediately rather than parking it in pendingResources (which Bake never drains
+			// on a mutable image) — that was a full-size unmanaged bitmap leaked per DrawImage call.
+			var canvas = KeysharpImage.Create(null, 20, 20) as KeysharpImage;
+			canvas.mutable = true;
+			var src = KeysharpImage.Create(null, 4, 4, "Red") as KeysharpImage;
+
+			for (var i = 0; i < 8; i++)
+				_ = canvas.DrawImage(src, 0, 0);
+
+			Assert.AreEqual(0, canvas.PendingResourcesCount);
+
+			// A shape op adds no external resource, so the mutable path also stays clean.
+			_ = canvas.FillRect(0, 0, 4, 4, "Blue");
+			Assert.AreEqual(0, canvas.PendingResourcesCount);
+		}
+
+		[Test, Category("Image")]
+		public void ImageCopyCarriesDrawScale()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// A DPI-scaled Create() canvas draws logical coordinates through drawScale; Copy() must carry it over
+			// so the copy renders at the same physical scale (previously dropped, which is why Overlay.SetImage
+			// had to re-set it by hand).
+			var img = KeysharpImage.Create(null, 10, 10, null, 2) as KeysharpImage;
+			Assert.AreEqual(2.0, img.drawScale);
+			var copy = img.Copy() as KeysharpImage;
+			Assert.AreEqual(2.0, copy.drawScale);
 		}
 	}
 }

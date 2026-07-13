@@ -499,6 +499,167 @@ namespace Keysharp.Internals.Images
 		}
 
 		/// <summary>
+		/// Returns a NEW bitmap that is <paramref name="src"/> with <paramref name="map"/> applied to every
+		/// pixel. Both the input and output pixels are packed as 0xAARRGGBB, so a caller writes a pure color
+		/// transform without touching backend channel order or premultiplication. The cross-platform
+		/// lock/translate scaffolding mirrors <c>ImageFinder.ToRgbArray</c> (read) and <c>ApplyOpacity</c>
+		/// (write) so the three stay consistent across the System.Drawing and Eto backends.
+		/// </summary>
+		internal static Bitmap MapPixelsArgb(Bitmap src, Func<uint, uint> map)
+		{
+			if (src == null)
+				return null;
+
+			int w = src.Width, h = src.Height;
+			var dst = NewArgbCanvas(w, h);
+#if WINDOWS
+			// Acquire the source lock first, then the destination lock INSIDE the try, so a throw on the second
+			// LockBits can't strand the first lock (or leak the destination lock). Each is unlocked in finally
+			// only if it was actually acquired.
+			var sdata = src.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+			BitmapData ddata = null;
+
+			try
+			{
+				ddata = dst.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+
+				unsafe
+				{
+					// Format32bppArgb stores BGRA in memory, so a little-endian uint read/write is 0xAARRGGBB.
+					var sBase = (byte*)sdata.Scan0;
+					var dBase = (byte*)ddata.Scan0;
+
+					for (var y = 0; y < h; y++)
+					{
+						var srow = (uint*)(sBase + (nint)y * sdata.Stride);
+						var drow = (uint*)(dBase + (nint)y * ddata.Stride);
+
+						for (var x = 0; x < w; x++)
+							drow[x] = map(srow[x]);
+					}
+				}
+			}
+			finally
+			{
+				if (ddata != null)
+					dst.UnlockBits(ddata);
+
+				src.UnlockBits(sdata);
+			}
+
+#else
+			// Force 32bpp first so the 4-byte reads are valid (Pixbuf is 3bpp for 24-bit images) and so a
+			// premultiplied backend sees A=255, making the translate lossless (mirrors ToRgbArray).
+			var src32 = EnsureOpaque32Bpp(src);
+
+			try
+			{
+				using var sdata = src32.Lock();
+				using var ddata = dst.Lock();
+
+				unsafe
+				{
+					var sBase = (byte*)sdata.Data;
+					var sStride = sdata.ScanWidth;
+					var sBpp = sdata.BytesPerPixel;
+					var dBase = (byte*)ddata.Data;
+					var dStride = ddata.ScanWidth;
+					var dBpp = ddata.BytesPerPixel;
+
+					for (var y = 0; y < h; y++)
+					{
+						var srow = sBase + (long)y * sStride;
+						var drow = dBase + (long)y * dStride;
+
+						for (var x = 0; x < w; x++)
+						{
+							// TranslateDataToArgb un-premultiplies + reorders to 0xAARRGGBB; TranslateArgbToData
+							// re-premultiplies + reorders back into the destination's in-memory layout.
+							var argb = (uint)sdata.TranslateDataToArgb(*(int*)(srow + x * sBpp));
+							*(int*)(drow + x * dBpp) = ddata.TranslateArgbToData((int)map(argb));
+						}
+					}
+				}
+			}
+			finally
+			{
+				if (!ReferenceEquals(src32, src))
+					src32.Dispose();
+			}
+
+#endif
+			return dst;
+		}
+
+		// Writes raw pixel bytes from src into bmp — the inverse of KeysharpImage.WritePixelData. bpp 1 = one
+		// 8-bit grayscale byte per pixel (becomes an opaque gray, A=255); bpp 4 = R,G,B,A bytes. src must point
+		// at bmp.Width*bmp.Height*bpp readable bytes. The cross-platform lock/translate scaffolding mirrors
+		// MapPixelsArgb/ApplyOpacity so all the pixel-writers stay consistent across backends.
+		internal static unsafe void WriteBufferToBitmap(Bitmap bmp, byte* src, int bpp)
+		{
+			int w = bmp.Width, h = bmp.Height;
+#if WINDOWS
+			var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+
+			try
+			{
+				// Format32bppArgb stores BGRA in memory, so a little-endian uint write of 0xAARRGGBB is correct.
+				var basePtr = (byte*)data.Scan0;
+
+				for (var y = 0; y < h; y++)
+				{
+					var row = (uint*)(basePtr + (nint)y * data.Stride);
+					var srcRow = y * w;
+
+					for (var x = 0; x < w; x++)
+						row[x] = DecodePixel(src, srcRow + x, bpp);
+				}
+			}
+			finally
+			{
+				bmp.UnlockBits(data);
+			}
+
+#else
+			using var data = bmp.Lock();
+			var basePtr = (byte*)data.Data;
+			var stride = data.ScanWidth;
+			var dstBpp = data.BytesPerPixel;
+
+			for (var y = 0; y < h; y++)
+			{
+				var row = basePtr + (long)y * stride;
+				var srcRow = y * w;
+
+				// TranslateArgbToData rewrites 0xAARRGGBB into the backend's in-memory layout (channel order +
+				// premultiplication), the inverse of the TranslateDataToArgb read used by GetPixelData.
+				for (var x = 0; x < w; x++)
+					*(int*)(row + x * dstBpp) = data.TranslateArgbToData((int)DecodePixel(src, srcRow + x, bpp));
+			}
+
+#endif
+		}
+
+		// Reads one pixel from src at pixel index idx in the bpp layout and returns it packed as 0xAARRGGBB —
+		// the inverse of KeysharpImage.EmitPixel. Grayscale (bpp 1) expands one byte to an opaque gray; bpp 4
+		// reads R,G,B,A. Aggressively inlined; the bpp test is constant for the whole call so it is free.
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static unsafe uint DecodePixel(byte* src, int idx, int bpp)
+		{
+			if (bpp == 1)
+			{
+				uint g = src[idx];
+				return 0xFF000000u | (g << 16) | (g << 8) | g;
+			}
+			else
+			{
+				var o = idx * 4;
+				uint r = src[o], g = src[o + 1], b = src[o + 2], a = src[o + 3];
+				return (a << 24) | (r << 16) | (g << 8) | b;
+			}
+		}
+
+		/// <summary>
 		/// Creates a new zero-initialised (fully transparent) ARGB canvas of the given size.
 		/// Centralises the one pixel-format name that differs between the System.Drawing
 		/// (Windows) and Eto.Drawing (Mac/Linux) backends.
@@ -775,6 +936,15 @@ namespace Keysharp.Internals.Images
 		internal static List<Bitmap> SplitBitmap(Bitmap bmp, int w, int h)
 		{
 			var list = new List<Bitmap>();
+
+			// A non-positive tile size cannot tile: the `i += h` / `j += w` steps would never advance, spinning
+			// forever (IL_Add on a zero-sized ImageList hit exactly this hang on Linux/macOS). Fall back to a
+			// single tile that is the whole bitmap so no caller can lock up.
+			if (w <= 0 || h <= 0)
+			{
+				list.Add(new Bitmap(bmp));
+				return list;
+			}
 
 			for (var i = 0; i < bmp.Height; i += h)
 				for (var j = 0; j < bmp.Width; j += w)

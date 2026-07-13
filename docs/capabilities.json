@@ -6111,13 +6111,13 @@
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
-                     "feature":  "ImageCapture()",
+                     "feature":  "Image",
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
                      "macos":  "unknown",
-                     "notes":  "Captures a screen region to memory/file.",
+                     "notes":  "Cross-platform image class for capturing, loading, or creating an image, then drawing, transforming, searching, and reading/writing its pixels before saving it or handing out a bitmap handle. Full on Windows, partial on Linux (X11); Wayland and macOS are unverified. Replaces the earlier ImageCapture() function.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {

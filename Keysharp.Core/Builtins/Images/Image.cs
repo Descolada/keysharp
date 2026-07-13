@@ -350,6 +350,55 @@ namespace Keysharp.Builtins
 				return wrapped;
 			}
 
+			/// <summary>
+			/// Builds a NEW ARGB image from raw pixel bytes — the inverse of <see cref="GetPixelData"/>.
+			/// <paramref name="data"/> is a <see cref="Buffer"/> (or any object exposing script-visible <c>Ptr</c>
+			/// and <c>Size</c> properties, the AHK duck-typing convention) whose bytes describe the image row by
+			/// row, top-down, tightly packed (stride = <c>width * bytesPerPixel</c>).
+			/// <paramref name="bytesPerPixel"/> (default 4) selects the layout: <c>1</c> = 8-bit grayscale, each
+			/// byte becoming an opaque gray pixel (R=G=B=byte, A=255); <c>4</c> = R, G, B, A byte order. The
+			/// data must hold at least <c>width * height * bytesPerPixel</c> bytes (a ValueError otherwise).
+			/// </summary>
+			[Static] public static object FromBuffer(object @this, object data, object width, object height, object bytesPerPixel = null)
+			{
+				// Accept a Buffer OR any object with Ptr/Size properties (duck-typed, like StrGet): the shared
+				// Reflections helpers read a Buffer directly and fall back to a script-visible Ptr/Size on any
+				// other object, so both work.
+				long addr = Reflections.GetPtrProperty(data);
+				long have = Reflections.GetSizeProperty(data);
+
+				if (addr == 0 || have <= 0)
+					return Errors.ValueErrorOccurred("FromBuffer requires a Buffer or an object with Ptr and Size properties.");
+
+				int w = width.Ai(), h = height.Ai();
+				var bpp = (int)(bytesPerPixel == null ? 4L : bytesPerPixel.Al());
+
+				if (bpp != 1 && bpp != 4)
+					return Errors.ValueErrorOccurred("FromBuffer supports only 1 (grayscale) or 4 (RGBA) bytes per pixel.");
+
+				if (w <= 0 || h <= 0)
+					return Errors.ValueErrorOccurred("FromBuffer width and height must be positive.");
+
+				nint ptr = new nint(addr);
+
+				if (ptr == 0)
+					return Errors.ValueErrorOccurred("FromBuffer: the pixel data pointer is null.");
+
+				long need = (long)w * h * bpp;
+
+				if (have < need)
+					return Errors.ValueErrorOccurred($"FromBuffer needs at least {need} bytes for a {w}x{h} image but the buffer holds {have}.");
+
+				var bmp = ImageHelper.NewArgbCanvas(w, h);
+
+				unsafe
+				{
+					ImageHelper.WriteBufferToBitmap(bmp, (byte*)ptr, bpp);
+				}
+
+				return Wrap(bmp, failMsg: "Could not create an image from the given pixel data.");
+			}
+
 			#endregion
 
 			#region Transforms (lazy, chainable)
@@ -357,6 +406,7 @@ namespace Keysharp.Builtins
 			/// <summary>Queues a multiplicative resize. <c>Scale(2)</c> doubles; <c>Scale(2, 1)</c> stretches X only.</summary>
 			public object Scale(object factor, object factorY = null)
 			{
+				ThrowIfDisposed();
 				var sx = factor.Ad();
 				var sy = factorY == null ? sx : factorY.Ad();
 
@@ -381,9 +431,16 @@ namespace Keysharp.Builtins
 
 			/// <summary>Queues a clockwise rotation by <paramref name="angle"/> degrees. The canvas grows to fit;
 			/// <paramref name="background"/> fills the exposed corners. Omit it or pass "" for a transparent
-			/// fill; pass a 0xRRGGBB color (including numeric 0 for opaque black) for a solid fill.</summary>
+			/// fill; pass a 0xRRGGBB color (including numeric 0 for opaque black) for a solid fill.
+			///
+			/// <para>Unlike <see cref="Scale"/> and <see cref="Crop"/>, Rotate does NOT maintain the image->screen
+			/// coordinate mapping: it INVALIDATES <see cref="X"/>/<see cref="Y"/> (the screen origin) and
+			/// <see cref="ScaleX"/>/<see cref="ScaleY"/>, which are left at their pre-rotation values. A correct
+			/// origin/scale for an arbitrary rotation is ill-defined, so a consumer such as OCR must not rely on
+			/// X/Y/ScaleX/ScaleY after rotating.</para></summary>
 			public object Rotate(object angle, object background = null)
 			{
+				ThrowIfDisposed();
 				var deg = angle.Ad();
 				var bg = ParseColorArg(background);
 				pending.Add((b => ImageHelper.RotateBitmap(b, deg, bg), false));
@@ -391,9 +448,14 @@ namespace Keysharp.Builtins
 				return this;
 			}
 
-			/// <summary>Queues a mirror: horizontal (left-right) by default, vertical when <paramref name="horizontal"/> is false.</summary>
+			/// <summary>Queues a mirror: horizontal (left-right) by default, vertical when <paramref name="horizontal"/> is false.
+			/// <para>Unlike <see cref="Scale"/> and <see cref="Crop"/>, Flip does NOT maintain the image->screen
+			/// coordinate mapping: <see cref="X"/>/<see cref="Y"/> (the screen origin) are left pointing at the
+			/// pre-flip top-left, which after a mirror is no longer the image's top-left. A consumer such as OCR
+			/// must not rely on X/Y after flipping. (ScaleX/ScaleY are unchanged — a flip preserves pixel density.)</para></summary>
 			public object Flip(object horizontal = null)
 			{
+				ThrowIfDisposed();
 				var h = horizontal == null || horizontal.Ab();
 				pending.Add((b => ImageHelper.FlipBitmap(b, h), false));
 				Invalidate();
@@ -404,6 +466,7 @@ namespace Keysharp.Builtins
 			/// bounds at apply time; <paramref name="width"/> and <paramref name="height"/> must be positive.</summary>
 			public object Crop(object x, object y, object width, object height)
 			{
+				ThrowIfDisposed();
 				int cx = x.Ai(), cy = y.Ai(), cw = width.Ai(), ch = height.Ai();
 
 				if (cw <= 0 || ch <= 0)
@@ -420,9 +483,47 @@ namespace Keysharp.Builtins
 				return this;
 			}
 
+			/// <summary>Queues an absolute resize to <paramref name="width"/> x <paramref name="height"/> pixels.
+			/// A negative value keeps the aspect ratio from the other dimension (e.g. <c>Resize(-1, 30)</c> derives
+			/// the width from the current 2:1 ratio); zero, or both dimensions negative, is a ValueError. Like
+			/// <see cref="Scale"/> this folds into ScaleX/ScaleY so the image->logical mapping (OCR) stays correct.
+			/// The current dimensions are resolved once at queue time, so the target is a fixed pixel size regardless
+			/// of any later transforms in the chain.</summary>
+			public object Resize(object width, object height)
+			{
+				ThrowIfDisposed();
+				int tw = width.Ai(), th = height.Ai();
+
+				if (tw == 0 || th == 0 || (tw < 0 && th < 0))
+					return Errors.ValueErrorOccurred("Resize requires a positive width or height (a single negative value keeps the aspect ratio).");
+
+				// Resolve the target against the CURRENT (materialized) dimensions so a negative value derives from
+				// the live aspect ratio and the folded scale factor is exact; nw/nh are then constants baked into
+				// the queued op, keeping the target an absolute pixel size.
+				var src = Materialize();
+
+				if (src == null)
+					return Errors.ValueErrorOccurred("There is no image to resize.");
+
+				int curW = src.Width, curH = src.Height;
+				int nw = tw, nh = th;
+
+				if (nw < 0) nw = Math.Max(1, (int)Math.Round(curW * (nh / (double)curH)));
+				if (nh < 0) nh = Math.Max(1, (int)Math.Round(curH * (nw / (double)curW)));
+
+				pending.Add((b => ImageHelper.ResizeBitmap(b, nw, nh, exactPixels: true), false));
+				// Absolute resize changes the pixels-per-logical-unit density by nw/curW (nh/curH); fold it into
+				// scaleX/scaleY exactly as Scale does so consumers (OCR) recover logical units after the resize.
+				scaleX *= (double)nw / curW;
+				scaleY *= (double)nh / curH;
+				Invalidate();
+				return this;
+			}
+
 			/// <summary>Queues a full-canvas clear. Omit <paramref name="color"/> or pass "" for transparent.</summary>
 			public object Clear(object color = null)
 			{
+				ThrowIfDisposed();
 				var argb = ParseColorArg(color, 0, allowTransparentEmpty: true);
 				QueueDraw(b =>
 				{
@@ -442,6 +543,7 @@ namespace Keysharp.Builtins
 			/// <summary>Queues a line draw operation.</summary>
 			public object DrawLine(object x1, object y1, object x2, object y2, object color = null, object thickness = null)
 			{
+				ThrowIfDisposed();
 				var (px1, py1, px2, py2) = (x1.Ad(), y1.Ad(), x2.Ad(), y2.Ad());
 				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
 				var t = Math.Max(0.0, thickness.Ad(1.0));
@@ -462,6 +564,7 @@ namespace Keysharp.Builtins
 			/// <summary>Queues a rectangle outline draw operation.</summary>
 			public object DrawRect(object x, object y, object width, object height, object color = null, object thickness = null)
 			{
+				ThrowIfDisposed();
 				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
 				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
 				var t = Math.Max(0.0, thickness.Ad(1.0));
@@ -488,6 +591,7 @@ namespace Keysharp.Builtins
 			/// <summary>Queues a filled rectangle draw operation.</summary>
 			public object FillRect(object x, object y, object width, object height, object color = null)
 			{
+				ThrowIfDisposed();
 				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
 				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
 
@@ -508,6 +612,7 @@ namespace Keysharp.Builtins
 			/// <summary>Queues an ellipse outline draw operation.</summary>
 			public object DrawEllipse(object x, object y, object width, object height, object color = null, object thickness = null)
 			{
+				ThrowIfDisposed();
 				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
 				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
 				var t = Math.Max(0.0, thickness.Ad(1.0));
@@ -528,6 +633,7 @@ namespace Keysharp.Builtins
 			/// <summary>Queues a filled ellipse draw operation.</summary>
 			public object FillEllipse(object x, object y, object width, object height, object color = null)
 			{
+				ThrowIfDisposed();
 				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
 				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
 
@@ -548,6 +654,7 @@ namespace Keysharp.Builtins
 			/// <paramref name="radius"/> is the corner radius in pixels, clamped to half the smaller side.</summary>
 			public object DrawRoundRect(object x, object y, object width, object height, object radius, object color = null, object thickness = null)
 			{
+				ThrowIfDisposed();
 				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
 				var r = (float)Math.Max(0.0, radius.Ad());
 				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
@@ -570,6 +677,7 @@ namespace Keysharp.Builtins
 			/// <summary>Queues a filled rounded-rectangle draw operation.</summary>
 			public object FillRoundRect(object x, object y, object width, object height, object radius, object color = null)
 			{
+				ThrowIfDisposed();
 				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
 				var r = (float)Math.Max(0.0, radius.Ad());
 				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
@@ -615,6 +723,7 @@ namespace Keysharp.Builtins
 			/// trailing style keywords: bold, italic, underline, strike (e.g. "Sans 16 bold italic").</summary>
 			public object DrawText(object text, object x, object y, object color = null, object font = null)
 			{
+				ThrowIfDisposed();
 				var s = text.As();
 
 				if (string.IsNullOrEmpty(s))
@@ -649,6 +758,7 @@ namespace Keysharp.Builtins
 			/// DrawText and the pixel-coordinate shapes — use it to centre or align text before drawing.</summary>
 			public object MeasureText(object text, object font = null, [ByRef] object width = null, [ByRef] object height = null)
 			{
+				ThrowIfDisposed();
 				var (w, h) = MeasureTextCore(text.As(), font.As());
 
 				if (width != null) Script.SetPropertyValue(width, "__Value", w);
@@ -675,6 +785,7 @@ namespace Keysharp.Builtins
 			/// <summary>Queues drawing another image onto this canvas.</summary>
 			public object DrawImage(object image, object x = null, object y = null, object width = null, object height = null)
 			{
+				ThrowIfDisposed();
 				var (source, _, _) = LoadFromSource(image);
 
 				if (source == null)
@@ -702,7 +813,88 @@ namespace Keysharp.Builtins
 #endif
 					return b;
 				});
-				pendingResources.Add(source);
+
+				// On a mutable (live Overlay) surface QueueDraw applied the draw EAGERLY, so the loaded source
+				// copy is already consumed and must be freed now: a mutable image never queues, and Bake()
+				// early-returns without draining pendingResources, so parking it there would leak a full-size
+				// unmanaged bitmap on every DrawImage call. On a normal lazy image the draw runs later, so the
+				// source is parked and released when the queue is baked/disposed.
+				if (mutable)
+					source.Dispose();
+				else
+					pendingResources.Add(source);
+
+				return this;
+			}
+
+			/// <summary>Queues a desaturation to grayscale: each pixel's R, G and B become the luminance
+			/// <c>round(0.299 R + 0.587 G + 0.114 B)</c>; alpha is preserved. Lazy and chainable.</summary>
+			public object Grayscale()
+			{
+				ThrowIfDisposed();
+				pending.Add((b => ImageHelper.MapPixelsArgb(b, p =>
+				{
+					uint a = (p >> 24) & 0xFF, r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, bl = p & 0xFF;
+					var gray = (uint)Math.Clamp((int)Math.Round(0.299 * r + 0.587 * g + 0.114 * bl), 0, 255);
+					return (a << 24) | (gray << 16) | (gray << 8) | gray;
+				}), false));
+				Invalidate();
+				return this;
+			}
+
+			/// <summary>Queues an opacity multiply: every pixel's alpha becomes <c>round(A * factor)</c> with
+			/// <paramref name="factor"/> clamped to [0, 1]; RGB is preserved. Lazy and chainable.</summary>
+			public object Opacity(object factor)
+			{
+				ThrowIfDisposed();
+				var f = Math.Clamp(factor.Ad(), 0.0, 1.0);
+				pending.Add((b => ImageHelper.MapPixelsArgb(b, p =>
+				{
+					var a = (uint)Math.Clamp((int)Math.Round(((p >> 24) & 0xFF) * f), 0, 255);
+					return (a << 24) | (p & 0x00FFFFFFu);
+				}), false));
+				Invalidate();
+				return this;
+			}
+
+			/// <summary>Queues a brightness shift: every RGB channel is offset by <c>round(amount * 255)</c> and
+			/// clamped to [0, 255], with <paramref name="amount"/> clamped to [-1, 1] (1 = white, -1 = black);
+			/// alpha is preserved. Lazy and chainable.</summary>
+			public object Brightness(object amount)
+			{
+				ThrowIfDisposed();
+				var amt = Math.Clamp(amount.Ad(), -1.0, 1.0);
+				var delta = (int)Math.Round(amt * 255);
+				pending.Add((b => ImageHelper.MapPixelsArgb(b, p =>
+				{
+					uint a = (p >> 24) & 0xFF;
+					var r = (uint)Math.Clamp((int)((p >> 16) & 0xFF) + delta, 0, 255);
+					var g = (uint)Math.Clamp((int)((p >> 8) & 0xFF) + delta, 0, 255);
+					var bl = (uint)Math.Clamp((int)(p & 0xFF) + delta, 0, 255);
+					return (a << 24) | (r << 16) | (g << 8) | bl;
+				}), false));
+				Invalidate();
+				return this;
+			}
+
+			/// <summary>Queues a contrast adjust: each RGB channel becomes
+			/// <c>clamp(round((c - 128) * (1 + amount) + 128), 0, 255)</c>, with <paramref name="amount"/> clamped
+			/// to [-1, 1] (-1 flattens every channel toward 128, +1 doubles the spread); alpha is preserved.
+			/// Lazy and chainable.</summary>
+			public object Contrast(object amount)
+			{
+				ThrowIfDisposed();
+				var amt = Math.Clamp(amount.Ad(), -1.0, 1.0);
+				var factor = 1.0 + amt;
+				pending.Add((b => ImageHelper.MapPixelsArgb(b, p =>
+				{
+					uint a = (p >> 24) & 0xFF;
+					var r = (uint)Math.Clamp((int)Math.Round(((int)((p >> 16) & 0xFF) - 128) * factor + 128), 0, 255);
+					var g = (uint)Math.Clamp((int)Math.Round(((int)((p >> 8) & 0xFF) - 128) * factor + 128), 0, 255);
+					var bl = (uint)Math.Clamp((int)Math.Round(((int)(p & 0xFF) - 128) * factor + 128), 0, 255);
+					return (a << 24) | (r << 16) | (g << 8) | bl;
+				}), false));
+				Invalidate();
 				return this;
 			}
 
@@ -713,6 +905,8 @@ namespace Keysharp.Builtins
 			/// </summary>
 			public object Copy()
 			{
+				ThrowIfDisposed();
+
 				if (disposed || baseBitmap == null)
 					return Errors.ValueErrorOccurred("There is no image to copy.");
 
@@ -723,7 +917,10 @@ namespace Keysharp.Builtins
 				if (src == null)
 					return Errors.ValueErrorOccurred("There is no image to copy.");
 
-				var copy = new KeysharpImage { baseBitmap = new Bitmap(src), scaleX = scaleX, scaleY = scaleY, originX = originX, originY = originY };
+				// drawScale is carried over so a copy of a DPI-scaled Create() canvas keeps drawing logical
+				// coordinates at the right physical scale. `mutable` is deliberately NOT copied: a copy is an
+				// independent lazy image, not another live drawing surface aliasing the same pixels.
+				var copy = new KeysharpImage { baseBitmap = new Bitmap(src), scaleX = scaleX, scaleY = scaleY, originX = originX, originY = originY, drawScale = drawScale };
 				copy.SyncGcPressure();
 				return copy;
 			}
@@ -739,6 +936,7 @@ namespace Keysharp.Builtins
 			/// an error. Returns this image so calls can chain.</summary>
 			public object Save(object filename)
 			{
+				ThrowIfDisposed();
 				var bmp = Materialize();
 
 				if (bmp == null)
@@ -765,6 +963,7 @@ namespace Keysharp.Builtins
 			/// has no alpha channel, so any transparency is lost (fine for opaque screen captures).</summary>
 			public object ToBitmap()
 			{
+				ThrowIfDisposed();
 				var bmp = Materialize();
 
 				if (bmp == null)
@@ -794,6 +993,7 @@ namespace Keysharp.Builtins
 			/// window itself stay responsive; the preview window is destroyed once dismissed.</para></summary>
 			public object Show(object title = null, object wait = null)
 			{
+				ThrowIfDisposed();
 				var bmp = Materialize();
 
 				if (bmp == null)
@@ -866,30 +1066,33 @@ namespace Keysharp.Builtins
 			#region Pixels / search
 
 			/// <summary>The current width in pixels (after queued transforms).</summary>
-			public long Width => Materialize()?.Width ?? 0L;
+			public long Width { get { ThrowIfDisposed(); return Materialize()?.Width ?? 0L; } }
 
 			/// <summary>The current height in pixels (after queued transforms).</summary>
-			public long Height => Materialize()?.Height ?? 0L;
+			public long Height { get { ThrowIfDisposed(); return Materialize()?.Height ?? 0L; } }
 
 			/// <summary>Physical pixels per logical unit along X at capture time (1.0 for files and
 			/// non-HiDPI captures; ~2.0 for a Retina screen/window capture). Multiply a logical screen
 			/// width by this to get image pixels, or divide an image X coordinate by it to get logical.</summary>
-			public double ScaleX => scaleX;
+			public double ScaleX { get { ThrowIfDisposed(); return scaleX; } }
 
 			/// <summary>Physical pixels per logical unit along Y. See <see cref="ScaleX"/>.</summary>
-			public double ScaleY => scaleY;
+			public double ScaleY { get { ThrowIfDisposed(); return scaleY; } }
 
 			/// <summary>Screen-absolute X coordinate of this image's top-left at capture time (0 for file/bitmap
 			/// images, which have no on-screen origin). OCR uses it as the default x offset so highlights and
 			/// clicks land on the screen position the words actually occupy.</summary>
-			public long X => originX;
+			public long X { get { ThrowIfDisposed(); return originX; } }
 
 			/// <summary>Screen-absolute Y coordinate of this image's top-left at capture time. See <see cref="X"/>.</summary>
-			public long Y => originY;
+			public long Y { get { ThrowIfDisposed(); return originY; } }
 
-			/// <summary>Returns the color of the pixel at (x, y) as a 0xRRGGBB integer.</summary>
+			/// <summary>Returns the full 32-bit ARGB color of the pixel at (x, y) as an unsigned value in
+			/// 0xAARRGGBB order: an opaque red reads as 0xFFFF0000, a 50%-alpha pixel as 0x80RRGGBB. Mask
+			/// with 0xFFFFFF if only the RGB component is wanted.</summary>
 			public object GetPixel(object x, object y)
 			{
+				ThrowIfDisposed();
 				var bmp = Materialize();
 
 				if (bmp == null)
@@ -900,12 +1103,14 @@ namespace Keysharp.Builtins
 				if (px < 0 || py < 0 || px >= bmp.Width || py >= bmp.Height)
 					return Errors.ValueErrorOccurred($"Pixel ({px}, {py}) is out of range.");
 
-				return (long)(bmp.GetPixel(px, py).ToArgb() & 0xFFFFFF);
+				return (long)(uint)bmp.GetPixel(px, py).ToArgb();
 			}
 
-			/// <summary>Sets the pixel at (x, y) to <paramref name="color"/> (a 0xRRGGBB integer). Returns this image.</summary>
+			/// <summary>Sets the pixel at (x, y) to <paramref name="color"/>, given as 0xRRGGBB (fully
+			/// opaque) or 0xAARRGGBB (explicit alpha). Returns this image.</summary>
 			public object SetPixel(object x, object y, object color)
 			{
+				ThrowIfDisposed();
 				var bmp = Materialize();
 
 				if (bmp == null)
@@ -925,31 +1130,73 @@ namespace Keysharp.Builtins
 			}
 
 			/// <summary>
-			/// Searches this image for <paramref name="needle"/> (an Image, a file path, or a bitmap
-			/// handle). Returns a two-element array of the first match's top-left position as 0-based
-			/// pixel offsets within this image (result[1] = x, result[2] = y), or "" when not found.
-			/// These are image pixels, not logical screen coordinates (see <see cref="ScaleX"/>). The
-			/// needle and this image must share pixel density to match. <paramref name="variation"/>
-			/// (0-255) allows per-channel color tolerance. <paramref name="trans"/> names a needle color
-			/// that matches anything (ImageSearch's *TransN — a color name or 0xRRGGBB value).
-			/// <paramref name="direction"/> is ImageSearch's *DirN scan order (1-9; 1 = top-left,
-			/// row-major default, 9 = from the center outwards), selecting which match wins when
-			/// several are present.
+			/// Searches this image for <paramref name="args"/>'s needle (an Image, a file path, or a bitmap
+			/// handle) and writes the FIRST match into the leading <c>&amp;match</c> ByRef: on a hit
+			/// <c>match := {x, y}</c> (an object whose <c>x</c>/<c>y</c> are the match's top-left as 0-based,
+			/// ABSOLUTE image pixels — see <see cref="ScaleX"/>) and the call returns true (1); on a miss the
+			/// call returns false (0) and sets <c>match</c> to "".
+			///
+			/// <para>Two forms, dispatched by the number of arguments AFTER <c>&amp;match</c>:
+			/// <list type="bullet">
+			///   <item><b>Whole image</b> — <c>Search(&amp;match, needle [, variation, trans, direction])</c>
+			///   (1-4 args).</item>
+			///   <item><b>Region</b> — <c>Search(&amp;match, x, y, w, h, needle [, variation, trans, direction])</c>
+			///   (5+ args): search only inside the (x, y, w, h) rectangle (clamped to the image); returned
+			///   coordinates stay ABSOLUTE image pixels, not region-relative.</item>
+			/// </list>
+			/// Matching is RGB-only (alpha is ignored). <paramref name="args"/> optional tail:
+			/// <c>variation</c> (0-255 per-channel tolerance), <c>trans</c> (a needle color that matches anything,
+			/// ImageSearch's *TransN), <c>direction</c> (ImageSearch's *DirN scan order 1-9 selecting which match
+			/// wins).</para>
 			/// </summary>
-			public object Search(object needle, object variation = null, object trans = null, object direction = null)
+			public object Search([ByRef] object match, params object[] args)
 			{
+				ThrowIfDisposed();
+				args ??= System.Array.Empty<object>();
+
+				if (!ParseRegionArgs(args, 1, out var hasRegion, out int rx, out int ry, out int rw, out int rh, out int rest))
+				{
+					WriteMatch(match, "");
+					return Errors.ValueErrorOccurred("Search requires a needle image.");
+				}
+
+				var needle = args[rest];
+				var variation = args.Length > rest + 1 ? args[rest + 1] : null;
+				var trans = args.Length > rest + 2 ? args[rest + 2] : null;
+				var direction = args.Length > rest + 3 ? args[rest + 3] : null;
+
 				var haystack = Materialize();
 
 				if (haystack == null)
+				{
+					WriteMatch(match, "");
 					return Errors.ValueErrorOccurred("There is no image to search.");
+				}
 
 				var (needleBmp, own) = ResolveNeedle(needle);
 
 				if (needleBmp == null)
+				{
+					WriteMatch(match, "");
 					return Errors.ValueErrorOccurred("Could not load the search image.");
+				}
+
+				// Resolve the search surface INSIDE the try so a throw while cropping can't leak the owned needle
+				// (the finally disposes both; surface stays null on the throw path).
+				Bitmap surface = null;
+				var ownedSurface = false;
 
 				try
 				{
+					(surface, var offX, var offY, ownedSurface) = ResolveSearchSurface(haystack, hasRegion, rx, ry, rw, rh);
+
+					// Empty region -> zero pixels -> no match.
+					if (surface == null)
+					{
+						WriteMatch(match, "");
+						return 0L;
+					}
+
 					var v = variation == null ? 0L : variation.Al();
 					var transColor = -1L;
 
@@ -957,43 +1204,276 @@ namespace Keysharp.Builtins
 						transColor = ParseColorArg(trans) & 0xFFFFFF;
 
 					var dir = direction == null ? 1 : (int)Math.Clamp(direction.Al(), 1L, 9L);
-					var finder = new ImageFinder(haystack) { Variation = (byte)Math.Clamp(v, 0, 255) };
+					var finder = new ImageFinder(surface) { Variation = (byte)Math.Clamp(v, 0, 255) };
 					var loc = finder.Find(needleBmp, transColor, dir);
 
 					if (loc.HasValue)
-						return new Array((long)loc.Value.X, (long)loc.Value.Y);
+					{
+						WriteMatch(match, MakePoint(loc.Value.X + offX, loc.Value.Y + offY));
+						return 1L;
+					}
 
-					return "";
+					WriteMatch(match, "");
+					return 0L;
 				}
 				finally
 				{
 					if (own)
 						needleBmp.Dispose();
+
+					if (ownedSurface)
+						surface.Dispose();
 				}
 			}
 
 			/// <summary>
-			/// Searches this image for the first pixel matching <paramref name="color"/> (a color name or
-			/// 0xRRGGBB value) — PixelSearch over a captured/loaded image instead of the live screen.
-			/// Returns [x, y] (0-based image pixels, like <see cref="Search"/>) or "" when not found.
-			/// <paramref name="variation"/> (0-255) allows per-channel tolerance. The scan is left-to-right,
-			/// top-to-bottom.
+			/// Searches this image for EVERY occurrence of the needle and writes them into the leading
+			/// <c>&amp;matches</c> ByRef as an array of match objects: on ≥1 hit <c>matches := [{x, y}, {x, y}, …]</c>
+			/// (ABSOLUTE image pixels) and the call returns true (1); on none <c>matches := []</c> (empty array)
+			/// and the call returns false (0). Same two forms as <see cref="Search"/>:
+			/// <c>SearchAll(&amp;matches, needle [, variation, trans, direction])</c> or
+			/// <c>SearchAll(&amp;matches, x, y, w, h, needle [, …])</c> (5+ args ⇒ region). Matches are ordered by
+			/// <c>direction</c> (ImageSearch's *DirN, 1-9); overlapping matches are ALL returned. When every needle
+			/// pixel is the <c>trans</c> wildcard color, a single match at the region origin is returned. Matching
+			/// is RGB-only (alpha is ignored).
 			/// </summary>
-			public object SearchPixel(object color, object variation = null)
+			public object SearchAll([ByRef] object matches, params object[] args)
 			{
+				ThrowIfDisposed();
+				args ??= System.Array.Empty<object>();
+
+				if (!ParseRegionArgs(args, 1, out var hasRegion, out int rx, out int ry, out int rw, out int rh, out int rest))
+				{
+					WriteMatch(matches, new Array());
+					return Errors.ValueErrorOccurred("SearchAll requires a needle image.");
+				}
+
+				var needle = args[rest];
+				var variation = args.Length > rest + 1 ? args[rest + 1] : null;
+				var trans = args.Length > rest + 2 ? args[rest + 2] : null;
+				var direction = args.Length > rest + 3 ? args[rest + 3] : null;
+
 				var haystack = Materialize();
 
 				if (haystack == null)
+				{
+					WriteMatch(matches, new Array());
 					return Errors.ValueErrorOccurred("There is no image to search.");
+				}
 
-				var v = variation == null ? 0L : variation.Al();
-				var finder = new ImageFinder(haystack) { Variation = (byte)Math.Clamp(v, 0, 255) };
-				var loc = finder.Find(ImageHelper.ArgbToColor(ParseColorArg(color, unchecked((int)0xFF000000), allowTransparentEmpty: false)), ltr: true, ttb: true);
+				var (needleBmp, own) = ResolveNeedle(needle);
 
-				if (loc.HasValue)
-					return new Array((long)loc.Value.X, (long)loc.Value.Y);
+				if (needleBmp == null)
+				{
+					WriteMatch(matches, new Array());
+					return Errors.ValueErrorOccurred("Could not load the search image.");
+				}
 
-				return "";
+				// Resolve the search surface INSIDE the try so a throw while cropping can't leak the owned needle
+				// (the finally disposes both; surface stays null on the throw path).
+				Bitmap surface = null;
+				var ownedSurface = false;
+
+				try
+				{
+					(surface, var offX, var offY, ownedSurface) = ResolveSearchSurface(haystack, hasRegion, rx, ry, rw, rh);
+
+					// Empty region -> zero pixels -> no matches.
+					if (surface == null)
+					{
+						WriteMatch(matches, new Array());
+						return 0L;
+					}
+
+					var v = variation == null ? 0L : variation.Al();
+					var transColor = -1L;
+
+					if (trans != null && trans is not string { Length: 0 })
+						transColor = ParseColorArg(trans) & 0xFFFFFF;
+
+					var dir = direction == null ? 1 : (int)Math.Clamp(direction.Al(), 1L, 9L);
+					var finder = new ImageFinder(surface) { Variation = (byte)Math.Clamp(v, 0, 255) };
+					var found = finder.FindAll(needleBmp, transColor, dir);
+					var results = new Array();
+
+					foreach (var p in found)
+						_ = results.Push(MakePoint(p.X + offX, p.Y + offY));
+
+					WriteMatch(matches, results);
+					return found.Count > 0 ? 1L : 0L;
+				}
+				finally
+				{
+					if (own)
+						needleBmp.Dispose();
+
+					if (ownedSurface)
+						surface.Dispose();
+				}
+			}
+
+			/// <summary>
+			/// Searches this image for the first pixel matching a color (a color name, 0xRRGGBB, or 0xAARRGGBB —
+			/// PixelSearch over a captured/loaded image instead of the live screen) and writes it into the leading
+			/// <c>&amp;match</c> ByRef: on a hit <c>match := {x, y, color}</c> where <c>x</c>/<c>y</c> are ABSOLUTE
+			/// image pixels and <c>color</c> is the ACTUAL matched pixel's full 0xAARRGGBB (the same value
+			/// <see cref="GetPixel"/> returns, alpha included), and the call returns true (1); on a miss it returns
+			/// false (0) and sets <c>match</c> to "". Matching is RGB-only (alpha is ignored); the scan is
+			/// left-to-right, top-to-bottom.
+			///
+			/// <para>Two forms, dispatched by argument count AFTER <c>&amp;match</c>:
+			/// <c>SearchPixel(&amp;match, color [, variation])</c> (1-2 args) or
+			/// <c>SearchPixel(&amp;match, x, y, w, h, color [, variation])</c> (5+ args ⇒ region, clamped to the
+			/// image; returned coordinates stay ABSOLUTE). A count of 3 or 4 is a ValueError.
+			/// <paramref name="variation"/> (0-255) allows per-channel tolerance.</para>
+			/// </summary>
+			public object SearchPixel([ByRef] object match, params object[] args)
+			{
+				ThrowIfDisposed();
+				args ??= System.Array.Empty<object>();
+
+				bool hasRegion;
+				int rx = 0, ry = 0, rw = 0, rh = 0, rest;
+
+				if (args.Length >= 5)
+				{
+					hasRegion = true;
+					rx = args[0].Ai(); ry = args[1].Ai(); rw = args[2].Ai(); rh = args[3].Ai();
+					rest = 4;
+				}
+				else if (args.Length is 1 or 2)
+				{
+					hasRegion = false;
+					rest = 0;
+				}
+				else if (args.Length == 0)
+				{
+					WriteMatch(match, "");
+					return Errors.ValueErrorOccurred("SearchPixel requires a color.");
+				}
+				else // 3 or 4 args: neither a whole-image (1-2) nor a region (5+) call.
+				{
+					WriteMatch(match, "");
+					return Errors.ValueErrorOccurred("SearchPixel: invalid argument count. Use SearchPixel(&match, color [, variation]) or SearchPixel(&match, x, y, w, h, color [, variation]).");
+				}
+
+				var color = args[rest];
+				var variation = args.Length > rest + 1 ? args[rest + 1] : null;
+
+				var haystack = Materialize();
+
+				if (haystack == null)
+				{
+					WriteMatch(match, "");
+					return Errors.ValueErrorOccurred("There is no image to search.");
+				}
+
+				Bitmap surface = null;
+				var ownedSurface = false;
+
+				try
+				{
+					(surface, var offX, var offY, ownedSurface) = ResolveSearchSurface(haystack, hasRegion, rx, ry, rw, rh);
+
+					// Empty region -> zero pixels -> no match (and avoids reading a phantom pixel off-image).
+					if (surface == null)
+					{
+						WriteMatch(match, "");
+						return 0L;
+					}
+
+					var v = variation == null ? 0L : variation.Al();
+					var finder = new ImageFinder(surface) { Variation = (byte)Math.Clamp(v, 0, 255) };
+					var loc = finder.Find(ImageHelper.ArgbToColor(ParseColorArg(color, unchecked((int)0xFF000000), allowTransparentEmpty: false)), ltr: true, ttb: true);
+
+					if (loc.HasValue)
+					{
+						int ax = loc.Value.X + offX, ay = loc.Value.Y + offY;
+						// Report the actual pixel's full ARGB (what GetPixel would return), read from the haystack.
+						long argb = (long)(uint)haystack.GetPixel(ax, ay).ToArgb();
+						WriteMatch(match, MakePixel(ax, ay, argb));
+						return 1L;
+					}
+
+					WriteMatch(match, "");
+					return 0L;
+				}
+				finally
+				{
+					if (ownedSurface)
+						surface.Dispose();
+				}
+			}
+
+			// Dispatches the variadic search args into an optional leading (x,y,w,h) region and the index of the
+			// first remaining arg (the needle/color). `minRest` is how many args must follow the region (1 = a
+			// needle). >=4+minRest args ⇒ region form; 1..(3+minRest) ⇒ no region; 0 ⇒ false (caller errors).
+			private static bool ParseRegionArgs(object[] args, int minRest, out bool hasRegion, out int x, out int y, out int w, out int h, out int rest)
+			{
+				x = y = w = h = 0;
+
+				if (args.Length >= 4 + minRest)
+				{
+					hasRegion = true;
+					x = args[0].Ai(); y = args[1].Ai(); w = args[2].Ai(); h = args[3].Ai();
+					rest = 4;
+					return true;
+				}
+
+				hasRegion = false;
+				rest = 0;
+				return args.Length >= minRest;
+			}
+
+			// Builds the bitmap the finder actually scans: the full materialized haystack (no region), or a clamped
+			// (x,y,w,h) crop of it. Returns the pixel offset to add back to a match so reported coordinates stay
+			// ABSOLUTE, and whether the surface is a fresh copy the caller must dispose (the crop) or the shared
+			// haystack (must NOT dispose). Returns a NULL surface when the region is empty after clamping (a
+			// non-positive size, or an origin at/past an edge) — that genuinely contains zero pixels, so the caller
+			// short-circuits to "no match" rather than cropping to a degenerate 1x1 canvas the finder would
+			// spuriously match (which would then throw when read back at absolute coordinates off the image).
+			private static (Bitmap surface, int offX, int offY, bool owned) ResolveSearchSurface(Bitmap haystack, bool hasRegion, int x, int y, int w, int h)
+			{
+				if (!hasRegion)
+					return (haystack, 0, 0, false);
+
+				// Match CropBitmap's clamping so the offset we add back equals the crop's real origin.
+				int rx = Math.Clamp(x, 0, haystack.Width);
+				int ry = Math.Clamp(y, 0, haystack.Height);
+				int rw = Math.Clamp(w, 0, haystack.Width - rx);
+				int rh = Math.Clamp(h, 0, haystack.Height - ry);
+
+				if (rw <= 0 || rh <= 0)
+					return (null, 0, 0, false);
+
+				return (ImageHelper.CropBitmap(haystack, rx, ry, rw, rh), rx, ry, true);
+			}
+
+			// Writes a search result through a &match ByRef, using the same mechanism as MeasureText. A null ByRef
+			// (the arg was omitted) is tolerated so the boolean return is still meaningful.
+			private static void WriteMatch(object match, object value)
+			{
+				if (match != null)
+					Script.SetPropertyValue(match, "__Value", value);
+			}
+
+			// A v2 {x, y} match object with own properties (accessed m.x / m.y in scripts).
+			private static KeysharpObject MakePoint(long x, long y)
+			{
+				var o = new KeysharpObject();
+				o.DefinePropInternal("x", new OwnPropsDesc(o, x));
+				o.DefinePropInternal("y", new OwnPropsDesc(o, y));
+				return o;
+			}
+
+			// A v2 {x, y, color} pixel-match object; color is the pixel's full 0xAARRGGBB.
+			private static KeysharpObject MakePixel(long x, long y, long color)
+			{
+				var o = new KeysharpObject();
+				o.DefinePropInternal("x", new OwnPropsDesc(o, x));
+				o.DefinePropInternal("y", new OwnPropsDesc(o, y));
+				o.DefinePropInternal("color", new OwnPropsDesc(o, color));
+				return o;
 			}
 
 			/// <summary>
@@ -1013,6 +1493,7 @@ namespace Keysharp.Builtins
 			/// </summary>
 			public object GetPixelData(object bytesPerPixel = null)
 			{
+				ThrowIfDisposed();
 				var bpp = (int)(bytesPerPixel == null ? 1L : bytesPerPixel.Al());
 
 				if (bpp != 1 && bpp != 4)
@@ -1032,6 +1513,87 @@ namespace Keysharp.Builtins
 				}
 
 				return buf;
+			}
+
+			/// <summary>
+			/// Overwrites THIS image's pixels from raw pixel bytes — the inverse of <see cref="GetPixelData"/>.
+			/// <paramref name="data"/> is a <see cref="Buffer"/> (or any object exposing script-visible <c>Ptr</c>
+			/// and <c>Size</c> properties, the AHK duck-typing convention). It must describe EXACTLY
+			/// <c>Width * Height * bytesPerPixel</c> bytes for the image's current (materialized) dimensions (a
+			/// ValueError otherwise); it is not resized. <paramref name="bytesPerPixel"/> (default 4) selects the source layout, matching
+			/// GetPixelData: <c>1</c> = 8-bit grayscale (each byte becomes an opaque gray R=G=B=byte, A=255),
+			/// <c>4</c> = R, G, B, A byte order. The change is baked in immediately (like <see cref="SetPixel"/>).
+			/// Returns this image.
+			///
+			/// <para>On Windows the pixels are written in place through a 32bpp lock. On the Eto backends
+			/// (Linux/macOS) the current bitmap may be a 3-byte-per-pixel Pixbuf, so the result is written into a
+			/// fresh 32bpp canvas that replaces the current image rather than writing 4-byte pixels into 3bpp
+			/// storage; the observable result (dimensions and pixels) is identical.</para>
+			/// </summary>
+			public object SetPixelData(object data, object bytesPerPixel = null)
+			{
+				ThrowIfDisposed();
+
+				// Accept a Buffer OR any object with Ptr/Size properties (duck-typed, like StrGet): the shared
+				// Reflections helpers read a Buffer directly and fall back to a script-visible Ptr/Size otherwise.
+				long addr = Reflections.GetPtrProperty(data);
+				long have = Reflections.GetSizeProperty(data);
+
+				if (addr == 0 || have <= 0)
+					return Errors.ValueErrorOccurred("SetPixelData requires a Buffer or an object with Ptr and Size properties.");
+
+				var bpp = (int)(bytesPerPixel == null ? 4L : bytesPerPixel.Al());
+
+				if (bpp != 1 && bpp != 4)
+					return Errors.ValueErrorOccurred("SetPixelData supports only 1 (grayscale) or 4 (RGBA) bytes per pixel.");
+
+				nint ptr = new nint(addr);
+
+				if (ptr == 0)
+					return Errors.ValueErrorOccurred("SetPixelData: the pixel data pointer is null.");
+
+				var bmp = Materialize();
+
+				if (bmp == null)
+					return Errors.ValueErrorOccurred("There is no image to write.");
+
+				int w = bmp.Width, h = bmp.Height;
+				long need = (long)w * h * bpp;
+
+				if (have != need)
+					return Errors.ValueErrorOccurred($"SetPixelData needs exactly {need} bytes for the current {w}x{h} image but the buffer holds {have}.");
+
+#if WINDOWS
+				// LockBits(Format32bppArgb) exposes a 32bpp view of any source format, so writing in place is safe.
+				unsafe
+				{
+					ImageHelper.WriteBufferToBitmap(bmp, (byte*)ptr, bpp);
+				}
+
+				// Persist the edit as the new base so it survives a later Invalidate() (mirrors SetPixel/Bake):
+				// a no-op when `bmp` IS the base (edited in place), otherwise cached becomes the base.
+				Bake();
+#else
+				// Eto's Lock() exposes the bitmap's native storage, which for a loaded 24-bit image is a 3bpp
+				// Pixbuf; writing 4-byte pixels into that would corrupt/overrun it. Since the buffer describes
+				// every pixel anyway, write into a fresh guaranteed-32bpp canvas and swap it in as the new base
+				// rather than writing in place (mirrors the Bake swap: dispose old base/cached, clear the queue).
+				var canvas = ImageHelper.NewArgbCanvas(w, h);
+
+				unsafe
+				{
+					ImageHelper.WriteBufferToBitmap(canvas, (byte*)ptr, bpp);
+				}
+
+				cached?.Dispose();
+				cached = null;
+				baseBitmap?.Dispose();
+				baseBitmap = canvas;
+				pending.Clear();
+				DisposePendingResources();
+				SyncGcPressure();
+#endif
+				return this;
 			}
 
 			#endregion
@@ -1515,6 +2077,20 @@ namespace Keysharp.Builtins
 				}
 
 				pendingResources.Clear();
+			}
+
+			// Number of still-parked draw-source resources, exposed for tests to prove the mutable DrawImage path
+			// disposes eagerly (never parks) rather than leaking a bitmap per call.
+			internal int PendingResourcesCount => pendingResources.Count;
+
+			// Raises a ValueError from every public method/property once this image has been disposed, so a
+			// use-after-Dispose fails loudly and consistently instead of silently returning 0/"". Errors.*Occurred
+			// throws when the error is not suppressed by an OnError handler (the normal case), matching the rest
+			// of the class's error contract.
+			private void ThrowIfDisposed()
+			{
+				if (disposed)
+					_ = Errors.ValueErrorOccurred("This Image has been disposed.");
 			}
 
 			public object Dispose()

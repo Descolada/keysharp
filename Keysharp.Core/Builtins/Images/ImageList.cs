@@ -86,7 +86,12 @@ namespace Keysharp.Builtins
 			var filename = picFileName.As();
 			var iconnumber = ImageHelper.PrepareIconNumber(maskColor);
 			var resizeNonIcon = resize.Ab();
-			var il = Script.TheScript.ImageListData.imageLists.GetOrAdd(id, _ => new ImageList());
+
+			// Mirror AHK: IL_Add requires an ID returned by IL_Create. Auto-creating a list for an unknown id
+			// (the old GetOrAdd) produced a zero-sized non-Windows ImageList whose (0,0) ImageSize made
+			// SplitBitmap spin forever; refuse the unknown id instead.
+			if (!Script.TheScript.ImageListData.imageLists.TryGetValue(id, out var il))
+				return 0L;
 
 			if (ImageHelper.LoadImage(filename, 0, 0, iconnumber).Item1 is Bitmap bmp)
 			{

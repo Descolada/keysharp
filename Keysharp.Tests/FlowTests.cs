@@ -55,6 +55,28 @@ namespace Keysharp.Tests
 			", "7", true, false, 0)));
         }
 
+        // Regression for the double-teardown bug (ExitApp/Reload inside an OnExit handler). A nested ExitAppInternal
+        // ran the ENTIRE termination sequence (including the __Delete loop over static/global objects) and set
+        // hasExited, then the outer call resumed and ran it a SECOND time. A global object's __Delete fires exactly
+        // once per teardown, so with the bug it printed twice; the hasExited guard added to ExitAppInternal restores
+        // it to exactly once. Headless: no GUI or input required.
+        [Test, Category("Flow"), NonParallelizable]
+        public void FlowOnExitNestedExitApp()
+        {
+            var output = RunScript(@"
+				class Cleaner {
+					__Delete() {
+						FileAppend('D', '*')
+					}
+				}
+				g := Cleaner()
+				OnExit((*) => ExitApp())
+				ExitApp()
+			", "flow-onexit-nested-exitapp", true, false, 0);
+            var deletes = output.Count(c => c == 'D');
+            Assert.AreEqual(1, deletes, $"__Delete ran {deletes} time(s) during teardown; expected exactly 1. Raw output: [{output}]");
+        }
+
         [Test, Category("Flow")]
         public void FlowForIn() => Assert.IsTrue(TestScript("flow-for-in", false));
 

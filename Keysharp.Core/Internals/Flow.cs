@@ -117,6 +117,17 @@ namespace Keysharp.Internals
 				}
 			}
 
+			// If an OnExit handler requested a nested exit (it called ExitApp/Reload, or errored into one), that nested
+			// ExitAppInternal already ran the ENTIRE teardown below and set hasExited before its
+			// UserRequestedExitException was swallowed back in the handler-invocation path above. Re-running the teardown
+			// here would fire every __Delete/Dispose a second time, so restore interruption state and bail. On a normal
+			// (non-nested) exit hasExited is still false at this point, so teardown proceeds as before.
+			if (script.hasExited)
+			{
+				fd.allowInterruption = allowInterruptionPrev;
+				return false;
+			}
+
 			if (exitReason >= Keysharp.Builtins.Flow.ExitReasons.None && result.Al() != 0L)
 			{
 				Accessors.A_ExitReason = "";

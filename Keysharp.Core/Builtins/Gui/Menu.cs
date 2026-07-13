@@ -94,11 +94,15 @@ namespace Keysharp.Builtins
 			GetMenu().Name = $"Menu_{menuId}";
 			dummyHandle = Handle;//Must access the handle once to force creation.
 			// Track menu visibility (AutoHotkey's g_MenuIsVisible) so timers are held and the keyboard hook passes
-			// keystrokes through while this menu is open. Closed fires on every backend; Opened only on WinForms, so
-			// the other backends set the flag in Show() instead.
-			MenuItem.Closed += (_, _) => Script.TheScript.SetMenuVisible(false);
+			// keystrokes through while this menu is open. Visibility is reference-counted per menu id, so overlapping
+			// menus don't clobber each other. Closed fires on every backend; Opened only on WinForms, so the other
+			// backends set the flag in Show() instead.
+			MenuItem.Closed += (_, _) => Script.TheScript.SetMenuVisible(menuId, false);
 #if WINDOWS
-			MenuItem.Opened += (_, _) => Script.TheScript.SetMenuVisible(true);
+			MenuItem.Opened += (_, _) => Script.TheScript.SetMenuVisible(menuId, true);
+			// If the strip is disposed while still marked open (e.g. a non-blocking Show that never raised Closed),
+			// release its contribution so a torn-down menu can't strand the count and hold every timer forever.
+			MenuItem.Disposed += (_, _) => Script.TheScript.SetMenuVisible(menuId, false);
 #endif
 		}
 
@@ -490,7 +494,7 @@ namespace Keysharp.Builtins
 #if !WINDOWS
 				// Non-WinForms backends don't raise Opened, so mark the menu visible here (the ctor's Closed handler
 				// clears it). WinForms uses Opened/Closed for this and needs nothing extra.
-				Script.TheScript.SetMenuVisible(true);
+				Script.TheScript.SetMenuVisible(menuId, true);
 #endif
 
 				if (!shouldWait)
@@ -564,7 +568,7 @@ namespace Keysharp.Builtins
 			// The menu is closing as this item is chosen; clear visibility up front so the callback (and any timer it
 			// starts) isn't held by the menu-visible guard, regardless of whether Click or Closed fires first. Matches
 			// AutoHotkey clearing g_MenuIsVisible before the menu item's subroutine runs.
-			Script.TheScript.SetMenuVisible(false);
+			Script.TheScript.SetMenuVisible(menuId, false);
 
 			if (sender is ToolStripMenuItem tsmi)
 			{

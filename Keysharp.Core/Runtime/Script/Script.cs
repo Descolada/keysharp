@@ -191,15 +191,51 @@ namespace Keysharp.Runtime
 		internal bool inputTimerExists;
 		internal MainWindow mainWindow;
 		internal Gui mainWindowGui;
-		internal MenuType menuIsVisible = MenuType.None;
+		/// <summary>
+		/// Reference-counted set of menu IDs that are currently displayed. A single shared flag would let one menu
+		/// flip "not visible" while another is still open (or, for the default non-blocking Show, leave it stuck set),
+		/// so timers/hotkey subroutines fire during a menu or are held forever. Tracking a set keeps the menu-visible
+		/// state true until the LAST menu closes and is idempotent when the same menu reports closed twice (e.g.
+		/// Tsmi_Click clearing up-front and then the Closed event). The set is mutated only under <see cref="menuVisibleGate"/>
+		/// — its writers run on the UI thread (and, for the Windows MenuItem.Disposed reconcile, possibly the GC
+		/// finalizer thread), so the lock, not thread affinity, is what makes it safe; <see cref="menuVisibleCount"/>
+		/// mirrors its size as a volatile int so the low-level keyboard-hook thread can read visibility without a
+		/// lock or a torn value.
+		/// </summary>
+		private readonly HashSet<int> openMenuIds = [];
+		private readonly object menuVisibleGate = new();
+		private volatile int menuVisibleCount;
 
 		/// <summary>
-		/// True while a menu (tray, popup, or menu bar) is displayed. Mirrors AutoHotkey's g_MenuIsVisible: timers are
-		/// held (see the scheduler pump) and the keyboard hook passes keystrokes through natively while it is set.
+		/// AutoHotkey's g_MenuIsVisible: Popup while any menu is open, None otherwise. Kept typed as <see cref="MenuType"/>
+		/// because the keyboard hook (<c>WindowsHookThread</c>) and input readers (<c>InputType</c>) compare it against
+		/// <see cref="MenuType.None"/>. Reads the volatile mirror so those cross-thread reads see the UI-thread writes.
 		/// </summary>
-		internal bool IsMenuVisible => menuIsVisible != MenuType.None;
+		internal MenuType menuIsVisible => menuVisibleCount != 0 ? MenuType.Popup : MenuType.None;
 
-		internal void SetMenuVisible(bool visible) => menuIsVisible = visible ? MenuType.Popup : MenuType.None;
+		/// <summary>
+		/// True while at least one menu (tray, popup, or menu bar) is displayed. Mirrors AutoHotkey's g_MenuIsVisible:
+		/// timers are held (see the scheduler pump) and the keyboard hook passes keystrokes through natively while set.
+		/// </summary>
+		internal bool IsMenuVisible => menuVisibleCount != 0;
+
+		/// <summary>
+		/// Marks <paramref name="menuId"/> as shown (<paramref name="visible"/> true) or closed. Reference-counted and
+		/// idempotent per menu, so overlapping menus and the double clear from Tsmi_Click + the Closed event can't
+		/// clobber each other. Writing the volatile <see cref="menuVisibleCount"/> publishes the change to the hook thread.
+		/// </summary>
+		internal void SetMenuVisible(int menuId, bool visible)
+		{
+			lock (menuVisibleGate)
+			{
+				if (visible)
+					_ = openMenuIds.Add(menuId);
+				else
+					_ = openMenuIds.Remove(menuId);
+
+				menuVisibleCount = openMenuIds.Count;
+			}
+		}
 
 		internal int nMessageBoxes;
 		internal CallbackRegistry<CallbackRegistration> onErrorHandlers = new();

@@ -85,9 +85,11 @@ namespace Keysharp.Builtins
 			public object X { get => (long)x; set { x = value.Ai(); MoveLive(); } }
 			public object Y { get => (long)y; set { y = value.Ai(); MoveLive(); } }
 
-			/// <summary>Overlay width in LOGICAL draw units (physical size = W * Scale). Changing it while a canvas
-			/// already exists recreates the drawing canvas at the new size, discarding the old content to transparent
-			/// (so drawing into the widened area is no longer clipped), then re-lays-out the live surface.</summary>
+			/// <summary>Overlay width in LOGICAL draw units (physical size = W * Scale). Changing it resizes the live
+			/// surface; the existing canvas is KEPT and the backing STRETCHES it to the new size (a display-time scale,
+			/// not a bitmap rebuild), so a solid-fill or tile overlay can grow every frame cheaply without discarding
+			/// its content. Draw ops keep targeting the canvas at its authored resolution — to draw crisply at a larger
+			/// size, set <see cref="Scale"/> or recreate the overlay.</summary>
 			public object W
 			{
 				get
@@ -97,12 +99,11 @@ namespace Keysharp.Builtins
 
 					return canvas != null ? (long)Math.Round(canvas.Width / scale) : 0L;
 				}
-				set { w = value.Ai(); ResizeCanvasIfNeeded(); MoveLive(); }
+				set { w = value.Ai(); MoveLive(); }
 			}
 
-			/// <summary>Overlay height in LOGICAL draw units (physical size = H * Scale). Changing it recreates the
-			/// drawing canvas at the new size, discarding the old content to transparent, then re-lays-out the live
-			/// surface — see <see cref="W"/>.</summary>
+			/// <summary>Overlay height in LOGICAL draw units (physical size = H * Scale). Changing it stretches the live
+			/// surface to the new size (the canvas is kept, not rebuilt) — see <see cref="W"/>.</summary>
 			public object H
 			{
 				get
@@ -112,7 +113,7 @@ namespace Keysharp.Builtins
 
 					return canvas != null ? (long)Math.Round(canvas.Height / scale) : 0L;
 				}
-				set { h = value.Ai(); ResizeCanvasIfNeeded(); MoveLive(); }
+				set { h = value.Ai(); MoveLive(); }
 			}
 
 			/// <summary>Content/DPI scale. The on-screen size is the logical width/height times this factor, and
@@ -346,8 +347,8 @@ namespace Keysharp.Builtins
 				if (!EnsureCanvas(out _))
 					return this;   // sizeless overlay: EnsureCanvas raised the error (throws in throw-mode); keep chaining otherwise
 
-				ResizeCanvasIfNeeded();   // a pre-existing canvas whose authored size changed is rebuilt at the new size
-
+				// A resize just changes the displayed size; the backing STRETCHES the existing canvas to the new W/H
+				// (see the W property), so growing a tile/fill overlay keeps its content instead of blanking it.
 				visible = true;
 				MaybeRefresh();
 				return this;
@@ -360,7 +361,8 @@ namespace Keysharp.Builtins
 				if (newW != null) w = newW.Ai();
 				if (newH != null) h = newH.Ai();
 
-				ResizeCanvasIfNeeded();   // a resize here rebuilds the canvas so later draws use the full new area
+				// The backing STRETCHES the existing canvas to the new W/H (see the W property) — a resize is a display
+				// scale, not a bitmap rebuild — so a tile/fill overlay resized every frame keeps its content.
 				MoveLive();
 				return this;
 			}
@@ -451,23 +453,6 @@ namespace Keysharp.Builtins
 
 				error = Errors.ValueErrorOccurred("Could not create the overlay canvas.");
 				return false;
-			}
-
-			// When the authored width/height change and a canvas already exists, recreate it at the new PHYSICAL
-			// resolution — discarding the old content to transparent (the same discard rule as a Scale change) — so
-			// later draws use the full new area instead of being clipped to the old bitmap and merely stretched to fit.
-			// A no-op when there is no canvas, when the overlay is SetImage-sized (w/h == 0), or when the size is unchanged.
-			private void ResizeCanvasIfNeeded()
-			{
-				if (canvas == null || w <= 0 || h <= 0)
-					return;
-
-				if (canvas.Width == CanvasW && canvas.Height == CanvasH)
-					return;
-
-				canvas.Dispose();
-				canvas = null;
-				_ = EnsureCanvas(out _);   // recreate a blank canvas at the new size (w, h > 0 guaranteed above)
 			}
 
 			// Repaints the live surface after a mutation, but ONLY when actually visible and not inside a

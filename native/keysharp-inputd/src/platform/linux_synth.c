@@ -1447,8 +1447,6 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
 {
     int result = 0;
 
-    (void)flags;
-
     if (uinput_fd < 0) {
         fprintf(stderr, "inputd: synthesis unavailable; %s could not be opened\n", KSI_UINPUT_PATH);
         return -1;
@@ -1459,11 +1457,18 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
      * previous, unrelated batch (e.g. one client's malformed/truncated
      * SendText ending mid-surrogate) into THIS batch, where it could splice
      * with an unrelated leading low surrogate and emit the wrong codepoint.
-     * Each top-level batch is expected to be well-formed UTF-16 on its own,
-     * so starting every batch with a clean slate is always correct and only
-     * ever discards state that was already an error (an unpaired surrogate)
-     * from a prior call. */
-    pending_high_surrogate = 0;
+     * Each top-level CLIENT batch is expected to be well-formed UTF-16 on its
+     * own, so starting every client batch with a clean slate is correct.
+     *
+     * A BATCH_FRAGMENT push is NOT a client batch: it is one event of an
+     * already-received batch that the synthetic-hook routing re-emits
+     * individually (hook_ingress.inc), so a surrogate pair legitimately spans
+     * two fragment calls. Resetting between fragments discarded the high half
+     * and silently dropped every astral character (emoji) whenever a keyboard
+     * hook was installed — so fragments keep the pending state. */
+    if ((flags & KSI_SYNTH_FLAG_BATCH_FRAGMENT) == 0u) {
+        pending_high_surrogate = 0;
+    }
 
     /* Enable per-event pacing for this batch (see emit_event_to). The chunk
      * counter is deliberately NOT reset here: it is shared and persists across

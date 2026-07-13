@@ -39,8 +39,13 @@ static bool synth_batch_needs_hook_queue(
 
 static bool enqueue_synth_direct(ksi_daemon_state *state, const ksi_input *input)
 {
+    /* BATCH_FRAGMENT: this is one event of an already-received client batch (the
+     * synthetic hook queue re-emits them individually), so per-batch synthesis
+     * state (the pending unicode high surrogate) must carry across to the next
+     * fragment rather than being reset (see ksi_linux_synth_send_input). */
     return output_queue_push_synth(
-        &state->output_queue, input, 1u, KSI_SYNTH_FLAG_BYPASS_HOOK);
+        &state->output_queue, input, 1u,
+        KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT);
 }
 
 static bool enqueue_synth_direct_complete(
@@ -90,7 +95,10 @@ static bool process_synthetic_hook_input(
     memset(&egress, 0, sizeof(egress));
     egress.type = KSI_LANE_EGRESS_SYNTH;
     egress.synth_count = 1u;
-    egress.synth_flags = KSI_SYNTH_FLAG_BYPASS_HOOK;
+    /* BATCH_FRAGMENT: same reason as enqueue_synth_direct — this egress is one
+     * event of a split client batch, so the per-batch surrogate reset must not
+     * run between it and its sibling fragments. */
+    egress.synth_flags = KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT;
     egress.synth_inputs[0] = *input;
 
     atomic_store(&state->synthetic_hook_inflight, 1);

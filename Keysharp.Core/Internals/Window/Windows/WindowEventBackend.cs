@@ -132,7 +132,23 @@ namespace Keysharp.Internals.Window.Windows
 			if (eventType == EVENT_SYSTEM_FOREGROUND && WindowsAPI.GetForegroundWindow() != hwnd)
 				return;
 
-			sink(new WindowEventRaw(type.Value, hwnd, dwmsEventTime));
+			sink(new WindowEventRaw(type.Value, hwnd, ToMonotonicMs(dwmsEventTime)));
+		}
+
+		/// <summary>
+		/// Normalizes the native 32-bit <paramref name="dwmsEventTime"/> (GetTickCount milliseconds at the moment the
+		/// event occurred, which wraps every ~49.7 days) into the locked cross-platform WinEvent time contract: a
+		/// 64-bit monotonic milliseconds-since-boot timestamp on the same clock as <see cref="Environment.TickCount64"/>
+		/// (what the Linux/macOS backends emit). The full 64-bit value is reconstructed from the current tick count so
+		/// it never wraps and stays comparable across backends. Out-of-context hooks are delivered within milliseconds
+		/// of the event, so the unsigned 32-bit delta recovers the true event time even across a 32-bit wrap boundary;
+		/// a timestamp that appears to be in the future (minor clock skew) is clamped to "now".
+		/// </summary>
+		private static long ToMonotonicMs(uint dwmsEventTime)
+		{
+			var now64 = Environment.TickCount64;
+			var elapsed = (uint)now64 - dwmsEventTime;   // unsigned subtraction: correct across a 32-bit GetTickCount wrap
+			return elapsed > int.MaxValue ? now64 : now64 - elapsed;
 		}
 
 		private static WindowEventType? TypeFor(uint eventType) => eventType switch

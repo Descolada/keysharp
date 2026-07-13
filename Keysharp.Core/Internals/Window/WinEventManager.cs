@@ -331,17 +331,30 @@ namespace Keysharp.Internals.Window
 				return;
 			}
 
-			// Resolve Move geometry eagerly, once per event, so A_EventInfo reflects the window's position at event
-			// time — not wherever it has drifted to by the time the callback happens to read A_EventInfo (events are
-			// queued, so a deferred query would be stale during drags/backlogs). The Wayland backends carry the
-			// bounds on the event; X11/Windows do a cheap local query here. Only the script-object construction is
-			// deferred (BuildMoveEventInfo via SetEventInfo).
-			Rectangle? moveBounds = raw.Type == WindowEventType.Move ? raw.Bounds ?? QueryBounds(raw.Hwnd) : null;
+			// Resolve Move geometry at event time (not when the queued callback later reads A_EventInfo — by then the
+			// window may have drifted during a drag/backlog), but only once a registration actually matches: a full
+			// WindowQuery per unrelated window drag on the pump thread is wasteful, so defer the query to the first
+			// matching reg and memoize it for the rest. Nothing is queried when nothing matches. The Wayland backends
+			// carry the bounds on the event (raw.Bounds); X11/Windows do the cheap local query here. Only the
+			// script-object construction is deferred further (BuildMoveEventInfo via SetEventInfo).
+			var isMove = raw.Type == WindowEventType.Move;
+			Rectangle? moveBounds = null;
+			var moveBoundsResolved = false;
 
 			foreach (var reg in snapshot)
 			{
-				if (reg.active && Matches(reg, raw.Hwnd))
-					FireOnce(reg, raw.Hwnd, raw.TimeMs, moveBounds);
+				if (!reg.active || !Matches(reg, raw.Hwnd))
+					continue;
+
+				if (isMove && !moveBoundsResolved)
+				{
+					// Queried at event time (still synchronously inside this native intake), just only now that we know
+					// a subscription cares — preserving the event-time-capture rationale without paying it speculatively.
+					moveBounds = raw.Bounds ?? QueryBounds(raw.Hwnd);
+					moveBoundsResolved = true;
+				}
+
+				FireOnce(reg, raw.Hwnd, raw.TimeMs, moveBounds);
 			}
 		}
 
@@ -511,10 +524,18 @@ namespace Keysharp.Internals.Window
 			if (scheduler == null || scheduler.IsDisposed)
 				return;
 
-			// Every event uses the same callback shape: (hook, hwnd, dwmsEventTime). Event-specific extras live in
-			// A_EventInfo instead — for Move, an object with { x, y, w, h } (the window's position/size, matching
-			// WinGetPos). The geometry was captured eagerly by the caller (moveBounds); only building the
-			// script object is deferred (see RunOnSchedulerThread), so no allocation happens unless A_EventInfo is read.
+			// Every event uses the same callback shape: (hook, hwnd, time). Event-specific extras live in A_EventInfo
+			// instead — for Move, an object with { x, y, w, h } (the window's position/size, matching WinGetPos). The
+			// geometry was captured at event time by the caller (moveBounds); only building the script object is
+			// deferred (see RunOnSchedulerThread), so no allocation happens unless A_EventInfo is read.
+			//
+			// Callback-time contract (locked, cross-platform): the 3rd arg is a 64-bit monotonic milliseconds-since-boot
+			// timestamp on the Environment.TickCount64 timebase, reporting when the event occurred wherever possible.
+			// Windows reconstructs it from the native event time (WindowEventBackend.ToMonotonicMs); macOS stamps it at
+			// delivery. On X11 it is the X server time converted to that base for events that carry one (PropertyNotify
+			// → Active/TitleChange/Minimize/Restore/Create/Close), else the receipt time (ConfigureNotify/Map/Unmap →
+			// Move/Show/Minimize). It never wraps (unlike Windows' raw 32-bit dwmsEventTime) and is comparable across
+			// backends, but is NOT wall-clock time — only meaningful relative to itself.
 			object[] args = [reg.scriptObject, hwnd.ToInt64(), timeMs];
 			_ = scheduler.Enqueue(ScriptEventQueue.Normal, 0, () => RunOnSchedulerThread(scheduler, reg, hwnd, timeMs, args, moveBounds));
 

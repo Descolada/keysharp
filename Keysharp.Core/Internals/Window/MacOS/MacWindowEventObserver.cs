@@ -344,8 +344,9 @@ namespace Keysharp.Internals.Window.MacOS
 		/// <summary>Registers the per-window notifications (move/resize/minimize/restore/title-change/destroy) for a
 		/// window element, keyed by its CGWindowID (passed as the refcon so they can be attributed in the callback —
 		/// essential for destroy, whose element is already dead), and optionally emits Create+Show for a freshly
-		/// created window. Returns the resolved CGWindowID (0 if it couldn't be determined); already-tracked windows
-		/// are returned as-is without re-registering or re-emitting.</summary>
+		/// created window. Returns the resolved CGWindowID (0 if it couldn't be determined — the create path then
+		/// schedules a bounded retry via <see cref="ScheduleTrackRetry"/>); already-tracked windows are returned as-is
+		/// without re-registering or re-emitting.</summary>
 		private static uint TrackWindow(AppObserverState state, nint windowElement, bool emitCreateShow)
 		{
 			if (!TryResolveWindowId(windowElement, out var id))
@@ -408,6 +409,56 @@ namespace Keysharp.Internals.Window.MacOS
 			return false;
 		}
 
+		// A just-created window whose CGWindowID isn't resolvable yet is retried a few times at a short interval before
+		// being given up on (a window that never resolves — e.g. a transient that closed immediately — must not retry
+		// forever). ~5 * 60ms covers the typical AXWindowNumber-population lag without a perceptible Create/Show delay.
+		private const int WindowCreateResolveRetries = 5;
+		private const int WindowCreateResolveRetryMs = 60;
+
+		/// <summary>Schedules a bounded, short-delay retry to resolve and track a just-created window whose CGWindowID
+		/// wasn't available at AXWindowCreated time (AXWindowNumber not yet populated / window still offscreen). The
+		/// element is retained across the delay; a managed one-shot timer hops back to the main thread (all AX access
+		/// must happen there) before re-attempting via <see cref="TrackWindow"/>, which emits Create/Show once it
+		/// resolves. Without this the window would be invisible to WinEvent — no Create/Show and no per-window
+		/// move/close/etc. — for its whole life.</summary>
+		private static void ScheduleTrackRetry(AppObserverState state, nint windowElement, int remaining)
+		{
+			if (remaining <= 0 || windowElement == 0 || !windowEventsRunning)
+				return;
+
+			// Keep the element alive across the delay (the AX framework owns it only for the callback's duration).
+			// Called on the main thread, so this CFRetain — like the matching CFRelease below — stays main-thread.
+			var retained = CFRetain(windowElement);
+
+			if (retained == 0)
+				return;
+
+			System.Threading.Timer timer = null;
+			timer = new System.Threading.Timer(_ =>
+			{
+				timer.Dispose();   // one-shot
+
+				// The timer callback is on a thread-pool thread; all AX/observer state is main-thread-only, so hop back.
+				Script.PostToUIThread(() =>
+				{
+					try
+					{
+						// Only retry while this exact observer is still live — the app may have terminated meanwhile,
+						// which removes/replaces its state and releases its element registrations.
+						if (windowEventsRunning
+							&& appObservers.TryGetValue(state.pid, out var live)
+							&& ReferenceEquals(live, state)
+							&& TrackWindow(live, retained, emitCreateShow: true) == 0)
+							ScheduleTrackRetry(live, retained, remaining - 1);
+					}
+					finally
+					{
+						CFRelease(retained);
+					}
+				});
+			}, null, WindowCreateResolveRetryMs, System.Threading.Timeout.Infinite);
+		}
+
 		// --- the run-loop callback -------------------------------------------------------------------------------
 
 		private static void ObserverCallback(nint observer, nint element, nint notification, nint refcon)
@@ -467,8 +518,11 @@ namespace Keysharp.Internals.Window.MacOS
 				}
 				else if (CFEqual(notification, nWindowCreated))
 				{
-					if (appObservers.TryGetValue((int)refcon, out var state))
-						_ = TrackWindow(state, element, emitCreateShow: true);
+					// TrackWindow returns 0 when the CGWindowID isn't resolvable yet (AXWindowNumber not populated for a
+					// brand-new/offscreen window). Dropping it here would leave the window invisible to WinEvent for its
+					// whole life, so schedule a bounded short retry (by which time AXWindowNumber is normally set).
+					if (appObservers.TryGetValue((int)refcon, out var state) && TrackWindow(state, element, emitCreateShow: true) == 0)
+						ScheduleTrackRetry(state, element, WindowCreateResolveRetries);
 				}
 				else if (CFEqual(notification, nFocusedWindowChanged))
 				{
@@ -518,6 +572,10 @@ namespace Keysharp.Internals.Window.MacOS
 				lastActiveHwnd = hwnd;
 			}
 
+			// The 3rd callback arg follows the locked cross-platform contract: a 64-bit monotonic milliseconds-since-boot
+			// timestamp (Environment.TickCount64), stamped at delivery — the same clock the Linux backend uses and what
+			// the Windows backend reconstructs from its native 32-bit event time. AX notifications carry no usable event
+			// time, so delivery time is the closest we can capture.
 			sink(new WindowEventRaw(type, hwnd, Environment.TickCount64) { Bounds = bounds, DestroyConfirmed = destroyConfirmed });
 		}
 

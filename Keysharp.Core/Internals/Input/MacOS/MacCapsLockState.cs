@@ -40,6 +40,11 @@ namespace Keysharp.Internals.Input.MacOS
 		private static extern nint mach_task_self();
 
 		private static readonly Lock connLock = new();
+		// Serializes the get+set pair in TryToggle so two intended toggles (physical suppressed CapsLock on
+		// the CGEvent-tap thread and Send("{CapsLock}") on the script/sender thread) can't interleave their
+		// read-modify-write and collapse into a single net toggle. Distinct from connLock (which only guards
+		// connection acquisition), so no reentrancy is assumed.
+		private static readonly Lock toggleLock = new();
 		private static uint connection;
 		private static bool connectionFailed;
 
@@ -103,7 +108,10 @@ namespace Keysharp.Internals.Input.MacOS
 			&& IOHIDSetModifierLockState(conn, kIOHIDCapsLockState, on) == 0;
 
 		internal static bool TryToggle()
-			=> TryGet(out var on) && TrySet(!on);
+		{
+			lock (toggleLock)
+				return TryGet(out var on) && TrySet(!on);
+		}
 	}
 }
 #endif

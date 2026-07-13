@@ -103,9 +103,10 @@ namespace Keysharp.Internals.Input.MacOS
 		[LibraryImport(ApplicationServices, StringMarshalling = StringMarshalling.Utf16)]
 		internal static partial void CGEventKeyboardSetUnicodeString(nint cgEvent, long stringLength, string unicodeString);
 
+		// Pointer-based signature (UniChar == C# char, both UTF-16) so callers can pass a stack/Span buffer
+		// and TryGetKeyboardUnicodeString need not allocate a marshalled char[] per keystroke.
 		[DllImport(ApplicationServices)]
-		internal static extern void CGEventKeyboardGetUnicodeString(nint cgEvent, long maxStringLength, out long actualStringLength,
-			[Out, MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 1)] char[] unicodeString);
+		internal static extern unsafe void CGEventKeyboardGetUnicodeString(nint cgEvent, long maxStringLength, out long actualStringLength, char* unicodeString);
 
 		[DllImport(ApplicationServices)]
 		internal static extern nint CGEventTapCreate(uint tap, uint place, uint options, ulong eventsOfInterest, CGEventTapCallBack callback, nint userInfo);
@@ -193,13 +194,26 @@ namespace Keysharp.Internals.Input.MacOS
 			return mask;
 		}
 
+		// One process-wide CGEventSource reused across every Post* call. CGEventSourceCreate makes a heavy
+		// window-server round-trip, so creating+releasing one per event was costly over a large Send or a
+		// smooth MouseMove loop. A null (zero) source is still valid for CGEventCreate*, so whatever the
+		// factory returns is cached and never retried. The process owns it for its lifetime (there is no
+		// per-instance shutdown hook for this static class), so it is not released per event.
+		private static nint sharedEventSource;
+		private static bool sharedEventSourceInitialized;
+		private static object sharedEventSourceLock;
+
+		private static nint SharedEventSource()
+			=> LazyInitializer.EnsureInitialized(
+				ref sharedEventSource, ref sharedEventSourceInitialized, ref sharedEventSourceLock,
+				static () => CGEventSourceCreate(kCGEventSourceStateHIDSystemState));
+
 		internal static void PostKeyboard(uint vk, bool keyDown, long extraInfo)
 		{
 			if (!KeyCodes.TryMapVkToMacCode(vk, out var keyCode))
 				return;
 
-			var source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
-			var ev = CGEventCreateKeyboardEvent(source, (ushort)keyCode, keyDown);
+			var ev = CGEventCreateKeyboardEvent(SharedEventSource(), (ushort)keyCode, keyDown);
 
 			if (ev != nint.Zero)
 			{
@@ -207,9 +221,6 @@ namespace Keysharp.Internals.Input.MacOS
 				CGEventPost(kCGHIDEventTap, ev);
 				CFRelease(ev);
 			}
-
-			if (source != nint.Zero)
-				CFRelease(source);
 		}
 
 		internal static void PostUnicodeText(string text, long extraInfo)
@@ -227,20 +238,21 @@ namespace Keysharp.Internals.Input.MacOS
 			if (cgEvent == nint.Zero || buffer.Length == 0)
 				return false;
 
-			var chars = new char[buffer.Length];
-			CGEventKeyboardGetUnicodeString(cgEvent, chars.Length, out var actualLength, chars);
-			length = (int)Math.Clamp(actualLength, 0, chars.Length);
+			long actualLength;
 
-			if (length == 0)
-				return false;
+			unsafe
+			{
+				fixed (char* p = buffer)
+					CGEventKeyboardGetUnicodeString(cgEvent, buffer.Length, out actualLength, p);
+			}
 
-			chars.AsSpan(0, length).CopyTo(buffer);
-			return true;
+			length = (int)Math.Clamp(actualLength, 0, buffer.Length);
+			return length != 0;
 		}
 
 		private static void PostUnicodeScalar(string scalar, long extraInfo)
 		{
-			var source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+			var source = SharedEventSource();
 
 			void Post(bool down)
 			{
@@ -256,9 +268,6 @@ namespace Keysharp.Internals.Input.MacOS
 
 			Post(true);
 			Post(false);
-
-			if (source != nint.Zero)
-				CFRelease(source);
 		}
 
 		internal static void PostMouseMove(int x, int y, long extraInfo)
@@ -297,7 +306,7 @@ namespace Keysharp.Internals.Input.MacOS
 			if (clicks == 0)
 				clicks = Math.Sign(delta);
 
-			var source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+			var source = SharedEventSource();
 			var ev = direction == MouseWheelScrollDirection.Vertical
 				? CGEventCreateScrollWheelEvent(source, 1, 1, clicks, 0, 0)
 				: CGEventCreateScrollWheelEvent(source, 1, 2, 0, clicks, 0);
@@ -308,15 +317,11 @@ namespace Keysharp.Internals.Input.MacOS
 				CGEventPost(kCGHIDEventTap, ev);
 				CFRelease(ev);
 			}
-
-			if (source != nint.Zero)
-				CFRelease(source);
 		}
 
 		private static void PostMouseEvent(uint type, CGPoint point, uint button, long extraInfo)
 		{
-			var source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
-			var ev = CGEventCreateMouseEvent(source, type, point, button);
+			var ev = CGEventCreateMouseEvent(SharedEventSource(), type, point, button);
 
 			if (ev != nint.Zero)
 			{
@@ -324,9 +329,6 @@ namespace Keysharp.Internals.Input.MacOS
 				CGEventPost(kCGHIDEventTap, ev);
 				CFRelease(ev);
 			}
-
-			if (source != nint.Zero)
-				CFRelease(source);
 		}
 
 		internal static MouseButton ToMouseButton(uint type, uint buttonNumber) => type switch

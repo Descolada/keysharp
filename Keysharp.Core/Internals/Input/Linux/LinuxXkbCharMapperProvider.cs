@@ -217,7 +217,9 @@ namespace Keysharp.Internals.Input.Unix
 				return bn;
 			}
 
-			if (!TryGetKeysymForKeystroke(vk, shift, altGr, out var keysym))
+			// Reuse the layout group already resolved above so we don't trigger a second XkbGetState X
+			// protocol round-trip inside TryGetKeysymForKeystroke for the same physical key.
+			if (!TryGetKeysymForKeystroke(vk, shift, altGr, activeLayout, out var keysym))
 				return KeyCodes.TranslateNotHandled;
 
 			if (deadKeysyms.TryGetValue(keysym, out var dead)) // This key is a dead key.
@@ -281,7 +283,9 @@ namespace Keysharp.Internals.Input.Unix
 				pendingDead.Clear();
 		}
 
-		private bool TryGetKeysymForKeystroke(uint vk, bool shift, bool altGr, out uint keysym)
+		// activeLayout is the raw layout group snapshotted once per keystroke by the caller, so this method
+		// does not issue its own XkbGetState round-trip; it is normalized per-key below.
+		private bool TryGetKeysymForKeystroke(uint vk, bool shift, bool altGr, uint activeLayout, out uint keysym)
 		{
 			keysym = 0;
 
@@ -291,7 +295,7 @@ namespace Keysharp.Internals.Input.Unix
 			if (!TryGetReadyKeymap(out var currentKeymap))
 				return false;
 
-			var layout = NormalizeLayoutForKey(currentKeymap, keycode, GetActiveLayout());
+			var layout = NormalizeLayoutForKey(currentKeymap, keycode, activeLayout);
 			int levels = xkb_keymap_num_levels_for_key(currentKeymap, keycode, layout);
 
 			for (uint level = 0; level < (uint)levels; level++)

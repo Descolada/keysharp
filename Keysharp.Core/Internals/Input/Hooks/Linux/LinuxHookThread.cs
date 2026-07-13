@@ -779,7 +779,26 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 					if (CursorClipActive)
 						ClearCursorClip();
 
-					Ks.OutputDebugLine($"keysharp-inputd hooks lost repeatedly; global hooks disabled: {reason}");
+					// Give up: mirror ChangePlatformHookState's disable path. keyboardEnabled/mouseEnabled were
+					// already cleared above, but kbdHook/mouseHook stayed non-zero and SyncHookMutexes was never
+					// called. Without this, HasKbdHook()/HasMouseHook() (and thus A_KeybdHookInstalled/
+					// A_MouseHookInstalled) keep reporting installed, and the cross-process named
+					// 'Keysharp Keybd'/'Keysharp Mouse' mutexes stay held -- making OTHER Keysharp scripts wrongly
+					// think a system hook exists and push their Send onto the SendInput fallback.
+					var giveUpMessage = $"keysharp-inputd hooks lost repeatedly; global hooks disabled: {reason}";
+
+					lock (hookStateLock)
+					{
+						kbdHook = 0;
+						mouseHook = 0;
+						// Record why we gave up so GetHookActivationFailureReason()/A_*HookInstalled reflect the
+						// disabled state, rather than leaving a stale message from the last activation attempt (matches
+						// how the normal disable path sets lastHookActivationFailure).
+						lastHookActivationFailure = giveUpMessage;
+					}
+
+					SyncHookMutexes(changeIsTemporary: false);
+					Ks.OutputDebugLine(giveUpMessage);
 					return;
 				}
 			}

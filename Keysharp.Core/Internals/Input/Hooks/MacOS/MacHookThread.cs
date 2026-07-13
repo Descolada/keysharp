@@ -88,20 +88,23 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 
 			var flags = MacNativeInput.CGEventGetFlags(cgEvent);
 			var extraInfo = unchecked((ulong)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGEventSourceUserData));
-			var unicodeBuffer = new char[8];
-			var unicodeLength = 0;
 			var isKeysharpInjected = HasKeysharpInjectedExtraInfo(extraInfo);
-			var hasSyntheticUnicode = isKeysharpInjected
-				&& type == MacNativeInput.kCGEventKeyDown
-				&& MacNativeInput.TryGetKeyboardUnicodeString(cgEvent, unicodeBuffer, out unicodeLength);
 
-			if (hasSyntheticUnicode)
-				return ProcessSyntheticUnicodeText(unicodeBuffer, unicodeLength, flags, extraInfo);
+			// Only Keysharp-injected events can carry a synthetic Unicode payload (physical keys never do), so
+			// the buffer -- and the CGEventKeyboardGetUnicodeString round-trip -- is only needed here. Deferring
+			// the stackalloc until this is known true keeps the common physical-key path allocation-free.
+			if (isKeysharpInjected)
+			{
+				Span<char> unicodeBuffer = stackalloc char[8];
 
-			if (isKeysharpInjected
-				&& type == MacNativeInput.kCGEventKeyUp
-				&& MacNativeInput.TryGetKeyboardUnicodeString(cgEvent, unicodeBuffer, out _))
-				return false;
+				if (type == MacNativeInput.kCGEventKeyDown
+					&& MacNativeInput.TryGetKeyboardUnicodeString(cgEvent, unicodeBuffer, out var unicodeLength))
+					return ProcessSyntheticUnicodeText(unicodeBuffer[..unicodeLength], flags, extraInfo);
+
+				if (type == MacNativeInput.kCGEventKeyUp
+					&& MacNativeInput.TryGetKeyboardUnicodeString(cgEvent, unicodeBuffer, out _))
+					return false;
+			}
 
 			var sc = (uint)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGKeyboardEventKeycode);
 			if (!KeyCodes.TryMapMacCodeToVk(sc, out var vk) || vk == 0)
@@ -118,13 +121,13 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			return ProcessNativeKeyboardEvent(args, vk, sc, keyUp, extraInfo);
 		}
 
-		private bool ProcessSyntheticUnicodeText(char[] chars, int length, ulong flags, ulong extraInfo)
+		private bool ProcessSyntheticUnicodeText(ReadOnlySpan<char> chars, ulong flags, ulong extraInfo)
 		{
 			var mask = MacNativeInput.ToEventMask(flags) | EventMask.SimulatedEvent;
 			Keysharp.Internals.MacKeyboard.UpdateIndicatorSnapshotFromMask(mask);
 			var suppress = false;
 
-			for (var i = 0; i < length; i++)
+			for (var i = 0; i < chars.Length; i++)
 			{
 				var args = new KeyboardHookEventArgs(EventType.KeyPressed, VK_PACKET, chars[i], mask);
 				_ = ProcessNativeKeyboardEvent(args, VK_PACKET, chars[i], keyUp: false, extraInfo);

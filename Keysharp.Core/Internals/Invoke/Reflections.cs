@@ -495,10 +495,16 @@ namespace Keysharp.Internals.Invoke
 			return ct;
 		}
 
-		internal static long GetPtrProperty(object item, bool throwIfZero = false)
+		/// <summary>
+		/// Tries to obtain a usable pointer from <paramref name="item"/>: a raw address (long), an
+		/// <see cref="IPointable"/>'s Ptr, a script-visible "ptr" property on an <see cref="Any"/>, or a
+		/// numeric fallback (a non-pointer object yields 0).
+		/// <para>The bool means "a usable, non-null pointer was obtained": it returns false for a null/absent
+		/// pointer, in which case <paramref name="addr"/> is 0. Contrast with <see cref="TryGetSizeProperty"/>,
+		/// whose bool means "a Size property was present" and can be true with a value of 0.</para>
+		/// </summary>
+		internal static bool TryGetPtrProperty(object item, out long addr)
 		{
-			long addr = 0L;
-
 			if (item is long l)
 				addr = l;
 			else if (item is IPointable buf)//Put Buffer, StringBuffer etc check first because it's faster and more likely.
@@ -506,28 +512,26 @@ namespace Keysharp.Internals.Invoke
 			else if (item is Any kso && Script.GetPropertyValueOrNull(kso, "ptr") is object p)
 				addr = p.Al();
 			else
-				addr = item.Al();
+				addr = item.Al();//A numeric value is a raw address; a non-pointer object yields 0.
 
-			if (throwIfZero && addr == 0L)
-				return (long)Errors.TypeErrorOccurred(item, typeof(long), DefaultErrorLong);
-
-			return addr;
+			return addr != 0L;
 		}
 
-		internal static long GetSizeProperty(object item, bool throwIfZero = false)
+		/// <summary>
+		/// Tries to read a Size property from <paramref name="item"/>: a <see cref="Keysharp.Builtins.Buffer"/>'s
+		/// Size, or a script-visible "size" property on an <see cref="Any"/>.
+		/// <para>Unlike <see cref="TryGetPtrProperty"/> (whose bool means "a usable, non-null pointer"), this
+		/// bool means "a Size property was present" — it returns true even when the size is 0. A raw address
+		/// (long) or any object without a Size yields false with <paramref name="size"/> = 0.</para>
+		/// </summary>
+		internal static bool TryGetSizeProperty(object item, out long size)
 		{
-			long size = 0L;
+			if (item is Keysharp.Builtins.Buffer buf) { size = buf.Size.Al(); return true; }//Buffer exposes Size directly; fast and the common case.
 
-			if (item is Keysharp.Builtins.Buffer buf)//Buffer exposes Size directly; fast and the common case.
-				size = buf.Size.Al();
-			else if (item is Any kso && Script.GetPropertyValueOrNull(kso, "size") is object p)
-				size = p.Al();
-			//A raw address (long) or anything else carries no size; size stays 0.
+			if (item is Any kso && Script.GetPropertyValueOrNull(kso, "size") is object p) { size = p.Al(); return true; }
 
-			if (throwIfZero && size == 0L)
-				return (long)Errors.TypeErrorOccurred(item, typeof(long), DefaultErrorLong);
-
-			return size;
+			size = 0L;
+			return false;              // no Size property present (raw address/anything else)
 		}
 
 		internal static T SafeGetProperty<T>(object item, string name) => (T)item.GetType().GetProperty(name, typeof(T))?.GetValue(item);

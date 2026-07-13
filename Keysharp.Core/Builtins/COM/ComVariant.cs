@@ -730,9 +730,9 @@ namespace Keysharp.Builtins.COM
 							var ppsa = (nint*)byrefVar.ptrVal;
 
 							// Extract SAFEARRAY* from the incoming value
-							nint srcPsa = (nint)Reflections.GetPtrProperty(value);
-							if (srcPsa == 0)
+							if (!Reflections.TryGetPtrProperty(value, out var srcPsaAddr))
 								return;
+							nint srcPsa = new nint(srcPsaAddr);
 
 							// Make an independent copy of the source SAFEARRAY to avoid aliasing/lifetime issues
 							nint copiedPsa = 0;

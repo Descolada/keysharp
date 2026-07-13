@@ -314,7 +314,7 @@ namespace Keysharp.Builtins
 		{
 			// Almost the same as ObjFromPtrAddRef, but decreases the ref count if the object
 			// turned out to be a native COM object
-			var punk = Reflections.GetPtrProperty(ptr);
+			Reflections.TryGetPtrProperty(ptr, out var punk);
 			// For COM object this creates or finds the RCW and bumps the ref count,
 			// and once the object is collected then the ref count is decreased.
 			// If it's a managed object then it's just returned without changing the ref count of the RCW.
@@ -334,7 +334,7 @@ namespace Keysharp.Builtins
 		// Mostly for compatibility with AHK
 		public static object ObjFromPtrAddRef(object ptr)
 		{
-			var punk = Reflections.GetPtrProperty(ptr);
+			Reflections.TryGetPtrProperty(ptr, out var punk);
 			// For COM object this creates or finds the RCW and bumps the ref count,
 			// and once the object is collected then the ref count is decreased.
 			// If it's a managed object then it's just returned without changing the ref count of the RCW.

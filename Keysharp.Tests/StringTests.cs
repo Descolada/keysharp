@@ -631,6 +631,37 @@ namespace Keysharp.Tests
 			Assert.IsTrue(TestScript("string-strputstrget", true));
 		}
 
+		// StrGet must accept ANY object exposing Ptr + Size (not only a concrete Buffer): the pointer comes from
+		// Reflections.TryGetPtrProperty (a script "ptr" property) and the length from Reflections.TryGetSizeProperty.
+		private static Keysharp.Builtins.KeysharpObject PtrSizeView(object ptr, object size)
+		{
+			var o = new Keysharp.Builtins.KeysharpObject();
+			o.DefinePropInternal("ptr", new Keysharp.Builtins.OwnPropsDesc(o, ptr));
+			o.DefinePropInternal("size", new Keysharp.Builtins.OwnPropsDesc(o, size));
+			return o;
+		}
+
+		[Test, Category("String")]
+		public void StrGetDuckTyped()
+		{
+			var buf = new Keysharp.Builtins.Buffer(64);
+			var s = "duck!";
+			StrPut(s, buf);//Native (UTF-16) encoding, with a null terminator.
+
+			//A plain KeysharpObject that just forwards the real Buffer's Ptr/Size (it is NOT a Buffer itself).
+			var view = PtrSizeView(buf.Ptr, buf.Size);
+
+			//No length: the duck-typed view must return exactly what the Buffer returns (scan up to the terminator).
+			var fromBuffer = StrGet(buf);
+			var fromView = StrGet(view);
+			Assert.AreEqual(fromBuffer, fromView);
+			Assert.AreEqual(s, fromView);
+
+			//Honors the reported Size: a view claiming only 6 bytes (3 UTF-16 chars) clamps the scan before the terminator.
+			var clamped = PtrSizeView(buf.Ptr, 6L);
+			Assert.AreEqual("duc", StrGet(clamped));
+		}
+
 		[Test, Category("String")]
 		public void StrReplace()
 		{

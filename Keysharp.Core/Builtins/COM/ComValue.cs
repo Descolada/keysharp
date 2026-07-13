@@ -138,7 +138,8 @@ namespace Keysharp.Builtins.COM
 			var vt = (VarEnum)varType.Al();
 			if ((vt & VarEnum.VT_ARRAY) != 0)
 			{
-				nint psa = (nint)Reflections.GetPtrProperty(value);
+				Reflections.TryGetPtrProperty(value, out var psaAddr);
+				nint psa = new nint(psaAddr);
 				return new ComObjArray(vt & ~VarEnum.VT_ARRAY, psa, flags.Ab());
 			}
 			if ((vt & VarEnum.VT_BYREF) != 0)

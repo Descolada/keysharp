@@ -269,8 +269,8 @@ namespace Keysharp.Builtins
 #endif
 				}
 			}
-			else
-				address = (nint)Reflections.GetPtrProperty(function);
+			else if (Reflections.TryGetPtrProperty(function, out var faddr))//A false/0 result leaves address at 0, caught by the shared guard below.
+				address = new nint(faddr);
 
 			AddressFound:
 
@@ -579,7 +579,7 @@ namespace Keysharp.Builtins
 			else if (t == typeof(string))
 			{
 				var s = (long*)aip;
-				p = Strings.StrGet(new nint(*s));
+				p = Strings.StrGet((long)new nint(*s));
 			}
 			else
 			{
@@ -633,9 +633,9 @@ namespace Keysharp.Builtins
 				        if (arg is not string)
 				        {
 				            //var s = (long*)aip.ToPointer();
-				            //p = Strings.StrGet(new nint(s));
+				            //p = Strings.StrGet((long)new nint(s));
 				            if (arg is long l)
-				                parameters[pi + 1] = Strings.StrGet((nint)l);
+				                parameters[pi + 1] = Strings.StrGet(l);
 				        }
 				    }
 				    }

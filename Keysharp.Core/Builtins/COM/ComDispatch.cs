@@ -98,7 +98,8 @@ namespace Keysharp.Builtins.COM
 		{
 			ArgumentNullException.ThrowIfNull(cobj);
 
-			var pUnk = (nint)Reflections.GetPtrProperty(cobj);
+			Reflections.TryGetPtrProperty(cobj, out var cobjAddr);
+			var pUnk = new nint(cobjAddr);
 			var containerObj = Marshal.GetObjectForIUnknown(pUnk);
 			if (containerObj is not ct.IConnectionPointContainer cpContainer)
 			{

@@ -213,11 +213,9 @@ namespace Keysharp.Builtins
 					for (var i = 0; i < len; i++)
 						arr.array[i] = val[i];//Access the underlying ArrayList directly for performance.
 				}
-				else if (Reflections.GetPtrProperty(buf) is long ptr && ptr != 0)
+				else if (Reflections.TryGetPtrProperty(buf, out var ptr))
 				{
-					int buflen = int.MinValue;
-					if (buf is Any && GetPropertyValueOrNull(buf, "Size") is object maybeSize)
-						buflen = maybeSize.Ai(int.MinValue);
+					int buflen = Reflections.TryGetSizeProperty(buf, out var sz) ? (int)sz : int.MinValue;
 					len = count == long.MinValue ? buflen : (buflen != int.MinValue ? Math.Min((int)count, buflen) : (int)count);
 					if (len < 0) return Errors.ErrorOccurred("Invalid byte count");
 
@@ -256,11 +254,9 @@ namespace Keysharp.Builtins
 					len = count != long.MinValue ? Math.Min(bytes.Length, (int)count) : bytes.Length;
 					bw.Write(bytes, 0, len);
 				}
-				else if (Reflections.GetPtrProperty(buf) is long ptr && ptr != 0)
+				else if (Reflections.TryGetPtrProperty(buf, out var ptr))
 				{
-					int buflen = int.MinValue;
-					if (buf is Any && GetPropertyValueOrNull(buf, "Size") is object maybeSize)
-						buflen = maybeSize.Ai(int.MinValue);
+					int buflen = Reflections.TryGetSizeProperty(buf, out var sz) ? (int)sz : int.MinValue;
 					len = count == long.MinValue ? buflen : (buflen != int.MinValue ? Math.Min((int)count, buflen) : (int)count);
 					if (len < 0) return (long)Errors.ErrorOccurred("Invalid byte count", 0L);
 

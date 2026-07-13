@@ -244,7 +244,10 @@ namespace Keysharp.Builtins
 					case "ptr":
 					case "uptr":
 						if (number is Any kso)
-							number = Reflections.GetPtrProperty(kso);
+						{
+							Reflections.TryGetPtrProperty(kso, out var ksoAddr);
+							number = ksoAddr;
+						}
 
 						bytes = BitConverter.GetBytes(number.Al());
 						inc = 8;

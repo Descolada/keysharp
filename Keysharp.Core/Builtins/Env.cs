@@ -278,14 +278,12 @@ namespace Keysharp.Builtins
 			if (data is Array arr)
 				return CopyClipboardBytes(arr.ToByteArray().ToArray(), size);
 
-			var ptr = Reflections.GetPtrProperty(data);
-
-			if (ptr != 0)
+			if (Reflections.TryGetPtrProperty(data, out var ptr))
 			{
 				var sourceLength = size;
 
-				if (sourceLength == long.MinValue && Script.GetPropertyValueOrNull(data, "Size") is object sz)
-					sourceLength = sz.Al(long.MinValue);
+				if (sourceLength == long.MinValue)
+					_ = Reflections.TryGetSizeProperty(data, out sourceLength);//0/false when no Size; the > 0 guard below handles it.
 
 				if (sourceLength > 0)
 					return CopyClipboardBytes((nint)ptr, sourceLength, size);

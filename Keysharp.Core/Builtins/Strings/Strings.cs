@@ -1000,25 +1000,21 @@ namespace Keysharp.Builtins
 					encoding = Encoding.Unicode;
 			}
 
-			nint ptr = 0;
-			var buf = source as Buffer;
-
-			if (source is IPointable ip)
-				ptr = (nint)ip.Ptr;
-			else if (source is long l)
-				ptr = new nint(l);
-
-			if (ptr == 0)
+			if (!Reflections.TryGetPtrProperty(source, out var addr))//No usable (non-null) pointer.
 				return (string)Errors.ValueErrorOccurred($"No valid address or buffer was supplied.");
-			else if (ptr.ToInt64() < 65536)//65536 is the first valid address.
+
+			nint ptr = new nint(addr);
+			bool hasSize = Reflections.TryGetSizeProperty(source, out var srcSize);//false for a raw address (long) or a source with no Size.
+
+			if (ptr.ToInt64() < 65536)//65536 is the first valid address.
 				return (string)Errors.ValueErrorOccurred($"Address of {ptr.ToInt64()} is less than the minimum allowable address of 65,536.");
 
 			unsafe
 			{
 				if (len == long.MinValue)//No length specified, only copy up to the first 0.
 				{
-					if (buf != null)
-						len = (long)buf.Size;
+					if (hasSize)
+						len = srcSize;
 					else
 						return encoding == Encoding.Unicode ? Marshal.PtrToStringUni(ptr) : Marshal.PtrToStringAnsi(ptr);
 				}
@@ -1033,7 +1029,7 @@ namespace Keysharp.Builtins
 				else if (encoding is UTF32Encoding) byteCount = abs * 4;
 				else byteCount = abs; // ANSI, UTF-8 (approx: 1 char ≈ 1 byte)
 
-				int maxBytes = buf != null ? (int)Math.Min((long)buf.Size, byteCount) : byteCount;
+				int maxBytes = hasSize ? (int)Math.Min(srcSize, byteCount) : byteCount;
 
 				Span<byte> span = new Span<byte>(raw, maxBytes);
 
@@ -1154,7 +1150,7 @@ namespace Keysharp.Builtins
 
 					if (obj[1] is IPointable ip)
 						ptr = (nint)ip.Ptr;
-					else if (buf != null && Reflections.GetPtrProperty(buf) is long lp)
+					else if (buf != null && Reflections.TryGetPtrProperty(buf, out var lp))
 						ptr = new nint(lp);
 					else if (obj[1] is long l)
 						ptr = new nint(l);
@@ -1223,11 +1219,7 @@ namespace Keysharp.Builtins
 				// If Target is a buffer-like object, cap capacity to its Size and enforce rules.
 				if (buf != null)
 				{
-					object sz = GetPropertyValueOrNull(buf, "Size");
-					bool hasSize = sz != null;
-					var bufSize = hasSize ? sz.Al() : 0L;
-
-					if (!hasSize)
+					if (!Reflections.TryGetSizeProperty(buf, out var bufSize))
 						return (long)Errors.ValueErrorOccurred(
 							"Target object is missing a valid Size property.", null, DefaultErrorLong);
 

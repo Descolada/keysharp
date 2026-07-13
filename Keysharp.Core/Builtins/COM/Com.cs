@@ -100,8 +100,7 @@ namespace Keysharp.Builtins.COM
 
 		public static object ComObjFromPtr(object dispPtr)
 		{
-			var ptr = Reflections.GetPtrProperty(dispPtr);
-			if (ptr != 0L)
+			if (Reflections.TryGetPtrProperty(dispPtr, out var ptr))
 				return new ComObject(VarEnum.VT_DISPATCH, ptr);
 
 			return Errors.TypeErrorOccurred(dispPtr, typeof(IDispatch), DefaultObject);
@@ -188,7 +187,8 @@ namespace Keysharp.Builtins.COM
 				return (long)co.vt;
 			}
 
-			var pUnk = (nint)Reflections.GetPtrProperty(comObj);
+			Reflections.TryGetPtrProperty(comObj, out var comObjAddr);
+			var pUnk = new nint(comObjAddr);
 
 			ITypeInfo typeInfo = null;
 

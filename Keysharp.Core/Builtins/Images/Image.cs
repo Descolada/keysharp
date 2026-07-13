@@ -364,10 +364,7 @@ namespace Keysharp.Builtins
 				// Accept a Buffer OR any object with Ptr/Size properties (duck-typed, like StrGet): the shared
 				// Reflections helpers read a Buffer directly and fall back to a script-visible Ptr/Size on any
 				// other object, so both work.
-				long addr = Reflections.GetPtrProperty(data);
-				long have = Reflections.GetSizeProperty(data);
-
-				if (addr == 0 || have <= 0)
+				if (!Reflections.TryGetPtrProperty(data, out long addr) || !Reflections.TryGetSizeProperty(data, out long have))
 					return Errors.ValueErrorOccurred("FromBuffer requires a Buffer or an object with Ptr and Size properties.");
 
 				int w = width.Ai(), h = height.Ai();
@@ -379,10 +376,7 @@ namespace Keysharp.Builtins
 				if (w <= 0 || h <= 0)
 					return Errors.ValueErrorOccurred("FromBuffer width and height must be positive.");
 
-				nint ptr = new nint(addr);
-
-				if (ptr == 0)
-					return Errors.ValueErrorOccurred("FromBuffer: the pixel data pointer is null.");
+				nint ptr = new nint(addr);//TryGetPtrProperty already rejected a null (0) address.
 
 				long need = (long)w * h * bpp;
 
@@ -1536,10 +1530,7 @@ namespace Keysharp.Builtins
 
 				// Accept a Buffer OR any object with Ptr/Size properties (duck-typed, like StrGet): the shared
 				// Reflections helpers read a Buffer directly and fall back to a script-visible Ptr/Size otherwise.
-				long addr = Reflections.GetPtrProperty(data);
-				long have = Reflections.GetSizeProperty(data);
-
-				if (addr == 0 || have <= 0)
+				if (!Reflections.TryGetPtrProperty(data, out long addr) || !Reflections.TryGetSizeProperty(data, out long have))
 					return Errors.ValueErrorOccurred("SetPixelData requires a Buffer or an object with Ptr and Size properties.");
 
 				var bpp = (int)(bytesPerPixel == null ? 4L : bytesPerPixel.Al());
@@ -1547,10 +1538,7 @@ namespace Keysharp.Builtins
 				if (bpp != 1 && bpp != 4)
 					return Errors.ValueErrorOccurred("SetPixelData supports only 1 (grayscale) or 4 (RGBA) bytes per pixel.");
 
-				nint ptr = new nint(addr);
-
-				if (ptr == 0)
-					return Errors.ValueErrorOccurred("SetPixelData: the pixel data pointer is null.");
+				nint ptr = new nint(addr);//TryGetPtrProperty already rejected a null (0) address.
 
 				var bmp = Materialize();
 

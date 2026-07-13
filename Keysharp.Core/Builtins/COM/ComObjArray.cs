@@ -369,7 +369,8 @@ namespace Keysharp.Builtins.COM
 				else
 				{
 					// raw interface pointer → pass as-is; SafeArrayPutElement will AddRef.
-					pIface = (nint)Reflections.GetPtrProperty(value);
+					Reflections.TryGetPtrProperty(value, out var ifaceAddr);
+					pIface = new nint(ifaceAddr);
 					releaseInterface = false;
 				}
 

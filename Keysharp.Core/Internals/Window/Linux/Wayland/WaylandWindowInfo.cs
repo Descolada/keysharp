@@ -50,7 +50,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			this.visible = visible;
 			this.alwaysOnTop = alwaysOnTop;
 			Decorated = decorated;
-			this.transparency = transparency ?? 0xFFL;
+			// Normalize to the cross-platform WinGetTransparent contract: a fully-opaque window (compositor opacity 255,
+			// which every backend reports for a window with no transparency) or an absent value reports the -1L "no
+			// transparency set" sentinel (WinGetTransparent -> ""), matching Windows/X11 (AHK returns "" when the window
+			// has no transparency level). Only a genuinely translucent 0-254 alpha is reported as a number.
+			this.transparency = transparency is long t && t >= 0 && t < 255 ? t : -1L;
 			OnCurrentWorkspace = onCurrentWorkspace;
 		}
 

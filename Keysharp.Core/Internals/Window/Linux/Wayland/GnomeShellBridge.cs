@@ -128,12 +128,18 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		// Backoff before retrying owner registration after a miss (extension still loading / absent).
 		private const long RegisterRetryBackoffMs = 5000;
+		// Backoff before re-attempting a session-bus connect that timed out / threw. A transient failure must
+		// not permanently disable the bridge, so it arms this instead of the permanent initFailed latch.
+		private const long ConnectRetryBackoffMs = 5000;
 
 		private static readonly SemaphoreSlim initSemaphore = new(1, 1);
 		private static Connection connection;
 		private static IFreedesktopDBus dbusProxy;
 		private static IGnomeShell proxy;
+		// Permanent lockout — reserved for a definitively-unreachable session bus (see EnsureConnection).
 		private static bool initFailed;
+		// Time-based retry gate (Environment.TickCount64) for a transient connect failure/timeout.
+		private static long nextConnectAttempt;
 		private static long extensionOwnerCacheUntil;
 		private static bool extensionOwnerCached;
 
@@ -434,27 +440,50 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (connection != null)
 				return connection;
 
-			// Fast path: session bus was unreachable (rare — implies broken environment).
+			// Permanent lockout is reserved for a definitively-unreachable session bus (no session-bus address in
+			// the environment — it will never appear). A transient connect failure/timeout instead arms a short
+			// time-based backoff (nextConnectAttempt) so a later call transparently re-attempts, rather than a single
+			// slow first connect disabling all GNOME window management + overlays for the whole process lifetime.
 			if (initFailed)
 				return null;
 
+			// Fast path: within the retry backoff after a transient failure — don't hammer the bus.
+			if (Environment.TickCount64 < nextConnectAttempt)
+				return null;
+
 			initSemaphore.Wait();
+
+			// Hoisted above the try so the catch can dispose a connection that was created but never published.
+			Connection localConn = null;
 
 			try
 			{
 				if (connection != null)
 					return connection;
 
-				if (initFailed)
+				if (initFailed || Environment.TickCount64 < nextConnectAttempt)
 					return null;
 
-				var localConn = new Connection(Tmds.DBus.Address.Session);
+				var sessionAddress = Tmds.DBus.Address.Session;
+
+				if (string.IsNullOrEmpty(sessionAddress))
+				{
+					// No session bus is configured for this process; it cannot appear later, so latch permanently.
+					initFailed = true;
+					return null;
+				}
+
+				localConn = new Connection(sessionAddress);
 				var connectTask = Task.Run(() => localConn.ConnectAsync());
 
-				if (!connectTask.Wait(TimeoutMs))
+				// Pump the message loop while waiting (WaitWithoutInterruption) so the connect deadline doesn't
+				// freeze hotkey/UI processing; a plain .Wait would stall the pump for up to TimeoutMs.
+				if (!connectTask.WaitWithoutInterruption(TimeoutMs))
 				{
-					localConn.Dispose();
-					initFailed = true;
+					try { localConn.Dispose(); } catch { }
+
+					// Slow / not-yet-up session bus: retry after the backoff instead of a permanent latch.
+					nextConnectAttempt = Environment.TickCount64 + ConnectRetryBackoffMs;
 					return null;
 				}
 
@@ -471,13 +500,17 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 						ResetConnection(localConn);
 				};
 				connection = localConn;
+				nextConnectAttempt = 0;
 				return connection;
 			}
 			catch
 			{
-				// Only mark permanently failed when we cannot reach the session bus at
-				// all — not when the extension service is merely absent.
-				initFailed = true;
+				// Creating/connecting threw unexpectedly — treat as transient and back off; do NOT permanently
+				// latch (the bus may simply have been momentarily unavailable). Dispose the connection we created but
+				// never published (the `connection = localConn` line is past every throw point), else a present-but-
+				// faulting bus leaks one Tmds.DBus Connection — a socket/native handle — every ConnectRetryBackoffMs.
+				try { localConn?.Dispose(); } catch { }
+				nextConnectAttempt = Environment.TickCount64 + ConnectRetryBackoffMs;
 				return null;
 			}
 			finally
@@ -512,6 +545,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			extensionOwnerCached = false;
 			extensionOwnerCacheUntil = 0;
 			initFailed = false;
+			nextConnectAttempt = 0;
 		}
 
 		// Whether the Keysharp GNOME Shell extension currently owns its D-Bus service. This is the single
@@ -535,7 +569,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				dbusProxy ??= conn.CreateProxy<IFreedesktopDBus>(DBusServiceName, new ObjectPath(DBusObjectPath));
 				var task = Task.Run(() => dbusProxy.NameHasOwnerAsync(ServiceName));
 
-				if (!task.Wait(ExtensionOwnerCheckTimeoutMs))
+				// Pump the message loop while waiting (never a plain .Wait) so a momentarily-slow bus probe
+				// cannot freeze hotkey/timer/UI processing on the calling thread.
+				if (!task.WaitWithoutInterruption(ExtensionOwnerCheckTimeoutMs))
 				{
 					// A probe TIMEOUT is ambiguous (the bus is momentarily slow), not a definitive "absent". If we
 					// recently saw the extension present, keep that answer and re-check soon rather than declaring
@@ -586,7 +622,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			{
 				var task = Task.Run(() => p.RegisterHighlightOwnerAsync(HighlightOwnerKey, connectionLocalName));
 
-				if (!task.Wait(TimeoutMs))
+				// Pump the message loop while waiting (never a plain .Wait) — this runs from hotkey/timer
+				// actions and must not stall the pump on a cold D-Bus channel.
+				if (!task.WaitWithoutInterruption(TimeoutMs))
 				{
 					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + RegisterRetryBackoffMs;
 					return;

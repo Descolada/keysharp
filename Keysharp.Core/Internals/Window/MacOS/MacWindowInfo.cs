@@ -167,7 +167,20 @@ namespace Keysharp.Internals.Window.MacOS
 		}
 
 		internal override object Transparency
-			=> TryGetNativeInfo(out var native) ? (long)Math.Clamp(Convert.ToInt32(native.Alpha * 255.0), 0, 255) : -1L;
+		{
+			get
+			{
+				if (!TryGetNativeInfo(out var native))
+					return -1L;
+
+				// A fully-opaque window (kCGWindowAlpha 1.0 -> 255) reports the "no transparency set" sentinel -1L
+				// (WinGetTransparent -> ""), matching Windows/X11 (AHK returns "" when the window has no transparency
+				// level); only a translucent 0-254 alpha is a number. macOS exposes no "was it explicitly set" flag,
+				// so an alpha of exactly 1.0 is indistinguishable from never-set and treated as no transparency.
+				var alpha = Math.Clamp(Convert.ToInt32(native.Alpha * 255.0), 0, 255);
+				return alpha < 255 ? (long)alpha : -1L;
+			}
+		}
 
 		internal override object TransparentColor
 		{

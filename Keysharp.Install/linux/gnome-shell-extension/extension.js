@@ -329,30 +329,53 @@ export default class KeysharpExtension {
             logError(e, 'Keysharp: could not create virtual pointer device');
         }
 
-        // Export the D-Bus object first, then own the well-known name.
+        // Export the D-Bus object first, then own the well-known name. Guard the whole D-Bus bring-up: if
+        // export() or bus_own_name() throws, tear down whatever came up (exported object, name watch, virtual
+        // pointer) and bail instead of leaving a half-initialized zombie extension — mirroring the Cinnamon
+        // extension's bus_own_name guard.
         // NOTE: Gio.DBus.session is a Gio.DBusConnection — it has no own_name()
         // method. The correct API is the free function Gio.bus_own_name().
-        this._dbusImpl = Gio.DBusExportedObject.wrapJSObject(DBUS_IFACE_XML, this);
-        this._dbusImpl.export(Gio.DBus.session, OBJECT_PATH);
+        try {
+            this._dbusImpl = Gio.DBusExportedObject.wrapJSObject(DBUS_IFACE_XML, this);
+            this._dbusImpl.export(Gio.DBus.session, OBJECT_PATH);
 
-        // Watch for client D-Bus connection names dropping off the bus. When one that owns overlays
-        // disappears, _handleNameOwnerChanged arms a short reconnect grace timer and then reaps them.
-        this._overlayNameWatchId = Gio.DBus.session.signal_subscribe(
-            'org.freedesktop.DBus',
-            'org.freedesktop.DBus',
-            'NameOwnerChanged',
-            '/org/freedesktop/DBus',
-            null,
-            Gio.DBusSignalFlags.NONE,
-            (_conn, _sender, _path, _iface, _signal, parameters) => this._handleNameOwnerChanged(parameters));
+            // Watch for client D-Bus connection names dropping off the bus. When one that owns overlays
+            // disappears, _handleNameOwnerChanged arms a short reconnect grace timer and then reaps them.
+            this._overlayNameWatchId = Gio.DBus.session.signal_subscribe(
+                'org.freedesktop.DBus',
+                'org.freedesktop.DBus',
+                'NameOwnerChanged',
+                '/org/freedesktop/DBus',
+                null,
+                Gio.DBusSignalFlags.NONE,
+                (_conn, _sender, _path, _iface, _signal, parameters) => this._handleNameOwnerChanged(parameters));
 
-        this._busNameId = Gio.bus_own_name(
-            Gio.BusType.SESSION,
-            SERVICE_NAME,
-            Gio.BusNameOwnerFlags.NONE,
-            null,   // bus_acquired_closure  (not needed; object is already exported)
-            null,   // name_acquired_closure
-            null);  // name_lost_closure
+            this._busNameId = Gio.bus_own_name(
+                Gio.BusType.SESSION,
+                SERVICE_NAME,
+                Gio.BusNameOwnerFlags.NONE,
+                null,   // bus_acquired_closure  (not needed; object is already exported)
+                null,   // name_acquired_closure
+                null);  // name_lost_closure
+        } catch (e) {
+            logError(e, 'Keysharp: could not export D-Bus service / own name');
+
+            if (this._overlayNameWatchId !== 0) {
+                try { Gio.DBus.session.signal_unsubscribe(this._overlayNameWatchId); } catch (_e) {}
+                this._overlayNameWatchId = 0;
+            }
+            if (this._busNameId !== 0) {
+                try { Gio.bus_unown_name(this._busNameId); } catch (_e) {}
+                this._busNameId = 0;
+            }
+            if (this._dbusImpl !== null) {
+                try { this._dbusImpl.unexport(); } catch (_e) {}
+                this._dbusImpl = null;
+            }
+            this._vPointer = null;
+            // Don't wire up focus/window-created signals against a service that never came up.
+            return;
+        }
 
         // Emit ActiveWindowChanged (back-compat) and the generic WindowEvent('active')
         // whenever the compositor focus changes.

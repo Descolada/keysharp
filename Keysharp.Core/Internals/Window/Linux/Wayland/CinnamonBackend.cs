@@ -86,6 +86,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const int    ExtensionOwnerCheckTimeoutMs = 250;
 		private const int    ExtensionMissingCacheMs = 5000;
 		private const int    ExtensionPresentCacheMs = 1000;
+		// Backoff before re-attempting a session-bus connect that timed out / threw. A transient failure must
+		// not permanently disable the bridge, so it arms this instead of the permanent initFailed latch.
+		private const long   ConnectRetryBackoffMs = 5000;
 
 		// Shared JS helpers injected into every query: window-type filter, window->info
 		// serializer (identical shape to the GNOME extension so the parser is shared in
@@ -95,8 +98,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			"const Meta=imports.gi.Meta;" +
 			"function tracked(w){switch(w.window_type){case Meta.WindowType.NORMAL:case Meta.WindowType.DIALOG:case Meta.WindowType.MODAL_DIALOG:case Meta.WindowType.UTILITY:return true;default:return false;}}" +
 			"function clamp255(v){v=Number(v);if(!isFinite(v))v=255;if(v<0)v=0;if(v>255)v=255;return Math.round(v);}" +
-			"function opacity(w){try{const a=w.get_compositor_private?w.get_compositor_private():null;return a?(a.get_opacity?a.get_opacity():a.opacity):255;}catch(e){return 255;}}" +
-			"function info(w){const f=w.get_frame_rect();return{id:String(w.get_stable_sequence()),title:w.get_title()||'',appId:w.get_wm_class()||w.get_wm_class_instance()||'',pid:w.get_pid(),frame:{x:f.x,y:f.y,width:f.width,height:f.height},client:{x:f.x,y:f.y,width:f.width,height:f.height},active:!!w.appears_focused,minimized:!!w.minimized,maximized:!!(w.maximized_horizontally&&w.maximized_vertically),visible:!w.minimized,alwaysOnTop:(w.is_above?w.is_above():!!w.above),decorated:w.decorated!==false,transparency:clamp255(opacity(w))};}" +
+			// -1 = the compositor has no explicit opacity for this window (no actor / read failed); it is preserved as
+			// the cross-platform "no transparency set" sentinel (WinGetTransparent -> ""), NOT clamped to 0.
+			"function opacity(w){try{const a=w.get_compositor_private?w.get_compositor_private():null;return a?(a.get_opacity?a.get_opacity():a.opacity):-1;}catch(e){return -1;}}" +
+			"function info(w){const f=w.get_frame_rect();return{id:String(w.get_stable_sequence()),title:w.get_title()||'',appId:w.get_wm_class()||w.get_wm_class_instance()||'',pid:w.get_pid(),frame:{x:f.x,y:f.y,width:f.width,height:f.height},client:{x:f.x,y:f.y,width:f.width,height:f.height},active:!!w.appears_focused,minimized:!!w.minimized,maximized:!!(w.maximized_horizontally&&w.maximized_vertically),visible:!w.minimized,alwaysOnTop:(w.is_above?w.is_above():!!w.above),decorated:w.decorated!==false,transparency:(function(){const o=opacity(w);return o<0?-1:clamp255(o);})()};}" +
 			"function find(s){const a=global.get_window_actors();for(let i=0;i<a.length;i++){const w=a[i].get_meta_window();if(w&&w.get_stable_sequence()===s)return w;}return null;}";
 
 		private static readonly SemaphoreSlim initSemaphore = new(1, 1);
@@ -111,7 +116,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static string connectionLocalName = "";
 		private static string registeredHighlightOwnerBusName = "";
 		private static long highlightOwnerRegisterRetryAfter;
+		// Permanent lockout — reserved for a definitively-unreachable session bus (see EnsureConnection).
 		private static bool initFailed;
+		// Time-based retry gate (Environment.TickCount64) for a transient connect failure/timeout.
+		private static long nextConnectAttempt;
 		private static readonly string HighlightOwnerKey = WaylandOverlayOwner.Key;
 
 		internal static string QueryActiveWindow()
@@ -573,7 +581,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			{
 				var task = Task.Run(() => p.RegisterHighlightOwnerAsync(HighlightOwnerKey, connectionLocalName));
 
-				if (!task.Wait(TimeoutMs))
+				// Pump the message loop while waiting (never a plain .Wait) — this runs from hotkey/timer
+				// actions and must not stall the pump on a cold D-Bus channel.
+				if (!task.WaitWithoutInterruption(TimeoutMs))
 				{
 					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + ExtensionMissingCacheMs;
 					return;
@@ -616,7 +626,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				dbusProxy ??= conn.CreateProxy<IFreedesktopDBus>(DBusServiceName, new ObjectPath(DBusObjectPath));
 				var task = Task.Run(() => dbusProxy.NameHasOwnerAsync(ExtensionServiceName));
 
-				if (!task.Wait(ExtensionOwnerCheckTimeoutMs))
+				// Pump the message loop while waiting (never a plain .Wait) so a momentarily-slow bus probe
+				// cannot freeze hotkey/timer/UI processing on the calling thread.
+				if (!task.WaitWithoutInterruption(ExtensionOwnerCheckTimeoutMs))
 				{
 					// A probe TIMEOUT is ambiguous (the bus is momentarily slow), not a definitive "absent". Keep a
 					// recent positive answer and re-check soon rather than declaring the extension gone for 5s — a
@@ -673,26 +685,50 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (connection != null)
 				return connection;
 
+			// Permanent lockout is reserved for a definitively-unreachable session bus (no session-bus address in
+			// the environment — it will never appear). A transient connect failure/timeout instead arms a short
+			// time-based backoff (nextConnectAttempt) so a later call transparently re-attempts, rather than a single
+			// slow first connect disabling all Cinnamon window management + overlays for the whole process lifetime.
 			if (initFailed)
 				return null;
 
+			// Fast path: within the retry backoff after a transient failure — don't hammer the bus.
+			if (Environment.TickCount64 < nextConnectAttempt)
+				return null;
+
 			initSemaphore.Wait();
+
+			// Hoisted above the try so the catch can dispose a connection that was created but never published.
+			Connection localConn = null;
 
 			try
 			{
 				if (connection != null)
 					return connection;
 
-				if (initFailed)
+				if (initFailed || Environment.TickCount64 < nextConnectAttempt)
 					return null;
 
-				var localConn = new Connection(Tmds.DBus.Address.Session);
+				var sessionAddress = Tmds.DBus.Address.Session;
+
+				if (string.IsNullOrEmpty(sessionAddress))
+				{
+					// No session bus is configured for this process; it cannot appear later, so latch permanently.
+					initFailed = true;
+					return null;
+				}
+
+				localConn = new Connection(sessionAddress);
 				var task = Task.Run(() => localConn.ConnectAsync());
 
-				if (!task.Wait(TimeoutMs))
+				// Pump the message loop while waiting (WaitWithoutInterruption) so the connect deadline doesn't
+				// freeze hotkey/UI processing; a plain .Wait would stall the pump for up to TimeoutMs.
+				if (!task.WaitWithoutInterruption(TimeoutMs))
 				{
 					try { localConn.Dispose(); } catch { }
-					initFailed = true;
+
+					// Slow / not-yet-up session bus: retry after the backoff instead of a permanent latch.
+					nextConnectAttempt = Environment.TickCount64 + ConnectRetryBackoffMs;
 					return null;
 				}
 
@@ -704,11 +740,17 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 						ResetConnection(localConn);
 				};
 				connection = localConn;
+				nextConnectAttempt = 0;
 				return connection;
 			}
 			catch
 			{
-				initFailed = true;
+				// Creating/connecting threw unexpectedly — treat as transient and back off; do NOT permanently
+				// latch (the bus may simply have been momentarily unavailable). Dispose the connection we created but
+				// never published (the `connection = localConn` line is past every throw point), else a present-but-
+				// faulting bus leaks one Tmds.DBus Connection — a socket/native handle — every ConnectRetryBackoffMs.
+				try { localConn?.Dispose(); } catch { }
+				nextConnectAttempt = Environment.TickCount64 + ConnectRetryBackoffMs;
 				return null;
 			}
 			finally
@@ -743,6 +785,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			clipboardSupportCached = false;
 			clipboardSupportCacheUntil = 0;
 			initFailed = false;
+			nextConnectAttempt = 0;
 		}
 
 		private static bool GetBool(JsonElement e, string name)
@@ -1004,7 +1047,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				visible: JsonBool(item, "visible"),
 				alwaysOnTop: JsonBool(item, "alwaysOnTop"),
 				decorated: !item.TryGetProperty("decorated", out _) || JsonBool(item, "decorated"),
-				transparency: item.TryGetProperty("transparency", out _) ? JsonLong(item, "transparency") : 0xFFL,
+				transparency: item.TryGetProperty("transparency", out _) ? JsonLong(item, "transparency") : -1L,
 				onCurrentWorkspace: !item.TryGetProperty("onCurrentWorkspace", out _) || JsonBool(item, "onCurrentWorkspace"));
 			return true;
 		}

@@ -526,7 +526,7 @@ for (var __i = 0; __i < __order.length; ++__i) {
 					visible: JsonBool(item, "visible"),
 					alwaysOnTop: JsonBool(item, "alwaysOnTop"),
 					decorated: !item.TryGetProperty("decorated", out _) || JsonBool(item, "decorated"),
-					transparency: item.TryGetProperty("transparency", out _) ? JsonLong(item, "transparency") : 0xFFL);
+					transparency: item.TryGetProperty("transparency", out _) ? JsonLong(item, "transparency") : -1L);
 				return true;
 			}
 
@@ -931,7 +931,7 @@ for (var __i = 0; __i < __order.length; ++__i) {
 					visible: JsonBool(item, "visible"),
 					alwaysOnTop: JsonBool(item, "alwaysOnTop"),
 					decorated: !item.TryGetProperty("decorated", out _) || JsonBool(item, "decorated"),
-					transparency: item.TryGetProperty("transparency", out _) ? JsonLong(item, "transparency") : 0xFFL,
+					transparency: item.TryGetProperty("transparency", out _) ? JsonLong(item, "transparency") : -1L,
 					onCurrentWorkspace: !item.TryGetProperty("onCurrentWorkspace", out _) || JsonBool(item, "onCurrentWorkspace"));
 				return true;
 			}

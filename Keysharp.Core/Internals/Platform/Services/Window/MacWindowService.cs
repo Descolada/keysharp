@@ -302,10 +302,12 @@ namespace Keysharp.Internals
 				return base.TryKill(h);
 
 			_ = TryClose(h);
-			var i = 0;
 
-			while (MacNativeWindows.TryGetWindowInfo(h, out _) && i++ < 5)
-				System.Threading.Thread.Sleep(0);
+			// Give a responsive app time to process the close and shut down gracefully (saving prompts, etc.)
+			// before escalating to a hard Process.Kill. AHK waits ~500ms; poll with a real delay so we don't
+			// force-kill a healthy window that simply hasn't handled the close request yet.
+			for (var waited = 0; MacNativeWindows.TryGetWindowInfo(h, out _) && waited < 500; waited += 10)
+				Flow.SleepWithoutInterruption(10);
 
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
 				return true;

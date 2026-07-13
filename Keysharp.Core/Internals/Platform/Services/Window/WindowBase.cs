@@ -259,8 +259,11 @@ namespace Keysharp.Internals
 		public virtual object GetTransparency(nint h)
 		{
 #if !WINDOWS
+			// -1L is the cross-platform "no explicit transparency set" sentinel (WinGetTransparent maps it to "").
+			// A fully-opaque own-GUI window that never had opacity assigned must report -1, not 255, to match the
+			// Windows/X11 backends.
 			if (TryOwnControl(h, out _))
-				return 0xFFL;
+				return -1L;
 #endif
 			return NotYet<object>();
 		}

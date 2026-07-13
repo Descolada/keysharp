@@ -206,8 +206,9 @@ namespace Keysharp.Internals
 		{
 			if (Backend(h, out var info)) return info.Transparency;
 			if (TryOwnControl(h, out _)) return base.GetTransparency(h);
-			if (IsWayland(h)) return 0xFFL;
-			return 0xFFL;
+			// -1L is the "no explicit transparency set" sentinel (WinGetTransparent -> ""), matching Windows/X11.
+			if (IsWayland(h)) return -1L;
+			return -1L;
 		}
 
 		public override object GetTransparentColor(nint h)
@@ -1804,9 +1805,13 @@ namespace Keysharp.Internals
 						if (!func(atom))
 							break;
 					}
-
-					_ = Xlib.XFree(prop);
 				}
+
+				// XGetWindowProperty allocates a buffer whenever it succeeds (prop != NULL) even for a present-but-empty
+				// property (nitems == 0, common for _NET_WM_STATE on ordinary windows), so free unconditionally to avoid
+				// leaking. Matches the sibling readers (ActiveWindow, X11FrameExtents, HasWmState).
+				if (prop != 0)
+					_ = Xlib.XFree(prop);
 
 				return true;
 			}

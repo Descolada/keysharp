@@ -278,10 +278,15 @@ namespace Keysharp.Internals
 		public override bool TryKill(nint h)
 		{
 			_ = TryClose(h);
-			var i = 0;
 
-			while (GetExists(h) && i++ < 5)
-				Thread.Sleep(0);
+			// Give a responsive app time to process WM_CLOSE and shut down gracefully (saving prompts, etc.)
+			// before escalating to a hard TerminateProcess. AHK waits ~500ms; poll with a real delay so we
+			// don't force-kill a healthy window that simply hasn't pumped its message queue yet. Use the
+			// pump-aware sleep (like Mac's TryKill and the rest of this file) so WinKill on our own pump thread
+			// keeps timers/hotkeys running AND lets the script's own window actually dispatch the WM_CLOSE it
+			// was posted — a plain Thread.Sleep would starve that dispatch and hard-kill our own process.
+			for (var waited = 0; GetExists(h) && waited < 500; waited += 10)
+				Flow.SleepWithoutInterruption(10);
 
 			if (!GetExists(h))
 				return true;
@@ -322,15 +327,22 @@ namespace Keysharp.Internals
 		{
 			for (var i = 0; i < count; i++)
 			{
-				if (button == 2)
+				switch (button)
 				{
-					SendMouseEvent(h, (uint)MOUSEEVENTF.RIGHTDOWN, at);
-					SendMouseEvent(h, (uint)MOUSEEVENTF.RIGHTUP, at);
-				}
-				else
-				{
-					SendMouseEvent(h, (uint)MOUSEEVENTF.LEFTDOWN, at);
-					SendMouseEvent(h, (uint)MOUSEEVENTF.LEFTUP, at);
+					case 2:  // right
+						SendMouseEvent(h, WindowsAPI.WM_RBUTTONDOWN, WindowsAPI.MK_RBUTTON, at);
+						SendMouseEvent(h, WindowsAPI.WM_RBUTTONUP, 0, at);
+						break;
+
+					case 3:  // middle
+						SendMouseEvent(h, WindowsAPI.WM_MBUTTONDOWN, WindowsAPI.MK_MBUTTON, at);
+						SendMouseEvent(h, WindowsAPI.WM_MBUTTONUP, 0, at);
+						break;
+
+					default:  // left
+						SendMouseEvent(h, WindowsAPI.WM_LBUTTONDOWN, WindowsAPI.MK_LBUTTON, at);
+						SendMouseEvent(h, WindowsAPI.WM_LBUTTONUP, 0, at);
+						break;
 				}
 			}
 
@@ -577,12 +589,15 @@ namespace Keysharp.Internals
 			}
 		}
 
-		private static void SendMouseEvent(nint h, uint mouseevent, Point? location = null)
+		// message is a WM_*BUTTONDOWN/UP window message (NOT a MOUSEEVENTF flag — those numerically collide with
+		// WM_DESTROY/WM_CLOSE and would destroy/close the target). keyFlags carries the MK_* button state in wParam
+		// and the click position goes in lParam, as the mouse window messages expect.
+		private static void SendMouseEvent(nint h, int message, int keyFlags, Point? location = null)
 		{
 			var size = GetWindowBounds(h).Size;
 			var click = location ?? new Point(size.Width / 2, size.Height / 2);
 			var lparam = new nint(Conversions.MakeInt(click.X, click.Y));
-			_ = WindowsAPI.PostMessage(h, mouseevent, new nint(1), lparam);
+			_ = WindowsAPI.PostMessage(h, (uint)message, new nint(keyFlags), lparam);
 		}
 
 		private static nint SetForegroundWindowEx(nint targetWindow, bool backgroundActivation = false)

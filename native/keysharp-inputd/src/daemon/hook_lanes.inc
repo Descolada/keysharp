@@ -271,6 +271,38 @@ static bool output_queue_push_release_all(ksi_output_queue *q)
     return true;
 }
 
+/* Serialized with normal output so recreating the synthetic-output device
+ * cannot reorder against queued replay/synth. The actual stop+start runs on
+ * the sequencer thread when this action drains (see output_sequencer_thread_
+ * main), keeping every mutation of the uinput fds / key-down table on the one
+ * thread the single-thread invariant requires (linux_synth.c). Enqueued from
+ * the main thread by run_backend_maintenance when the backend reports the
+ * device has failed. */
+static bool output_queue_push_recreate_synth(ksi_output_queue *q)
+{
+    ksi_output_action action;
+
+    if (q == NULL) {
+        return false;
+    }
+
+    memset(&action, 0, sizeof(action));
+    action.type = KSI_OUTPUT_ACTION_RECREATE_SYNTH;
+
+    pthread_mutex_lock(&q->mutex);
+
+    if (q->count >= KSI_MAX_OUTPUT_ACTIONS) {
+        pthread_mutex_unlock(&q->mutex);
+        return false;
+    }
+
+    output_queue_push_action_locked(q, &action);
+    pthread_mutex_unlock(&q->mutex);
+
+    output_queue_wake(q);
+    return true;
+}
+
 static ksi_synth_completion *synth_completion_create(
     ksi_hook_send_ref *send_ref,
     const ksi_message_header *request)
@@ -660,6 +692,13 @@ static void *output_sequencer_thread_main(void *arg)
             } else if (action.type == KSI_OUTPUT_ACTION_RELEASE_ALL) {
                 if (state->backend != NULL && state->backend->release_synthetic_keys != NULL) {
                     state->backend->release_synthetic_keys();
+                }
+            } else if (action.type == KSI_OUTPUT_ACTION_RECREATE_SYNTH) {
+                /* Recover a broken synthetic-output device ON THIS THREAD so the
+                 * stop()+start() (which closes/reopens the uinput fds and clears
+                 * the key-down table) never races the sequencer's own writes. */
+                if (state->backend != NULL && state->backend->recreate_synth != NULL) {
+                    state->backend->recreate_synth();
                 }
             }
         }

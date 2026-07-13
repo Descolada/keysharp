@@ -36,6 +36,20 @@ typedef struct ksi_platform_backend {
      * KSI_OUTPUT_ACTION_RELEASE_ALL action) so it is serialized with replay/synth and
      * never races them or stalls the daemon main thread. May be NULL. */
     void (*release_synthetic_keys)(void);
+    /* Main-thread poll: returns true (rate-limited internally) when the
+     * synthetic-output device has failed and should be recreated. The daemon
+     * responds NOT by recreating it here, but by enqueuing a
+     * KSI_OUTPUT_ACTION_RECREATE_SYNTH action so the actual tear-down/rebuild
+     * runs on the output sequencer thread -- the single owner of the virtual
+     * device's fds and key-down state. Recreating on the main thread would race
+     * the sequencer's concurrent writes (close→reopen can hand the same fd
+     * number to an in-flight write). May be NULL. */
+    bool (*synth_needs_recovery)(void);
+    /* Tear down and recreate the synthetic-output device after a write failure.
+     * Invoked ONLY from the output sequencer thread (via
+     * KSI_OUTPUT_ACTION_RECREATE_SYNTH) so the stop()+start() it performs is
+     * serialized with replay/synth and never races them. May be NULL. */
+    void (*recreate_synth)(void);
     /* Called periodically (roughly once per second, more often when other fd
      * activity wakes the main loop) from the daemon's main thread. Lets the
      * backend retry anything that failed transiently and was previously only

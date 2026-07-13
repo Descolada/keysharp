@@ -233,6 +233,10 @@ typedef enum ksi_output_action_type {
     KSI_OUTPUT_ACTION_SYNTH,
     /* Release keys held by replay/synth, serialized with normal output. */
     KSI_OUTPUT_ACTION_RELEASE_ALL,
+    /* Recreate a broken synthetic-output device. Runs the stop+start on the
+     * output sequencer thread so it honors the single-thread invariant for the
+     * uinput fds / key-down table instead of racing them from the main thread. */
+    KSI_OUTPUT_ACTION_RECREATE_SYNTH,
 } ksi_output_action_type;
 
 typedef struct ksi_output_action {
@@ -471,6 +475,43 @@ static void free_daemon_command(ksi_daemon_command *command)
 #include "daemon/hook_dispatch.inc"
 #include "daemon/hook_ingress.inc"
 #include "daemon/protocol_server.inc"
+
+/* Runs the backend's periodic maintenance, then two follow-ups the daemon owns:
+ *   1. If the backend reports its synthetic-output device has failed, enqueue a
+ *      recreate action so the stop+start runs on the OUTPUT SEQUENCER thread
+ *      (not here on the main thread, which would race the sequencer's writes).
+ *   2. If the set of honorable capabilities changed (hotplug, or synth
+ *      dying/recovering), re-run update_grab_state so a dead synth releases its
+ *      hook grabs (fail open) and a recovered one re-grabs. Gating on an actual
+ *      availability change -- rather than every tick -- avoids thrashing grabs. */
+static void run_backend_maintenance(ksi_daemon_state *state)
+{
+    const ksi_platform_backend *backend;
+    uint32_t previous_caps;
+    uint32_t new_caps;
+
+    if (state == NULL || (backend = state->backend) == NULL) {
+        return;
+    }
+
+    if (backend->periodic_maintenance != NULL) {
+        backend->periodic_maintenance();
+    }
+
+    if (backend->synth_needs_recovery != NULL
+        && backend->synth_needs_recovery()
+        && !output_queue_push_recreate_synth(&state->output_queue)) {
+        fprintf(stderr, "inputd: failed to enqueue synthetic output device recovery\n");
+    }
+
+    previous_caps = state->available_capabilities;
+    new_caps = daemon_available_capabilities(backend);
+    state->available_capabilities = new_caps;
+
+    if (new_caps != previous_caps && update_grab_state(state) != 0) {
+        fprintf(stderr, "inputd: failed to refresh grabs after capability change\n");
+    }
+}
 
 static bool check_idle_exit(
     const ksi_daemon_options *options,
@@ -722,10 +763,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             process_daemon_commands(daemon_state);
             expire_client_leases(daemon_state);
             expire_unauthenticated_clients(daemon_state);
-
-            if (backend->periodic_maintenance != NULL) {
-                backend->periodic_maintenance();
-            }
+            run_backend_maintenance(daemon_state);
 
             if (check_idle_exit(options, daemon_state, &idle_since_ms)) {
                 keep_running = 0;
@@ -771,12 +809,10 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
         (void)process_hook_ingress(daemon_state);
 
-        if (backend->periodic_maintenance != NULL) {
-            backend->periodic_maintenance();
-        }
-
-        /* Hotplug can change physical hook/block capabilities. */
-        daemon_state->available_capabilities = daemon_available_capabilities(backend);
+        /* Runs backend maintenance, requests synth recovery on the sequencer if
+         * needed, refreshes available_capabilities (hotplug can change physical
+         * hook/block capabilities) and re-applies grabs when availability changes. */
+        run_backend_maintenance(daemon_state);
 
         apply_fail_open_if_requested(daemon_state);
         process_daemon_commands(daemon_state);

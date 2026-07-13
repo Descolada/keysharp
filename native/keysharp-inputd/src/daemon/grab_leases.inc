@@ -480,6 +480,8 @@ static int update_grab_state(ksi_daemon_state *state)
 {
     uint32_t hook_mask = active_hook_subscription_mask(state);
     uint32_t block_mask = active_block_input_mask(state);
+    uint32_t available;
+    uint32_t effective_hook_mask;
     bool keyboard_grabbed;
     int result;
 
@@ -487,9 +489,25 @@ static int update_grab_state(ksi_daemon_state *state)
         return 0;
     }
 
+    /* Fail open when synthetic output is unavailable. A HOOK grab EVIOCGRAB's the
+     * physical device and relies on the synth device to replay every passed event;
+     * if that output is dead (write failure, torn-down uinput) an already-grabbed
+     * keyboard/mouse would stay captured while every replay write() fails -- a
+     * fully dead device. So mask the hook portion of the grab by the capabilities
+     * the backend can currently honor: when synth is down, get_available_
+     * capabilities() drops KSI_CAP_HOOK_* and the grab is released, letting raw
+     * hardware pass through. The next update_grab_state (re-run by
+     * run_backend_maintenance on the availability-change edge) restores the real
+     * mask once synth recovers. BlockInput is intentionally NOT gated this way:
+     * blocking only drops events and needs no synth, so its grab must persist. */
+    available = state->backend->get_available_capabilities != NULL
+        ? state->backend->get_available_capabilities()
+        : ~0u; /* no availability query -> assume everything honorable */
+    effective_hook_mask = hook_mask & available;
+
     result = state->backend->set_grab_hook_mask == NULL
         ? 0
-        : state->backend->set_grab_hook_mask(hook_mask);
+        : state->backend->set_grab_hook_mask(effective_hook_mask);
 
     if (result != 0) {
         return result;
@@ -514,7 +532,10 @@ static int update_grab_state(ksi_daemon_state *state)
      * thread (not here) so it is serialized with replay/synth -- no race on the synth
      * state -- and the daemon main thread never blocks doing it. Fires only on the
      * held->released edge so a steady grab does not repeatedly release. */
-    keyboard_grabbed = (hook_mask & KSI_CAP_HOOK_KEYBOARD) != 0
+    /* Use the EFFECTIVE hook mask (post fail-open) so the held->released edge
+     * fires -- and the stranded-key RELEASE_ALL below runs -- when a dead synth
+     * drops the keyboard grab, not only on a client unsubscribe. */
+    keyboard_grabbed = (effective_hook_mask & KSI_CAP_HOOK_KEYBOARD) != 0
         || (block_mask & KSI_BLOCK_INPUT_KEYBOARD) != 0;
 
     if (state->keyboard_grab_active && !keyboard_grabbed) {

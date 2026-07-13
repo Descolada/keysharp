@@ -73,19 +73,27 @@ static int uinput_fd = -1;
 /* Absolute pointer: ABS_X/Y with INPUT_PROP_POINTER for absolute MouseMove. */
 static int uinput_abs_fd = -1;
 /* Latched by emit_event_to() on a genuine uinput write failure (see there).
- * Read by ksi_linux_synth_is_available() and ksi_linux_synth_retry_if_broken(). */
+ * Cleared/re-latched by ksi_linux_synth_recreate() (on the sequencer thread).
+ * Read by ksi_linux_synth_is_available() and ksi_linux_synth_needs_recovery()
+ * on the main thread -- a benign read of a simple latch, the same cross-thread
+ * read is_available() has always done. */
 static bool synth_write_failed;
 
 /* All uinput writes and the ACTUAL-device synthesis state they touch (uinput_fd,
- * synthesized_keys_down and the pacing counters) are accessed on a single thread -- the output sequencer, which drains
- * replay, client synthesis AND the release-all action (KSI_OUTPUT_ACTION_RELEASE_ALL)
- * in arrival order. The only other caller of ksi_linux_synth_release_all() is
- * ksi_linux_synth_stop() during shutdown, which runs after the sequencer thread has
- * been joined (daemon.c). So there is no concurrent access and no lock is needed here.
- * (If a caller is ever added that touches this state off the sequencer thread while it
- * is running, reintroduce serialization.) synthesized_keys_down tracks what is actually
- * held on the uinput device so release_all can drop any key left "down" when the grab
- * is dropped. */
+ * uinput_abs_fd, synthesized_keys_down and the pacing counters) are accessed on a
+ * single thread -- the output sequencer, which drains replay, client synthesis,
+ * the release-all action (KSI_OUTPUT_ACTION_RELEASE_ALL) AND the recreate action
+ * (KSI_OUTPUT_ACTION_RECREATE_SYNTH) in arrival order. ksi_linux_synth_stop() /
+ * ksi_linux_synth_start() therefore run on the sequencer thread in exactly two
+ * situations, both of which keep this state single-threaded: (1) at shutdown,
+ * after the sequencer thread has been joined (daemon.c); (2) mid-run via
+ * ksi_linux_synth_recreate(), which the sequencer itself invokes when it drains a
+ * RECREATE_SYNTH action -- NEVER from the main thread, whose only role is to
+ * ENQUEUE that action. So there is no concurrent access and no lock is needed here.
+ * (If a caller is ever added that touches this state off the sequencer thread while
+ * it is running, reintroduce serialization.) synthesized_keys_down tracks what is
+ * actually held on the uinput device so release_all can drop any key left "down"
+ * when the grab is dropped. */
 static bool synthesized_keys_down[KEY_MAX + 1];
 
 /* enqueued_synth_* is the exception to the single-thread rule above: it tracks
@@ -220,10 +228,10 @@ static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
          * (see the comment above), so landing here means something is
          * actually wrong with the device -- e.g. the kernel tore it down out
          * from under us. Latch it so ksi_linux_synth_is_available() stops
-         * silently advertising a broken output, and so the periodic
-         * maintenance pass (ksi_linux_synth_retry_if_broken) attempts to
-         * recreate the uinput devices instead of leaving them dead for the
-         * rest of the process's life. */
+         * silently advertising a broken output, and so the periodic recovery
+         * check (ksi_linux_synth_needs_recovery -> a RECREATE_SYNTH action drained
+         * by ksi_linux_synth_recreate on the sequencer thread) rebuilds the uinput
+         * devices instead of leaving them dead for the rest of the process's life. */
         synth_write_failed = true;
         return -1;
     }
@@ -766,10 +774,15 @@ static int configure_abs_uinput_device(void)
     }
 
     /* Buttons live on the absolute device too so button+absolute-move events
-     * arrive from a single device and can be correctly ordered. */
+     * arrive from a single device and can be correctly ordered. The full set
+     * (including the side/extra X-buttons) is enabled so any button routed here
+     * after an absolute move is actually emitted rather than silently dropped
+     * for lack of a keybit. */
     if (ioctl(uinput_abs_fd, UI_SET_KEYBIT, BTN_LEFT) < 0
         || ioctl(uinput_abs_fd, UI_SET_KEYBIT, BTN_RIGHT) < 0
-        || ioctl(uinput_abs_fd, UI_SET_KEYBIT, BTN_MIDDLE) < 0) {
+        || ioctl(uinput_abs_fd, UI_SET_KEYBIT, BTN_MIDDLE) < 0
+        || ioctl(uinput_abs_fd, UI_SET_KEYBIT, BTN_SIDE) < 0
+        || ioctl(uinput_abs_fd, UI_SET_KEYBIT, BTN_EXTRA) < 0) {
         fprintf(stderr, "inputd: abs device UI_SET_KEYBIT failed: %s\n", strerror(errno));
         return -1;
     }
@@ -877,33 +890,49 @@ bool ksi_linux_synth_is_available(void)
     return uinput_fd >= 0 && !synth_write_failed;
 }
 
-/* Rate limit for ksi_linux_synth_retry_if_broken(): recreating the uinput
- * devices is real ioctl/UI_DEV_DESTROY/UI_DEV_CREATE work, not something to
- * repeat on every single main-loop tick if the underlying problem persists. */
+/* Rate limit for synth recovery: recreating the uinput devices is real
+ * ioctl/UI_DEV_DESTROY/UI_DEV_CREATE work, not something to repeat on every
+ * single main-loop tick if the underlying problem persists. */
 #define KSI_SYNTH_RETRY_INTERVAL_MS 3000u
+/* Main-thread-only (written and read only in ksi_linux_synth_needs_recovery). */
 static uint64_t last_synth_retry_ms;
 
-/* Called periodically from the main loop. A uinput write failure previously
- * had no consequence beyond a log line and a dropped event -- the daemon kept
- * advertising synth/hook capability and kept trying (and failing) to write to
- * the same broken fd for the rest of its life. This notices the latch set by
- * emit_event_to() and attempts to recreate the devices from scratch. */
-void ksi_linux_synth_retry_if_broken(void)
+/* MAIN THREAD. Polled from the daemon's periodic maintenance. Notices the latch
+ * set by emit_event_to() and reports (at most once per KSI_SYNTH_RETRY_INTERVAL_MS)
+ * that a recreation should be requested. It deliberately does NOT touch the device:
+ * the actual stop()+start() must happen on the output sequencer thread, so the
+ * daemon reacts to a true return by enqueuing a KSI_OUTPUT_ACTION_RECREATE_SYNTH
+ * action (which drains into ksi_linux_synth_recreate below). Without this split,
+ * a uinput write failure had no consequence beyond a log line and a dropped
+ * event -- the daemon kept advertising synth/hook capability and kept writing to
+ * the same broken fd for the rest of its life. */
+bool ksi_linux_synth_needs_recovery(void)
 {
     uint64_t now;
 
     if (!synth_write_failed) {
-        return;
+        return false;
     }
 
     now = monotonic_ms();
 
-    if (now != 0 && last_synth_retry_ms != 0 && now - last_synth_retry_ms < KSI_SYNTH_RETRY_INTERVAL_MS) {
-        return;
+    if (now != 0 && last_synth_retry_ms != 0
+        && now - last_synth_retry_ms < KSI_SYNTH_RETRY_INTERVAL_MS) {
+        return false;
     }
 
     last_synth_retry_ms = now;
+    return true;
+}
 
+/* OUTPUT SEQUENCER THREAD ONLY. Drains a KSI_OUTPUT_ACTION_RECREATE_SYNTH action.
+ * Runs on the sequencer so stop() (release_all + close(uinput_fd)/uinput_fd=-1)
+ * and start() (reopen) cannot race the sequencer's own writes to the very fds /
+ * key-down table they mutate. Preserves the write-failure re-latch so a failed
+ * reopen keeps needs_recovery() returning true on the next pass instead of the
+ * daemon silently sitting on a dead synth output. */
+void ksi_linux_synth_recreate(void)
+{
     fprintf(stderr, "inputd: synthetic output device write failed; recreating uinput devices\n");
     ksi_linux_synth_stop();
     synth_write_failed = false;
@@ -911,8 +940,7 @@ void ksi_linux_synth_retry_if_broken(void)
 
     if (uinput_fd < 0) {
         /* ksi_linux_synth_start() already logged the specific reason. Mark
-         * broken again so the next periodic pass retries instead of the
-         * daemon silently sitting on a dead synth output. */
+         * broken again so the next needs_recovery() poll re-requests recovery. */
         synth_write_failed = true;
     }
 }
@@ -1198,9 +1226,9 @@ void ksi_linux_synth_release_all(void)
     }
 }
 
-static int send_mouse_button(uint16_t button, bool down)
+static int send_mouse_button(int fd, uint16_t button, bool down)
 {
-    if (emit_event(EV_KEY, button, down ? 1 : 0) != 0) {
+    if (emit_event_to(fd, EV_KEY, button, down ? 1 : 0) != 0) {
         return -1;
     }
 
@@ -1222,9 +1250,70 @@ static uint16_t mouse_data_to_xbutton(uint32_t mouse_data)
     return 0;
 }
 
-static int send_mouse_input(const ksi_mouseinput *input)
+/* Which synthetic device (absolute vs relative) currently holds each pressed
+ * mouse button, indexed by (button - BTN_LEFT). Lets a button-UP release on the
+ * same device its DOWN went to even across batches, so a `Click x,y Down` (down
+ * routed to the abs device) followed by a move-less `Click Up` cannot strand a
+ * button held down on the absolute device — release_all only sweeps keyboard
+ * keys, never mouse buttons. Touched only on the single output-sequencer thread,
+ * so it needs no locking. */
+#define KSI_TRACKED_BTN_BASE BTN_LEFT
+#define KSI_TRACKED_BTN_COUNT 8
+static bool button_held_on_abs[KSI_TRACKED_BTN_COUNT];
+
+static bool *tracked_button_slot(uint16_t btn)
+{
+    int idx = (int)btn - KSI_TRACKED_BTN_BASE;
+
+    if (idx < 0 || idx >= KSI_TRACKED_BTN_COUNT) {
+        return NULL;
+    }
+
+    return &button_held_on_abs[idx];
+}
+
+/* Route one button transition to the correct device and flag that device's SYN.
+ * A DOWN uses this batch's device (the abs device iff this batch positioned and
+ * that device exists) and records where it went; an UP releases on the recorded
+ * device, falling back to the relative device when there is no record or the abs
+ * device has since disappeared. */
+static int route_mouse_button(uint16_t btn, bool down, bool abs_active,
+                              bool *abs_pending, bool *rel_pending)
+{
+    bool *slot = tracked_button_slot(btn);
+    bool on_abs = down ? abs_active : (slot != NULL ? *slot : abs_active);
+    int fd;
+
+    if (on_abs && uinput_abs_fd >= 0) {
+        fd = uinput_abs_fd;
+    } else {
+        fd = uinput_fd;
+        on_abs = false;
+    }
+
+    if (send_mouse_button(fd, btn, down) != 0) {
+        return -1;
+    }
+
+    if (slot != NULL) {
+        *slot = down ? on_abs : false;
+    }
+
+    if (on_abs) {
+        *abs_pending = true;
+    } else {
+        *rel_pending = true;
+    }
+
+    return 0;
+}
+
+static int send_mouse_input(const ksi_mouseinput *input, bool *batch_used_abs_move)
 {
     uint16_t xbutton;
+    bool abs_move_active;
+    bool rel_pending = false; /* relative-device events awaiting a SYN */
+    bool abs_pending = false; /* absolute-device button events awaiting a SYN */
 
     if ((input->flags & KSI_MOUSEEVENTF_MOVE) != 0) {
         if ((input->flags & KSI_MOUSEEVENTF_ABSOLUTE) != 0) {
@@ -1234,6 +1323,13 @@ static int send_mouse_input(const ksi_mouseinput *input)
                        || emit_abs_event(ABS_Y, input->dy) != 0
                        || emit_abs_sync() != 0) {
                 return -1;
+            } else if (batch_used_abs_move != NULL) {
+                /* Remember, for this batch, that an absolute position was set:
+                 * buttons that follow (in this input or a later one) must be
+                 * emitted on the SAME (absolute) device so libinput cannot
+                 * process the click before the reposition and land it at the
+                 * old location. */
+                *batch_used_abs_move = true;
             }
         } else {
             if (input->dx != 0 && emit_event(EV_REL, REL_X, input->dx) != 0) {
@@ -1242,6 +1338,10 @@ static int send_mouse_input(const ksi_mouseinput *input)
 
             if (input->dy != 0 && emit_event(EV_REL, REL_Y, input->dy) != 0) {
                 return -1;
+            }
+
+            if (input->dx != 0 || input->dy != 0) {
+                rel_pending = true;
             }
         }
     }
@@ -1256,6 +1356,8 @@ static int send_mouse_input(const ksi_mouseinput *input)
         if (emit_event(EV_REL, REL_WHEEL, delta) != 0) {
             return -1;
         }
+
+        rel_pending = true;
     }
 
     if ((input->flags & KSI_MOUSEEVENTF_HWHEEL) != 0) {
@@ -1268,48 +1370,65 @@ static int send_mouse_input(const ksi_mouseinput *input)
         if (emit_event(EV_REL, REL_HWHEEL, delta) != 0) {
             return -1;
         }
+
+        rel_pending = true;
     }
 
-    if ((input->flags & KSI_MOUSEEVENTF_LEFTDOWN) != 0 && send_mouse_button(BTN_LEFT, true) != 0) {
+    /* Route each button transition to the correct device. A DOWN goes to this
+     * batch's device (the absolute device iff this batch established a position
+     * and that device exists); an UP is released on the device its DOWN went to
+     * — tracked across batches by route_mouse_button — so a `Click x,y Down`
+     * then a later move-less `Click Up` cannot strand a button held on the
+     * absolute device. Each call marks the device it actually used SYN-pending. */
+    abs_move_active = batch_used_abs_move != NULL && *batch_used_abs_move && uinput_abs_fd >= 0;
+
+    if ((input->flags & KSI_MOUSEEVENTF_LEFTDOWN) != 0 && route_mouse_button(BTN_LEFT, true, abs_move_active, &abs_pending, &rel_pending) != 0) {
         return -1;
     }
 
-    if ((input->flags & KSI_MOUSEEVENTF_LEFTUP) != 0 && send_mouse_button(BTN_LEFT, false) != 0) {
+    if ((input->flags & KSI_MOUSEEVENTF_LEFTUP) != 0 && route_mouse_button(BTN_LEFT, false, abs_move_active, &abs_pending, &rel_pending) != 0) {
         return -1;
     }
 
-    if ((input->flags & KSI_MOUSEEVENTF_RIGHTDOWN) != 0 && send_mouse_button(BTN_RIGHT, true) != 0) {
+    if ((input->flags & KSI_MOUSEEVENTF_RIGHTDOWN) != 0 && route_mouse_button(BTN_RIGHT, true, abs_move_active, &abs_pending, &rel_pending) != 0) {
         return -1;
     }
 
-    if ((input->flags & KSI_MOUSEEVENTF_RIGHTUP) != 0 && send_mouse_button(BTN_RIGHT, false) != 0) {
+    if ((input->flags & KSI_MOUSEEVENTF_RIGHTUP) != 0 && route_mouse_button(BTN_RIGHT, false, abs_move_active, &abs_pending, &rel_pending) != 0) {
         return -1;
     }
 
-    if ((input->flags & KSI_MOUSEEVENTF_MIDDLEDOWN) != 0 && send_mouse_button(BTN_MIDDLE, true) != 0) {
+    if ((input->flags & KSI_MOUSEEVENTF_MIDDLEDOWN) != 0 && route_mouse_button(BTN_MIDDLE, true, abs_move_active, &abs_pending, &rel_pending) != 0) {
         return -1;
     }
 
-    if ((input->flags & KSI_MOUSEEVENTF_MIDDLEUP) != 0 && send_mouse_button(BTN_MIDDLE, false) != 0) {
+    if ((input->flags & KSI_MOUSEEVENTF_MIDDLEUP) != 0 && route_mouse_button(BTN_MIDDLE, false, abs_move_active, &abs_pending, &rel_pending) != 0) {
         return -1;
     }
 
     xbutton = mouse_data_to_xbutton(input->mouse_data);
 
     if ((input->flags & KSI_MOUSEEVENTF_XDOWN) != 0) {
-        if (xbutton == 0 || send_mouse_button(xbutton, true) != 0) {
+        if (xbutton == 0 || route_mouse_button(xbutton, true, abs_move_active, &abs_pending, &rel_pending) != 0) {
             return -1;
         }
     }
 
     if ((input->flags & KSI_MOUSEEVENTF_XUP) != 0) {
-        if (xbutton == 0 || send_mouse_button(xbutton, false) != 0) {
+        if (xbutton == 0 || route_mouse_button(xbutton, false, abs_move_active, &abs_pending, &rel_pending) != 0) {
             return -1;
         }
     }
 
-    if (emit_sync() != 0) {
+    /* Commit each device that actually received events with its own SYN. The
+     * absolute move above already emitted its own abs SYN. */
+    if (rel_pending && emit_sync() != 0) {
         fprintf(stderr, "inputd: failed to emit mouse input: %s\n", strerror(errno));
+        return -1;
+    }
+
+    if (abs_pending && emit_abs_sync() != 0) {
+        fprintf(stderr, "inputd: failed to emit absolute mouse button: %s\n", strerror(errno));
         return -1;
     }
 
@@ -1353,11 +1472,16 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
      * keeps isolated Sends/keystrokes free without a per-batch reset. */
     synth_pacing_active = true;
 
+    /* Per-batch: once any input performs an absolute MouseMove, subsequent
+     * button presses in this same batch are emitted on the absolute device so
+     * position+click stay atomic on one device (see send_mouse_input). */
+    bool used_abs_move = false;
+
     for (size_t i = 0; i < count; i++) {
         if (inputs[i].type == KSI_INPUT_KEYBOARD) {
             result = send_keyboard_input(&inputs[i].data.keyboard);
         } else if (inputs[i].type == KSI_INPUT_MOUSE) {
-            result = send_mouse_input(&inputs[i].data.mouse);
+            result = send_mouse_input(&inputs[i].data.mouse, &used_abs_move);
         } else {
             fprintf(stderr, "inputd: unsupported input type %u\n", inputs[i].type);
             result = -1;

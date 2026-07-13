@@ -130,6 +130,11 @@ static void dispatch_hook_event_to_lane(
     }
 }
 
+/* Re-emit the physical Ctrl+Alt+Backspace trigger through uinput after the grab
+ * has been released, so the chord reaches the X server (zap) and downstream sees
+ * a consistent modifier-down/up sequence even if BlockInput hid the originals.
+ * Bypasses the hook (KSI_SYNTH_FLAG_BYPASS_HOOK) since it is a passthrough, not a
+ * client synthesis. */
 static void enqueue_emergency_passthrough_chord(ksi_daemon_state *state, uint32_t modifiers)
 {
     ksi_input inputs[6];
@@ -194,13 +199,31 @@ static void daemon_handle_hook_event(
             && (modifiers & (KSI_MOD_LALT | KSI_MOD_RALT)) != 0u) {
             fprintf(stderr,
                 "inputd: physical Ctrl+Alt+Backspace emergency passthrough activated\n");
+
+            /* Ctrl+Alt+Backspace has DUAL system semantics, so it is deliberately
+             * NOT swallowed. (a) Emergency latch: fail open -- clear every hook /
+             * BlockInput subscription and release all grabs -- so a stuck grab can
+             * always be broken out of, exactly like the Ctrl+Alt+Pause panic combo.
+             * (b) X11 zap passthrough: after ungrabbing, re-emit the literal chord
+             * through uinput so the X server actually sees Ctrl+Alt+Backspace and
+             * can restart if the user has zap enabled. Re-emitting AFTER the grab
+             * is released means the chord goes out on our (ungrabbed) uinput node
+             * and reaches X, not back into the grab. When zap is DISABLED the
+             * Backspace instead reaches the focused app -- an accepted side effect
+             * of an emergency combo, not worth extra complexity to suppress.
+             *
+             * NOTE: if more recognized system/global combos are ever added
+             * (additional emergency latches, X restart variants, etc.) this ad-hoc
+             * check should grow into a small system-hotkey table; only the
+             * Ctrl+Alt+Backspace dual behavior is wired here for now. */
             clear_hook_state(state);
 
             if (update_grab_state(state) != 0) {
                 fprintf(stderr, "inputd: emergency passthrough failed to release grabs\n");
             }
 
-            /* BlockInput may have hidden prior modifier downs; emit the chord. */
+            /* BlockInput may have hidden the physical modifier downs from X; emit
+             * the full chord so X sees a consistent Ctrl+Alt+Backspace. */
             enqueue_emergency_passthrough_chord(state, modifiers);
             return;
         }

@@ -95,10 +95,27 @@ static void linux_release_synthetic_keys(void)
     ksi_linux_synth_release_all();
 }
 
+/* Main-thread poll (see ksi_linux_synth_needs_recovery). Recovery itself is NOT
+ * performed here -- it runs on the output sequencer thread via recreate_synth --
+ * so this only reports whether the daemon should enqueue that action. */
+static bool linux_synth_needs_recovery(void)
+{
+    return ksi_linux_synth_needs_recovery();
+}
+
+/* Output-sequencer-thread callback (see recreate_synth in the backend vtable). */
+static void linux_recreate_synth(void)
+{
+    ksi_linux_synth_recreate();
+}
+
 static void linux_periodic_maintenance(void)
 {
+    /* Synth-device recovery is deliberately NOT driven from here anymore: doing
+     * the stop()+start() on this (main) thread raced the output sequencer. It is
+     * now requested via linux_synth_needs_recovery()/recreate_synth so the work
+     * happens on the sequencer thread. */
     ksi_linux_devices_retry_incomplete_grabs();
-    ksi_linux_synth_retry_if_broken();
 }
 
 static int linux_set_block_input_mask(uint32_t block_mask)
@@ -126,6 +143,8 @@ static const ksi_platform_backend linux_backend = {
     .set_block_input_mask = linux_set_block_input_mask,
     .set_hook_event_callback = linux_set_hook_event_callback,
     .release_synthetic_keys = linux_release_synthetic_keys,
+    .synth_needs_recovery = linux_synth_needs_recovery,
+    .recreate_synth = linux_recreate_synth,
     .periodic_maintenance = linux_periodic_maintenance,
 };
 

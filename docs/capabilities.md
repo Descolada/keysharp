@@ -761,7 +761,7 @@ Status legend:
 | OSError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | OutputDebug() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The OutputDebug function sends a string to the debugger (if any) for display. |
 | OutputDebugLine() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Writes a debug line with newline terminator. |
-| Overlay | 🟢 Full | 🟢 Full | 🟢 Full | ⚪ Unknown | Click-through, always-on-top screen overlay backed by a raster canvas. Construct with Overlay(x, y, w, h), draw shapes/text on it with the same primitives as Image (Clear, DrawLine, DrawRect, FillRect, DrawEllipse, FillEllipse, DrawText, DrawImage) or replace the whole canvas with an Image via SetImage, then Show/Move/Hide/Destroy it. Reads X/Y/W/H/Visible/Hwnd. This is the cross-platform overlay primitive that Highlight (and ToolTip on Linux/macOS) build on. On Wayland it needs a capable compositor (KWin, GNOME, or Cinnamon with the Keysharp extension); it degrades to a no-op on foreign-toplevel-only compositors. |
+| Overlay | 🟢 Full | 🟢 Full | 🟢 Full | ⚪ Unknown | Click-through, always-on-top screen overlay backed by a raster canvas, drawn with the same primitives as Image; the cross-platform primitive that Highlight (and ToolTip on Linux/macOS) build on. Full on Windows and Linux (X11, plus Wayland with a capable compositor); macOS is unverified. |
 | Parser and runtime execution | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Parser, preprocessing, and script execution runtime are implemented. |
 | ParseScript() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Parses script text and returns parse/compile result metadata. |
 | Pause() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The Pause function pauses the script's current thread or sets the pause state of the underlying thread. |

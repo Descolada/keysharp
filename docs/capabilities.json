@@ -8018,6 +8018,16 @@
                      "notes":  "Writes a debug line with newline terminator."
                  },
                  {
+                     "category":  "Keysharp Module (Ks)",
+                     "feature":  "Overlay",
+                     "syntax":  "",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "unknown",
+                     "notes":  "Click-through, always-on-top screen overlay backed by a raster canvas, drawn with the same primitives as Image; the cross-platform primitive that Highlight (and ToolTip on Linux/macOS) build on. Full on Windows and Linux (X11, plus Wayland with a capable compositor); macOS is unverified."
+                 },
+                 {
                      "category":  "Core Language",
                      "feature":  "Parser and runtime execution",
                      "syntax":  "",

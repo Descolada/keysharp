@@ -1067,55 +1067,94 @@ namespace Keysharp.Parsing.Syntax
 		{
 			if (m.Exports.ContainsKey(member)) return true;
 			foreach (var s in m.Body)
-				if (StmtDeclaresModuleMember(s, member)) return true;
+				if (StmtDeclaresModuleMember(s, member, insideCallable: false)) return true;
 			return false;
 		}
 
-		private static bool StmtDeclaresModuleMember(Stmt s, string member)
+		// Follows an assignment CHAIN (a := b := c := expr): every NameExpr target becomes a module field, not just the
+		// outermost one (LowerAssign lowers the RHS through NameRef -> EnsureGlobalField for each link).
+		private static bool AssignChainDeclares(Expr e, string member)
+		{
+			while (e is AssignExpr ae)
+			{
+				if (ae.Target is NameExpr n && n.Name.Equals(member, System.StringComparison.OrdinalIgnoreCase)) return true;
+				e = ae.Value;
+			}
+			return false;
+		}
+
+		// insideCallable=false (module scope): ANY assigned/declared name — including one inside top-level control flow
+		// (if/loop/while/for/switch/try) or an assignment chain — materializes a module field (EnsureGlobalField) and is
+		// importable. insideCallable=true (inside a function/method body): a bare local is NOT a module member, so only an
+		// explicit `global X` declaration counts (functions are assume-local; a module global is reachable there only via
+		// `global`), and function/class NAMES are not re-matched. The walk is deliberately generous where materialization
+		// is ambiguous: an over-accepted name with no emitted field falls back to the pre-existing Roslyn CS0117, whereas
+		// rejecting a real member is a regression — only a genuine typo, declared nowhere, is rejected here.
+		private static bool StmtDeclaresModuleMember(Stmt s, string member, bool insideCallable)
 		{
 			if (s == null) return false;
 			bool Is(string name) => name != null && name.Equals(member, System.StringComparison.OrdinalIgnoreCase);
+			bool Rec(Stmt st) => StmtDeclaresModuleMember(st, member, insideCallable);
 			bool AnyOf(List<Stmt> body)
 			{
 				if (body != null)
 					foreach (var st in body)
-						if (StmtDeclaresModuleMember(st, member)) return true;
+						if (Rec(st)) return true;
 				return false;
 			}
 			switch (s is ExportStmt e ? e.Decl : s)
 			{
-				case FunctionDecl f: return Is(f.Name);
-				case ClassDecl c: return Is(c.Name);
-				case HotkeyDef { Func: { } hkf }: return Is(hkf.Name);
-				case HotstringDef { Func: { } hsf }: return Is(hsf.Name);
-				case ExpressionStmt { Expr: AssignExpr { Target: NameExpr n } }: return Is(n.Name);
-				case DeclStmt d:
-					if (d.Items != null)
-						foreach (var it in d.Items)
-							if ((it is NameExpr dn && Is(dn.Name)) || (it is AssignExpr { Target: NameExpr an } && Is(an.Name))) return true;
+				case FunctionDecl f:
+					// The function name is a module member; its body can also declare module globals via `global`.
+					return (!insideCallable && Is(f.Name)) || StmtDeclaresModuleMember(f.Body, member, insideCallable: true);
+				case ClassDecl c:
+					if (!insideCallable && Is(c.Name)) return true;   // the class itself is importable at module scope
+					// A `global X` inside a method / (static-)init / nested method also adds a MODULE field; class members
+					// and nested-class names are NOT module-scope importables, so recurse in callable mode.
+					if (c.Methods != null)
+						foreach (var meth in c.Methods)
+							if (StmtDeclaresModuleMember(meth.Body, member, insideCallable: true)) return true;
+					if (c.StaticInit != null)
+						foreach (var init in c.StaticInit)
+							if (StmtDeclaresModuleMember(init, member, insideCallable: true)) return true;
+					if (c.InstanceInit != null)
+						foreach (var init in c.InstanceInit)
+							if (StmtDeclaresModuleMember(init, member, insideCallable: true)) return true;
+					if (c.Nested != null)
+						foreach (var n in c.Nested)
+							if (StmtDeclaresModuleMember(n, member, insideCallable: true)) return true;
 					return false;
-				// Control-flow bodies run at module scope, so a global assigned inside them is a real module field.
+				case HotkeyDef { Func: { } hkf }: return !insideCallable && Is(hkf.Name);
+				case HotstringDef { Func: { } hsf }: return !insideCallable && Is(hsf.Name);
+				case ExpressionStmt { Expr: AssignExpr ae }: return !insideCallable && AssignChainDeclares(ae, member);
+				case DeclStmt d:
+					// Module scope: every declared name is a field. Inside a callable: only `global` declarations are.
+					if (d.Items != null && (!insideCallable || string.Equals(d.Keyword, "global", System.StringComparison.OrdinalIgnoreCase)))
+						foreach (var it in d.Items)
+							if ((it is NameExpr dn && Is(dn.Name)) || (it is AssignExpr cae && AssignChainDeclares(cae, member))) return true;
+					return false;
+				// Control-flow bodies run in the enclosing scope, so recurse preserving insideCallable.
 				case Block b: return AnyOf(b.Body);
-				case IfStmt i: return StmtDeclaresModuleMember(i.Then, member) || StmtDeclaresModuleMember(i.Else, member);
-				case WhileStmt w: return StmtDeclaresModuleMember(w.Body, member) || StmtDeclaresModuleMember(w.Else, member);
-				case LoopStmt l: return StmtDeclaresModuleMember(l.Body, member) || StmtDeclaresModuleMember(l.Else, member);
-				case SpecialLoopStmt sl: return StmtDeclaresModuleMember(sl.Body, member) || StmtDeclaresModuleMember(sl.Else, member);
+				case IfStmt i: return Rec(i.Then) || Rec(i.Else);
+				case WhileStmt w: return Rec(w.Body) || Rec(w.Else);
+				case LoopStmt l: return Rec(l.Body) || Rec(l.Else);
+				case SpecialLoopStmt sl: return Rec(sl.Body) || Rec(sl.Else);
 				case ForStmt fo:
-					if (fo.Vars != null)
+					if (!insideCallable && fo.Vars != null)
 						foreach (var v in fo.Vars)
 							if (Is(v)) return true;
-					return StmtDeclaresModuleMember(fo.Body, member) || StmtDeclaresModuleMember(fo.Else, member);
+					return Rec(fo.Body) || Rec(fo.Else);
 				case SwitchStmt sw:
 					if (sw.Cases != null)
 						foreach (var cse in sw.Cases)
 							if (AnyOf(cse.Body)) return true;
 					return AnyOf(sw.Default);
 				case TryStmt t:
-					if (StmtDeclaresModuleMember(t.Body, member)) return true;
+					if (Rec(t.Body)) return true;
 					if (t.Catches != null)
 						foreach (var cb in t.Catches)
-							if (Is(cb.Var) || StmtDeclaresModuleMember(cb.Body, member)) return true;
-					return StmtDeclaresModuleMember(t.Else, member) || StmtDeclaresModuleMember(t.Finally, member);
+							if ((!insideCallable && Is(cb.Var)) || Rec(cb.Body)) return true;
+					return Rec(t.Else) || Rec(t.Finally);
 			}
 			return false;
 		}

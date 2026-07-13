@@ -134,6 +134,14 @@ if (niv == 99 && nlv == 55)
 else
     FileAppend "fail", "*"
 
+; ---- module globals materialized via an assignment chain and via a function-scope `global` decl are importable
+#import "ChainGlobals" { chainB as cb }
+#import "FuncGlobals" { fgTheme as fgt }
+if (cb == 7 && fgt == "dark")
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"
+
 #Module X
 export Calculate() => 2
 
@@ -168,3 +176,12 @@ else
     nestedIfVar := 0
 loop 1
     nestedLoopVar := 55
+
+#Module ChainGlobals
+chainA := chainB := 7
+
+#Module FuncGlobals
+InitFG()
+InitFG() {
+    global fgTheme := "dark"
+}

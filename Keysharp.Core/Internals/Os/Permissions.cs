@@ -55,13 +55,21 @@ namespace Keysharp.Internals.Os
 
 		public virtual PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool accessibilityAutomation = false, bool? prompt = null, string operation = null)
 		{
-			PermissionResult result = new(PermissionStatus.NotApplicable);
-			if (accessibilityAutomation) result = RequestAccessibilityAutomation(prompt, operation);
-			if (monitoring)    result = RequestInputMonitoring(prompt, operation);
-			if (injection)     result = RequestInputInjection(prompt, operation);
-			if (screenCapture) result = RequestScreenCapture(prompt, operation);
+			// Aggregate to the WORST (least-granted) status across every requested capability rather than
+			// whichever happens to be checked last, so a denial of one capability is never masked by a later
+			// Granted/NotApplicable. blockInput carries no per-capability status of its own here.
+			var result = new PermissionResult(PermissionStatus.NotApplicable);
+			if (accessibilityAutomation) result = Combine(result, RequestAccessibilityAutomation(prompt, operation));
+			if (monitoring)    result = Combine(result, RequestInputMonitoring(prompt, operation));
+			if (injection)     result = Combine(result, RequestInputInjection(prompt, operation));
+			if (screenCapture) result = Combine(result, RequestScreenCapture(prompt, operation));
 			return result;
 		}
+
+		// Keeps the first NON-granted result (its status + message); a granted/NotApplicable result never
+		// overrides an earlier denial, so a batched request reports success only when every part succeeded.
+		protected static PermissionResult Combine(PermissionResult accumulated, PermissionResult next)
+			=> accumulated.IsGranted ? next : accumulated;
 		public virtual PermissionResult RequestScreenCapture(bool? prompt = null, string operation = null) => new(PermissionStatus.NotApplicable);
 		public virtual PermissionResult RequestFileAccess(string path, FilePermissionAccess access, bool? prompt = null, string operation = null) => new(PermissionStatus.NotApplicable);
 
@@ -140,14 +148,15 @@ namespace Keysharp.Internals.Os
 			return new(PermissionStatus.NotApplicable, $"'{operation}' uses on-demand OS file permission prompts.");
 		}
 
-		// macOS uses separate system dialogs per permission type, so each is requested individually.
+		// macOS uses separate system dialogs per permission type, so each is requested individually. Aggregate to
+		// the worst-of (see DefaultPermissionManager.Combine) so an earlier denial isn't masked by a later grant.
 		public override PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool accessibilityAutomation = false, bool? prompt = null, string operation = null)
 		{
-			PermissionResult result = new(PermissionStatus.NotApplicable);
-			if (accessibilityAutomation) result = RequestAccessibilityAutomation(prompt, operation);
-			if (monitoring)    result = RequestInputMonitoring(prompt, operation);
-			if (injection)     result = RequestInputInjection(prompt, operation);
-			if (screenCapture) result = RequestScreenCapture(prompt, operation);
+			var result = new PermissionResult(PermissionStatus.NotApplicable);
+			if (accessibilityAutomation) result = Combine(result, RequestAccessibilityAutomation(prompt, operation));
+			if (monitoring)    result = Combine(result, RequestInputMonitoring(prompt, operation));
+			if (injection)     result = Combine(result, RequestInputInjection(prompt, operation));
+			if (screenCapture) result = Combine(result, RequestScreenCapture(prompt, operation));
 			return result; // blockInput not applicable on macOS
 		}
 	}

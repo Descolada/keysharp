@@ -243,12 +243,39 @@ static bool is_protected_exe(const char *path)
  * separate trust identity and prompts separately.  Also fills command_line_buffer
  * (argv0 skipped) for the prompt's display text.  A missing/empty cmdline degrades
  * gracefully to a path-only identity rather than failing. */
+/* WILDCARD identity: SHA-256 over a domain tag plus ONLY the exe portion (path for a protected
+ * install, content digest for a dev build) — deliberately excluding the command line, so it is the
+ * same for every script run by the binary. Backs the "Allow for executable" grant. */
+static int hash_wildcard_identity(
+    const void *exe_portion,
+    size_t exe_portion_length,
+    char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u])
+{
+    static const uint8_t domain[] = "Keysharp-wildcard-identity-v1";
+    ksi_sha256_ctx ctx;
+    int result = -1;
+
+    if (sha256_ctx_init(&ctx) != 0)
+        return -1;
+
+    if (sha256_ctx_update(&ctx, domain, sizeof(domain)) != 0
+        || sha256_ctx_update(&ctx, exe_portion, exe_portion_length) != 0)
+        goto cleanup;
+
+    result = sha256_ctx_finish(&ctx, output);
+
+cleanup:
+    sha256_ctx_cleanup(&ctx);
+    return result;
+}
+
 static int hash_protected_path_identity(
     const char *exe_path,
     pid_t pid,
     char *command_line_buffer,
     size_t command_line_buffer_size,
-    char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u])
+    char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u],
+    char *wildcard_output)
 {
     static const uint8_t domain[] = "Keysharp-protected-path-identity-v2";
     char proc_path[64];
@@ -262,6 +289,9 @@ static int hash_protected_path_identity(
 
     if (command_line_buffer != NULL && command_line_buffer_size != 0u)
         command_line_buffer[0] = '\0';
+
+    if (wildcard_output != NULL)
+        wildcard_output[0] = '\0';
 
     if (sha256_ctx_init(&ctx) != 0)
         return -1;
@@ -294,6 +324,12 @@ static int hash_protected_path_identity(
 
     result = sha256_ctx_finish(&ctx, output);
 
+    /* Wildcard identity from the exe PATH only (no argv). Optional: on failure leave it empty so it
+     * simply never matches an "all scripts" record, rather than failing identification outright. */
+    if (result == 0 && wildcard_output != NULL
+        && hash_wildcard_identity(exe_path, strlen(exe_path), wildcard_output) != 0)
+        wildcard_output[0] = '\0';
+
 cleanup:
     sha256_ctx_cleanup(&ctx);
     return result;
@@ -304,7 +340,8 @@ static int hash_process_identity(
     pid_t pid,
     char *command_line_buffer,
     size_t command_line_buffer_size,
-    char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u])
+    char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u],
+    char *wildcard_output)
 {
     static const uint8_t domain[] = "Keysharp-process-identity-v1";
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
@@ -323,6 +360,9 @@ static int hash_process_identity(
     }
 
     command_line_buffer[0] = '\0';
+
+    if (wildcard_output != NULL)
+        wildcard_output[0] = '\0';
 
     if (compute_fd_sha256_hex(exe_fd, exe_hash) != 0) {
         return -1;
@@ -366,6 +406,11 @@ static int hash_process_identity(
     }
 
     result = sha256_ctx_finish(&ctx, output);
+
+    /* Wildcard identity from the exe CONTENT digest only (no argv) — same across every script run. */
+    if (result == 0 && wildcard_output != NULL
+        && hash_wildcard_identity(exe_hash, KSI_PERMISSION_HASH_HEX_LENGTH, wildcard_output) != 0)
+        wildcard_output[0] = '\0';
 
 cleanup:
     sha256_ctx_cleanup(&ctx);
@@ -1514,7 +1559,8 @@ int ksi_permissions_identify_process(
     size_t path_buffer_size,
     char *command_line_buffer,
     size_t command_line_buffer_size,
-    char hash_buffer[KSI_PERMISSION_HASH_HEX_LENGTH + 1u])
+    char hash_buffer[KSI_PERMISSION_HASH_HEX_LENGTH + 1u],
+    char *wildcard_hash_buffer)
 {
     char proc_path[64];
     int fd;
@@ -1529,6 +1575,9 @@ int ksi_permissions_identify_process(
     path_buffer[0] = '\0';
     command_line_buffer[0] = '\0';
     hash_buffer[0] = '\0';
+
+    if (wildcard_hash_buffer != NULL)
+        wildcard_hash_buffer[0] = '\0';
 
     (void)snprintf(proc_path, sizeof(proc_path), "/proc/%ld/exe", (long)pid);
     fd = open(proc_path, O_RDONLY | O_CLOEXEC);
@@ -1555,10 +1604,10 @@ int ksi_permissions_identify_process(
          * prompted for — separately rather than all sharing the binary's grant. */
         close(fd);
         return hash_protected_path_identity(
-            path_buffer, pid, command_line_buffer, command_line_buffer_size, hash_buffer);
+            path_buffer, pid, command_line_buffer, command_line_buffer_size, hash_buffer, wildcard_hash_buffer);
     }
 
-    if (hash_process_identity(fd, pid, command_line_buffer, command_line_buffer_size, hash_buffer) != 0) {
+    if (hash_process_identity(fd, pid, command_line_buffer, command_line_buffer_size, hash_buffer, wildcard_hash_buffer) != 0) {
         close(fd);
         return -1;
     }
@@ -1893,9 +1942,11 @@ ksi_permission_decision ksi_permissions_prompt(
                 "--column=Pick",
                 "--column=Action",
                 "TRUE",
+                "Allow always",
+                "FALSE",
                 "Allow once",
                 "FALSE",
-                "Allow always",
+                "Allow for executable",
                 "FALSE",
                 "Deny",
                 NULL,
@@ -1911,6 +1962,16 @@ ksi_permission_decision ksi_permissions_prompt(
                 if (strcmp(output, "Allow once") == 0) {
                     return KSI_PERMISSION_DECISION_ALLOW_ONCE;
                 }
+
+                if (strcmp(output, "Allow for executable") == 0) {
+                    return KSI_PERMISSION_DECISION_ALLOW_ALL_SCRIPTS;
+                }
+
+                /* Explicit Deny is a real (session-only) denial — see process_client_prompt_done.
+                 * A cancelled/closed dialog returns non-zero and falls through to PROMPT_UNAVAILABLE. */
+                if (strcmp(output, "Deny") == 0) {
+                    return KSI_PERMISSION_DECISION_DENY;
+                }
             }
         }
 
@@ -1923,10 +1984,12 @@ ksi_permission_decision ksi_permissions_prompt(
                 "Keysharp permissions",
                 "--menu",
                 prompt_text,
-                "once",
-                "Allow once",
                 "always",
                 "Allow always",
+                "once",
+                "Allow once",
+                "allscripts",
+                "Allow for executable",
                 "deny",
                 "Deny",
                 NULL,
@@ -1939,6 +2002,14 @@ ksi_permission_decision ksi_permissions_prompt(
 
                 if (strcmp(output, "once") == 0) {
                     return KSI_PERMISSION_DECISION_ALLOW_ONCE;
+                }
+
+                if (strcmp(output, "allscripts") == 0) {
+                    return KSI_PERMISSION_DECISION_ALLOW_ALL_SCRIPTS;
+                }
+
+                if (strcmp(output, "deny") == 0) {
+                    return KSI_PERMISSION_DECISION_DENY;
                 }
             }
         }

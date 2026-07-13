@@ -32,6 +32,11 @@ typedef enum ksi_permission_decision {
      * this as a transient deny — do not persist a denial, so the next attempt
      * gets another chance to show the prompt. */
     KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE = 3,
+    /* "Allow for executable": grant persistently under the WILDCARD identity (the exe portion
+     * of the process identity WITHOUT the command line), so the grant covers every script run by
+     * this same Keysharp binary, not just the one that prompted. Cleared like any record via the
+     * keysharp-trust CLI. */
+    KSI_PERMISSION_DECISION_ALLOW_ALL_SCRIPTS = 4,
 } ksi_permission_decision;
 
 int ksi_permissions_create(ksi_permission_store **store);
@@ -44,7 +49,11 @@ int ksi_permissions_identify_process(
     char *command_line_buffer,
     size_t command_line_buffer_size,
     /* SHA-256 process identity: executable digest plus raw argv bytes. */
-    char hash_buffer[KSI_PERMISSION_HASH_HEX_LENGTH + 1u]);
+    char hash_buffer[KSI_PERMISSION_HASH_HEX_LENGTH + 1u],
+    /* Optional (may be NULL): SHA-256 WILDCARD identity = the exe portion ONLY (no argv), so a
+     * single "Allow for executable" grant covers every script run by the same binary. When
+     * non-NULL it must point at KSI_PERMISSION_HASH_HEX_LENGTH + 1 writable bytes. */
+    char *wildcard_hash_buffer);
 
 uint32_t ksi_permissions_get_allowed_capabilities(
     const ksi_permission_store *store,

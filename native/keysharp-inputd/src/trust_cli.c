@@ -516,7 +516,7 @@ static int cmd_reset(int fd, int argc, char **argv)
                 pid_arg,
                 path, sizeof(path),
                 command_line, sizeof(command_line),
-                hash_buf) != 0) {
+                hash_buf, NULL) != 0) {
             fprintf(stderr, "keysharp-inputd trust: cannot identify pid %ld\n", (long)pid_arg);
             return 1;
         }

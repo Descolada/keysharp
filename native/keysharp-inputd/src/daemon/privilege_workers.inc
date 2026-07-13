@@ -33,7 +33,7 @@ static void *identify_worker(void *arg)
             task->pid,
             result->exe_path, sizeof(result->exe_path),
             result->command_line, sizeof(result->command_line),
-            result->exe_hash) == 0;
+            result->exe_hash, result->wildcard_hash) == 0;
         result->start_time = ksi_permissions_get_process_start_time(task->pid);
     }
 

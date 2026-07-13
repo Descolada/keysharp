@@ -119,6 +119,10 @@ typedef struct ksi_client {
     bool hello_seen;
     uint64_t connected_at_ms;
     uint32_t granted_capabilities;
+    /* Session-only "Deny" bits for THIS connection (the managed side keeps one connection
+     * per Keysharp run): suppress re-prompting for the rest of the run WITHOUT persisting to
+     * disk, so a mis-clicked Deny recovers on the next run. Never serialized; dies with the fd. */
+    uint32_t session_denied_capabilities;
     uint32_t hook_subscriptions;
     uint32_t block_input_mask;
     /* Consecutive hook failures per lane: index 0 keyboard, 1 mouse. */
@@ -127,6 +131,9 @@ typedef struct ksi_client {
     char exe_path[KSI_PERMISSION_MAX_PATH];
     char command_line[KSI_PERMISSION_MAX_COMMAND_LINE];
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
+    /* WILDCARD identity (exe portion only, no argv): keys the "Allow for all scripts" grant that
+     * covers every script run by this same Keysharp binary. Empty when identity is unknown. */
+    char wildcard_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
     /* Buffered CLIENT_HELLO waiting for identification or prompt to complete. */
     bool pending_hello_valid;
     uint32_t pending_hello_requested;
@@ -141,6 +148,7 @@ typedef struct ksi_client_identified_result {
     char exe_path[KSI_PERMISSION_MAX_PATH];
     char command_line[KSI_PERMISSION_MAX_COMMAND_LINE];
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
+    char wildcard_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
     uint64_t start_time;
 } ksi_client_identified_result;
 

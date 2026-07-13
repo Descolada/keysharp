@@ -45,6 +45,22 @@ static uint32_t permission_capabilities_for_request(uint32_t requested)
     return requested;
 }
 
+/* Persistently-allowed capabilities for a client: its per-script identity OR, when known, its
+ * WILDCARD identity (the "Allow for executable" grant that covers every script run by this binary).
+ * The single place the wildcard is OR'd in, so every read path (grant check + response recompute)
+ * stays consistent. An empty wildcard_hash contributes nothing. */
+static uint32_t client_persistent_allowed(const ksi_daemon_state *state, const ksi_client *client)
+{
+    uint32_t caps = ksi_permissions_get_allowed_capabilities(
+        state->permissions, client->uid, client->exe_hash);
+
+    if (client->wildcard_hash[0] != '\0')
+        caps |= ksi_permissions_get_allowed_capabilities(
+            state->permissions, client->uid, client->wildcard_hash);
+
+    return caps;
+}
+
 /* Returns the capabilities currently granted from the store without prompting.
  * Sets *out_missing to the grouped permission capabilities not yet granted. */
 static uint32_t check_capabilities_sync(
@@ -74,8 +90,7 @@ static uint32_t check_capabilities_sync(
     expanded = permission_capabilities_for_request(requested) & state->available_capabilities;
 
     if (expanded != 0u) {
-        granted = ksi_permissions_get_allowed_capabilities(
-            state->permissions, client->uid, client->exe_hash) & expanded;
+        granted = client_persistent_allowed(state, client) & expanded;
 
         /* Inherit per-process session grants from sibling clients of the same
          * Keysharp process (same uid+pid).  This is how "Allow once" decisions
@@ -131,8 +146,7 @@ static uint32_t check_capabilities_sync(
         uint32_t non_physical = requested & ~state->available_capabilities;
 
         if (non_physical != 0u) {
-            uint32_t np_granted = ksi_permissions_get_allowed_capabilities(
-                state->permissions, client->uid, client->exe_hash) & non_physical;
+            uint32_t np_granted = client_persistent_allowed(state, client) & non_physical;
 
             if (client->start_time != 0u)
                 np_granted |= ksi_permissions_get_session_by_pid(
@@ -146,6 +160,13 @@ static uint32_t check_capabilities_sync(
 
             missing |= np_missing;
         }
+    }
+
+    /* Session-only denials (a plain "Deny" chosen earlier THIS run) suppress re-prompting for
+     * the rest of the connection without any persistent record, so the next script run re-asks.
+     * Held on the client (one connection per Keysharp run), so it clears when the run ends. */
+    if (!force_prompt) {
+        missing &= ~client->session_denied_capabilities;
     }
 
     if (out_missing != NULL) {
@@ -219,12 +240,23 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
 		 * capture) are stored in the shared trust store where keysharp-helper reads them. */
 		(void)ksi_permissions_grant_persistent(
 			state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
+	} else if (decision == KSI_PERMISSION_DECISION_ALLOW_ALL_SCRIPTS) {
+		/* "Allow for executable": persist under the WILDCARD identity (exe portion only) so the grant
+		 * covers every script run by this same binary, not just the one that prompted. If the wildcard
+		 * identity is somehow unknown, fall back to the per-script grant so the user's Allow still takes
+		 * effect for at least this script. */
+		(void)ksi_permissions_grant_persistent(
+			state->permissions, client->uid,
+			client->wildcard_hash[0] != '\0' ? client->wildcard_hash : client->exe_hash,
+			client->exe_path, missing);
 	} else if (decision == KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE) {
-		/* The prompt could not actually be shown — don't record a persistent denial. */
+		/* The prompt could not actually be shown — don't record a denial at all. */
 	} else if (decision != KSI_PERMISSION_DECISION_ALLOW_ONCE) {
-		/* Persistent deny for ALL requested capabilities. */
-		(void)ksi_permissions_deny_persistent(
-			state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
+		/* A plain "Deny" is SESSION-ONLY: suppress re-prompting for the rest of this run by
+		 * flagging the bits on the connection (see check_capabilities_sync), rather than writing
+		 * a persistent denial. A mis-clicked Deny therefore recovers on the next run; a durable
+		 * denial is available out-of-band via the keysharp-trust CLI. */
+		client->session_denied_capabilities |= missing;
 	}
 
     if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE && missing != 0u) {
@@ -239,7 +271,7 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
 
     /* Recompute the physical capabilities actually granted for the HELLO response.
      * Non-physical caps are intentionally excluded — inputd cannot provide them. */
-    granted = ksi_permissions_get_allowed_capabilities(state->permissions, client->uid, client->exe_hash)
+    granted = client_persistent_allowed(state, client)
               & (permission_capabilities_for_request(requested) & state->available_capabilities);
 
     if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE) {
@@ -307,6 +339,7 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
         (void)snprintf(client->exe_path, sizeof(client->exe_path), "%s", result->exe_path);
         (void)snprintf(client->command_line, sizeof(client->command_line), "%s", result->command_line);
         (void)snprintf(client->exe_hash, sizeof(client->exe_hash), "%s", result->exe_hash);
+        (void)snprintf(client->wildcard_hash, sizeof(client->wildcard_hash), "%s", result->wildcard_hash);
 
         if (g_verbose) {
             printf("identified client fd=%d hash=%s path=%s command=%s\n",

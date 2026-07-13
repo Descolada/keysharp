@@ -127,6 +127,13 @@ if (nv1 == 7 && noExportVar == 7)
 else
     FileAppend "fail", "*"
 
+; ---- a module global assigned only inside top-level control flow (if/else, loop) is still importable by name
+#import "NestedGlobals" { nestedIfVar as niv, nestedLoopVar as nlv }
+if (niv == 99 && nlv == 55)
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"
+
 #Module X
 export Calculate() => 2
 
@@ -153,3 +160,11 @@ hiddenVar := 42
 #Module NoExports
 noExportFn() => "noexp"
 noExportVar := 7
+
+#Module NestedGlobals
+if (1)
+    nestedIfVar := 99
+else
+    nestedIfVar := 0
+loop 1
+    nestedLoopVar := 55

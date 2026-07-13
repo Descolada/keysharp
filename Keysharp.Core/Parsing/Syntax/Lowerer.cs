@@ -1030,6 +1030,14 @@ namespace Keysharp.Parsing.Syntax
 		{
 			if (isScript)
 			{
+				// Reject a genuinely absent member (a typo like `Widht`) before binding: without this the frame would emit
+				// `Program.<Mod>.@G_Widht`, an undefined field → a confusing Roslyn CS0117 at a generated position. Leniency
+				// is preserved — a non-exported top-level declaration (`hiddenFn`/`hiddenVar`) is still importable by name.
+				if (!ScriptModuleHasMember(script, member))
+				{
+					Diag($"{im.Line}:{im.Column}: #Import: module '{modName}' has no exported member named '{member}'");
+					return null;
+				}
 				bool writable = script.Exports.TryGetValue(member, out var kind) && kind == ExportK.Variable;
 				return new ImportBinding
 				{
@@ -1045,6 +1053,71 @@ namespace Keysharp.Parsing.Syntax
 			if (!isAhk && builtinType != null && !BuiltinModuleHasMember(builtinType, member))
 				Diag($"{im.Line}:{im.Column}: #Import: module '{modName}' has no exported member named '{member}'");
 			return null;
+		}
+
+		// Whether a script module makes `member` importable by name: an explicit `export`, a top-level function/class/
+		// hotkey/hotstring, OR any variable assigned/declared at module scope — INCLUDING one inside top-level control
+		// flow (if/loop/while/for/switch/try). Such a name still materializes a module field (EnsureGlobalField) and was
+		// importable before this diagnostic existed, so it must stay accepted — see module-import.ahk's "Mixed"/"NoExports".
+		// The walk descends into control-flow bodies but never into a nested function/class body (a name assigned there is
+		// a local, not a module member). It deliberately over-accepts at the margins: a name that turns out to have no
+		// emitted field falls back to the pre-existing behavior (a Roslyn CS0117), whereas rejecting a real member would be
+		// a regression — only a genuine typo, appearing nowhere at module scope, is rejected here.
+		private static bool ScriptModuleHasMember(ModInfo m, string member)
+		{
+			if (m.Exports.ContainsKey(member)) return true;
+			foreach (var s in m.Body)
+				if (StmtDeclaresModuleMember(s, member)) return true;
+			return false;
+		}
+
+		private static bool StmtDeclaresModuleMember(Stmt s, string member)
+		{
+			if (s == null) return false;
+			bool Is(string name) => name != null && name.Equals(member, System.StringComparison.OrdinalIgnoreCase);
+			bool AnyOf(List<Stmt> body)
+			{
+				if (body != null)
+					foreach (var st in body)
+						if (StmtDeclaresModuleMember(st, member)) return true;
+				return false;
+			}
+			switch (s is ExportStmt e ? e.Decl : s)
+			{
+				case FunctionDecl f: return Is(f.Name);
+				case ClassDecl c: return Is(c.Name);
+				case HotkeyDef { Func: { } hkf }: return Is(hkf.Name);
+				case HotstringDef { Func: { } hsf }: return Is(hsf.Name);
+				case ExpressionStmt { Expr: AssignExpr { Target: NameExpr n } }: return Is(n.Name);
+				case DeclStmt d:
+					if (d.Items != null)
+						foreach (var it in d.Items)
+							if ((it is NameExpr dn && Is(dn.Name)) || (it is AssignExpr { Target: NameExpr an } && Is(an.Name))) return true;
+					return false;
+				// Control-flow bodies run at module scope, so a global assigned inside them is a real module field.
+				case Block b: return AnyOf(b.Body);
+				case IfStmt i: return StmtDeclaresModuleMember(i.Then, member) || StmtDeclaresModuleMember(i.Else, member);
+				case WhileStmt w: return StmtDeclaresModuleMember(w.Body, member) || StmtDeclaresModuleMember(w.Else, member);
+				case LoopStmt l: return StmtDeclaresModuleMember(l.Body, member) || StmtDeclaresModuleMember(l.Else, member);
+				case SpecialLoopStmt sl: return StmtDeclaresModuleMember(sl.Body, member) || StmtDeclaresModuleMember(sl.Else, member);
+				case ForStmt fo:
+					if (fo.Vars != null)
+						foreach (var v in fo.Vars)
+							if (Is(v)) return true;
+					return StmtDeclaresModuleMember(fo.Body, member) || StmtDeclaresModuleMember(fo.Else, member);
+				case SwitchStmt sw:
+					if (sw.Cases != null)
+						foreach (var cse in sw.Cases)
+							if (AnyOf(cse.Body)) return true;
+					return AnyOf(sw.Default);
+				case TryStmt t:
+					if (StmtDeclaresModuleMember(t.Body, member)) return true;
+					if (t.Catches != null)
+						foreach (var cb in t.Catches)
+							if (Is(cb.Var) || StmtDeclaresModuleMember(cb.Body, member)) return true;
+					return StmtDeclaresModuleMember(t.Else, member) || StmtDeclaresModuleMember(t.Finally, member);
+			}
+			return false;
 		}
 
 		// Resolves `lower` against the scope frames' EXPLICIT bindings, innermost-first. Explicit imports shadow module
@@ -1151,6 +1224,24 @@ namespace Keysharp.Parsing.Syntax
 			if (TryScopedExplicit(lower, out binding)) return true;
 			if (Script.TheScript.ReflectionsData.flatPublicStaticProperties.ContainsKey(lower)) return false;   // built-in var beats a wildcard
 			return TryScopedWildcard(lower, out binding);
+		}
+
+		// True when `name` is provided by ANY enclosing `#import` frame currently on the stack — this callable's own
+		// frame, an enclosing class frame, or an enclosing function's frame — as an explicit named binding or a wildcard
+		// export. Consulted during local classification (LowerCallableBody) so such a name is NOT turned into a fresh
+		// local by an assignment to it (`counter := 5` / `counter++`): that would shadow the import and lose the
+		// write-through to the module variable. Real locals/params/statics/forced-globals are handled by the caller's
+		// other guards and by explicitLocals added afterwards, so they still take precedence over the import. Unlike
+		// ResolvesToScopedImport this does NOT consult _locals (which is being built at the call site) — it answers
+		// purely from the import stack, mirroring that method's explicit-then-wildcard ordering (a built-in variable
+		// still beats a wildcard).
+		private bool BoundByEnclosingImport(string name)
+		{
+			if (_importScopes.Count == 0) return false;
+			var lower = name.ToLowerInvariant();
+			if (TryScopedExplicit(lower, out _)) return true;
+			if (Script.TheScript.ReflectionsData.flatPublicStaticProperties.ContainsKey(lower)) return false;   // built-in var beats a wildcard
+			return TryScopedWildcard(lower, out _);
 		}
 
 		// Resolves one exported name on a module type to its binding: method->Func, nested type->singleton, property->access.
@@ -3365,7 +3456,10 @@ namespace Keysharp.Parsing.Syntax
 			if (bodyBlock != null) foreach (var st in bodyBlock.Body) CollectNestedImports(st, bodyImports);
 			var importFrame = bodyImports.Count > 0 ? BuildImportScope(bodyImports) : null;
 			if (importFrame != null) _importScopes.Add(importFrame);
-			bool BoundByOwnImport(string n) => importFrame != null && importFrame.Named.ContainsKey(n);
+			// The exemption consults the FULL enclosing import stack — this body's own frame PLUS any enclosing class /
+			// function frame (e.g. a `#import "Mod" { export }` in the class body, read/written by a method) — not just the
+			// own frame. Otherwise a name bound only by an enclosing frame is reclassified as a fresh local on assignment,
+			// severing the write-through to the module variable. See BoundByEnclosingImport.
 			// A bare `static` declaration switches the function to assume-static: undeclared assigned variables become
 			// per-function STATIC locals (persisting across calls) rather than fresh locals — they need backing SL_ fields
 			// like explicit statics. `global` wins if both are present. Params, explicit locals, and nested-closure names
@@ -3375,7 +3469,7 @@ namespace Keysharp.Parsing.Syntax
 			if (assumeStatic)
 				foreach (var n in assignedOrdered)
 					if (!forcedGlobals.Contains(n) && !statics.ContainsKey(n) && !explicitLocals.Contains(n)
-						&& !paramLowers.Contains(n) && !_enclosingLocals.Contains(n) && !ownClosureNames.Contains(n) && !BoundByOwnImport(n))
+						&& !paramLowers.Contains(n) && !_enclosingLocals.Contains(n) && !ownClosureNames.Contains(n) && !BoundByEnclosingImport(n))
 					{
 						var field = NameMangler.StaticLocalField(funcName, n);
 						statics[n] = field;
@@ -3385,7 +3479,7 @@ namespace Keysharp.Parsing.Syntax
 			_locals = new HashSet<string>(paramLowers);
 			if (!assumeGlobal)
 				foreach (var n in assignedOrdered)
-					if (!forcedGlobals.Contains(n) && !statics.ContainsKey(n) && !_enclosingLocals.Contains(n) && !BoundByOwnImport(n)) _locals.Add(n);
+					if (!forcedGlobals.Contains(n) && !statics.ContainsKey(n) && !_enclosingLocals.Contains(n) && !BoundByEnclosingImport(n)) _locals.Add(n);
 			foreach (var n in explicitLocals) _locals.Add(n);
 			// In a method (or a closure nested in one), `this` is always the special @this (the receiver), never a local —
 			// even when assigned (`this := 0`), which reassigns the captured receiver. Don't shadow it with a null local.
@@ -4054,6 +4148,20 @@ namespace Keysharp.Parsing.Syntax
 					// when it is currently unset (e.g. `f(&out)` where `f` fills `out` via a nested `g(&out)`).
 					if (_byRefParams != null && _byRefParams.Contains(lown))
 						return Id(NameMangler.Escape(lown));
+					// A scoped `#import` name is not a C# lvalue. A READ-ONLY import (module object, function, type, built-in
+					// member) resolves to a value expression (`new Ks()`, `FuncBind(...)`, …) whose "setter" `<read> = v`
+					// would assign to a non-lvalue → uncompilable C# (CS0131/CS1656); diagnose it at the source position
+					// instead. A WRITABLE script-variable export builds its ref from the import's Read/Write targets (the
+					// module's backing field, an lvalue), so `&writableExport` works and writes propagate to the module.
+					if (ResolvesToScopedImport(lown, out var impRef))
+					{
+						if (impRef.Write == null)
+						{
+							Diag($"{n.Line}:{n.Column}: #Import: cannot take a reference to imported name '{n.Name}'");
+							return Str("");
+						}
+						return MakeVarRefGS(impRef.Read(), Assign(impRef.Write(), Id("KS_value")));
+					}
 					var nr = NameRef(n.Name);
 					return MakeVarRefGS(nr, Assign(nr, Id("KS_value")));
 				// `&obj.prop` / `&obj[i]` produce a v2.1 PropRef bound to the property slot, via obj.__Ref(name[, args]).

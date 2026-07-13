@@ -334,19 +334,40 @@ namespace Keysharp.Builtins
 				}
 
 #if WINDOWS
-				// WinForms has no per-pixel window alpha, so emulate a transparent background with a colour key:
-				// paint the form in the opaque colour and make that colour transparent (and click-through). Set
-				// before Show. An opaque colour clears any prior key so the window is solid again.
-				if (c.A < 255)
+				// WinForms has no per-pixel window-background alpha, so approximate the requested alpha. Set before Show.
+				//  - alpha == 0  -> fully transparent: a colour key (the classic click-through hole).
+				//  - 0 < alpha < 255 -> whole-window translucency via Form.Opacity (a layered window). NOTE this differs
+				//    from Linux/macOS, where the alpha applies per-pixel to the BACKGROUND only (controls stay opaque);
+				//    on Windows the whole window (controls included) becomes translucent — the closest WinForms can get,
+				//    and an accepted cross-platform difference. (Shares the layered-window alpha with WinSetTransparent.)
+				//  - alpha == 255 -> solid: clear any prior colour key / opacity so the window is fully opaque again.
+				if (c.A == 0)
 				{
+					// Clear any residual whole-window translucency from a prior 0<alpha<255 set so the result is
+					// fully opaque except for the colour-keyed hole (guard !=1.0 to leave an explicit WinSetTransparent
+					// alone, matching the alpha==255 branch below).
+					if (form.Opacity != 1.0)
+						form.Opacity = 1.0;
+
 					var key = Color.FromArgb(255, c.R, c.G, c.B);
 					form.BackColor = key;
 					form.TransparencyKey = key;
+				}
+				else if (c.A < 255)
+				{
+					if (form.TransparencyKey != Color.Empty)
+						form.TransparencyKey = Color.Empty;
+
+					form.BackColor = Color.FromArgb(255, c.R, c.G, c.B);
+					form.Opacity = c.A / 255.0;
 				}
 				else
 				{
 					if (form.TransparencyKey != Color.Empty)
 						form.TransparencyKey = Color.Empty;
+
+					if (form.Opacity != 1.0)
+						form.Opacity = 1.0;
 
 					form.BackColor = c;
 				}

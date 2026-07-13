@@ -1,4 +1,8 @@
 #Requires AutoHotkey v2.0
+#import KS { A_ScreenScale }     ; A_ScreenScale (Keysharp's per-platform DPI scale) lives in the KS module. Import it
+                                 ; here so this shared layer is self-contained: Render() reads it, and a new demo that
+                                 ; #includes Shell.ks must not have to remember the import. KS imports are script-global,
+                                 ; so an includer already importing it (every current demo does) is harmless.
 
 /*
     Shell — the shared support layer the demos in this folder build on. It provides three things each demo

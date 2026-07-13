@@ -294,6 +294,10 @@ class OCR {
                 total .= line.Text "`n"
             if comparefunc(Trim(total, "`n"), needle)
                 return result
+            ; Yield between attempts: capture+OCR back-to-back would peg a core and starve the message pump
+            ; (hotkeys/SetTimer/GUI would all stall for the whole wait). The pause also gives the awaited text
+            ; time to appear. This is a plain non-blocking Sleep — the timeout/exit is still governed above.
+            Sleep(40)
         }
         return ""
     }
@@ -911,7 +915,17 @@ class OCR {
             handle := DllCall(this.__Sym("TessBaseAPICreate"), "Cdecl Ptr")
             if !handle
                 throw Error("Failed to create a Tesseract engine instance.", -1)
-            this.__InitLanguage(handle, datapath, lang)
+            ; __ApiHandle is only assigned after a successful init, so if __InitLanguage throws (e.g. missing
+            ; traineddata) the freshly-created native handle would otherwise leak — the prior cached engine was
+            ; already torn down by __FreeApi above. Release it here (End then Delete, mirroring __FreeApi) and
+            ; re-raise, so a failed init never orphans a TessBaseAPI.
+            try
+                this.__InitLanguage(handle, datapath, lang)
+            catch as e {
+                try DllCall(this.__Sym("TessBaseAPIEnd"), "Ptr", handle, "Cdecl")
+                try DllCall(this.__Sym("TessBaseAPIDelete"), "Ptr", handle, "Cdecl")
+                throw e
+            }
             this.__ApiHandle := handle, this.__ApiLang := lang, this.__ApiData := datapath
             return handle
         }
@@ -1104,11 +1118,14 @@ class OCR {
             return 0
         }
         __Dlopen(path) {
-            local dl, h
+            local dl, h, pathBuf := this.__Utf8(path)
+            ; dlopen takes a char* the loader treats as UTF-8, so pass UTF-8 bytes (via __Utf8) rather than
+            ; "AStr": "AStr" would ANSI-encode the path, mangling any non-ASCII byte to '?' and breaking paths
+            ; like /home/josé/lib/libtesseract.so. The buffer is held in a local so it stays alive across the call.
             ; RTLD_NOW (0x2) | RTLD_GLOBAL (0x100)
             for dl in this.__DlLibs() {
                 try {
-                    h := DllCall(dl "/" "dlopen", "AStr", path, "Int", 0x102, "Cdecl Ptr")
+                    h := DllCall(dl "/" "dlopen", "Ptr", pathBuf.Ptr, "Int", 0x102, "Cdecl Ptr")
                     if h
                         return h
                 }

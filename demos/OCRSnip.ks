@@ -49,7 +49,9 @@ class OCRSnip {
     ; (which lagged badly — each frame reallocated and re-uploaded a full-screen bitmap), the crosshair is
     ; split into cheap, independently-movable click-through overlays: two 1px full-screen guide lines, a small
     ; reticle at the pointer, and a lazily-sized selection box. Following the cursor is then just a window move.
-    static RetHalf := 21               ; half-size of the square reticle overlay (its centre sits on the pointer)
+    static RetHalf := 21               ; half-size of the square reticle overlay, in LOGICAL px (its centre sits on the pointer)
+    static retHalfPx := 21             ; RetHalf scaled to physical screen px for the active snip (set in SetupTracking)
+    static uiScale := 1                ; DPI scale for the tracking overlays: A_ScreenScale on Win/Linux, 1 on macOS (set in SetupTracking)
     static ih := ""                    ; InputHook feeding event-driven OnMouseMove (replaces Sleep-poll tracking)
     static GuideV := "", GuideH := ""  ; vertical / horizontal full-screen alignment guides
     static Reticle := ""               ; the crosshair reticle that follows the pointer
@@ -257,7 +259,7 @@ class OCRSnip {
         if IsObject(this.GuideH)
             this.GuideH.Y := this.curY
         if IsObject(this.Reticle)
-            this.Reticle.Move(this.curX - this.RetHalf, this.curY - this.RetHalf)
+            this.Reticle.Move(this.curX - this.retHalfPx, this.curY - this.retHalfPx)
         if this.Dragging
             this.UpdateSelection(this.curX, this.curY)
     }
@@ -273,7 +275,7 @@ class OCRSnip {
             return
         }
 
-        local th := 2
+        local th := Max(1, Round(2 * this.uiScale))   ; border thickness in physical px — scale so it isn't a hairline on HiDPI
         local pieces := [
             [this.SelFill,    r.x,             r.y,             r.w, r.h],   ; fill
             [this.SelBars[1], r.x,             r.y,             r.w, th ],   ; top
@@ -300,9 +302,11 @@ class OCRSnip {
 
     ; Draws a crosshair reticle (a "+" with a centre gap) at (cx, cy). A dark outline pass under a bright
     ; fill pass keeps it clearly visible on any background — the standard region-select cursor look.
-    static DrawCrosshair(img, cx, cy) {
-        local arm := 17, gap := 6
-        for pass in [{col: "0xC0101010", th: 4}, {col: "0xFFF5F5F5", th: 2}] {
+    static DrawCrosshair(img, cx, cy, scale := 1) {
+        ; arm length, centre gap and stroke widths are in LOGICAL px; scale them so the reticle keeps its
+        ; perceived size (and the arms stay within the DPI-scaled overlay) on a HiDPI display.
+        local arm := Round(17 * scale), gap := Round(6 * scale)
+        for pass in [{col: "0xC0101010", th: Max(1, Round(4 * scale))}, {col: "0xFFF5F5F5", th: Max(1, Round(2 * scale))}] {
             img.DrawLine(cx - arm, cy, cx - gap, cy, pass.col, pass.th)   ; left arm
             img.DrawLine(cx + gap, cy, cx + arm, cy, pass.col, pass.th)   ; right arm
             img.DrawLine(cx, cy - arm, cx, cy - gap, pass.col, pass.th)   ; top arm
@@ -389,10 +393,17 @@ class OCRSnip {
         this.GuideH.Clear("0x661A73E8")
         this.GuideH.Show()
 
-        ; ...a bold crosshair reticle at the pointer (drawn once into a small overlay that just gets moved)...
-        local s := this.RetHalf * 2
-        this.Reticle := Overlay(mx - this.RetHalf, my - this.RetHalf, s, s)
-        this.DrawCrosshair(this.Reticle, this.RetHalf, this.RetHalf)
+        ; ...a bold crosshair reticle at the pointer (drawn once into a small overlay that just gets moved).
+        ; The reticle and (below) the selection border are sized in PHYSICAL screen px, so scale them by the DPI
+        ; factor — otherwise on a 200% display the reticle is half-size and the border a hairline while the rest of
+        ; the suite scales. geo = A_ScreenScale on Win/Linux (overlays placed in physical px); 1 on macOS, where the
+        ; OS coordinate system is logical points and Cocoa scales HiDPI itself (matches Shell.ks / InputHUD).
+        local sc := DirExist("/System/Library/CoreServices") ? 1 : A_ScreenScale
+        this.uiScale := sc
+        this.retHalfPx := Round(this.RetHalf * sc)
+        local s := this.retHalfPx * 2
+        this.Reticle := Overlay(mx - this.retHalfPx, my - this.retHalfPx, s, s)
+        this.DrawCrosshair(this.Reticle, this.retHalfPx, this.retHalfPx, sc)
         this.Reticle.Show()
 
         ; ...and the selection box: a translucent fill plus four thin border edges. Each is a tiny solid tile the

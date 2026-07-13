@@ -309,6 +309,15 @@ typedef struct ksi_client_hello_result_payload {
 
 /* Flags for ksi_synthesize_input_payload.flags */
 #define KSI_SYNTH_FLAG_BYPASS_HOOK 0x00000001u  /* suppress events from the hook chain */
+/* DAEMON-INTERNAL (never set by clients): this push is ONE FRAGMENT of a client
+ * batch that the synthetic-hook routing re-emits event-by-event (see
+ * process_synthetic_hook_input). Cross-event synthesis state that is scoped to
+ * the CLIENT batch — e.g. the pending UTF-16 high surrogate — must survive
+ * between fragments, so ksi_linux_synth_send_input skips its per-batch reset
+ * for fragment pushes. Without this, a surrogate pair split across two
+ * fragments loses its high half and the emoji is silently dropped whenever a
+ * keyboard hook is installed. */
+#define KSI_SYNTH_FLAG_BATCH_FRAGMENT 0x00000002u
 
 typedef struct ksi_synthesize_input_payload {
     uint32_t count;

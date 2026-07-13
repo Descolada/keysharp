@@ -636,12 +636,29 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			KeysharpInputdClient.KeyboardHookEvent ev,
 			out KeysharpInputdClient.Input input)
 		{
+			var keyUp = (ev.Flags & 0x80u) != 0 || ev.Message == 0x0101u || ev.Message == 0x0105u;
+
+			// A unicode unit (VK_PACKET) has no scancode identity — its scan field IS the UTF-16 code
+			// unit (keyboard_input_to_hook_event mirrors it there). Reconstruct it as the unicode input
+			// it was; stamping it ScanCode instead hands the daemon an unresolvable VK_PACKET+surrogate
+			// "key" that it drops, so a reentrant send during a SendText would eat the unicode char.
+			if (ev.VkCode == VK_PACKET)
+			{
+				input = KeysharpInputdClient.Input.Key(
+					0,
+					(ushort)ev.ScanCode,
+					KeysharpInputdClient.KeyEventFlags.Unicode
+						| (keyUp ? KeysharpInputdClient.KeyEventFlags.KeyUp : 0),
+					extraInfo: ev.ExtraInfo);
+				return ev.ScanCode != 0;
+			}
+
 			var flags = KeysharpInputdClient.KeyEventFlags.ScanCode;
 
 			if ((ev.Flags & 0x01u) != 0)
 				flags |= KeysharpInputdClient.KeyEventFlags.ExtendedKey;
 
-			if ((ev.Flags & 0x80u) != 0 || ev.Message == 0x0101u || ev.Message == 0x0105u)
+			if (keyUp)
 				flags |= KeysharpInputdClient.KeyEventFlags.KeyUp;
 
 			input = KeysharpInputdClient.Input.Key(

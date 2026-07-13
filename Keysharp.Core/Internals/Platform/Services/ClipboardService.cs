@@ -305,6 +305,13 @@ namespace Keysharp.Internals
 		private volatile string cachedText;          // last known UTF-8 text ("" = none), kept warm by the signal
 		private volatile string[] cachedMimetypes;   // last known available MIME types (null = unknown)
 
+		// True only while a change-signal Subscribe is active — MainWindow wires that up (Subscribe) only when the
+		// script registers an OnClipboardChange handler. While monitoring, the signal keeps cachedText/cachedMimetypes
+		// authoritative so reads stay off the D-Bus path. When NOT monitoring, a script that merely reads A_Clipboard
+		// would otherwise be stuck on the FIRST cached value forever (Cinnamon/Muffin Wayland), so every query instead
+		// goes live to the backend.
+		private volatile bool monitoring;
+
 		private static Wl.IWaylandBackend Backend => Wl.WaylandBackend.Current;
 
 		private static bool IsTextMime(string m)
@@ -325,37 +332,47 @@ namespace Keysharp.Internals
 			return false;
 		}
 
-		private bool CachedHasText
+		// Mimetypes to answer IsEmpty/ChangeType with: the signal-warmed cache while monitoring, else a live read so a
+		// script without an OnClipboardChange handler doesn't see a stale (first-ever) snapshot.
+		private string[] CurrentMimetypes => monitoring ? cachedMimetypes : Backend?.GetClipboardMimetypes();
+
+		private bool HasTextIn(string[] mimes)
 		{
-			get
-			{
-				if (!string.IsNullOrEmpty(cachedText))
-					return true;
+			// Our optimistic/last-signalled text is only trustworthy while the signal is keeping it warm; otherwise
+			// decide purely from the live mimes.
+			if (monitoring && !string.IsNullOrEmpty(cachedText))
+				return true;
 
-				var m = cachedMimetypes;
+			if (mimes != null)
+				foreach (var x in mimes)
+					if (IsTextMime(x))
+						return true;
 
-				if (m != null)
-					foreach (var x in m)
-						if (IsTextMime(x))
-							return true;
-
-				return false;
-			}
+			return false;
 		}
 
 		public override bool IsEmpty
 		{
-			get { var m = cachedMimetypes; return m == null ? string.IsNullOrEmpty(GetText()) : m.Length == 0; }
+			get { var m = CurrentMimetypes; return m == null ? string.IsNullOrEmpty(GetText()) : m.Length == 0; }
 		}
 
-		public override int ChangeType() => CachedHasText ? 1 : IsEmpty ? 0 : 2;
+		public override int ChangeType()
+		{
+			var m = CurrentMimetypes;
+
+			// Mimetypes unknown: all we can tell is text-vs-empty (from a live text read); can't detect non-text.
+			if (m == null)
+				return string.IsNullOrEmpty(GetText()) ? 0 : 1;
+
+			return HasTextIn(m) ? 1 : m.Length == 0 ? 0 : 2;
+		}
 
 		// ---- text (fast path) -------------------------------------------
 		public override string GetText()
 		{
 			var t = cachedText;
 
-			if (t != null)                       // cache hit: no D-Bus round-trip on the UI thread
+			if (monitoring && t != null)         // signal keeps the cache warm: no D-Bus round-trip on the UI thread
 				return t;
 
 			t = Backend?.GetClipboardText() ?? "";
@@ -504,12 +521,25 @@ namespace Keysharp.Internals
 
 		// ---- monitoring -------------------------------------------------
 		public override IDisposable Subscribe(Action onChanged)
-			=> Backend?.SubscribeClipboardChanges((text, mimes) =>
+		{
+			var inner = Backend?.SubscribeClipboardChanges((text, mimes) =>
 			{
 				cachedText = text ?? "";
 				cachedMimetypes = mimes ?? System.Array.Empty<string>();
 				onChanged?.Invoke();
 			});
+
+			if (inner == null)
+				return null;                     // no live signal: stay in live-read mode (monitoring stays false)
+
+			monitoring = true;                   // cache is now authoritative; reads may take the fast path
+
+			return new CallbackDisposable(() =>
+			{
+				monitoring = false;              // back to live reads so a later A_Clipboard read isn't stale
+				inner.Dispose();
+			});
+		}
 	}
 #endif
 
@@ -552,7 +582,7 @@ namespace Keysharp.Internals
 					if (attempt >= 3)
 						break;
 
-					System.Threading.Thread.Sleep(1);
+					Flow.SleepWithoutInterruption(1);
 				}
 
 				if (Clipboard.TryGetData<string>(DataFormats.Html, out var html))

@@ -132,28 +132,95 @@ namespace Keysharp.Internals.Input.Linux
 			dispatcherThread.Start();
 		}
 
+		// poll() the compositor fd with a timeout so the loop stays responsive to cancellation/Dispose. POLLIN=0x001.
+		private const int PollTimeoutMs = 100;
+		private const short POLLIN = 0x001;
+
+		[StructLayout(LayoutKind.Sequential)]
+		private struct PollFd
+		{
+			internal int Fd;
+			internal short Events;
+			internal short Revents;
+		}
+
+		[DllImport("libc", EntryPoint = "poll", SetLastError = true)]
+		private static extern int Poll(ref PollFd fds, nuint nfds, int timeout);
+
 		private void DispatchLoop(CancellationToken token)
 		{
 			while (!token.IsCancellationRequested)
 			{
+				nint currentDisplay;
+
+				// The sync lock guards only the shared display/disposed state here; the poll/read/dispatch below run
+				// WITHOUT it. Holding sync across the blocking wait would wedge Dispose (which needs sync to set
+				// disposed) and TryGet* against a thread parked in libwayland — the deadlock the finding warns about.
+				lock (sync)
+				{
+					if (disposed || display == 0)
+						return;
+
+					currentDisplay = display;
+				}
+
+				int fd;
+
 				try
 				{
+					// Drain anything already queued (non-blocking), flush our queued requests, then grab the compositor
+					// fd. The old loop ONLY dispatched already-queued events and never READ the fd, so wl_keyboard.keymap
+					// change events — a live us->de layout switch, say — sat unread forever. Reading the fd is the fix.
+					// DispatchPending can invoke the keymap/modifier callbacks, which take sync, so it must stay outside
+					// the lock.
+					_ = WaylandNative.DisplayDispatchPending(currentDisplay);
+					_ = WaylandNative.DisplayFlush(currentDisplay);
+					fd = WaylandNative.DisplayGetFd(currentDisplay);
+				}
+				catch
+				{
+					fd = -1;
+				}
+
+				if (fd < 0)
+				{
+					try { Thread.Sleep(PollTimeoutMs); }
+					catch (ThreadInterruptedException) { }
+
+					continue;
+				}
+
+				// Wait (outside the lock) for readable data or the timeout so cancellation/Dispose stay responsive.
+				var pfd = new PollFd { Fd = fd, Events = POLLIN };
+				int ready;
+
+				try { ready = Poll(ref pfd, (nuint)1, PollTimeoutMs); }
+				catch { ready = -1; }
+
+				if (token.IsCancellationRequested)
+					return;
+
+				// Timeout (0), error/EINTR (<0) or a non-POLLIN wake: loop back and re-check cancellation/disposed.
+				if (ready <= 0 || (pfd.Revents & POLLIN) == 0)
+					continue;
+
+				try
+				{
+					// Re-check under the lock in case Dispose ran while we were parked in poll, then read + dispatch the
+					// events. NOT holding sync across the dispatch: the keymap/modifier callbacks take sync themselves to
+					// update the shared keymap/group state, and the fd is readable so wl_display_dispatch won't block.
 					lock (sync)
 					{
 						if (disposed || display == 0)
 							return;
-
-						_ = WaylandNative.DisplayDispatchPending(display);
-						_ = WaylandNative.DisplayFlush(display);
 					}
+
+					_ = WaylandNative.DisplayDispatch(currentDisplay);
 				}
 				catch
 				{
-					// Keep this best-effort; the layout provider still has XKB_DEFAULT_* fallback.
+					// Best-effort; the layout provider still has its XKB_DEFAULT_* fallback.
 				}
-
-				try { Thread.Sleep(50); }
-				catch (ThreadInterruptedException) { }
 			}
 		}
 
@@ -374,32 +441,51 @@ namespace Keysharp.Internals.Input.Linux
 				disposed = true;
 
 			try { dispatcherCancel?.Cancel(); } catch { }
-			try { dispatcherThread?.Join(100); } catch { }
+
+			// Join well above PollTimeoutMs so the dispatcher has actually left wl_display_dispatch before DisposeCore
+			// disconnects the display / destroys the proxies below: the dispatcher keeps its own currentDisplay copy, so
+			// tearing those down while it is mid-dispatch on the same pointer is a native use-after-free. (The old
+			// Join(100) equalled PollTimeoutMs, so a thread that had just entered poll/dispatch routinely missed it.) If
+			// the thread is somehow still stuck after the grace period, skip the native teardown and leak rather than
+			// free it out from under the running dispatch — a harmless leak on a shutdown path.
+			var threadExited = true;
+			try { threadExited = dispatcherThread?.Join(PollTimeoutMs * 5) ?? true; } catch { }
+
 			dispatcherCancel?.Dispose();
 			dispatcherCancel = null;
 			dispatcherThread = null;
 
 			lock (sync)
-				DisposeCore();
+				DisposeCore(threadExited);
 
-			if (selfHandle.IsAllocated)
+			// Only free the GCHandle the wayland callbacks receive as `data` once the dispatcher is confirmed stopped:
+			// freeing it while a dispatch is still in flight would make GCHandle.FromIntPtr(data).Target in a callback a
+			// MANAGED use-after-free (the symmetric twin of the native UAF the threadExited gate above prevents). Leaking
+			// it on the unconfirmed-stop path keeps the target alive so an in-flight callback harmlessly updates the
+			// now-nulled shared state under sync; a later Dispose (thread since exited) still frees it.
+			if (threadExited && selfHandle.IsAllocated)
 				selfHandle.Free();
 		}
 
-		private void DisposeCore()
+		// teardownNative=false skips the native proxy/display frees (but still clears the handles) when the dispatcher
+		// thread could not be confirmed stopped (see Dispose), so we never free a wl_display/proxy the dispatcher may
+		// still be touching. The init-failure caller runs before the dispatcher starts, so it leaves this true.
+		private void DisposeCore(bool teardownNative = true)
 		{
 			if (keyboard != 0)
 			{
-				WaylandNative.KeyboardRelease(keyboard);
+				if (teardownNative)
+					WaylandNative.KeyboardRelease(keyboard);
 				keyboard = 0;
 			}
 
-			if (seat != 0) { WaylandNative.ProxyDestroy(seat); seat = 0; }
-			if (registry != 0) { WaylandNative.ProxyDestroy(registry); registry = 0; }
+			if (seat != 0) { if (teardownNative) WaylandNative.ProxyDestroy(seat); seat = 0; }
+			if (registry != 0) { if (teardownNative) WaylandNative.ProxyDestroy(registry); registry = 0; }
 
 			if (display != 0)
 			{
-				WaylandNative.DisplayDisconnect(display);
+				if (teardownNative)
+					WaylandNative.DisplayDisconnect(display);
 				display = 0;
 			}
 

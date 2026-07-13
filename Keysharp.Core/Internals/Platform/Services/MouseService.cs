@@ -42,8 +42,11 @@ namespace Keysharp.Internals
 			return false;
 		}
 
-		// Maps a daemon absolute-pointer axis (normalised to [0,65535] across the virtual desktop) to a screen pixel.
-		protected static bool TryScalePointerAxis(int value, int min, int max, int size, out int scaled)
+		// Maps a daemon absolute-pointer axis (normalised to [min,max] across the whole virtual desktop) to a screen
+		// pixel. origin is the virtual desktop's Left/Top and size its Width/Height: the desktop can start at a
+		// negative origin (a monitor left of / above the primary), and a plain 0 origin plus the primary-monitor size
+		// would clamp a second-monitor cursor onto the primary.
+		protected static bool TryScalePointerAxis(int value, int min, int max, int origin, int size, out int scaled)
 		{
 			scaled = 0;
 
@@ -51,7 +54,7 @@ namespace Keysharp.Internals
 				return false;
 
 			var clamped = Math.Clamp(value, min, max);
-			scaled = (int)Math.Round((double)(clamped - min) * (size - 1) / (max - min));
+			scaled = origin + (int)Math.Round((double)(clamped - min) * (size - 1) / (max - min));
 			return true;
 		}
 	}
@@ -189,12 +192,16 @@ namespace Keysharp.Internals
 			if (backend != null && backend.TryGetCursorPos(out x, out y))
 				return true;
 
-			// No compositor cursor query (or no backend): for an absolute-positioning device, derive it from
-			// inputd's last report (normalised to [0,65535]) scaled to screen pixels.
+			// No compositor cursor query (or no backend): for an absolute-positioning device, derive it from inputd's
+			// last report (normalised across the virtual desktop) scaled onto the virtual-desktop bounds. A_ScreenWidth/
+			// Height are the PRIMARY monitor size and assume a 0 origin, which clamps a second-monitor cursor onto the
+			// primary; the virtual-desktop bounds carry the true size and (possibly negative) origin.
+			var vb = Keysharp.Builtins.Monitor.GetVirtualScreenBounds();
+
 			if (KeysharpInputdManager.TryGetPointerPosition(
 					out var rawX, out var rawY, out var minX, out var maxX, out var minY, out var maxY)
-				&& TryScalePointerAxis(rawX, minX, maxX, (int)A_ScreenWidth, out x)
-				&& TryScalePointerAxis(rawY, minY, maxY, (int)A_ScreenHeight, out y))
+				&& TryScalePointerAxis(rawX, minX, maxX, (int)vb.Left, (int)vb.Width, out x)
+				&& TryScalePointerAxis(rawY, minY, maxY, (int)vb.Top, (int)vb.Height, out y))
 				return true;
 
 			x = 0;

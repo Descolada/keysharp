@@ -13,7 +13,11 @@ namespace Keysharp.Internals
 	/// </summary>
 	internal interface IImageOverlayBacking : IDisposable
 	{
-		bool Show(Bitmap image, int x, int y, int width, int height);
+		/// <summary><paramref name="clickThrough"/> true (the default for a passive HUD/highlight) makes the surface
+		/// transparent to mouse input; false makes it RECEIVE mouse input, where the backing supports an interactive
+		/// mode (Windows layered form, Eto window). Backings that cannot be made interactive (compositor-drawn actors,
+		/// wlr layer surfaces) accept the flag but remain click-through.</summary>
+		bool Show(Bitmap image, int x, int y, int width, int height, bool clickThrough);
 		bool Move(int x, int y, int width, int height);
 
 		/// <summary>
@@ -46,7 +50,7 @@ namespace Keysharp.Internals
 		/// <summary>Create the backing for a new overlay id (called under the map lock; must not do UI/IO work).</summary>
 		protected abstract IImageOverlayBacking CreateBacking(uint id);
 
-		public bool TryShowImageOverlay(uint id, int x, int y, int width, int height, Bitmap image)
+		public bool TryShowImageOverlay(uint id, int x, int y, int width, int height, Bitmap image, bool clickThrough)
 		{
 			if (id == 0 || image == null)
 				return false;
@@ -72,7 +76,7 @@ namespace Keysharp.Internals
 			// Outside the lock (may hit the UI thread / D-Bus). The backing BORROWS `image` — it copies what it
 			// needs, synchronously, and never stores or disposes it. The caller (the Overlay) keeps ownership of
 			// its canvas bitmap, so there is nothing to clean up here on either path.
-			var shown = backing.Show(image, x, y, width, height);
+			var shown = backing.Show(image, x, y, width, height, clickThrough);
 
 			if (shown)
 				return true;
@@ -122,6 +126,24 @@ namespace Keysharp.Internals
 			}
 
 			return true;
+		}
+
+		public void DisposeImageOverlay(uint id)
+		{
+			IImageOverlayBacking backing;
+
+			// Unconditional force-reap (no confirm-gating): remove the backing from the map, then dispose it outside
+			// the lock. This is Destroy's escape hatch for a backing whose confirm-gated TryHide never succeeded — it
+			// must not be left mapped forever with no owner to retry the withdraw.
+			lock (sync)
+			{
+				if (!overlays.TryGetValue(id, out backing))
+					return;
+
+				_ = overlays.Remove(id);
+			}
+
+			try { backing.Dispose(); } catch { }
 		}
 
 		public bool TryHideAllImageOverlays()
@@ -191,10 +213,10 @@ namespace Keysharp.Internals
 
 		public nint Handle => inner?.Handle ?? 0;
 
-		public bool Show(Bitmap image, int x, int y, int width, int height)
+		public bool Show(Bitmap image, int x, int y, int width, int height, bool clickThrough)
 		{
 			if (inner != null)
-				return inner.Show(image, x, y, width, height);
+				return inner.Show(image, x, y, width, height, clickThrough);
 
 			var preferred = ChooseKind();
 
@@ -211,7 +233,7 @@ namespace Keysharp.Internals
 			{
 				var backing = Create(preferred);
 
-				if (backing.Show(image, x, y, width, height))
+				if (backing.Show(image, x, y, width, height, clickThrough))
 				{
 					inner = backing;
 					return true;
@@ -222,7 +244,7 @@ namespace Keysharp.Internals
 
 			var fallback = new EtoImageOverlay();
 
-			if (fallback.Show(image, x, y, width, height))
+			if (fallback.Show(image, x, y, width, height, clickThrough))
 			{
 				inner = fallback;
 				return true;
@@ -285,7 +307,10 @@ namespace Keysharp.Internals
 
 		public nint Handle => overlay?.Handle ?? 0;
 
-		public bool Show(Bitmap image, int x, int y, int width, int height)
+		// NOTE (Linux, unverified): the wlr-layer-shell surface is created without a pointer interactivity region, so
+		// it is always click-through; interactive overlays (clickThrough == false) are not yet supported on this
+		// backing. The flag is accepted for interface parity and to let a future layer-surface input region honor it.
+		public bool Show(Bitmap image, int x, int y, int width, int height, bool clickThrough)
 		{
 			var client = Wl.WaylandLayerShellClient.Current;
 
@@ -295,7 +320,14 @@ namespace Keysharp.Internals
 			try
 			{
 				overlay ??= new Wl.WaylandImageOverlay(client);
-				overlay.Show(image, x, y, width, height);   // copies the pixels into its own SHM buffer
+
+				// Propagate a genuine layer-shell failure (e.g. the surface never configured within the timeout, so
+				// the overlay tore itself down) instead of hard-coding success: returning false lets the
+				// LinuxImageOverlayBacking wrapper fall back to a visible Eto window rather than recording this as
+				// shown with nothing actually on screen.
+				if (!overlay.Show(image, x, y, width, height))   // copies the pixels into its own SHM buffer
+					return false;
+
 				shownW = width;
 				shownH = height;
 				return true;
@@ -344,7 +376,10 @@ namespace Keysharp.Internals
 
 		public nint Handle => 0;
 
-		public bool Show(Bitmap image, int x, int y, int width, int height)
+		// NOTE (Linux, unverified): a compositor-drawn actor has no client-side window, so it is inherently
+		// click-through; interactive overlays (clickThrough == false) are not supported on this backing. The flag is
+		// accepted for interface parity.
+		public bool Show(Bitmap image, int x, int y, int width, int height, bool clickThrough)
 		{
 			try
 			{
@@ -368,6 +403,7 @@ namespace Keysharp.Internals
 					return false;
 
 				shown = true;
+				hidden = false;
 				return true;
 			}
 			catch
@@ -380,10 +416,7 @@ namespace Keysharp.Internals
 		{
 			// Byte-free reposition: the compositor keeps the pixels we already uploaded and just moves the actor.
 			// If that fast path is unavailable, return false so the overlay re-renders via Show.
-			if (shown && Wl.WaylandBackend.Current?.TryMoveImageOverlay(id, x, y, width, height) == true)
-				return true;
-
-			return false;
+			return shown && Wl.WaylandBackend.Current?.TryMoveImageOverlay(id, x, y, width, height) == true;
 		}
 
 		public bool TryHide()
@@ -396,10 +429,22 @@ namespace Keysharp.Internals
 
 			try
 			{
-				// A definitive ack (actor removed, or unknown id) confirms the withdraw; no backend means there is
-				// nothing on this path to withdraw. A dropped / timed-out call returns false so the caller keeps us
-				// mapped and retries — that is what stops a lost hide from orphaning the actor for good.
-				if (Wl.WaylandBackend.Current?.TryHideImageOverlay(id) ?? true)
+				var backend = Wl.WaylandBackend.Current;
+
+				// No backend, or the extension is gone (disabled/uninstalled mid-session): the shell has already
+				// reaped its actors on disable, so there is nothing left to withdraw. Treat that as a CONFIRMED hide
+				// and reclaim the backing — otherwise SendHideImageOverlay returns false (no owner to ack) and the
+				// id is kept mapped and retried forever, leaking backings for the rest of the process lifetime.
+				if (backend == null || !backend.SupportsImageOverlay)
+				{
+					hidden = true;
+					return true;
+				}
+
+				// A definitive ack (actor removed, or unknown id) confirms the withdraw. A dropped / timed-out call
+				// returns false so the caller keeps us mapped and retries — that is what stops a lost hide from
+				// orphaning the actor for good.
+				if (backend.TryHideImageOverlay(id))
 				{
 					hidden = true;
 					return true;
@@ -428,7 +473,7 @@ namespace Keysharp.Internals
 
 		public nint Handle => form?.IsHandleCreated == true ? form.Handle : 0;
 
-		public bool Show(Bitmap image, int x, int y, int width, int height)
+		public bool Show(Bitmap image, int x, int y, int width, int height, bool clickThrough)
 		{
 			try
 			{
@@ -444,6 +489,9 @@ namespace Keysharp.Internals
 					Script.InvokeOnUIThread(() =>
 					{
 						EnsureForm();
+						// Apply the input mode before showing so the exstyle is right from the first CreateParams
+						// evaluation (a live toggle later goes through SetWindowLong instead).
+						form.SetClickThrough(clickThrough);
 						form.ShowImage(d, x, y, width, height);
 					});
 				}
@@ -486,7 +534,12 @@ namespace Keysharp.Internals
 			using (var g = Graphics.FromImage(display))
 			{
 				g.CompositingMode = CompositingMode.SourceCopy;
-				g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+				// A same-size frame — the common live-refresh case — needs only the ARGB->PArgb premultiplication,
+				// not interpolation, so skip the (costly) HighQualityBicubic resample and copy the pixels 1:1;
+				// only a genuine resize interpolates.
+				g.InterpolationMode = (width == source.Width && height == source.Height)
+									  ? InterpolationMode.NearestNeighbor
+									  : InterpolationMode.HighQualityBicubic;
 				g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 				g.Clear(Color.Transparent);
 				g.DrawImage(source, new Rectangle(0, 0, width, height), 0, 0, source.Width, source.Height, GraphicsUnit.Pixel);
@@ -519,6 +572,11 @@ namespace Keysharp.Internals
 
 	internal sealed class LayeredOverlayForm : Form
 	{
+		// Default true: passive HUDs/highlights pass mouse input through. Set false to make the layered window
+		// interactive (it then receives clicks). Drives BOTH the WS_EX_TRANSPARENT exstyle and the WM_NCHITTEST
+		// handler below, and can be toggled at runtime via SetClickThrough on an already-shown overlay.
+		private bool clickThrough = true;
+
 		internal LayeredOverlayForm()
 		{
 			FormBorderStyle = FormBorderStyle.None;
@@ -537,12 +595,33 @@ namespace Keysharp.Internals
 				cp.Style |= unchecked((int)WindowsAPI.WS_POPUP);
 				cp.Style &= ~(WindowsAPI.WS_CAPTION | WindowsAPI.WS_THICKFRAME | WindowsAPI.WS_SYSMENU);
 				cp.ExStyle |= WindowsAPI.WS_EX_LAYERED
-							  | WindowsAPI.WS_EX_TRANSPARENT
 							  | WindowsAPI.WS_EX_TOPMOST
 							  | WindowsAPI.WS_EX_TOOLWINDOW
 							  | WindowsAPI.WS_EX_NOACTIVATE;
+
+				// Only add WS_EX_TRANSPARENT for a click-through overlay; an interactive one must be able to receive
+				// the mouse. WS_EX_LAYERED stays either way (it is what makes UpdateLayeredWindow's per-pixel alpha work).
+				if (clickThrough)
+					cp.ExStyle |= WindowsAPI.WS_EX_TRANSPARENT;
+
 				return cp;
 			}
+		}
+
+		// Toggle the input mode. Before the handle exists the flag is picked up by CreateParams; on a live window
+		// WS_EX_TRANSPARENT is flipped in place via SetWindowLong (no re-create needed for click-through).
+		internal void SetClickThrough(bool enable)
+		{
+			clickThrough = enable;
+
+			if (!IsHandleCreated)
+				return;
+
+			var ex = WindowsAPI.GetWindowLongPtr(Handle, WindowsAPI.GWL_EXSTYLE).ToInt64();
+			var updated = enable ? ex | WindowsAPI.WS_EX_TRANSPARENT : ex & ~(long)WindowsAPI.WS_EX_TRANSPARENT;
+
+			if (updated != ex)
+				_ = WindowsAPI.SetWindowLongPtr(Handle, WindowsAPI.GWL_EXSTYLE, new nint(updated));
 		}
 
 		internal void ShowImage(Bitmap image, int x, int y, int width, int height)
@@ -569,7 +648,9 @@ namespace Keysharp.Internals
 
 		protected override void WndProc(ref Message m)
 		{
-			if (m.Msg == WindowsAPI.WM_NCHITTEST)
+			// Report every point as transparent so the mouse falls through to the window beneath — but ONLY while
+			// click-through. An interactive overlay defers to the base hit-test so it can receive the mouse.
+			if (clickThrough && m.Msg == WindowsAPI.WM_NCHITTEST)
 			{
 				m.Result = new nint(WindowsAPI.HTTRANSPARENT);
 				return;
@@ -649,30 +730,43 @@ namespace Keysharp.Internals
 
 		public nint Handle => form?.Handle ?? 0;
 
-		public bool Show(Bitmap image, int x, int y, int width, int height)
+		public bool Show(Bitmap image, int x, int y, int width, int height, bool clickThrough)
 		{
+			Bitmap snapshot = null;
+			var adopted = false;
+
 			try
 			{
 				// Copy `image` on THIS (calling) thread — the borrowed canvas may be redrawn on this thread, so
 				// snapshotting here (not inside the UI-thread callback) isolates the pixels the UI will show.
-				var snapshot = new Bitmap(image);
+				snapshot = new Bitmap(image);
+				var snap = snapshot;
 
 				Script.InvokeOnUIThread(() =>
 				{
 					EnsureForm();
-					PaintOwned(snapshot, width, height);
+					// From here PaintOwned owns `snap` (it keeps it as `displayed`, or disposes it after resizing), so
+					// mark ownership transferred BEFORE the call: a throw past this point must not ALSO dispose it on
+					// the catch path (that would double-free the bitmap the form now holds).
+					adopted = true;
+					PaintOwned(snap, x, y, width, height);
 					form.Location = new Point(x, y);
 
 					if (!form.Visible)
 						form.Show();
 
-					form.SetClickThrough(true);
+					form.SetClickThrough(clickThrough);
 				});
 
 				return true;   // borrow: `image` is neither retained nor disposed
 			}
 			catch
 			{
+				// The UI-thread invoke threw before PaintOwned took ownership of the snapshot — dispose it here so it
+				// does not leak. If ownership had transferred, `displayed` owns it now and TryHide will free it.
+				if (!adopted)
+					snapshot?.Dispose();
+
 				return false;
 			}
 		}
@@ -693,9 +787,10 @@ namespace Keysharp.Internals
 		}
 
 		// Adopts `snapshot` (an owned, private copy) as the displayed bitmap, resizing it if needed. UI thread.
-		// width/height are the on-screen size in the toolkit's window coordinate units (physical px on GTK,
-		// logical points on Cocoa).
-		private void PaintOwned(Bitmap snapshot, int width, int height)
+		// x/y are the overlay's on-screen position and width/height its on-screen size, in the toolkit's window
+		// coordinate units (physical px on GTK, logical points on Cocoa). x/y are used only on macOS to pick the
+		// screen the overlay actually sits on (for the right backing scale); GTK ignores them here.
+		private void PaintOwned(Bitmap snapshot, int x, int y, int width, int height)
 		{
 			var size = new Size(Math.Max(1, width), Math.Max(1, height));
 			var old = displayed;
@@ -707,27 +802,35 @@ namespace Keysharp.Internals
 			// (SelFill / guide / border bars) is scaled up to fill the view exactly. Leaving a bitmap whose aspect
 			// differs from the view would let NSImageView's ProportionallyUpOrDown scaling shrink-to-fit and CENTRE
 			// it — which is what made a drag selection look smaller than the real area with its corner offset.
-			var backing = Forms.Screen.PrimaryScreen?.LogicalPixelSize ?? 1f;
+			// macOS-unverified: use the scale of the screen the overlay is actually PLACED on (derived from x/y) rather
+			// than always the primary — a secondary monitor with a different backingScaleFactor would otherwise render
+			// at the wrong resolution. Screen.FromRectangle is the Eto API for this; fall back to the primary screen.
+			var screen = Forms.Screen.FromRectangle(new RectangleF(x, y, size.Width, size.Height)) ?? Forms.Screen.PrimaryScreen;
+			var backing = screen?.LogicalPixelSize ?? 1f;
 			var devW = Math.Max(1, (int)Math.Round(size.Width * backing));
 			var devH = Math.Max(1, (int)Math.Round(size.Height * backing));
 
-			if (snapshot.Width == devW && snapshot.Height == devH)
+			// Take ownership of the snapshot BEFORE the throwable resize: if ResizeBitmap fails (OOM/GDI), `displayed`
+			// still owns a live bitmap that TryHide frees, rather than the snapshot leaking (the caller already set
+			// adopted=true, so Show's catch will NOT dispose it).
+			displayed = snapshot;
+
+			if (snapshot.Width != devW || snapshot.Height != devH)
 			{
-				displayed = snapshot;
-			}
-			else
-			{
-				displayed = ImageHelper.ResizeBitmap(snapshot, devW, devH, exactPixels: true);
+				var resized = ImageHelper.ResizeBitmap(snapshot, devW, devH, exactPixels: true);
+				displayed = resized;
 				snapshot.Dispose();
 			}
 #else
-			if (snapshot.Width == size.Width && snapshot.Height == size.Height)
+			// Take ownership of the snapshot BEFORE the throwable resize: if ResizeBitmap fails (OOM/GDI), `displayed`
+			// still owns a live bitmap that TryHide frees, rather than the snapshot leaking (the caller already set
+			// adopted=true, so Show's catch will NOT dispose it).
+			displayed = snapshot;
+
+			if (snapshot.Width != size.Width || snapshot.Height != size.Height)
 			{
-				displayed = snapshot;
-			}
-			else
-			{
-				displayed = ImageHelper.ResizeBitmap(snapshot, size.Width, size.Height, exactPixels: true);
+				var resized = ImageHelper.ResizeBitmap(snapshot, size.Width, size.Height, exactPixels: true);
+				displayed = resized;
 				snapshot.Dispose();
 			}
 #endif

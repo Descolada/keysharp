@@ -183,15 +183,23 @@ namespace Keysharp.Internals
 		/// Create or update a click-through image overlay. OWNERSHIP of <paramref name="image"/> transfers to the
 		/// service (the caller hands in a snapshot and must not touch it afterwards — this keeps the hot refresh
 		/// path at exactly one bitmap copy). A non-positive width/height uses the image's native size.
+		/// <paramref name="clickThrough"/> true (the usual) makes the surface transparent to mouse input; false makes
+		/// it RECEIVE mouse input so an interactive overlay can be built (where the backing supports it).
 		/// </summary>
-		bool TryShowImageOverlay(uint id, int x, int y, int width, int height, Bitmap image);
+		bool TryShowImageOverlay(uint id, int x, int y, int width, int height, Bitmap image, bool clickThrough);
 
 		/// <summary>Move/resize an existing image overlay, reusing its last pixels (repositions in place where the
 		/// backing can, else re-applies the stored image at the new geometry).</summary>
 		bool TryMoveImageOverlay(uint id, int x, int y, int width, int height);
 
-		/// <summary>Hide and free one image overlay. Idempotent.</summary>
+		/// <summary>Hide and free one image overlay. Idempotent. Confirm-gated: returns false if the withdraw
+		/// could not be confirmed, so the caller keeps the id and retries rather than orphaning the surface.</summary>
 		bool TryHideImageOverlay(uint id);
+
+		/// <summary>Unconditionally dispose and forget one image overlay's backing, WITHOUT the confirm-gating of
+		/// <see cref="TryHideImageOverlay"/>. Used by Destroy to force-reap a backing whose withdraw could not be
+		/// confirmed, so it is never left mapped with no owner left to retry. Idempotent; a no-op for an unknown id.</summary>
+		void DisposeImageOverlay(uint id);
 
 		/// <summary>Hide and free every image overlay owned by this process.</summary>
 		bool TryHideAllImageOverlays();

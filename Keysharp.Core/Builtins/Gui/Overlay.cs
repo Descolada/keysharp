@@ -3,13 +3,17 @@ namespace Keysharp.Builtins
 	public partial class Ks
 	{
 		/// <summary>
-		/// A click-through, always-on-top screen overlay backed by a raster canvas. Draw onto it with the same
-		/// shape/text primitives as <see cref="KeysharpImage"/> (<c>DrawRect</c>, <c>FillRect</c>, <c>DrawLine</c>,
+		/// A screen overlay backed by a raster canvas — click-through and always-on-top by default. Draw onto it with
+		/// the same shape/text primitives as <see cref="KeysharpImage"/> (<c>DrawRect</c>, <c>FillRect</c>, <c>DrawLine</c>,
 		/// <c>DrawEllipse</c>, <c>FillEllipse</c>, <c>DrawText</c>, <c>Clear</c>) or stamp an existing image with
 		/// <see cref="DrawImage"/> / <see cref="SetImage"/>, then <see cref="Show"/> it on screen. Drawing while the
 		/// overlay is visible updates it live. The canvas is owned by the overlay; <see cref="Destroy"/> (or dropping
 		/// all references) frees it. This is the single cross-platform overlay primitive that <c>Highlight</c> and,
 		/// on Linux/macOS, <c>ToolTip</c> build on.
+		/// <para>By default each draw op auto-repaints (one upload per op). Wrap a burst of primitives in
+		/// <see cref="BeginDraw"/>/<see cref="EndDraw"/> — or <see cref="Redraw"/> — to composite a whole HUD frame and
+		/// upload it exactly once. Set <see cref="ClickThrough"/> to <c>false</c> to make the overlay receive mouse
+		/// input (an interactive HUD) instead of passing clicks through to the windows beneath it.</para>
 		/// </summary>
 		[UserDeclaredName("Overlay")]
 		public class KeysharpOverlay : KeysharpObject
@@ -29,6 +33,8 @@ namespace Keysharp.Builtins
 			private long opacity = 255;   // whole-overlay alpha multiplier applied at upload time
 			private bool visible;
 			private bool shown;
+			private bool clickThrough = true;   // default: transparent to mouse input (Highlight/ToolTip depend on this)
+			private int suspendCount;           // > 0 while a BeginDraw/EndDraw (or Redraw) batch is deferring uploads
 
 			private uint OverlayId => overlayId != 0
 				? overlayId
@@ -78,12 +84,43 @@ namespace Keysharp.Builtins
 
 			public object X { get => (long)x; set { x = value.Ai(); MoveLive(); } }
 			public object Y { get => (long)y; set { y = value.Ai(); MoveLive(); } }
-			public object W { get => (long)(w > 0 ? w : (int)(canvas?.Width ?? 0)); set { w = value.Ai(); MoveLive(); } }
-			public object H { get => (long)(h > 0 ? h : (int)(canvas?.Height ?? 0)); set { h = value.Ai(); MoveLive(); } }
+
+			/// <summary>Overlay width in LOGICAL draw units (physical size = W * Scale). Changing it while a canvas
+			/// already exists recreates the drawing canvas at the new size, discarding the old content to transparent
+			/// (so drawing into the widened area is no longer clipped), then re-lays-out the live surface.</summary>
+			public object W
+			{
+				get
+				{
+					if (w > 0)
+						return (long)w;
+
+					return canvas != null ? (long)Math.Round(canvas.Width / scale) : 0L;
+				}
+				set { w = value.Ai(); ResizeCanvasIfNeeded(); MoveLive(); }
+			}
+
+			/// <summary>Overlay height in LOGICAL draw units (physical size = H * Scale). Changing it recreates the
+			/// drawing canvas at the new size, discarding the old content to transparent, then re-lays-out the live
+			/// surface — see <see cref="W"/>.</summary>
+			public object H
+			{
+				get
+				{
+					if (h > 0)
+						return (long)h;
+
+					return canvas != null ? (long)Math.Round(canvas.Height / scale) : 0L;
+				}
+				set { h = value.Ai(); ResizeCanvasIfNeeded(); MoveLive(); }
+			}
 
 			/// <summary>Content/DPI scale. The on-screen size is the logical width/height times this factor, and
 			/// drawing is scaled to match so it stays crisp; 1 = draw in physical pixels. Set it before drawing —
-			/// changing it discards the current canvas (a scale change redefines the canvas resolution).</summary>
+			/// changing it discards the current canvas (a scale change redefines the canvas resolution). For an
+			/// authored-size overlay the canvas is rebuilt blank at the new resolution and repainted immediately; a
+			/// SetImage-based overlay (no authored size) has no size to rebuild from, so its stale surface is taken
+			/// down and a new SetImage is required to redisplay it.</summary>
 			public object Scale
 			{
 				get => scale;
@@ -97,6 +134,18 @@ namespace Keysharp.Builtins
 					scale = s;
 					canvas?.Dispose();
 					canvas = null;
+
+					// The canvas that backed the on-screen surface is gone, so we are no longer truthfully shown,
+					// regardless of whether a subsequent withdraw is confirmed.
+					shown = false;
+
+					if (!visible)
+						return;
+
+					if (w > 0 && h > 0 && EnsureCanvas(out _))
+						Refresh();   // authored-size: rebuild a blank canvas at the new resolution and repaint at once
+					else
+						_ = Platform.Overlay.TryHideImageOverlay(OverlayId);   // SetImage-based / create-failed: drop the stale surface
 				}
 			}
 
@@ -114,14 +163,83 @@ namespace Keysharp.Builtins
 						return;
 
 					opacity = v;
+					MaybeRefresh();
+				}
+			}
 
-					if (visible)
-						Refresh();
+			/// <summary>Whether the overlay is transparent to mouse input (default true). Leave it true for a passive
+			/// HUD/highlight so clicks reach the windows beneath; set it false to make the overlay RECEIVE mouse input
+			/// (an interactive HUD). Changing it on a visible overlay re-applies the input mode immediately.</summary>
+			public object ClickThrough
+			{
+				get => clickThrough;
+				set
+				{
+					var v = value.Ab();
+
+					if (v == clickThrough)
+						return;
+
+					clickThrough = v;
+					MaybeRefresh();   // re-push so the backing toggles the live surface's input mode
 				}
 			}
 
 			public object Visible => shown;
-			public object Hwnd => Platform.Overlay.GetImageOverlayHandle(OverlayId).ToInt64();
+
+			// Return 0 without allocating an overlay id when nothing has been shown yet: a backing only exists once
+			// an id has been allocated (on the first Show), so overlayId == 0 means there is no window/handle. Reading
+			// the OverlayId property here instead would burn an id (Interlocked.Increment) for a handle that is 0.
+			public object Hwnd => overlayId == 0 ? 0L : Platform.Overlay.GetImageOverlayHandle(overlayId).ToInt64();
+
+			#endregion
+
+			#region Draw batching
+
+			/// <summary>Begins a draw batch: subsequent draw ops and property changes update the canvas but DEFER the
+			/// on-screen upload until the matching <see cref="EndDraw"/> (or the end of a <see cref="Redraw"/>). The
+			/// default is auto-repaint-per-op (one upload per primitive); batching composites a whole HUD frame and
+			/// uploads it exactly once. Calls nest — each BeginDraw needs an EndDraw, and the upload happens when the
+			/// outermost EndDraw runs. Returns this for chaining.</summary>
+			public object BeginDraw()
+			{
+				suspendCount++;
+				return this;
+			}
+
+			/// <summary>Ends a draw batch started with <see cref="BeginDraw"/>. When the outermost batch closes, the
+			/// accumulated frame is uploaded once (if the overlay is visible). Returns this for chaining.</summary>
+			public object EndDraw()
+			{
+				if (suspendCount > 0)
+					suspendCount--;
+
+				if (suspendCount == 0 && visible)
+					Refresh();
+
+				return this;
+			}
+
+			/// <summary>Runs <paramref name="callback"/> inside a BeginDraw/EndDraw batch, passing this overlay as the
+			/// single argument so the callback can draw on it, and uploads the whole result once when it returns.
+			/// Equivalent to BeginDraw(); callback(this); EndDraw() — the batch is closed even if the callback throws.
+			/// Returns this for chaining.</summary>
+			public object Redraw(object callback)
+			{
+				_ = BeginDraw();
+
+				try
+				{
+					if (callback is IFuncObj f)
+						_ = f.Call(this);
+				}
+				finally
+				{
+					_ = EndDraw();
+				}
+
+				return this;
+			}
 
 			#endregion
 
@@ -183,7 +301,12 @@ namespace Keysharp.Builtins
 					var result = KeysharpImage.FromBitmap(null, source);
 
 					if (result is not KeysharpImage li)
-						return result;   // propagate the load error
+					{
+						// Load failed. Raise the error (throws in the normal throwing mode); otherwise keep the old
+						// canvas and return this so a fluent chain stays intact rather than handing back an error object.
+						_ = Errors.ValueErrorOccurred("Overlay.SetImage could not load the source image.");
+						return this;
+					}
 
 					loaded = li;
 					ownsLoaded = true;
@@ -195,16 +318,17 @@ namespace Keysharp.Builtins
 					_ = loaded.Dispose();
 
 				if (copy == null)
-					return Errors.ValueErrorOccurred("Overlay.SetImage requires a valid Image.");
+				{
+					_ = Errors.ValueErrorOccurred("Overlay.SetImage requires a valid Image.");
+					return this;
+				}
 
 				copy.drawScale = scale;   // Copy() doesn't propagate it; draws after SetImage must keep scaling
 				copy.mutable = true;      // subsequent draws on this canvas mutate it in place
 				canvas?.Dispose();
 				canvas = copy;
 
-				if (visible)
-					Refresh();
-
+				MaybeRefresh();
 				return this;
 			}
 
@@ -219,11 +343,13 @@ namespace Keysharp.Builtins
 				if (newW != null) w = newW.Ai();
 				if (newH != null) h = newH.Ai();
 
-				if (!EnsureCanvas(out var error))
-					return error;
+				if (!EnsureCanvas(out _))
+					return this;   // sizeless overlay: EnsureCanvas raised the error (throws in throw-mode); keep chaining otherwise
+
+				ResizeCanvasIfNeeded();   // a pre-existing canvas whose authored size changed is rebuilt at the new size
 
 				visible = true;
-				Refresh();
+				MaybeRefresh();
 				return this;
 			}
 
@@ -234,6 +360,7 @@ namespace Keysharp.Builtins
 				if (newW != null) w = newW.Ai();
 				if (newH != null) h = newH.Ai();
 
+				ResizeCanvasIfNeeded();   // a resize here rebuilds the canvas so later draws use the full new area
 				MoveLive();
 				return this;
 			}
@@ -242,10 +369,18 @@ namespace Keysharp.Builtins
 			{
 				visible = false;
 
+				// Nothing was ever shown (no id/backing was allocated), so there is nothing to withdraw — and reading
+				// the OverlayId property here would needlessly burn an id.
+				if (overlayId == 0)
+				{
+					shown = false;
+					return this;
+				}
+
 				// Only mark ourselves hidden once the platform CONFIRMS the surface is gone. If the withdraw
 				// couldn't be confirmed (e.g. a dropped compositor hide), keep shown == true so Visible stays
 				// truthful and a later Hide re-attempts, instead of leaving a painted-but-"hidden" orphan.
-				if (Platform.Overlay.TryHideImageOverlay(OverlayId))
+				if (Platform.Overlay.TryHideImageOverlay(overlayId))
 					shown = false;
 
 				return this;
@@ -253,7 +388,20 @@ namespace Keysharp.Builtins
 
 			public object Destroy()
 			{
-				_ = Hide();
+				if (overlayId != 0)
+				{
+					// Try a graceful, confirm-gated withdraw first...
+					_ = Hide();
+					// ...then FORCE-reap the backing unconditionally. If Hide couldn't confirm the withdraw (a dropped
+					// Wayland hide), the backing would otherwise stay mapped in OverlayService with no owner left to
+					// retry — this disposes and removes it for good, distinct from the retryable Hide.
+					Platform.Overlay.DisposeImageOverlay(overlayId);
+				}
+
+				// The surface and its canvas are being torn down regardless of any backing confirmation above, so
+				// Visible must read false.
+				visible = false;
+				shown = false;
 				canvas?.Dispose();
 				canvas = null;
 				return DefaultObject;
@@ -263,20 +411,19 @@ namespace Keysharp.Builtins
 
 			#endregion
 
-			// Runs one canvas draw op, bakes it in (so the op chain never grows across repaints), repaints if
-			// shown, and returns this overlay for chaining — or the canvas's error object if the op failed.
+			// Runs one canvas draw op, bakes it in (so the op chain never grows across repaints), repaints if visible
+			// and not mid-batch, and returns this overlay for chaining. On a real failure the canvas op raises the
+			// error (throws in the normal throwing mode); we return this either way so a fluent chain never receives
+			// an error object to dereference.
 			private object Draw(Func<object> op)
 			{
-				if (!EnsureCanvas(out var error))
-					return error;
+				if (!EnsureCanvas(out _))
+					return this;
 
-				var result = op();
+				_ = op();
 				canvas.Bake();
-
-				if (visible)
-					Refresh();
-
-				return ReferenceEquals(result, canvas) ? this : result;
+				MaybeRefresh();
+				return this;
 			}
 
 			private bool EnsureCanvas(out object error)
@@ -306,9 +453,34 @@ namespace Keysharp.Builtins
 				return false;
 			}
 
+			// When the authored width/height change and a canvas already exists, recreate it at the new PHYSICAL
+			// resolution — discarding the old content to transparent (the same discard rule as a Scale change) — so
+			// later draws use the full new area instead of being clipped to the old bitmap and merely stretched to fit.
+			// A no-op when there is no canvas, when the overlay is SetImage-sized (w/h == 0), or when the size is unchanged.
+			private void ResizeCanvasIfNeeded()
+			{
+				if (canvas == null || w <= 0 || h <= 0)
+					return;
+
+				if (canvas.Width == CanvasW && canvas.Height == CanvasH)
+					return;
+
+				canvas.Dispose();
+				canvas = null;
+				_ = EnsureCanvas(out _);   // recreate a blank canvas at the new size (w, h > 0 guaranteed above)
+			}
+
+			// Repaints the live surface after a mutation, but ONLY when actually visible and not inside a
+			// BeginDraw/EndDraw batch — the batch coalesces many mutations into the single upload EndDraw performs.
+			private void MaybeRefresh()
+			{
+				if (visible && suspendCount == 0)
+					Refresh();
+			}
+
 			private void MoveLive()
 			{
-				if (!shown)
+				if (!shown || suspendCount > 0)
 					return;
 
 				if (!Platform.Overlay.TryMoveImageOverlay(OverlayId, x, y, EffectiveW, EffectiveH))
@@ -334,7 +506,12 @@ namespace Keysharp.Builtins
 
 				try
 				{
-					shown = Platform.Overlay.TryShowImageOverlay(OverlayId, x, y, EffectiveW, EffectiveH, toShow);
+					// Only ever PROMOTE shown to true on a successful show. A false return while we are already shown
+					// is a TRANSIENT refresh failure — OverlayBase deliberately keeps the last good frame up and
+					// returns false in that case — so leave shown == true rather than flipping Visible to false under
+					// a still-live surface. shown is cleared only by a confirmed Hide, a Scale change, or Destroy.
+					if (Platform.Overlay.TryShowImageOverlay(OverlayId, x, y, EffectiveW, EffectiveH, toShow, clickThrough))
+						shown = true;
 				}
 				finally
 				{

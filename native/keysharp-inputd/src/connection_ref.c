@@ -15,11 +15,9 @@
 struct ksi_hook_send_ref {
     int fd;
     atomic_uint ref_count;
-    /* Set by the lane thread when this subscriber times out a decision; a
-     * subsequent event then uses a shorter deadline (fast-fail) until the
-     * subscriber answers again. Bounds a hung-client freeze. Lane-thread only in
-     * practice, atomic for a clean cross-thread read. */
-    atomic_bool stalled;
+    /* Per-hook-type quarantine marker. Queued snapshots consult it and skip a
+     * timed-out subscriber until authenticated REARM_HOOK clears that lane. */
+    atomic_uint stalled_lanes;
     pthread_mutex_t send_mutex;
     pthread_mutex_t order_mutex;
     pthread_cond_t order_cond;
@@ -64,7 +62,14 @@ ksi_hook_send_ref *hook_send_ref_create(int client_fd)
         return NULL;
     }
 
-    (void)pthread_condattr_setclock(&cond_attr, CLOCK_MONOTONIC);
+    if (pthread_condattr_setclock(&cond_attr, CLOCK_MONOTONIC) != 0) {
+        pthread_condattr_destroy(&cond_attr);
+        pthread_mutex_destroy(&ref->order_mutex);
+        pthread_mutex_destroy(&ref->send_mutex);
+        free(ref);
+        return NULL;
+    }
+
     cond_rc = pthread_cond_init(&ref->order_cond, &cond_attr);
     pthread_condattr_destroy(&cond_attr);
 
@@ -97,22 +102,22 @@ int hook_send_ref_fd(const ksi_hook_send_ref *ref)
     return ref == NULL ? -1 : ref->fd;
 }
 
-bool hook_send_ref_is_stalled(const ksi_hook_send_ref *ref)
+bool hook_send_ref_is_stalled(const ksi_hook_send_ref *ref, size_t lane_index)
 {
-    return ref != NULL && atomic_load(&ref->stalled);
+    return ref != NULL && lane_index < 2u
+        && (atomic_load(&ref->stalled_lanes) & (1u << lane_index)) != 0u;
 }
-
-void hook_send_ref_mark_stalled(ksi_hook_send_ref *ref)
+void hook_send_ref_mark_stalled(ksi_hook_send_ref *ref, size_t lane_index)
 {
-    if (ref != NULL) {
-        atomic_store(&ref->stalled, true);
+    if (ref != NULL && lane_index < 2u) {
+        (void)atomic_fetch_or(&ref->stalled_lanes, 1u << lane_index);
     }
 }
 
-void hook_send_ref_clear_stalled(ksi_hook_send_ref *ref)
+void hook_send_ref_clear_stalled(ksi_hook_send_ref *ref, size_t lane_index)
 {
-    if (ref != NULL) {
-        atomic_store(&ref->stalled, false);
+    if (ref != NULL && lane_index < 2u) {
+        (void)atomic_fetch_and(&ref->stalled_lanes, ~(1u << lane_index));
     }
 }
 
@@ -290,9 +295,4 @@ int ipc_send_locked(
     result = hook_send_ref_send(ref, message_type, client_id, correlation_id, payload, payload_size);
     hook_send_ref_release(ref);
     return result;
-}
-
-void ipc_close_locked(int client_fd)
-{
-    ksi_ipc_close_client(client_fd);
 }

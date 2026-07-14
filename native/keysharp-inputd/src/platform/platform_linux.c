@@ -56,9 +56,9 @@ static void linux_process_fd(int fd)
     ksi_linux_devices_process_fd(fd);
 }
 
-static bool linux_peek_oldest_pending_input(int *out_fd, uint64_t *out_time_ms)
+static bool linux_peek_oldest_pending_input(int *out_fd, uint64_t *out_time_ns)
 {
-    return ksi_linux_devices_peek_oldest_pending_event(out_fd, out_time_ms);
+    return ksi_linux_devices_peek_oldest_pending_event(out_fd, out_time_ns);
 }
 
 static bool linux_input_to_hook_event(

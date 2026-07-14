@@ -1,14 +1,9 @@
-static void request_close_client(ksi_daemon_state *state, int fd)
-{
-    (void)state;
-    ipc_close_locked(fd);
-}
-
 static void remove_client(ksi_daemon_state *state, nfds_t index)
 {
     ksi_client *clients = state->clients;
     nfds_t * const count = &state->client_count;
     uint32_t subs = clients[index].hook_subscriptions;
+    uint64_t removed_connection_id = clients[index].connection_id;
 
     hook_send_ref_release(clients[index].hook_send_ref);
     clients[index].hook_send_ref = NULL;
@@ -49,6 +44,17 @@ static void remove_client(ksi_daemon_state *state, nfds_t index)
 
     if (update_grab_state(state) != 0) {
         fprintf(stderr, "inputd: failed to update grab state after client removal\n");
+    }
+
+    /* A callback RPC is meaningful only while its authenticated hook session
+     * exists. Closing it also wakes any synthesis waiter during fifth-strike
+     * session replacement instead of leaving a detached ordinary channel. */
+    for (nfds_t i = *count; i > 0u; i--) {
+        nfds_t bound_index = i - 1u;
+
+        if (clients[bound_index].bound_hook_connection_id == removed_connection_id) {
+            remove_client(state, bound_index);
+        }
     }
 
     /* If the last client just left, release any synthetic keys still held on the

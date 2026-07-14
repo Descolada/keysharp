@@ -1105,6 +1105,13 @@ static uint64_t event_time_ms(const struct input_event *event)
     return (seconds * 1000u) + (useconds / 1000u);
 }
 
+static uint64_t event_time_ns(const struct input_event *event)
+{
+    uint64_t seconds = (uint64_t)event->input_event_sec;
+    uint64_t useconds = (uint64_t)event->input_event_usec;
+    return (seconds * 1000000000u) + (useconds * 1000u);
+}
+
 static uint32_t evdev_key_to_vk(unsigned int code)
 {
     return ksi_evdev_to_vk(code);
@@ -1814,7 +1821,7 @@ static bool buffer_next_device_event(ksi_linux_tracked_device *device)
     }
 }
 
-bool ksi_linux_devices_peek_oldest_pending_event(int *out_fd, uint64_t *out_time_ms)
+bool ksi_linux_devices_peek_oldest_pending_event(int *out_fd, uint64_t *out_time_ns)
 {
     bool found = false;
     uint64_t oldest_time = 0;
@@ -1832,7 +1839,7 @@ bool ksi_linux_devices_peek_oldest_pending_event(int *out_fd, uint64_t *out_time
             continue;
         }
 
-        time_ms = event_time_ms(&device->buffered_event);
+        time_ms = event_time_ns(&device->buffered_event);
 
         if (!found || time_ms < oldest_time) {
             found = true;
@@ -1849,8 +1856,8 @@ bool ksi_linux_devices_peek_oldest_pending_event(int *out_fd, uint64_t *out_time
         *out_fd = oldest_fd;
     }
 
-    if (out_time_ms != NULL) {
-        *out_time_ms = oldest_time;
+    if (out_time_ns != NULL) {
+        *out_time_ns = oldest_time;
     }
 
     return true;

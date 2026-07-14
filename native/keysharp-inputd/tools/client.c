@@ -159,6 +159,26 @@ static int read_status(int fd)
     return payload.status == 0 ? 0 : -1;
 }
 
+static int read_hello_status(int fd)
+{
+    ksi_message_header header;
+    ksi_client_hello_result_payload payload;
+
+    if (read_exact(fd, &header, sizeof(header)) != 0
+        || header.type != KSI_MESSAGE_CLIENT_HELLO
+        || header.size != sizeof(header) + sizeof(payload)
+        || read_exact(fd, &payload, sizeof(payload)) != 0) {
+        fprintf(stderr, "unexpected CLIENT_HELLO response\n");
+        return -1;
+    }
+
+    printf("hello status=%d granted=0x%x correlation=%llu\n",
+        payload.status,
+        payload.granted_capabilities,
+        (unsigned long long)header.correlation_id);
+    return payload.status == 0 ? 0 : -1;
+}
+
 static int send_hello(int fd, int split_frame)
 {
     ksi_client_hello_payload payload = {
@@ -168,13 +188,14 @@ static int send_hello(int fd, int split_frame)
             | KSI_CAP_SYNTH_KEYBOARD
             | KSI_CAP_SYNTH_MOUSE,
         .flags = 0,
+		.role = KSI_CONNECTION_GENERAL_RPC,
     };
 
     if (send_frame(fd, KSI_MESSAGE_CLIENT_HELLO, 1, &payload, sizeof(payload), split_frame) != 0) {
         return -1;
     }
 
-    return read_status(fd);
+    return read_hello_status(fd);
 }
 
 static int send_key_a(int fd)
@@ -255,7 +276,8 @@ int main(int argc, char **argv)
         result = 1;
     }
 
-    if (subscribe_keyboard_hook(fd) != 0) {
+    /* GENERAL_RPC must not be able to subscribe or decide hook events. */
+    if (subscribe_keyboard_hook(fd) == 0) {
         result = 1;
     }
 

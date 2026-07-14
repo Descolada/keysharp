@@ -23,7 +23,7 @@ namespace Keysharp.Internals.Input.Linux
 		private const uint KEYEVENTF_KEYUP = 0x0002;
 		private const uint KEYEVENTF_UNICODE = 0x0004;
 		private const uint KEYEVENTF_SCANCODE = 0x0008;
-		private const int MaxInputdBatchSize = 1024;
+		private const int MaxInputdBatchSize = KeysharpInputdClient.MaxInputsPerRequest;
 		private const int MaxMouseMoveChunk = 1000;
 
 		private readonly List<InputdQueuedEvent> eventQueue = new(MaxInitialEventsSI);
@@ -739,9 +739,6 @@ namespace Keysharp.Internals.Input.Linux
 		private static void SendInputBatches(IReadOnlyList<KeysharpInputdClient.Input> inputs, KeysharpInputdClient.SynthFlags flags = KeysharpInputdClient.SynthFlags.None)
 		{
 			if (inputs.Count == 0)
-				return;
-
-			if (LinuxHookThread.TryProcessReentrantHookInputs(inputs, flags))
 				return;
 
 			if (inputs.Count <= MaxInputdBatchSize)

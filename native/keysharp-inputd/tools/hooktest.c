@@ -168,7 +168,7 @@ static int read_frame(int fd, uint8_t *buffer, size_t buffer_size, ksi_message_h
         return -1;
     }
 
-    if ((*header)->major != KSI_PROTOCOL_MAJOR || (*header)->minor > KSI_PROTOCOL_MINOR) {
+    if ((*header)->major != KSI_PROTOCOL_MAJOR || (*header)->minor != KSI_PROTOCOL_MINOR) {
         fprintf(stderr, "unsupported protocol version: %u.%u\n", (*header)->major, (*header)->minor);
         return -1;
     }
@@ -245,6 +245,7 @@ static int send_hello(int fd)
             | KSI_CAP_SYNTH_KEYBOARD
             | KSI_CAP_SYNTH_MOUSE,
         .flags = 0,
+		.role = KSI_CONNECTION_HOOK_STREAM,
     };
 
     if (send_frame(fd, KSI_MESSAGE_CLIENT_HELLO, 1, &payload, sizeof(payload)) != 0) {

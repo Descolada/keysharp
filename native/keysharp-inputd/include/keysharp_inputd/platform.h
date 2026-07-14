@@ -20,7 +20,9 @@ typedef struct ksi_platform_backend {
     uint32_t (*get_available_capabilities)(void);
     nfds_t (*poll_fds)(struct pollfd *fds, nfds_t max_fds);
     void (*process_fd)(int fd);
-    bool (*peek_oldest_pending_input)(int *out_fd, uint64_t *out_time_ms);
+    /* Kernel CLOCK_MONOTONIC timestamp in nanoseconds, used only for admission
+     * ordering. Public hook timestamps retain their Windows-compatible units. */
+    bool (*peek_oldest_pending_input)(int *out_fd, uint64_t *out_time_ns);
     bool (*input_to_hook_event)(
         const ksi_input *input,
         uint32_t *hook_type,

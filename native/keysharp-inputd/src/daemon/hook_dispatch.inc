@@ -1,31 +1,4 @@
-static void complete_synthetic_dispatch_fallback(
-    ksi_daemon_state *state,
-    const ksi_lane_egress *egress,
-    ksi_synth_completion *completion)
-{
-    bool ok = true;
-
-    if (completion == NULL) {
-        return;
-    }
-
-    if (egress != NULL && egress->type == KSI_LANE_EGRESS_SYNTH) {
-        ok = output_queue_push_synth(&state->output_queue,
-            egress->synth_inputs,
-            egress->synth_count,
-            egress->synth_flags);
-    }
-
-    if (ok) {
-        synth_completion_complete(completion);
-    } else {
-        synth_completion_fail(completion, -1, 12u);
-    }
-
-    synthetic_hook_queue_complete_inflight(state);
-}
-
-static void dispatch_hook_event_to_lane(
+static void complete_hook_dispatch_fallback(
     ksi_daemon_state *state,
     uint32_t hook_type,
     const void *event,
@@ -33,41 +6,129 @@ static void dispatch_hook_event_to_lane(
     const ksi_lane_egress *egress,
     ksi_synth_completion *completion)
 {
+    bool ok = true;
+
+    if (egress != NULL) {
+        if (egress->type == KSI_LANE_EGRESS_SYNTH) {
+            ok = output_queue_push_synth(&state->output_queue,
+                egress->synth_inputs,
+                egress->synth_count,
+                egress->synth_flags);
+        } else if (egress->type == KSI_LANE_EGRESS_REPLAY) {
+            ksi_hook_event_payload payload;
+
+            memset(&payload, 0, sizeof(payload));
+            payload.hook_type = hook_type;
+            memcpy(&payload.event, event, event_size);
+            ok = output_queue_push_replay(&state->output_queue, hook_type, &payload,
+                sizeof(payload.event_id) + sizeof(payload.hook_type)
+                + sizeof(payload.reserved) + event_size);
+        }
+    }
+
+    if (completion != NULL) {
+        if (ok) {
+            synth_completion_complete(completion);
+        } else {
+            synth_completion_fail(completion, -1, KSI_DETAIL_RESOURCE_EXHAUSTED);
+        }
+
+        synthetic_hook_queue_complete_inflight(state);
+    }
+
+    if (!ok && egress != NULL && egress->type == KSI_LANE_EGRESS_REPLAY) {
+        atomic_store(&g_fail_open_requested, 1);
+        command_queue_wake(state->commands);
+    }
+}
+
+static ksi_lane_event *create_hook_lane_event(
+    ksi_daemon_state *state,
+    uint32_t hook_type,
+    const void *event,
+    size_t event_size,
+    const ksi_lane_egress *egress,
+    ksi_synth_completion *completion,
+    uint64_t origin_hook_connection_id,
+    uint32_t nesting_depth)
+{
     ksi_hook_lane *lane;
     ksi_lane_event *lane_event;
+    ksi_lane_subscriber candidates[KSI_MAX_CLIENTS];
+    size_t candidate_count = 0u;
+    uint64_t event_id;
     uint32_t subscription_bit;
 
     lane = lane_for_hook_type(state, hook_type);
 
     if (lane == NULL || event_size > sizeof(lane_event->payload.event)) {
-        complete_synthetic_dispatch_fallback(state, egress, completion);
-        return;
+        return NULL;
     }
 
     subscription_bit = hook_type_to_cap_bit(hook_type);
 
     if (subscription_bit == 0u) {
-        complete_synthetic_dispatch_fallback(state, egress, completion);
-        return;
+        return NULL;
     }
 
-    lane_event = calloc(1, sizeof(*lane_event));
+    event_id = state->next_event_id++;
+
+    /* Iterate clients newest-connected first so the most-recently-installed hook
+     * decides first, matching the Windows WH_KEYBOARD_LL/WH_MOUSE_LL chain order
+     * (SetWindowsHookEx installs at the head; CallNextHookEx walks toward older
+     * hooks). clients[] is append-ordered (oldest at index 0), so walk it in
+     * reverse. nfds_t is unsigned, hence the decrement-guard form. */
+    for (nfds_t i = state->client_count;
+            i-- > 0 && candidate_count < KSI_MAX_CLIENTS; ) {
+        const ksi_client *c = &state->clients[i];
+        const ksi_client *delivery = c;
+        bool uses_callback_rpc = false;
+
+        if ((c->hook_subscriptions & subscription_bit) == 0u
+            || (c->quarantined_hooks & subscription_bit) != 0u) {
+            continue;
+        }
+
+        if (c->connection_id == origin_hook_connection_id) {
+            const ksi_client *callback = find_callback_rpc_for_session(
+                state, origin_hook_connection_id, 0u);
+
+            if (callback == NULL) {
+                fprintf(stderr, "inputd: nested hook session has no callback RPC\n");
+                continue;
+            }
+
+            delivery = callback;
+            uses_callback_rpc = true;
+        }
+
+        candidates[candidate_count++] = (ksi_lane_subscriber) {
+            .send_ref = delivery->hook_send_ref,
+            .connection_id = delivery->connection_id,
+            .hook_session_id = c->connection_id,
+            .response_fd = delivery->fd,
+            .uses_callback_rpc = uses_callback_rpc,
+        };
+    }
+
+    lane_event = calloc(1,
+        sizeof(*lane_event) + candidate_count * sizeof(lane_event->subscribers[0]));
 
     if (lane_event == NULL) {
-        complete_synthetic_dispatch_fallback(state, egress, completion);
-        return;
+        return NULL;
     }
 
-    lane_event->event_id = state->next_event_id++;
+    lane_event->event_id = event_id;
     lane_event->hook_type = hook_type;
     lane_event->generation = atomic_load(&lane->flush_generation);
     lane_event->synthetic_completion = completion;
+    lane_event->nesting_depth = nesting_depth;
 
     if (egress != NULL) {
         lane_event->egress = *egress;
     }
 
-    lane_event->payload.event_id = lane_event->event_id;
+    lane_event->payload.event_id = event_id;
     lane_event->payload.hook_type = hook_type;
     memcpy(&lane_event->payload.event, event, event_size);
     lane_event->payload_size =
@@ -76,41 +137,57 @@ static void dispatch_hook_event_to_lane(
         + sizeof(lane_event->payload.reserved)
         + event_size;
 
-    /* Iterate clients newest-connected first so the most-recently-installed hook
-     * decides first, matching the Windows WH_KEYBOARD_LL/WH_MOUSE_LL chain order
-     * (SetWindowsHookEx installs at the head; CallNextHookEx walks toward older
-     * hooks). clients[] is append-ordered (oldest at index 0), so walk it in
-     * reverse. nfds_t is unsigned, hence the decrement-guard form. */
-    for (nfds_t i = state->client_count;
-            i-- > 0 && lane_event->subscriber_count < KSI_MAX_CLIENTS; ) {
-        const ksi_client *c = &state->clients[i];
+    for (size_t i = 0u; i < candidate_count; i++) {
+        ksi_lane_subscriber candidate = candidates[i];
 
-        if ((c->hook_subscriptions & subscription_bit) == 0u) {
-            continue;
-        }
-
-        if (!hook_send_ref_acquire(c->hook_send_ref)) {
+        if (!hook_send_ref_acquire(candidate.send_ref)) {
             fprintf(stderr, "inputd: hook subscriber has no send handle\n");
             continue;
         }
 
-        if (!hook_send_ref_note_event(c->hook_send_ref, lane_event->event_id)) {
+        if (!candidate.uses_callback_rpc
+            && !hook_send_ref_note_event(candidate.send_ref, event_id)) {
             fprintf(stderr, "inputd: hook subscriber ordering queue full\n");
-            hook_send_ref_release(c->hook_send_ref);
+            hook_send_ref_release(candidate.send_ref);
             continue;
         }
 
-        lane_event->subscriber_send_refs[lane_event->subscriber_count] = c->hook_send_ref;
-        lane_event->subscriber_response_fds[lane_event->subscriber_count] = c->fd;
-        lane_event->subscriber_connection_ids[lane_event->subscriber_count] = c->connection_id;
-        lane_event->subscriber_count++;
+        lane_event->subscribers[lane_event->subscriber_count++] = candidate;
+    }
+
+    return lane_event;
+}
+
+static void dispatch_hook_event_to_lane(
+    ksi_daemon_state *state,
+    uint32_t hook_type,
+    const void *event,
+    size_t event_size,
+    const ksi_lane_egress *egress,
+    ksi_synth_completion *completion,
+    bool physical_input)
+{
+    ksi_hook_lane *lane = lane_for_hook_type(state, hook_type);
+    ksi_lane_event *lane_event = create_hook_lane_event(
+        state, hook_type, event, event_size, egress, completion, 0u, 0u);
+
+    if (lane_event == NULL) {
+        complete_hook_dispatch_fallback(
+            state, hook_type, event, event_size, egress, completion);
+        return;
+    }
+
+    lane_event->physical_input = physical_input;
+
+    if (lane_event->physical_input) {
+        atomic_fetch_add(&state->physical_hook_inflight, 1u);
     }
 
     if (!lane_action_queue_push(&lane->action_queue, lane_event)) {
         bool egress_ok = lane_event_enqueue_egress(lane, lane_event);
 
         if (!egress_ok) {
-            if (lane_event_egress_is_replay(lane_event)) {
+            if (lane_event->egress.type == KSI_LANE_EGRESS_REPLAY) {
                 atomic_store(&g_fail_open_requested, 1);
                 command_queue_wake(state->commands);
             }
@@ -120,11 +197,16 @@ static void dispatch_hook_event_to_lane(
             (unsigned long long)lane_event->event_id);
         lane_event_release_send_refs(lane_event);
 
+        if (lane_event->physical_input) {
+            atomic_fetch_sub(&state->physical_hook_inflight, 1u);
+        }
+
         if (lane_event->synthetic_completion != NULL) {
             if (egress_ok) {
                 synth_completion_complete(lane_event->synthetic_completion);
             } else {
-                synth_completion_fail(lane_event->synthetic_completion, -1, 12u);
+                synth_completion_fail(lane_event->synthetic_completion, -1,
+                    KSI_DETAIL_RESOURCE_EXHAUSTED);
             }
 
             lane_event->synthetic_completion = NULL;
@@ -268,6 +350,7 @@ static void daemon_handle_hook_event(
 
         memset(&egress, 0, sizeof(egress));
         egress.type = (is_injected || block_active) ? KSI_LANE_EGRESS_NONE : KSI_LANE_EGRESS_REPLAY;
-        dispatch_hook_event_to_lane(state, hook_type, event, event_size, &egress, NULL);
+        dispatch_hook_event_to_lane(
+            state, hook_type, event, event_size, &egress, NULL, true);
     }
 }

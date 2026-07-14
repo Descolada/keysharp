@@ -16,33 +16,35 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		// could deadlock against the script thread holding the same lock.
 		[System.ThreadStatic]
 		internal static bool IsHookReaderThread;
-		[System.ThreadStatic]
-		private static LinuxHookThread currentHookThread;
-		[System.ThreadStatic]
-		private static List<KeysharpInputdClient.Input> currentHookDecisionInputs;
+		private sealed class CallbackContext
+		{
+			internal required LinuxHookThread Owner { get; init; }
+			internal required byte[] SessionToken { get; init; }
+			internal volatile bool Active = true;
+		}
+
+		// ExecutionContext flows this through Task.Run. This intentionally makes a
+		// #HotIf callback logically part of the low-level callback even though it is
+		// evaluated on a pool thread. Active is cleared when the originating callback
+		// returns, so abandoned/timed-out work cannot borrow a later callback frame.
+		private static readonly AsyncLocal<CallbackContext> callbackContext = new();
 
 		private KeysharpInputdClient inputdHookClient;
 		private CancellationTokenSource inputdHookCancel;
 		private Task inputdHookTask;
 		private HookType inputdHookKinds;
 		private bool usingInputdHooks;
-		private bool UsingInputdHooks => usingInputdHooks;
-		private const int MaxHookDecisionInputs = 1024;
-		private static readonly (KeysharpInputdClient.MouseEventFlags Flag, uint Message)[] MouseHookMessages =
-		[
-			(KeysharpInputdClient.MouseEventFlags.Move, 0x0200u),
-			(KeysharpInputdClient.MouseEventFlags.Wheel, 0x020Au),
-			(KeysharpInputdClient.MouseEventFlags.HWheel, 0x020Eu),
-			(KeysharpInputdClient.MouseEventFlags.LeftDown, 0x0201u),
-			(KeysharpInputdClient.MouseEventFlags.LeftUp, 0x0202u),
-			(KeysharpInputdClient.MouseEventFlags.RightDown, 0x0204u),
-			(KeysharpInputdClient.MouseEventFlags.RightUp, 0x0205u),
-			(KeysharpInputdClient.MouseEventFlags.MiddleDown, 0x0207u),
-			(KeysharpInputdClient.MouseEventFlags.MiddleUp, 0x0208u),
-			(KeysharpInputdClient.MouseEventFlags.XDown, 0x020Bu),
-			(KeysharpInputdClient.MouseEventFlags.XUp, 0x020Cu),
-		];
+		internal static bool IsInHookCallback => callbackContext.Value?.Active == true;
+		internal static byte[] CurrentHookSessionToken
+			=> IsInHookCallback ? callbackContext.Value.SessionToken : null;
 
+		internal static void ConfigureCallbackRpc(KeysharpInputdClient client)
+		{
+			var context = callbackContext.Value;
+
+			if (context?.Active == true)
+				client.SetNestedHookEventHandler(context.Owner.ProcessNestedHookEvent);
+		}
 		// Avoid grabbing evdev before X/XWayland can receive inputd's replay device.
 		private const int InputdGrabDisplayWaitMs = 5000;
 		private const int InputdGrabDisplayWaitPollMs = 100;
@@ -80,7 +82,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		// unchanged.
 		internal override bool IsKeyDownLogical(uint vk)
 		{
-			if (UsingInputdHooks)
+			if (usingInputdHooks)
 			{
 				var modMask = vk switch
 				{
@@ -103,17 +105,6 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			}
 
 			return base.IsKeyDownLogical(vk);
-		}
-
-		internal static bool TryProcessReentrantHookInputs(
-			IReadOnlyList<KeysharpInputdClient.Input> inputs,
-			KeysharpInputdClient.SynthFlags flags)
-		{
-			if (flags != KeysharpInputdClient.SynthFlags.None || currentHookThread == null)
-				return false;
-
-			currentHookThread.ProcessReentrantHookInputs(inputs);
-			return true;
 		}
 
 		protected override void StopPlatformHookCore(bool dispose)
@@ -287,7 +278,10 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 			try
 			{
-				inputdHookClient = KeysharpInputdClient.Connect(permissionRequest);
+				inputdHookClient = KeysharpInputdClient.Connect(
+					permissionRequest,
+					role: KeysharpInputdClient.ConnectionRole.HookStream);
+				inputdHookClient.SetHookQuarantineHandler(HandleHookQuarantined);
 
 				if (wantMouse)
 					_ = inputdHookClient.SubscribeHook(KeysharpInputdClient.HookType.MouseLowLevel);
@@ -309,6 +303,35 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 				StopInputdHookCore();
 				message = $"keysharp-inputd hook unavailable; global hooks disabled. {ex.Message}";
 				return false;
+			}
+		}
+
+		private void HandleHookQuarantined(KeysharpInputdClient.HookQuarantine quarantine)
+		{
+			var sessionToken = inputdHookClient?.HookSessionToken is { Length: > 0 } token
+				? (byte[])token.Clone()
+				: null;
+
+			Ks.OutputDebugLine(
+				$"keysharp-inputd quarantined {quarantine.HookType} hook at event {quarantine.EventId}; " +
+				$"strike {quarantine.StrikeCount}, retry in {quarantine.RetryAfterMs} ms.");
+
+			if (sessionToken == null)
+				return;
+
+			using (ExecutionContext.SuppressFlow())
+			{
+				_ = Task.Run(async () =>
+				{
+					await Task.Delay(checked((int)quarantine.RetryAfterMs)).ConfigureAwait(false);
+					var currentToken = inputdHookClient?.HookSessionToken;
+
+					if (currentToken == null || !currentToken.AsSpan().SequenceEqual(sessionToken))
+						return;
+
+					KeysharpInputdManager.TryRearmHook(
+						sessionToken, quarantine.HookType, quarantine.Generation);
+				});
 			}
 		}
 
@@ -393,49 +416,9 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 				liveness.MarkProgress();
 				CheckInputdPanicCombo(hookEvent);
 
-				var block = false;
-				var callbackStateLost = false;
-				IReadOnlyList<KeysharpInputdClient.Input> hookDecisionPrefixInputs = null;
-
 				try
 				{
-					currentHookThread = this;
-					currentHookDecisionInputs ??= new(MaxHookDecisionInputs);
-					currentHookDecisionInputs.Clear();
-					block = hookEvent.HookType switch
-					{
-						KeysharpInputdClient.HookType.KeyboardLowLevel => ProcessInputdKeyboardHook(hookEvent.Keyboard),
-						KeysharpInputdClient.HookType.MouseLowLevel => ProcessInputdMouseHook(hookEvent.Mouse),
-						_ => false
-					};
-				}
-				catch (Exception ex)
-				{
-					Ks.OutputDebugLine($"keysharp-inputd hook event processing failed: {ex}");
-					callbackStateLost = true;
-				}
-				finally
-				{
-					currentHookThread = null;
-
-					if (currentHookDecisionInputs != null && currentHookDecisionInputs.Count != 0)
-					{
-						hookDecisionPrefixInputs = currentHookDecisionInputs.ToArray();
-						currentHookDecisionInputs.Clear();
-					}
-				}
-
-				try
-				{
-					SendInputdHookDecision(client, hookEvent, block);
-					EmitInlineHookSends(hookDecisionPrefixInputs);
-
-					if (!block
-						&& CursorClipActive
-						&& hookEvent.HookType == KeysharpInputdClient.HookType.MouseLowLevel
-						&& hookEvent.Mouse.Message == 0x0200u
-						&& (hookEvent.Mouse.Flags & 0x01u) == 0)
-						RequestCursorClipCorrection();
+					ProcessAndDecideHookEvent(client, hookEvent);
 				}
 				catch (KeysharpInputdClient.RequestFailedException ex)
 					when (KeysharpInputdClient.IsStaleHookDecisionFailure(ex))
@@ -452,154 +435,80 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 					return;
 				}
+			}
+		}
 
-				if (callbackStateLost)
+		private void ProcessNestedHookEvent(
+			KeysharpInputdClient client,
+			KeysharpInputdClient.HookEvent hookEvent)
+		{
+			try
+			{
+				ProcessAndDecideHookEvent(client, hookEvent);
+			}
+			catch (KeysharpInputdClient.RequestFailedException ex)
+				when (KeysharpInputdClient.IsStaleHookDecisionFailure(ex))
+			{
+				Ks.OutputDebugLine($"keysharp-inputd nested hook decision for event {hookEvent.EventId} arrived after its deadline.");
+			}
+		}
+
+		private void ProcessAndDecideHookEvent(
+			KeysharpInputdClient client,
+			in KeysharpInputdClient.HookEvent hookEvent)
+		{
+			var previousContext = callbackContext.Value;
+			var context = new CallbackContext
+			{
+				Owner = this,
+				SessionToken = previousContext?.SessionToken ?? client.HookSessionToken ?? []
+			};
+			var block = false;
+			Exception callbackError = null;
+
+			callbackContext.Value = context;
+
+			try
+			{
+				try
 				{
-					HandleInputdHookReaderLoss("hook event processing failed");
-					return;
+					block = hookEvent.HookType switch
+					{
+						KeysharpInputdClient.HookType.KeyboardLowLevel => ProcessInputdKeyboardHook(hookEvent.Keyboard),
+						KeysharpInputdClient.HookType.MouseLowLevel => ProcessInputdMouseHook(hookEvent.Mouse),
+						_ => false
+					};
 				}
+				catch (Exception ex)
+				{
+					callbackError = ex;
+					Ks.OutputDebugLine($"keysharp-inputd hook event processing failed: {ex}");
+				}
+
+				SendInputdHookDecision(client, hookEvent, block);
 			}
-		}
-
-		private void ProcessReentrantHookInputs(IReadOnlyList<KeysharpInputdClient.Input> inputs)
-		{
-			if (inputs == null || currentHookDecisionInputs == null)
-				return;
-
-			for (var i = 0; i < inputs.Count; i++)
+			finally
 			{
-				var input = inputs[i];
-
-				if (input.Type == KeysharpInputdClient.InputType.Keyboard)
-					ProcessReentrantKeyboardInput(input);
-				else if (input.Type == KeysharpInputdClient.InputType.Mouse)
-					ProcessReentrantMouseInput(input);
-				else
-					AppendHookDecisionInput(input);
-			}
-		}
-
-		private void ProcessReentrantKeyboardInput(KeysharpInputdClient.Input input)
-		{
-			var keyboard = input.Keyboard;
-			var flags = keyboard.Flags;
-			var vk = (uint)keyboard.Vk;
-			var sc = (uint)keyboard.Scan;
-
-			if ((flags & KeysharpInputdClient.KeyEventFlags.Unicode) != 0)
-				vk = VK_PACKET;
-			else
-			{
-				if (vk == 0 && sc != 0)
-					vk = KeyCodes.MapScToVk(sc);
-				else if (sc == 0 && vk != 0)
-					sc = KeyCodes.MapVkToSc(vk);
+				context.Active = false;
+				callbackContext.Value = previousContext;
 			}
 
-			var keyUp = (flags & KeysharpInputdClient.KeyEventFlags.KeyUp) != 0;
-			var hookFlags = 0x10u;
+			if (!block
+				&& CursorClipActive
+				&& hookEvent.HookType == KeysharpInputdClient.HookType.MouseLowLevel
+				&& hookEvent.Mouse.Message == 0x0200u
+				&& (hookEvent.Mouse.Flags & 0x01u) == 0)
+				RequestCursorClipCorrection();
 
-			if ((flags & KeysharpInputdClient.KeyEventFlags.ExtendedKey) != 0)
-				hookFlags |= 0x01u;
-
-			if (keyUp)
-				hookFlags |= 0x80u;
-
-			var ev = new KeysharpInputdClient.KeyboardHookEvent(
-				keyUp ? 0x0101u : 0x0100u,
-				vk,
-				sc,
-				hookFlags,
-				CurrentHookTimeMs(),
-				keyboard.ExtraInfo,
-				0);
-
-			if (!ProcessInputdKeyboardHook(ev))
-				AppendHookDecisionInput(input);
-		}
-
-		private void ProcessReentrantMouseInput(KeysharpInputdClient.Input input)
-		{
-			var mouse = input.Mouse;
-			var flags = mouse.Flags;
-			var delivered = false;
-
-			if ((flags & KeysharpInputdClient.MouseEventFlags.Move) != 0)
-			{
-				var primitiveFlags = flags
-					& (KeysharpInputdClient.MouseEventFlags.Move
-						| KeysharpInputdClient.MouseEventFlags.MoveNoCoalesce
-						| KeysharpInputdClient.MouseEventFlags.VirtualDesk
-						| KeysharpInputdClient.MouseEventFlags.Absolute);
-				var primitive = KeysharpInputdClient.Input.MouseEvent(
-					mouse.Dx,
-					mouse.Dy,
-					(flags & KeysharpInputdClient.MouseEventFlags.Absolute) != 0
-						? (uint)KeysharpInputdClient.MouseEventFlags.Absolute
-						: 0u,
-					primitiveFlags,
-					mouse.Time,
-					mouse.ExtraInfo);
-
-				ProcessReentrantMousePrimitive(primitive, 0x0200u);
-				delivered = true;
-			}
-
-			foreach (var (flag, message) in MouseHookMessages)
-			{
-				if (flag == KeysharpInputdClient.MouseEventFlags.Move || (flags & flag) == 0)
-					continue;
-
-				ProcessReentrantMousePrimitive(
-					KeysharpInputdClient.Input.MouseEvent(0, 0, mouse.MouseData, flag, mouse.Time, mouse.ExtraInfo),
-					message);
-				delivered = true;
-			}
-
-			if (!delivered)
-				AppendHookDecisionInput(input);
-		}
-
-		private void ProcessReentrantMousePrimitive(KeysharpInputdClient.Input primitive, uint message)
-		{
-			var mouse = primitive.Mouse;
-			var mouseData = mouse.MouseData;
-
-			if ((mouse.Flags & (KeysharpInputdClient.MouseEventFlags.Wheel | KeysharpInputdClient.MouseEventFlags.HWheel)) != 0)
-				mouseData <<= 16;
-
-			var ev = new KeysharpInputdClient.MouseHookEvent(
-				message,
-				mouse.Dx,
-				mouse.Dy,
-				mouseData,
-				0x01u,
-				CurrentHookTimeMs(),
-				mouse.ExtraInfo,
-				0);
-
-			if (!ProcessInputdMouseHook(ev))
-				AppendHookDecisionInput(primitive);
-		}
-
-		private static ulong CurrentHookTimeMs()
-			=> unchecked((ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-
-		private static void AppendHookDecisionInput(KeysharpInputdClient.Input input)
-		{
-			if (currentHookDecisionInputs == null || currentHookDecisionInputs.Count >= MaxHookDecisionInputs - 1)
-				return;
-
-			currentHookDecisionInputs.Add(input);
+			if (callbackError != null)
+				throw new InvalidOperationException("hook event processing failed", callbackError);
 		}
 
 		private bool inputdPanicCtrlDown;
 		private bool inputdPanicAltDown;
 
-		// A hook decision is now PURE suppress-or-pass, mirroring Windows (a low-level
-		// hook returns block/pass; it does not "modify" the event). Any input the hook
-		// synthesized inline (modifier disguise / Alt-Tab, captured in prefixInputs) is
-		// emitted AFTER the decision by EmitInlineHookSends as an independent send.
+		// A hook decision is pure suppress-or-pass. Sends made while calculating it
+		// have already completed their daemon-owned recursive hook transaction.
 		private static void SendInputdHookDecision(
 			KeysharpInputdClient client,
 			in KeysharpInputdClient.HookEvent hookEvent,
@@ -608,28 +517,6 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			client.SendHookDecision(
 				hookEvent.EventId,
 				block ? KeysharpInputdClient.HookDecision.Block : KeysharpInputdClient.HookDecision.Pass);
-		}
-
-		// Emit input the hook callback synthesized inline (disguise / Alt-Tab modifier
-		// management) as a separate, hook-visible synthesis AFTER the block/pass decision
-		// — exactly like a Windows hook calling SendInput. The events re-enter the hook
-		// chain (tagged with the sender's ignore level, so they don't re-trigger). This
-		// runs on the hook reader thread, but the daemon prevents the self-deadlock on
-		// its own: it acks the synthesis on receipt because the sending process is a hook
-		// subscriber, so this thread never waits for its own hook dispatch.
-		private static void EmitInlineHookSends(IReadOnlyList<KeysharpInputdClient.Input> inputs)
-		{
-			if (inputs == null || inputs.Count == 0)
-				return;
-
-			try
-			{
-				KeysharpInputdManager.SendInputViaSynthesisChannel(inputs);
-			}
-			catch (Exception ex)
-			{
-				Ks.OutputDebugLine($"keysharp-inputd inline hook send failed: {ex.Message}");
-			}
 		}
 
 		private void CheckInputdPanicCombo(in KeysharpInputdClient.HookEvent hookEvent)
@@ -749,7 +636,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			Ks.OutputDebugLine($"keysharp-inputd hook reader lost ({reason}); re-establishing hooks.");
 			ChangePlatformHookState(want, changeIsTemporary: false, expectedGeneration: recoveryGeneration);
 
-			if (CursorClipActive && !UsingInputdHooks)
+			if (CursorClipActive && !usingInputdHooks)
 			{
 				ClearCursorClip();
 				Ks.OutputDebugLine("ClipCursor released because the keysharp-inputd mouse hook was lost.");
@@ -983,7 +870,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 		protected override bool CanClipCursor(out string reason)
 		{
-			if (!UsingInputdHooks)
+			if (!usingInputdHooks)
 			{
 				reason = "the keysharp-inputd mouse hook is not active";
 				return false;

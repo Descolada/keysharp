@@ -22,6 +22,7 @@ namespace Keysharp.Internals.Input.Linux
 		private static volatile KeysharpInputdClient client;
 		private static KeysharpInputdClient queryClient;
 		private static KeysharpInputdClient hookQueryClient;
+		private static byte[] hookQuerySessionToken;
 		private const KeysharpInputdClient.Capabilities InputdGrantedCapabilities =
 			KeysharpInputdClient.Capabilities.HookKeyboard
 			| KeysharpInputdClient.Capabilities.HookMouse
@@ -44,10 +45,9 @@ namespace Keysharp.Internals.Input.Linux
 		private const int SynthesisBackpressureRetryMs = 4;
 		private const long SynthesisBackpressureMaxWaitMs = 4000;
 
-		// Deadlock prevention for "Send while a hook callback is in action" (e.g. inline
-		// disguise/Alt-Tab emit, or a Send inside #HotIf) is handled entirely by the
-		// daemon: it acks a hook-visible synthesis on receipt when the sending process is
-		// itself a hook subscriber, so the client needs no special-casing here.
+		// Callback-originated requests use a separately authenticated RPC connection.
+		// The daemon, not the request payload, decides whether that connection currently
+		// belongs to an active callback frame and recursively dispatches child input.
 		internal static void SendInputViaSynthesisChannel(
 			IReadOnlyList<KeysharpInputdClient.Input> inputs,
 			KeysharpInputdClient.SynthFlags flags = KeysharpInputdClient.SynthFlags.None)
@@ -261,38 +261,41 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		// The hook reader thread must never contend on queryGate (see hookQueryGate).
-		private static bool OnHookReaderThread
-			=> Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsHookReaderThread;
+		// AsyncLocal callback state flows into #HotIf Task.Run evaluations. Those tasks
+		// are not physically the reader thread, but are part of the same daemon callback.
+		private static bool UseCallbackRpc
+			=> Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsInHookCallback;
 
 		private static KeysharpInputdClient GetOrCreateQueryClient()
 		{
-			var hookThread = OnHookReaderThread;
+			var hookThread = UseCallbackRpc;
 
-			// Lock order: gate, then query/hookQuery gate.
-			lock (gate)
+			// Recursive event pumping already holds hookQueryGate. Keep callback lookup
+			// independent of gate so a nested state query cannot invert gate -> hookQuery.
+			if (hookThread)
 			{
 				if (client == null)
 					return null;
 
-				if (hookThread)
+				lock (hookQueryGate)
 				{
-					lock (hookQueryGate)
-					{
-						if (hookQueryClient != null)
-							return hookQueryClient;
+					if (client == null)
+						return null;
 
-						try
-						{
-							hookQueryClient = KeysharpInputdClient.Connect();
-						}
-						catch (Exception ex) when (IsConnectException(ex))
-						{
-						}
+					var callbackClient = GetOrCreateCallbackClientLocked(
+						Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.CurrentHookSessionToken);
 
-						return hookQueryClient;
-					}
+					if (callbackClient != null)
+						Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.ConfigureCallbackRpc(callbackClient);
+
+					return callbackClient;
 				}
+			}
+
+			lock (gate)
+			{
+				if (client == null)
+					return null;
 
 				lock (queryGate)
 				{
@@ -319,13 +322,16 @@ namespace Keysharp.Internals.Input.Linux
 			if (qc == null)
 				return false;
 
-			var hookThread = OnHookReaderThread;
-			var g = hookThread ? hookQueryGate : queryGate;
-
-			lock (g)
+			if (UseCallbackRpc)
 			{
-				if (!ReferenceEquals(qc, hookThread ? hookQueryClient : queryClient))
-					return false;
+				// Do not hold this lifecycle lock while pumping recursive hook events.
+				// A nested #HotIf Task may need the same callback RPC before its parent
+				// can continue. KeysharpInputdClient serializes socket reads itself.
+				lock (hookQueryGate)
+				{
+					if (!ReferenceEquals(qc, hookQueryClient))
+						return false;
+				}
 
 				try
 				{
@@ -339,20 +345,127 @@ namespace Keysharp.Internals.Input.Linux
 				{
 					Ks.OutputDebugLine($"keysharp-inputd query channel lost: {ex.Message}");
 
-					if (hookThread)
+					lock (hookQueryGate)
 					{
-						try { hookQueryClient?.Dispose(); } catch { }
-						hookQueryClient = null;
-					}
-					else
-					{
-						try { queryClient?.Dispose(); } catch { }
-						queryClient = null;
+						if (ReferenceEquals(qc, hookQueryClient))
+							DisposeCallbackClientLocked();
 					}
 
 					return false;
 				}
 			}
+
+			lock (queryGate)
+			{
+				if (!ReferenceEquals(qc, queryClient))
+					return false;
+
+				try
+				{
+					return action(qc);
+				}
+				catch (KeysharpInputdClient.RequestFailedException)
+				{
+					throw;
+				}
+				catch (Exception ex) when (IsTransportException(ex))
+				{
+					Ks.OutputDebugLine($"keysharp-inputd query channel lost: {ex.Message}");
+					try { queryClient?.Dispose(); } catch { }
+					queryClient = null;
+					return false;
+				}
+			}
+		}
+
+		// Caller holds hookQueryGate. A callback socket is valid for exactly one
+		// daemon-owned hook session; token changes replace it before use.
+		private static KeysharpInputdClient GetOrCreateCallbackClientLocked(byte[] sessionToken)
+		{
+			if (sessionToken is not { Length: 16 })
+				return null;
+
+			if (hookQueryClient != null
+				&& hookQuerySessionToken != null
+				&& hookQuerySessionToken.AsSpan().SequenceEqual(sessionToken)
+				&& hookQueryClient.IsConnected)
+				return hookQueryClient;
+
+			DisposeCallbackClientLocked();
+
+			try
+			{
+				hookQueryClient = KeysharpInputdClient.Connect(
+					role: KeysharpInputdClient.ConnectionRole.CallbackRpc,
+					hookSessionToken: sessionToken);
+				hookQuerySessionToken = (byte[])sessionToken.Clone();
+			}
+			catch (Exception ex) when (IsConnectException(ex))
+			{
+			}
+
+			return hookQueryClient;
+		}
+
+		private static void DisposeCallbackClientLocked()
+		{
+			try { hookQueryClient?.Dispose(); } catch { }
+			hookQueryClient = null;
+			hookQuerySessionToken = null;
+		}
+
+		internal static bool TryRearmHook(
+			byte[] hookSessionToken,
+			KeysharpInputdClient.HookType hookType,
+			uint generation)
+		{
+			if (hookSessionToken is not { Length: 16 } || client == null)
+				return false;
+
+			for (var attempt = 0; attempt < 2; attempt++)
+			{
+				var retryAfterMs = 0;
+
+				lock (hookQueryGate)
+				{
+					if (client == null)
+						return false;
+
+					try
+					{
+						var callbackClient = GetOrCreateCallbackClientLocked(hookSessionToken);
+
+						if (callbackClient == null)
+							return false;
+
+						callbackClient.RearmHook(hookType, generation);
+						return true;
+					}
+					catch (KeysharpInputdClient.RequestFailedException ex)
+						when (attempt == 0 && ex.Detail is > 0 and <= 1000)
+					{
+						retryAfterMs = checked((int)ex.Detail);
+					}
+					catch (Exception ex) when (IsTransportException(ex))
+					{
+						DisposeCallbackClientLocked();
+						return false;
+					}
+					catch
+					{
+						return false;
+					}
+				}
+
+				// Timer granularity may arrive just before the daemon's monotonic
+				// cooldown. Wait outside all connection locks, then retry once.
+				if (retryAfterMs == 0)
+					return false;
+
+				Thread.Sleep(retryAfterMs);
+			}
+
+			return false;
 		}
 
 		internal static KeysharpInputdClient Client
@@ -591,14 +704,18 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal static KeysharpInputdClient.Capabilities ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities requested)
 		{
-			// Any input capability broadens to the full input set (hooks + synthesis +
-			// block input) so ONE prompt covers everything the executable will use,
-			// mirroring macOS's single Accessibility permission, instead of each
-			// subsystem (hook install, Send, BlockInput) prompting for its own subset.
-			// Screen capture and accessibility automation are separate domains and are
-			// NOT folded in here.
-			if ((requested & InputdGrantedCapabilities) != 0)
-				requested |= InputdGrantedCapabilities;
+			var hookBits = KeysharpInputdClient.Capabilities.HookKeyboard
+				| KeysharpInputdClient.Capabilities.HookMouse;
+			var synthBits = KeysharpInputdClient.Capabilities.SynthKeyboard
+				| KeysharpInputdClient.Capabilities.SynthMouse;
+
+			// Hooking also needs replay/synthesis, so request both device pairs.
+			// Synthesis alone stays synthesis-only; it must not acquire or prompt for
+			// physical-device access merely because the process can send input.
+			if ((requested & hookBits) != 0)
+				requested |= hookBits | synthBits;
+			else if ((requested & synthBits) != 0)
+				requested |= synthBits;
 
 			return requested;
 		}
@@ -625,10 +742,7 @@ namespace Keysharp.Internals.Input.Linux
 			}
 
 			lock (hookQueryGate)
-			{
-				try { hookQueryClient?.Dispose(); } catch { }
-				hookQueryClient = null;
-			}
+				DisposeCallbackClientLocked();
 		}
 
 	}

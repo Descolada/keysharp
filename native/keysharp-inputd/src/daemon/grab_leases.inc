@@ -20,7 +20,7 @@ static void send_status(
 }
 
 static void send_hello_status(
-    int client_fd,
+    const ksi_client *client,
     uint32_t client_id,
     uint64_t correlation_id,
     int32_t status,
@@ -31,8 +31,13 @@ static void send_hello_status(
         .granted_capabilities = granted_capabilities,
     };
 
+    if (client != NULL && client->connection_role == KSI_CONNECTION_HOOK_STREAM) {
+        memcpy(payload.hook_session_token, client->hook_session_token,
+            sizeof(payload.hook_session_token));
+    }
+
     (void)ipc_send_locked(
-        client_fd,
+        client->fd,
         KSI_MESSAGE_CLIENT_HELLO,
         client_id,
         correlation_id,
@@ -295,7 +300,7 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
          * protocol_server.inc's handle_client_hello for the full rationale. */
         client->granted_capabilities |= granted;
         client->authenticated = client->authenticated || client->granted_capabilities != 0u;
-        send_hello_status(client->fd,
+        send_hello_status(client,
             client->pending_hello_client_id, client->pending_hello_correlation_id,
             -1, granted);
         return;
@@ -304,7 +309,7 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
 	ksi_permissions_note_seen(state->permissions, client->uid, client->exe_hash, client->exe_path);
 	client->authenticated = true;
     client->granted_capabilities |= granted;
-    send_hello_status(client->fd,
+    send_hello_status(client,
         client->pending_hello_client_id, client->pending_hello_correlation_id,
         0, granted);
 }
@@ -373,6 +378,33 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
         return;
     }
 
+    if (client->connection_role == KSI_CONNECTION_CALLBACK_RPC) {
+        ksi_client *hook_session = find_hook_session(
+            state, client, client->hook_session_token);
+
+        if (hook_session == NULL
+            || find_callback_rpc_for_session(
+                state, hook_session->connection_id, client->connection_id) != NULL
+            || !client->has_identity
+            || !hook_session->has_identity
+            || client->start_time != hook_session->start_time
+            || strcmp(client->exe_hash, hook_session->exe_hash) != 0
+            || strcmp(client->exe_path, hook_session->exe_path) != 0) {
+            fprintf(stderr,
+                "inputd: rejecting callback RPC pid=%ld: hook-session executable identity mismatch\n",
+                (long)client->pid);
+            client->pending_hello_valid = false;
+            client->bound_hook_connection_id = 0u;
+            send_hello_status(client,
+                client->pending_hello_client_id,
+                client->pending_hello_correlation_id,
+                -1, 0u);
+            return;
+        }
+
+        client->bound_hook_connection_id = hook_session->connection_id;
+    }
+
     /* There is a buffered CLIENT_HELLO — process it now that we have identity. */
 	{
 		uint32_t requested = client->pending_hello_requested;
@@ -390,7 +422,7 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
                 /* Prompt thread failed; deny immediately. */
                 client->pending_hello_valid = false;
                 client->state = KSI_CLIENT_STATE_READY;
-                send_hello_status(client->fd,
+                send_hello_status(client,
                     client->pending_hello_client_id, client->pending_hello_correlation_id,
                     -1, 0u);
             } else {
@@ -409,7 +441,7 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
              * rationale. */
             client->granted_capabilities |= granted;
             client->authenticated = client->authenticated || client->granted_capabilities != 0u;
-            send_hello_status(client->fd,
+            send_hello_status(client,
                 client->pending_hello_client_id, client->pending_hello_correlation_id,
                 -1, granted);
             return;
@@ -421,7 +453,7 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
 
         client->authenticated = true;
         client->granted_capabilities |= granted;
-        send_hello_status(client->fd,
+        send_hello_status(client,
             client->pending_hello_client_id, client->pending_hello_correlation_id,
             0, granted);
     }
@@ -481,7 +513,8 @@ static uint32_t active_hook_subscription_mask(const ksi_daemon_state *state)
     }
 
     for (nfds_t i = 0; i < state->client_count; i++) {
-        mask |= state->clients[i].hook_subscriptions;
+        mask |= state->clients[i].hook_subscriptions
+            & (uint32_t)~state->clients[i].quarantined_hooks;
     }
 
     return mask;
@@ -517,27 +550,8 @@ static bool any_matching_hook_subscriptions(const ksi_daemon_state *state, uint3
     }
 
     for (nfds_t i = 0; i < state->client_count; i++) {
-        if ((state->clients[i].hook_subscriptions & subscription_bit) != 0) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-/* True if any connection belonging to the given process (pid+uid) is a hook
- * subscriber. Used to decide whether a synthesis from that process re-enters its
- * OWN hook (so its result must be acked on receipt to avoid a self-deadlock). */
-static bool process_has_active_hook(const ksi_daemon_state *state, pid_t pid, uid_t uid)
-{
-    if (state == NULL) {
-        return false;
-    }
-
-    for (nfds_t i = 0; i < state->client_count; i++) {
-        const ksi_client *c = &state->clients[i];
-
-        if (c->pid == pid && c->uid == uid && c->hook_subscriptions != 0u) {
+        if ((state->clients[i].hook_subscriptions & subscription_bit) != 0
+            && (state->clients[i].quarantined_hooks & subscription_bit) == 0u) {
             return true;
         }
     }
@@ -633,6 +647,7 @@ static void clear_hook_state(ksi_daemon_state *state)
 
     lane_flush_passthrough(&state->keyboard_lane);
     lane_flush_passthrough(&state->mouse_lane);
+    synthetic_hook_queue_abort(&state->synthetic_hook_queue);
 
     for (nfds_t i = 0; i < state->client_count; i++) {
         state->clients[i].hook_subscriptions = 0;
@@ -760,22 +775,33 @@ static void apply_fail_open_if_requested(ksi_daemon_state *state)
 
 static void record_client_hook_success(ksi_daemon_state *state, nfds_t index, uint32_t hook_type)
 {
+    ksi_client *client;
+    size_t lane_index;
+
     if (state == NULL || index >= state->client_count) {
         return;
     }
 
-    /* Reset only the lane the decision belonged to: a healthy keyboard
-     * response must not paper over a persistently stalled mouse lane. */
-    state->clients[index].consecutive_hook_failures[hook_type_to_lane_index(hook_type)] = 0;
+    client = &state->clients[index];
+    lane_index = hook_type_to_lane_index(hook_type);
+
+    if (client->last_hook_quarantine_ms[lane_index] != 0u
+        && monotonic_ms() >= client->last_hook_quarantine_ms[lane_index] + 60000u) {
+        client->consecutive_hook_failures[lane_index] = 0u;
+    }
 }
 
 static void record_client_hook_failure(
-    ksi_daemon_state *state, nfds_t index, uint32_t hook_type, const char *reason)
+    ksi_daemon_state *state, nfds_t index, uint32_t hook_type,
+    uint64_t event_id, uint32_t nesting_depth, uint32_t elapsed_ms,
+    uint32_t reason)
 {
     ksi_client *client;
     size_t lane_index;
     uint32_t lane_bit;
-    uint32_t failed_subscriptions;
+    uint32_t retry_after_ms;
+    uint64_t now;
+    ksi_hook_quarantined_payload notification;
 
     if (state == NULL || index >= state->client_count) {
         return;
@@ -785,50 +811,64 @@ static void record_client_hook_failure(
     lane_index = hook_type_to_lane_index(hook_type);
     lane_bit = (lane_index == 1u) ? KSI_CAP_HOOK_MOUSE : KSI_CAP_HOOK_KEYBOARD;
 
-    /* Only count failures against a lane the client is still subscribed to,
-     * so a stale failure for an already-unsubscribed lane cannot evict. */
-    if ((client->hook_subscriptions & lane_bit) == 0) {
+    if ((client->hook_subscriptions & lane_bit) == 0u
+        || (client->quarantined_hooks & lane_bit) != 0u) {
         return;
     }
 
+    now = monotonic_ms();
+
+    if (client->last_hook_quarantine_ms[lane_index] != 0u
+        && now >= client->last_hook_quarantine_ms[lane_index] + 60000u) {
+        client->consecutive_hook_failures[lane_index] = 0u;
+    }
+
     client->consecutive_hook_failures[lane_index]++;
+    client->last_hook_quarantine_ms[lane_index] = now;
+    client->quarantined_hooks |= lane_bit;
+    hook_send_ref_mark_stalled(client->hook_send_ref, lane_index);
+    client->quarantine_generation[lane_index]++;
+
+    if (client->quarantine_generation[lane_index] == 0u) {
+        client->quarantine_generation[lane_index]++;
+    }
+
+    retry_after_ms = 1000u << (client->consecutive_hook_failures[lane_index] > 5u
+        ? 4u
+        : client->consecutive_hook_failures[lane_index] - 1u);
+    client->quarantine_rearm_after_ms[lane_index] = now + retry_after_ms;
 
     fprintf(stderr,
-        "client fd=%d %s hook callback failed (%s), consecutive failures=%u/%u\n",
-        client->fd,
-        lane_index == 1u ? "mouse" : "keyboard",
-        reason == NULL ? "unknown" : reason,
-        client->consecutive_hook_failures[lane_index],
-        KSI_MAX_CONSECUTIVE_HOOK_FAILURES);
+        "inputd: hook quarantined pid=%ld fd=%d hook=%u event=%llu depth=%u "
+        "elapsed=%ums reason=%s strike=%u retry=%ums\n",
+        (long)client->pid, client->fd, hook_type,
+        (unsigned long long)event_id, nesting_depth, elapsed_ms,
+        reason == KSI_HOOK_QUARANTINE_REASON_TIMEOUT ? "timeout" : "transport",
+        client->consecutive_hook_failures[lane_index], retry_after_ms);
+
+    memset(&notification, 0, sizeof(notification));
+    notification.hook_type = hook_type;
+    notification.reason = reason;
+    notification.event_id = event_id;
+    notification.generation = client->quarantine_generation[lane_index];
+    notification.strike_count = client->consecutive_hook_failures[lane_index];
+    notification.retry_after_ms = retry_after_ms;
+
+    (void)ipc_send_locked(client->fd, KSI_MESSAGE_HOOK_QUARANTINED, 0,
+        event_id, &notification, sizeof(notification));
+
+    if (update_grab_state(state) != 0) {
+        fprintf(stderr, "inputd: failed to update grabs after hook quarantine\n");
+    }
 
     if (client->consecutive_hook_failures[lane_index] < KSI_MAX_CONSECUTIVE_HOOK_FAILURES) {
         return;
     }
 
-    /* After N consecutive failures on this lane the client is disconnected,
-     * not merely unsubscribed. Closing the socket is the signal the client's
-     * reader uses to reinitialize its hooks — mirroring Windows, where the OS
-     * silently unhooks an unresponsive low-level hook and the app must call
-     * SetWindowsHookEx again. A bare unsubscribe leaves the client blocked in
-     * its read with no way to notice, so its hotkeys would stay dead. */
-    failed_subscriptions = client->hook_subscriptions;
-
     fprintf(stderr,
-        "client fd=%d disconnected after %u consecutive %s hook callback failures\n",
-        client->fd,
-        KSI_MAX_CONSECUTIVE_HOOK_FAILURES,
+        "inputd: invalidating hook session pid=%ld fd=%d after %u consecutive %s timeouts\n",
+        (long)client->pid, client->fd, KSI_MAX_CONSECUTIVE_HOOK_FAILURES,
         lane_index == 1u ? "mouse" : "keyboard");
-
-    /* Invalidate queued snapshots immediately so already-queued events do not
-     * wait on the dying client; then remove_client closes the fd and releases
-     * grabs (update_grab_state). Do not touch client/index after this. */
-    if ((failed_subscriptions & KSI_CAP_HOOK_KEYBOARD) != 0) {
-        lane_flush_passthrough(&state->keyboard_lane);
-    }
-
-    if ((failed_subscriptions & KSI_CAP_HOOK_MOUSE) != 0) {
-        lane_flush_passthrough(&state->mouse_lane);
-    }
 
     remove_client(state, index);
 }

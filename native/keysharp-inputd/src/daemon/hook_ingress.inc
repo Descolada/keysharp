@@ -62,7 +62,7 @@ static bool enqueue_synth_direct_complete(
         if (ok) {
             synth_completion_complete(completion);
         } else {
-            synth_completion_fail(completion, -1, 12u);
+            synth_completion_fail(completion, -1, KSI_DETAIL_RESOURCE_EXHAUSTED);
         }
     }
 
@@ -114,25 +114,30 @@ static bool process_synthetic_hook_input(
         &payload.event,
         event_size,
         &egress,
-        completion);
+        completion,
+        false);
     return true;
 }
 
 static bool process_synthetic_hook_queue_one(ksi_daemon_state *state)
 {
     ksi_input input;
-    uint64_t queued_at_ms;
+    uint64_t queued_at_ns;
     ksi_synth_completion *completion = NULL;
     bool batch_start = false;
 
     if (state == NULL
         || atomic_load(&state->synthetic_hook_inflight) != 0
         || !synthetic_hook_queue_pop(&state->synthetic_hook_queue,
-            &input, &queued_at_ms, &completion, &batch_start)) {
+            &input, &queued_at_ns, &completion, &batch_start)) {
         return false;
     }
 
-    (void)queued_at_ms;
+    (void)queued_at_ns;
+
+    if (batch_start) {
+        synth_completion_begin_atomic(completion);
+    }
 
     if (!process_synthetic_hook_input(state, &input, completion, batch_start)) {
         fprintf(stderr, "inputd: failed to route synthetic hook input\n");
@@ -157,6 +162,8 @@ static bool process_hook_ingress(ksi_daemon_state *state)
             && state->backend->process_fd != NULL
             && state->backend->peek_oldest_pending_input != NULL;
         bool synthetic_inflight = atomic_load(&state->synthetic_hook_inflight) != 0;
+        bool transaction_active = atomic_load(&state->active_synthetic_transactions) != 0u;
+        bool physical_inflight = atomic_load(&state->physical_hook_inflight) != 0u;
         bool has_synthetic = synthetic_hook_queue_peek_time(
             &state->synthetic_hook_queue, &synthetic_time);
         bool has_physical = can_process_physical
@@ -166,14 +173,16 @@ static bool process_hook_ingress(ksi_daemon_state *state)
             break;
         }
 
-        if (has_physical && (!has_synthetic || physical_time < synthetic_time)) {
+        if (has_physical && !transaction_active
+            && (!has_synthetic || physical_time <= synthetic_time)) {
             state->backend->process_fd(physical_fd);
             did_work = true;
-        } else if (has_synthetic && !synthetic_inflight && process_synthetic_hook_queue_one(state)) {
+        } else if (has_synthetic && !synthetic_inflight && !physical_inflight
+            && process_synthetic_hook_queue_one(state)) {
             did_work = true;
         } else if (has_synthetic && synthetic_inflight) {
             break;
-        } else if (has_physical) {
+        } else if (has_physical && !has_synthetic && !transaction_active) {
             state->backend->process_fd(physical_fd);
             did_work = true;
         } else {

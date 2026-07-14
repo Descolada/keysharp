@@ -304,6 +304,7 @@ static bool output_queue_push_recreate_synth(ksi_output_queue *q)
 }
 
 static ksi_synth_completion *synth_completion_create(
+    ksi_daemon_state *state,
     ksi_hook_send_ref *send_ref,
     const ksi_message_header *request)
 {
@@ -321,9 +322,22 @@ static ksi_synth_completion *synth_completion_create(
     }
 
     completion->send_ref = send_ref;
+    completion->state = state;
     completion->client_id = request->client_id;
     completion->correlation_id = request->correlation_id;
+    atomic_init(&completion->remaining, 1u);
+    atomic_init(&completion->result_sent, false);
     return completion;
+}
+
+static void synth_completion_begin_atomic(ksi_synth_completion *completion)
+{
+    if (completion == NULL || completion->owns_atomic_transaction) {
+        return;
+    }
+
+    completion->owns_atomic_transaction = true;
+    atomic_fetch_add(&completion->state->active_synthetic_transactions, 1u);
 }
 
 static void synth_completion_destroy(ksi_synth_completion *completion)
@@ -343,11 +357,13 @@ static void synth_completion_send_once(
 {
     ksi_status_payload payload;
 
-    if (completion == NULL || completion->result_sent) {
+    bool expected = false;
+
+    if (completion == NULL
+        || !atomic_compare_exchange_strong(&completion->result_sent, &expected, true)) {
         return;
     }
 
-    completion->result_sent = true;
     payload.status = status;
     payload.detail = detail;
     (void)hook_send_ref_send(
@@ -361,15 +377,21 @@ static void synth_completion_send_once(
 
 static void synth_completion_complete(ksi_synth_completion *completion)
 {
+    unsigned int previous;
+
     if (completion == NULL) {
         return;
     }
 
-    if (completion->remaining <= 1u) {
+    previous = atomic_fetch_sub(&completion->remaining, 1u);
+
+    if (previous == 1u) {
+        if (completion->owns_atomic_transaction && completion->state != NULL) {
+            atomic_fetch_sub(&completion->state->active_synthetic_transactions, 1u);
+        }
+
         synth_completion_send_once(completion, 0, 0u);
         synth_completion_destroy(completion);
-    } else {
-        completion->remaining--;
     }
 }
 
@@ -378,16 +400,21 @@ static void synth_completion_fail(
     int32_t status,
     uint32_t detail)
 {
+    unsigned int previous;
+
     if (completion == NULL) {
         return;
     }
 
     synth_completion_send_once(completion, status, detail);
+    previous = atomic_fetch_sub(&completion->remaining, 1u);
 
-    if (completion->remaining <= 1u) {
+    if (previous == 1u) {
+        if (completion->owns_atomic_transaction && completion->state != NULL) {
+            atomic_fetch_sub(&completion->state->active_synthetic_transactions, 1u);
+        }
+
         synth_completion_destroy(completion);
-    } else {
-        completion->remaining--;
     }
 }
 
@@ -451,15 +478,83 @@ static size_t synthetic_hook_input_count(const ksi_input *input)
     return count == 0u ? 1u : count;
 }
 
+static bool synthetic_hook_batch_count(
+    const ksi_input *inputs,
+    uint32_t count,
+    size_t *expanded_count)
+{
+    size_t total = 0u;
+
+    if (expanded_count == NULL || (count != 0u && inputs == NULL)) {
+        return false;
+    }
+
+    for (uint32_t i = 0u; i < count; i++) {
+        total += synthetic_hook_input_count(&inputs[i]);
+
+        if (total > KSI_MAX_SYNTH_HOOK_ACTIONS) {
+            return false;
+        }
+    }
+
+    *expanded_count = total;
+    return true;
+}
+
+/* Expand one INPUT into the individual low-level hook events Windows exposes.
+ * `outputs` must hold synthetic_hook_input_count(input) elements. */
+static size_t synthetic_hook_expand_input(const ksi_input *input, ksi_input *outputs)
+{
+    const ksi_mouseinput *mouse;
+    size_t count = 0u;
+
+    if (input == NULL || outputs == NULL) {
+        return 0u;
+    }
+
+    if (input->type != KSI_INPUT_MOUSE) {
+        outputs[0] = *input;
+        return 1u;
+    }
+
+    mouse = &input->data.mouse;
+
+    for (size_t i = 0u; i < sizeof(synthetic_mouse_primitives) / sizeof(synthetic_mouse_primitives[0]); i++) {
+        ksi_input *primitive;
+
+        if ((mouse->flags & synthetic_mouse_primitives[i].trigger) == 0u) {
+            continue;
+        }
+
+        primitive = &outputs[count++];
+        *primitive = *input;
+        primitive->data.mouse.flags = synthetic_mouse_primitives[i].mask_flags
+            ? mouse->flags & synthetic_mouse_primitives[i].flags
+            : synthetic_mouse_primitives[i].flags;
+
+        if (!synthetic_mouse_primitives[i].keep_motion) {
+            primitive->data.mouse.dx = 0;
+            primitive->data.mouse.dy = 0;
+        }
+    }
+
+    if (count == 0u) {
+        outputs[0] = *input;
+        return 1u;
+    }
+
+    return count;
+}
+
 static void synthetic_hook_queue_append_locked(
     ksi_synthetic_hook_queue *q,
     const ksi_input *input,
-    uint64_t queued_at_ms,
+    uint64_t queued_at_ns,
     ksi_synth_completion *completion)
 {
     size_t tail = (q->head + q->count) % KSI_MAX_SYNTH_HOOK_ACTIONS;
     q->items[tail].input = *input;
-    q->items[tail].queued_at_ms = queued_at_ms;
+    q->items[tail].queued_at_ns = queued_at_ns;
     q->items[tail].completion = completion;
     q->items[tail].batch_start = false;  /* push() marks the batch's first node */
     q->count++;
@@ -468,42 +563,14 @@ static void synthetic_hook_queue_append_locked(
 static void synthetic_hook_queue_append_input_locked(
     ksi_synthetic_hook_queue *q,
     const ksi_input *input,
-    uint64_t queued_at_ms,
+    uint64_t queued_at_ns,
     ksi_synth_completion *completion)
 {
-    const ksi_mouseinput *mouse;
-    bool appended = false;
+    ksi_input expanded[sizeof(synthetic_mouse_primitives) / sizeof(synthetic_mouse_primitives[0])];
+    size_t count = synthetic_hook_expand_input(input, expanded);
 
-    if (input->type != KSI_INPUT_MOUSE) {
-        synthetic_hook_queue_append_locked(q, input, queued_at_ms, completion);
-        return;
-    }
-
-    mouse = &input->data.mouse;
-
-    for (size_t i = 0u; i < sizeof(synthetic_mouse_primitives) / sizeof(synthetic_mouse_primitives[0]); i++) {
-        ksi_input primitive;
-
-        if ((mouse->flags & synthetic_mouse_primitives[i].trigger) == 0u) {
-            continue;
-        }
-
-        primitive = *input;
-        primitive.data.mouse.flags = synthetic_mouse_primitives[i].mask_flags
-            ? mouse->flags & synthetic_mouse_primitives[i].flags
-            : synthetic_mouse_primitives[i].flags;
-
-        if (!synthetic_mouse_primitives[i].keep_motion) {
-            primitive.data.mouse.dx = 0;
-            primitive.data.mouse.dy = 0;
-        }
-
-        synthetic_hook_queue_append_locked(q, &primitive, queued_at_ms, completion);
-        appended = true;
-    }
-
-    if (!appended) {
-        synthetic_hook_queue_append_locked(q, input, queued_at_ms, completion);
+    for (size_t i = 0u; i < count; i++) {
+        synthetic_hook_queue_append_locked(q, &expanded[i], queued_at_ns, completion);
     }
 }
 
@@ -511,21 +578,12 @@ static bool synthetic_hook_queue_push(
     ksi_synthetic_hook_queue *q,
     const ksi_input *inputs,
     uint32_t count,
-    uint64_t queued_at_ms,
+    size_t node_count,
+    uint64_t queued_at_ns,
     ksi_synth_completion *completion)
 {
-    size_t node_count = 0u;
-
     if (q == NULL || (count > 0u && inputs == NULL)) {
         return false;
-    }
-
-    for (uint32_t i = 0; i < count; i++) {
-        node_count += synthetic_hook_input_count(&inputs[i]);
-
-        if (node_count > KSI_MAX_SYNTH_HOOK_ACTIONS) {
-            return false;
-        }
     }
 
     pthread_mutex_lock(&q->mutex);
@@ -536,13 +594,13 @@ static bool synthetic_hook_queue_push(
     }
 
     if (completion != NULL) {
-        completion->remaining = (uint32_t)node_count;
+        atomic_store(&completion->remaining, (unsigned int)node_count);
     }
 
     size_t start_tail = (q->head + q->count) % KSI_MAX_SYNTH_HOOK_ACTIONS;
 
     for (uint32_t i = 0u; i < count; i++) {
-        synthetic_hook_queue_append_input_locked(q, &inputs[i], queued_at_ms, completion);
+        synthetic_hook_queue_append_input_locked(q, &inputs[i], queued_at_ns, completion);
     }
 
     /* Mark the first node of this client batch so the daemon re-arms its
@@ -564,18 +622,18 @@ static bool synthetic_hook_queue_push(
 
 static bool synthetic_hook_queue_peek_time(
     ksi_synthetic_hook_queue *q,
-    uint64_t *queued_at_ms)
+    uint64_t *queued_at_ns)
 {
     bool found = false;
 
-    if (q == NULL || queued_at_ms == NULL || !q->mutex_initialized) {
+    if (q == NULL || queued_at_ns == NULL || !q->mutex_initialized) {
         return false;
     }
 
     pthread_mutex_lock(&q->mutex);
 
     if (q->count != 0u) {
-        *queued_at_ms = q->items[q->head].queued_at_ms;
+        *queued_at_ns = q->items[q->head].queued_at_ns;
         found = true;
     }
 
@@ -586,14 +644,14 @@ static bool synthetic_hook_queue_peek_time(
 static bool synthetic_hook_queue_pop(
     ksi_synthetic_hook_queue *q,
     ksi_input *input,
-    uint64_t *queued_at_ms,
+    uint64_t *queued_at_ns,
     ksi_synth_completion **completion,
     bool *batch_start)
 {
     ksi_synthetic_hook_item item;
     bool found = false;
 
-    if (q == NULL || input == NULL || queued_at_ms == NULL
+    if (q == NULL || input == NULL || queued_at_ns == NULL
         || completion == NULL || batch_start == NULL || !q->mutex_initialized) {
         return false;
     }
@@ -617,7 +675,7 @@ static bool synthetic_hook_queue_pop(
     }
 
     *input = item.input;
-    *queued_at_ms = item.queued_at_ms;
+    *queued_at_ns = item.queued_at_ns;
     *completion = item.completion;
     *batch_start = item.batch_start;
     return true;
@@ -640,7 +698,7 @@ static void synthetic_hook_queue_close(ksi_synthetic_hook_queue *q)
 
     for (size_t i = 0u; i < q->count; i++) {
         size_t idx = (q->head + i) % KSI_MAX_SYNTH_HOOK_ACTIONS;
-        synth_completion_fail(q->items[idx].completion, -1, 12u);
+        synth_completion_fail(q->items[idx].completion, -1, KSI_DETAIL_RESOURCE_EXHAUSTED);
         memset(&q->items[idx], 0, sizeof(q->items[idx]));
     }
 
@@ -747,16 +805,117 @@ static bool lane_action_queue_pop(ksi_lane_action_queue *q, ksi_lane_event **out
     return q != NULL && out != NULL && ksi_pipe_ring_pop(&q->ring, out);
 }
 
-static void lane_event_release_subscriber_ref(ksi_lane_event *event, size_t index)
+static void synthetic_hook_queue_abort(ksi_synthetic_hook_queue *q)
 {
-    if (event == NULL || index >= event->subscriber_count
-        || event->subscriber_send_refs[index] == NULL) {
+    if (q == NULL || !q->mutex_initialized) {
         return;
     }
 
-    hook_send_ref_complete_event(event->subscriber_send_refs[index], event->event_id);
-    hook_send_ref_release(event->subscriber_send_refs[index]);
-    event->subscriber_send_refs[index] = NULL;
+    pthread_mutex_lock(&q->mutex);
+
+    for (size_t i = 0u; i < q->count; i++) {
+        size_t idx = (q->head + i) % KSI_MAX_SYNTH_HOOK_ACTIONS;
+        synth_completion_fail(q->items[idx].completion, -1, KSI_DETAIL_CANCELLED);
+        memset(&q->items[idx], 0, sizeof(q->items[idx]));
+    }
+
+    q->head = 0u;
+    q->count = 0u;
+    pthread_mutex_unlock(&q->mutex);
+}
+
+static uint64_t monotonic_ns(void)
+{
+    struct timespec time_value;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &time_value) != 0) {
+        return 0;
+    }
+
+    return ((uint64_t)time_value.tv_sec * 1000000000u) + (uint64_t)time_value.tv_nsec;
+}
+
+static int nested_transaction_queue_init(ksi_nested_transaction_queue *q)
+{
+    return q == NULL ? -1
+        : ksi_pipe_ring_init(&q->ring, sizeof(ksi_nested_transaction *), KSI_MAX_LANE_ACTIONS);
+}
+
+static bool nested_transaction_queue_push(
+    ksi_nested_transaction_queue *q,
+    ksi_nested_transaction *transaction)
+{
+    return q != NULL && transaction != NULL && ksi_pipe_ring_push(&q->ring, &transaction);
+}
+
+static bool nested_transaction_queue_pop(
+    ksi_nested_transaction_queue *q,
+    ksi_nested_transaction **transaction)
+{
+    return q != NULL && transaction != NULL && ksi_pipe_ring_pop(&q->ring, transaction);
+}
+
+static void lane_event_release_subscriber_ref(ksi_lane_event *event, size_t index)
+{
+    ksi_lane_subscriber *subscriber;
+
+    if (event == NULL || index >= event->subscriber_count) {
+        return;
+    }
+
+    subscriber = &event->subscribers[index];
+
+    if (subscriber->send_ref == NULL) {
+        return;
+    }
+
+    if (!subscriber->uses_callback_rpc) {
+        hook_send_ref_complete_event(subscriber->send_ref, event->event_id);
+    }
+
+    hook_send_ref_release(subscriber->send_ref);
+    subscriber->send_ref = NULL;
+}
+
+static void lane_event_release_send_refs(ksi_lane_event *event);
+
+static void nested_transaction_destroy(ksi_nested_transaction *transaction)
+{
+    if (transaction == NULL) {
+        return;
+    }
+
+    if (transaction->members != NULL) {
+        for (uint32_t i = 0; i < transaction->count; i++) {
+            if (transaction->members[i].event != NULL) {
+                lane_event_release_send_refs(transaction->members[i].event);
+                free(transaction->members[i].event);
+            }
+        }
+    }
+
+    free(transaction->members);
+    free(transaction);
+}
+
+static void nested_transaction_queue_close(ksi_nested_transaction_queue *q)
+{
+    ksi_nested_transaction *transaction = NULL;
+
+    if (q == NULL) {
+        return;
+    }
+
+    while (nested_transaction_queue_pop(q, &transaction)) {
+        if (transaction != NULL && transaction->completion != NULL) {
+            synth_completion_fail(transaction->completion, -1, KSI_DETAIL_RESOURCE_EXHAUSTED);
+            transaction->completion = NULL;
+        }
+
+        nested_transaction_destroy(transaction);
+    }
+
+    ksi_pipe_ring_close(&q->ring);
 }
 
 static void lane_event_release_send_refs(ksi_lane_event *event)
@@ -786,7 +945,7 @@ static void lane_action_queue_close(ksi_lane_action_queue *q)
         lane_event_release_send_refs(event);
 
         if (event->synthetic_completion != NULL) {
-            synth_completion_fail(event->synthetic_completion, -1, 12u);
+            synth_completion_fail(event->synthetic_completion, -1, KSI_DETAIL_RESOURCE_EXHAUSTED);
         }
 
         free(event);
@@ -874,7 +1033,7 @@ static void lane_decision_queue_wait(ksi_lane_decision_queue *q, int timeout_ms)
 static bool lane_decision_queue_push_with_ack(
     ksi_lane_decision_queue *q,
     const ksi_lane_decision *decision,
-    int client_fd,
+    ksi_hook_send_ref *send_ref,
     const ksi_message_header *request,
     uint32_t detail)
 {
@@ -896,14 +1055,16 @@ static bool lane_decision_queue_push_with_ack(
 
     memcpy(&q->decision, decision, ksi_lane_decision_size(decision->input_count));
     q->has_decision = true;
-    pthread_mutex_unlock(&q->mutex);
 
-    (void)ipc_send_locked(
-        client_fd, KSI_MESSAGE_HOOK_DECISION,
+    (void)hook_send_ref_send(
+        send_ref, KSI_MESSAGE_HOOK_DECISION,
         request->client_id, request->correlation_id,
         &ack_payload, sizeof(ack_payload));
 
-    lane_decision_queue_wake(q);
+    /* Keep the queue locked through the acknowledgement: a timeout or spurious
+     * wake must not let the lane emit the next HOOK_EVENT first. */
+    pthread_cond_broadcast(&q->condition);
+    pthread_mutex_unlock(&q->mutex);
     return true;
 }
 
@@ -952,10 +1113,12 @@ static void lane_decision_queue_close(ksi_lane_decision_queue *q)
 /* Post a lane failure to the main thread for per-client accounting. */
 static void lane_post_hook_failure(
     ksi_daemon_state *state,
-    int client_fd,
-    uint64_t connection_id,
     uint32_t hook_type,
-    const char *reason)
+    uint64_t event_id,
+    uint64_t hook_session_connection_id,
+    uint32_t nesting_depth,
+    uint32_t elapsed_ms,
+    uint32_t reason)
 {
     ksi_daemon_command cmd;
 
@@ -965,11 +1128,12 @@ static void lane_post_hook_failure(
 
     memset(&cmd, 0, sizeof(cmd));
     cmd.type = KSI_DAEMON_COMMAND_LANE_HOOK_FAILURE;
-    cmd.client_fd = client_fd;
-    cmd.connection_id = connection_id;
     cmd.data.hook_failure.hook_type = hook_type;
-    (void)snprintf(cmd.data.hook_failure.reason, sizeof(cmd.data.hook_failure.reason),
-        "%s", reason != NULL ? reason : "unknown");
+    cmd.data.hook_failure.event_id = event_id;
+    cmd.data.hook_failure.hook_session_connection_id = hook_session_connection_id;
+    cmd.data.hook_failure.nesting_depth = nesting_depth;
+    cmd.data.hook_failure.elapsed_ms = elapsed_ms;
+    cmd.data.hook_failure.reason = reason;
 
     if (!command_queue_push(state->commands, &cmd)) {
         atomic_store(&g_fail_open_requested, 1);
@@ -1002,146 +1166,473 @@ static bool lane_event_enqueue_egress(ksi_hook_lane *lane, const ksi_lane_event 
     return false;
 }
 
-static bool lane_event_egress_is_replay(const ksi_lane_event *event)
+static ksi_nested_event_waiter *nested_event_waiter_create(void)
 {
-    return event != NULL && event->egress.type == KSI_LANE_EGRESS_REPLAY;
+    ksi_nested_event_waiter *waiter = calloc(1, sizeof(*waiter));
+    pthread_condattr_t attributes;
+
+    if (waiter == NULL) {
+        return NULL;
+    }
+
+    if (pthread_mutex_init(&waiter->mutex, NULL) != 0) {
+        free(waiter);
+        return NULL;
+    }
+
+    if (pthread_condattr_init(&attributes) != 0) {
+        pthread_mutex_destroy(&waiter->mutex);
+        free(waiter);
+        return NULL;
+    }
+
+    if (pthread_condattr_setclock(&attributes, CLOCK_MONOTONIC) != 0) {
+        pthread_condattr_destroy(&attributes);
+        pthread_mutex_destroy(&waiter->mutex);
+        free(waiter);
+        return NULL;
+    }
+
+    if (pthread_cond_init(&waiter->condition, &attributes) != 0) {
+        pthread_condattr_destroy(&attributes);
+        pthread_mutex_destroy(&waiter->mutex);
+        free(waiter);
+        return NULL;
+    }
+
+    pthread_condattr_destroy(&attributes);
+
+    return waiter;
+}
+
+static void nested_event_waiter_destroy(ksi_nested_event_waiter *waiter)
+{
+    if (waiter == NULL) {
+        return;
+    }
+
+    pthread_cond_destroy(&waiter->condition);
+    pthread_mutex_destroy(&waiter->mutex);
+    free(waiter);
+}
+
+/* Returns true when the waiting transaction owns waiter and must destroy it.
+ * On timeout ownership transfers to the target lane, which frees it after the
+ * already-admitted event reaches fail-open completion. */
+static bool nested_event_waiter_wait(
+    ksi_nested_event_waiter *waiter,
+    uint64_t absolute_deadline_ms,
+    bool *ok)
+{
+    struct timespec deadline = {
+        .tv_sec = (time_t)(absolute_deadline_ms / 1000u),
+        .tv_nsec = (long)((absolute_deadline_ms % 1000u) * 1000000u),
+    };
+    bool completed;
+
+    pthread_mutex_lock(&waiter->mutex);
+
+    while (waiter->state == KSI_NESTED_WAIT_PENDING) {
+        int wait_result = pthread_cond_timedwait(
+            &waiter->condition, &waiter->mutex, &deadline);
+
+        if (wait_result != 0) {
+            break;
+        }
+    }
+
+    completed = waiter->state == KSI_NESTED_WAIT_COMPLETED
+        || waiter->state == KSI_NESTED_WAIT_FAILED;
+
+    if (completed) {
+        *ok = waiter->state == KSI_NESTED_WAIT_COMPLETED;
+    } else {
+        waiter->state = KSI_NESTED_WAIT_ABANDONED;
+        *ok = false;
+    }
+
+    pthread_mutex_unlock(&waiter->mutex);
+    return completed;
+}
+
+/* Lock the waiter across output admission and completion publication. If the
+ * origin lane won the deadline race, the target must suppress late output. */
+static bool nested_event_waiter_begin_completion(ksi_nested_event_waiter *waiter)
+{
+    if (waiter == NULL) {
+        return true;
+    }
+
+    pthread_mutex_lock(&waiter->mutex);
+    return waiter->state != KSI_NESTED_WAIT_ABANDONED;
+}
+
+static void nested_event_waiter_finish_completion(
+    ksi_nested_event_waiter *waiter,
+    bool ok)
+{
+    bool destroy;
+
+    if (waiter == NULL) {
+        return;
+    }
+
+    destroy = waiter->state == KSI_NESTED_WAIT_ABANDONED;
+
+    if (!destroy) {
+        waiter->state = ok ? KSI_NESTED_WAIT_COMPLETED : KSI_NESTED_WAIT_FAILED;
+    }
+
+    pthread_cond_broadcast(&waiter->condition);
+    pthread_mutex_unlock(&waiter->mutex);
+
+    if (destroy) {
+        nested_event_waiter_destroy(waiter);
+    }
+}
+
+static bool lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event);
+static ksi_hook_lane *lane_for_hook_type(ksi_daemon_state *state, uint32_t hook_type);
+
+typedef struct ksi_lane_context_snapshot {
+    uint64_t event_id;
+    int responder_fd;
+    uint64_t responder_connection_id;
+    uint64_t hook_session_id;
+    uint32_t nesting_depth;
+} ksi_lane_context_snapshot;
+
+static ksi_lane_context_snapshot lane_context_capture(const ksi_hook_lane *lane)
+{
+    return (ksi_lane_context_snapshot) {
+        .event_id = atomic_load(&lane->current_event_id),
+        .responder_fd = atomic_load(&lane->current_responder_fd),
+        .responder_connection_id = atomic_load(&lane->current_responder_connection_id),
+        .hook_session_id = atomic_load(&lane->current_hook_session_connection_id),
+        .nesting_depth = atomic_load(&lane->current_nesting_depth),
+    };
+}
+
+static void lane_context_restore(
+    ksi_hook_lane *lane,
+    const ksi_lane_context_snapshot *snapshot)
+{
+    atomic_store(&lane->current_event_id, snapshot->event_id);
+    atomic_store(&lane->current_responder_fd, snapshot->responder_fd);
+    atomic_store(&lane->current_responder_connection_id, snapshot->responder_connection_id);
+    atomic_store(&lane->current_hook_session_connection_id, snapshot->hook_session_id);
+    atomic_store(&lane->current_nesting_depth, snapshot->nesting_depth);
+}
+
+static void lane_clear_responder(ksi_hook_lane *lane)
+{
+    atomic_store(&lane->current_responder_fd, -1);
+    atomic_store(&lane->current_responder_connection_id, 0u);
+    atomic_store(&lane->current_hook_session_connection_id, 0u);
+}
+
+static bool lane_event_cancelled(
+    const ksi_hook_lane *lane,
+    const ksi_lane_event *event)
+{
+    return atomic_load(&lane->shutting_down)
+        || event->generation != atomic_load(&lane->flush_generation);
+}
+
+static bool lane_event_deadline_expired(const ksi_lane_event *event)
+{
+    return event->inherited_deadline_ms != 0u
+        && monotonic_ms() >= event->inherited_deadline_ms;
+}
+
+static bool lane_process_nested_transaction(
+    ksi_hook_lane *lane,
+    ksi_nested_transaction *transaction,
+    uint64_t parent_deadline_ms)
+{
+    bool ok = true;
+
+    if (lane == NULL || transaction == NULL
+        || transaction->depth > KSI_MAX_RECURSION_DEPTH
+        || transaction->origin_generation != atomic_load(&lane->flush_generation)
+        || atomic_load(&lane->current_hook_session_connection_id)
+            != transaction->origin_hook_connection_id
+        || atomic_load(&lane->current_nesting_depth) + 1u != transaction->depth) {
+        ok = false;
+        goto complete;
+    }
+
+    for (uint32_t i = 0; i < transaction->count; i++) {
+        ksi_nested_member *member = &transaction->members[i];
+        ksi_lane_event *event = member->event;
+
+        if (transaction->origin_generation != atomic_load(&lane->flush_generation)
+            || monotonic_ms() >= parent_deadline_ms) {
+            ok = false;
+            break;
+        }
+
+        if (event == NULL) {
+            uint32_t flags = KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT
+                | (i == 0u ? KSI_SYNTH_FLAG_BATCH_START : 0u);
+
+            if (!output_queue_push_synth(
+                    &lane->state->output_queue, &member->input, 1u, flags)) {
+                ok = false;
+                break;
+            }
+
+            continue;
+        }
+
+        member->event = NULL;
+        event->inherited_deadline_ms = parent_deadline_ms;
+
+        if (event->hook_type == lane->hook_type) {
+            bool member_ok = lane_process_event(lane, event);
+            free(event);
+
+            if (!member_ok) {
+                ok = false;
+                break;
+            }
+        } else {
+            ksi_hook_lane *target = lane_for_hook_type(lane->state, event->hook_type);
+            ksi_nested_event_waiter *waiter = nested_event_waiter_create();
+            bool member_ok = false;
+
+            if (target == NULL || waiter == NULL) {
+                nested_event_waiter_destroy(waiter);
+                lane_event_release_send_refs(event);
+                free(event);
+                ok = false;
+                break;
+            }
+
+            event->nested_waiter = waiter;
+
+            if (!lane_action_queue_push(&target->action_queue, event)) {
+                event->nested_waiter = NULL;
+                nested_event_waiter_destroy(waiter);
+                lane_event_release_send_refs(event);
+                free(event);
+                ok = false;
+                break;
+            }
+
+            if (nested_event_waiter_wait(waiter, parent_deadline_ms, &member_ok)) {
+                nested_event_waiter_destroy(waiter);
+            }
+
+            if (!member_ok) {
+                ok = false;
+                break;
+            }
+        }
+    }
+
+complete:
+    if (transaction != NULL && transaction->completion != NULL) {
+        if (ok) {
+            synth_completion_complete(transaction->completion);
+        } else {
+            synth_completion_fail(transaction->completion, -1, KSI_DETAIL_CALLBACK_TIMEOUT);
+        }
+
+        transaction->completion = NULL;
+    }
+
+    nested_transaction_destroy(transaction);
+    return ok;
+}
+
+typedef enum ksi_subscriber_result {
+    KSI_SUBSCRIBER_SKIPPED = 0,
+    KSI_SUBSCRIBER_DECIDED,
+    KSI_SUBSCRIBER_EVENT_CANCELLED,
+    KSI_SUBSCRIBER_PARENT_DEADLINE,
+} ksi_subscriber_result;
+
+static bool lane_wait_for_matching_decision(
+    ksi_hook_lane *lane,
+    const ksi_lane_event *event,
+    const ksi_lane_subscriber *subscriber,
+    uint64_t deadline,
+    ksi_lane_decision *decision)
+{
+    for (;;) {
+        ksi_nested_transaction *nested = NULL;
+        uint64_t now;
+
+        while (nested_transaction_queue_pop(&lane->nested_queue, &nested)) {
+            (void)lane_process_nested_transaction(lane, nested, deadline);
+            nested = NULL;
+
+            if (monotonic_ms() >= deadline) {
+                break;
+            }
+        }
+
+        now = monotonic_ms();
+
+        if (now >= deadline || lane_event_cancelled(lane, event)) {
+            return false;
+        }
+
+        lane_decision_queue_wait(&lane->decision_queue,
+            (int)((deadline - now) > 100u ? 100u : (deadline - now)));
+
+        for (;;) {
+            if (!lane_decision_queue_pop(&lane->decision_queue, decision)) {
+                break;
+            }
+
+            if (decision->event_id == event->event_id
+                && decision->responder_fd == subscriber->response_fd
+                && decision->responder_connection_id == subscriber->connection_id) {
+                return true;
+            }
+        }
+    }
+}
+
+static ksi_subscriber_result lane_call_subscriber(
+    ksi_hook_lane *lane,
+    const ksi_lane_event *event,
+    const ksi_lane_subscriber *subscriber,
+    ksi_lane_decision *decision)
+{
+    ksi_hook_send_ref *send_ref = subscriber->send_ref;
+    uint64_t callback_started_ms;
+    uint64_t deadline;
+
+    memset(decision, 0, offsetof(ksi_lane_decision, inputs));
+
+    /* Snapshots captured before quarantine was recorded skip immediately. */
+    if (hook_send_ref_is_stalled(send_ref, hook_type_to_lane_index(event->hook_type))) {
+        return KSI_SUBSCRIBER_SKIPPED;
+    }
+
+    if (hook_send_ref_fd(send_ref) < 0) {
+        lane_post_hook_failure(lane->state, event->hook_type,
+            event->event_id, subscriber->hook_session_id, event->nesting_depth, 0u,
+            KSI_HOOK_QUARANTINE_REASON_TRANSPORT);
+        return KSI_SUBSCRIBER_SKIPPED;
+    }
+
+    while (!subscriber->uses_callback_rpc
+        && !hook_send_ref_wait_event_turn(
+            send_ref, event->event_id, KSI_HOOK_SEND_ORDER_WAIT_MS)) {
+        if (lane_event_cancelled(lane, event) || lane_event_deadline_expired(event)) {
+            break;
+        }
+    }
+
+    if (lane_event_cancelled(lane, event)) {
+        return KSI_SUBSCRIBER_EVENT_CANCELLED;
+    }
+
+    if (lane_event_deadline_expired(event)) {
+        return KSI_SUBSCRIBER_PARENT_DEADLINE;
+    }
+
+    atomic_store(&lane->current_responder_fd, subscriber->response_fd);
+    atomic_store(&lane->current_responder_connection_id, subscriber->connection_id);
+    atomic_store(&lane->current_hook_session_connection_id, subscriber->hook_session_id);
+    callback_started_ms = monotonic_ms();
+
+    if (hook_send_ref_send(send_ref, KSI_MESSAGE_HOOK_EVENT, 0,
+            event->event_id, &event->payload, event->payload_size) != 0) {
+        lane_clear_responder(lane);
+        lane_post_hook_failure(lane->state, event->hook_type,
+            event->event_id, subscriber->hook_session_id, event->nesting_depth, 0u,
+            KSI_HOOK_QUARANTINE_REASON_TRANSPORT);
+        return KSI_SUBSCRIBER_SKIPPED;
+    }
+
+    /* This absolute deadline includes all recursive synthesis. */
+    deadline = callback_started_ms + KSI_HOOK_DECISION_TIMEOUT_MS;
+
+    if (event->inherited_deadline_ms != 0u && event->inherited_deadline_ms < deadline) {
+        deadline = event->inherited_deadline_ms;
+    }
+
+    if (lane_wait_for_matching_decision(lane, event, subscriber, deadline, decision)) {
+        lane_clear_responder(lane);
+        hook_send_ref_clear_stalled(send_ref, hook_type_to_lane_index(event->hook_type));
+        return KSI_SUBSCRIBER_DECIDED;
+    }
+
+    lane_clear_responder(lane);
+
+    if (lane_event_cancelled(lane, event)) {
+        return KSI_SUBSCRIBER_EVENT_CANCELLED;
+    }
+
+    hook_send_ref_mark_stalled(send_ref, hook_type_to_lane_index(event->hook_type));
+    lane_post_hook_failure(lane->state, event->hook_type,
+        event->event_id, subscriber->hook_session_id, event->nesting_depth,
+        (uint32_t)(monotonic_ms() - callback_started_ms),
+        KSI_HOOK_QUARANTINE_REASON_TIMEOUT);
+
+    return lane_event_deadline_expired(event)
+        ? KSI_SUBSCRIBER_PARENT_DEADLINE
+        : KSI_SUBSCRIBER_SKIPPED;
 }
 
 /* Lane thread only; uses the subscriber snapshot captured in `event`. */
-static void lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event)
+static bool lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event)
 {
     uint32_t final_decision = KSI_HOOK_DECISION_PASS;
-    ksi_input modify_inputs[KSI_MAX_MODIFY_INPUTS];
-    uint32_t modify_count = 0u;
+    ksi_lane_decision decision;
     bool finalized = false;
     bool synthetic_ok = true;
+    ksi_lane_context_snapshot parent_context = lane_context_capture(lane);
 
     atomic_store(&lane->current_event_id, event->event_id);
+    atomic_store(&lane->current_nesting_depth, event->nesting_depth);
 
     /* During shutdown skip callbacks; physical events still replay as PASS. */
-    if (atomic_load(&lane->shutting_down)
-        || event->generation != atomic_load(&lane->flush_generation)) {
+    if (lane_event_cancelled(lane, event)) {
+        if (event->egress.type == KSI_LANE_EGRESS_SYNTH) {
+            final_decision = KSI_HOOK_DECISION_BLOCK;
+            synthetic_ok = false;
+        }
+
         goto finalize;
     }
 
     for (size_t i = 0; i < event->subscriber_count && !finalized; i++) {
-        int response_fd = event->subscriber_response_fds[i];
-        ksi_hook_send_ref *send_ref = event->subscriber_send_refs[i];
-        int send_fd = hook_send_ref_fd(send_ref);
-        uint64_t conn_id = event->subscriber_connection_ids[i];
-        bool got_decision = false;
-        uint64_t deadline;
-        ksi_lane_decision decision;
+        const ksi_lane_subscriber *subscriber = &event->subscribers[i];
+        ksi_subscriber_result result;
 
-        /* Header only; the inputs tail is filled (bounded) by the matched copy
-         * below and only ever read up to input_count. */
-        memset(&decision, 0, offsetof(ksi_lane_decision, inputs));
-
-        if (send_fd < 0) {
-            lane_post_hook_failure(lane->state, response_fd, conn_id, event->hook_type, "send");
-            continue;
-        }
-
-        while (!hook_send_ref_wait_event_turn(send_ref, event->event_id, KSI_HOOK_SEND_ORDER_WAIT_MS)) {
-            if (atomic_load(&lane->shutting_down)
-                || event->generation != atomic_load(&lane->flush_generation)) {
-                break;
-            }
-        }
-
-        if (atomic_load(&lane->shutting_down)
-            || event->generation != atomic_load(&lane->flush_generation)) {
+        if (lane_event_deadline_expired(event)) {
+            final_decision = KSI_HOOK_DECISION_BLOCK;
+            synthetic_ok = false;
             break;
         }
 
-        atomic_store(&lane->current_responder_fd, response_fd);
-        atomic_store(&lane->current_responder_connection_id, conn_id);
+        result = lane_call_subscriber(lane, event, subscriber, &decision);
 
-        if (ipc_send_locked(send_fd, KSI_MESSAGE_HOOK_EVENT, 0,
-                event->event_id, &event->payload, event->payload_size) != 0) {
-            atomic_store(&lane->current_responder_fd, -1);
-            atomic_store(&lane->current_responder_connection_id, 0u);
-            lane_post_hook_failure(lane->state, response_fd, conn_id, event->hook_type, "send");
+        if (result == KSI_SUBSCRIBER_SKIPPED) {
             continue;
         }
 
-        /* Full slack on the first attempt; once a subscriber has already stalled
-         * (timed out without a later success), fast-fail so a hung client cannot
-         * compound ~1s per event into a multi-second input freeze. */
-        deadline = monotonic_ms()
-            + (hook_send_ref_is_stalled(send_ref)
-                ? KSI_HOOK_DECISION_RETRY_TIMEOUT_MS
-                : KSI_HOOK_DECISION_TIMEOUT_MS);
-
-        while (!got_decision) {
-            uint64_t now = monotonic_ms();
-            int timeout_ms;
-
-            if (now >= deadline
-                || atomic_load(&lane->shutting_down)
-                || event->generation != atomic_load(&lane->flush_generation)) {
-                break;
-            }
-
-            timeout_ms = (int)(deadline - now);
-
-            if (timeout_ms > 100) {
-                timeout_ms = 100;
-            }
-
-            lane_decision_queue_wait(&lane->decision_queue, timeout_ms);
-
-            for (;;) {
-                ksi_lane_decision candidate;
-
-                if (!lane_decision_queue_pop(&lane->decision_queue, &candidate)) {
-                    break;
-                }
-
-                if (candidate.event_id == event->event_id
-                    && candidate.responder_fd == response_fd
-                    && candidate.responder_connection_id == conn_id) {
-                    memcpy(&decision, &candidate,
-                        ksi_lane_decision_size(candidate.input_count));
-                    got_decision = true;
-                    break;
-                }
-            }
+        if (result == KSI_SUBSCRIBER_EVENT_CANCELLED) {
+            break;
         }
 
-        atomic_store(&lane->current_responder_fd, -1);
-        atomic_store(&lane->current_responder_connection_id, 0u);
-
-        if (!got_decision) {
-            if (atomic_load(&lane->shutting_down)
-                || event->generation != atomic_load(&lane->flush_generation)) {
-                break;
-            }
-
-            hook_send_ref_mark_stalled(send_ref);
-            lane_post_hook_failure(lane->state, response_fd, conn_id, event->hook_type, "timeout");
-            continue;
+        if (result == KSI_SUBSCRIBER_PARENT_DEADLINE) {
+            final_decision = KSI_HOOK_DECISION_BLOCK;
+            synthetic_ok = false;
+            break;
         }
-
-        /* A real decision arrived: the subscriber is responsive again. */
-        hook_send_ref_clear_stalled(send_ref);
 
         if (decision.decision == KSI_HOOK_DECISION_BLOCK) {
             final_decision = KSI_HOOK_DECISION_BLOCK;
             finalized = true;
         } else if (decision.decision == KSI_HOOK_DECISION_MODIFY) {
             final_decision = KSI_HOOK_DECISION_MODIFY;
-            modify_count = decision.input_count;
-
-            if (modify_count > KSI_MAX_MODIFY_INPUTS) {
-                modify_count = KSI_MAX_MODIFY_INPUTS;
-            }
-
-            if (modify_count > 0u) {
-                memcpy(modify_inputs, decision.inputs,
-                    (size_t)modify_count * sizeof(modify_inputs[0]));
-            }
-
             finalized = true;
         }
         /* else PASS — fall through to next subscriber. */
@@ -1149,25 +1640,45 @@ static void lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event)
     }
 
 finalize:
+    if (event->egress.type == KSI_LANE_EGRESS_SYNTH
+        && lane_event_cancelled(lane, event)) {
+        final_decision = KSI_HOOK_DECISION_BLOCK;
+        synthetic_ok = false;
+    }
+
+    if (event->nested_waiter != NULL) {
+        if (!nested_event_waiter_begin_completion(event->nested_waiter)) {
+            final_decision = KSI_HOOK_DECISION_BLOCK;
+            synthetic_ok = false;
+        }
+    }
+
+    if (event->egress.type == KSI_LANE_EGRESS_SYNTH
+        && lane_event_deadline_expired(event)) {
+        final_decision = KSI_HOOK_DECISION_BLOCK;
+        synthetic_ok = false;
+    }
+
     if (final_decision == KSI_HOOK_DECISION_PASS) {
         if (!lane_event_enqueue_egress(lane, event)) {
             synthetic_ok = false;
             fprintf(stderr, "lane: egress enqueue failed for event %llu\n",
                 (unsigned long long)event->event_id);
 
-            if (lane_event_egress_is_replay(event)) {
+            if (event->egress.type == KSI_LANE_EGRESS_REPLAY) {
                 atomic_store(&g_fail_open_requested, 1);
                 command_queue_wake(lane->state->commands);
             }
         }
-    } else if (final_decision == KSI_HOOK_DECISION_MODIFY && modify_count > 0u) {
+    } else if (final_decision == KSI_HOOK_DECISION_MODIFY
+        && decision.input_count > 0u) {
         /* BATCH_FRAGMENT: the modified event may be one fragment of a synthetic
          * client batch being routed through this hook (e.g. a SendText emoji's
          * low-surrogate unit). Carrying the flag keeps the daemon's per-batch
          * pending-high-surrogate reset from firing between the pair's fragments,
          * mirroring the PASS synth-egress sites (hook_ingress.inc). */
         if (!output_queue_push_synth(&lane->state->output_queue,
-                modify_inputs, modify_count,
+                decision.inputs, decision.input_count,
                 KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT)) {
             synthetic_ok = false;
             fprintf(stderr, "lane: modify synth enqueue failed for event %llu\n",
@@ -1175,7 +1686,7 @@ finalize:
 
             (void)lane_event_enqueue_egress(lane, event);
 
-            if (lane_event_egress_is_replay(event)) {
+            if (event->egress.type == KSI_LANE_EGRESS_REPLAY) {
                 atomic_store(&g_fail_open_requested, 1);
                 command_queue_wake(lane->state->commands);
             }
@@ -1188,16 +1699,25 @@ finalize:
         if (synthetic_ok) {
             synth_completion_complete(event->synthetic_completion);
         } else {
-            synth_completion_fail(event->synthetic_completion, -1, 12u);
+            synth_completion_fail(event->synthetic_completion, -1, KSI_DETAIL_RESOURCE_EXHAUSTED);
         }
 
         event->synthetic_completion = NULL;
         synthetic_hook_queue_complete_inflight(lane->state);
     }
 
-    atomic_store(&lane->current_event_id, (uint_least64_t)0);
-    atomic_store(&lane->current_responder_fd, -1);
-    atomic_store(&lane->current_responder_connection_id, 0u);
+    if (event->nested_waiter != NULL) {
+        nested_event_waiter_finish_completion(event->nested_waiter, synthetic_ok);
+        event->nested_waiter = NULL;
+    }
+
+    lane_context_restore(lane, &parent_context);
+
+    if (event->physical_input) {
+        atomic_fetch_sub(&lane->state->physical_hook_inflight, 1u);
+    }
+
+    return synthetic_ok;
 }
 
 /* Best-effort low real-time priority for bounded hook/output latency. */
@@ -1230,6 +1750,12 @@ static void *lane_thread_main(void *arg)
 
     for (;;) {
         ksi_lane_event *event = NULL;
+        ksi_nested_transaction *orphaned = NULL;
+
+        while (nested_transaction_queue_pop(&lane->nested_queue, &orphaned)) {
+            (void)lane_process_nested_transaction(lane, orphaned, monotonic_ms());
+            orphaned = NULL;
+        }
 
         if (!lane_action_queue_pop(&lane->action_queue, &event)) {
             if (atomic_load(&lane->shutting_down)) {
@@ -1246,7 +1772,7 @@ static void *lane_thread_main(void *arg)
             continue;
         }
 
-        lane_process_event(lane, event);
+        (void)lane_process_event(lane, event);
         free(event);
     }
 }
@@ -1304,9 +1830,17 @@ static int lane_init(ksi_hook_lane *lane, ksi_daemon_state *state, uint32_t hook
         return -1;
     }
 
+    if (nested_transaction_queue_init(&lane->nested_queue) != 0) {
+        lane_decision_queue_close(&lane->decision_queue);
+        lane_action_queue_close(&lane->action_queue);
+        return -1;
+    }
+
     atomic_store(&lane->current_event_id, (uint_least64_t)0);
     atomic_store(&lane->current_responder_fd, -1);
     atomic_store(&lane->current_responder_connection_id, 0u);
+    atomic_store(&lane->current_hook_session_connection_id, 0u);
+    atomic_store(&lane->current_nesting_depth, 0u);
     return 0;
 }
 
@@ -1370,6 +1904,7 @@ static bool lane_shutdown(ksi_hook_lane *lane, uint64_t deadline_ms)
     }
 
     lane_action_queue_close(&lane->action_queue);
+    nested_transaction_queue_close(&lane->nested_queue);
     lane_decision_queue_close(&lane->decision_queue);
     return true;
 }

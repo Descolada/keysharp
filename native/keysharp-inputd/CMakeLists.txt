@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(keysharp-inputd
-    VERSION 0.1.0
+    VERSION 1.0.0
     DESCRIPTION "Privileged input broker daemon for Keysharp"
     LANGUAGES C)
 

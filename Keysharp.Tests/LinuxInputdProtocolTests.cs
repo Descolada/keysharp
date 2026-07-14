@@ -1,0 +1,180 @@
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
+
+#if LINUX
+using System.Buffers.Binary;
+using System.Net.Sockets;
+using Keysharp.Internals.Input.Linux;
+#endif
+
+namespace Keysharp.Tests
+{
+	public class LinuxInputdProtocolTests
+	{
+#if LINUX
+		[Test, Category("Misc")]
+		public async Task CallbackRpcPumpsNestedEventsAndBuffersParentResponse()
+		{
+			var path = $"/tmp/keysharp-inputd-test-{Environment.ProcessId}-{Guid.NewGuid():N}.sock";
+			var previous = Environment.GetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable);
+			using var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+			listener.Bind(new UnixDomainSocketEndPoint(path));
+			listener.Listen(1);
+			Environment.SetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable, path);
+			var token = Enumerable.Range(1, 16).Select(i => (byte)i).ToArray();
+
+			try
+			{
+				var server = Task.Run(async () =>
+				{
+					using var socket = await listener.AcceptAsync();
+					var hello = ReceiveFrame(socket);
+					Assert.AreEqual(KeysharpInputdClient.MessageType.ClientHello, hello.Type);
+					Assert.AreEqual(32, hello.Payload.Length);
+					Assert.AreEqual((uint)KeysharpInputdClient.ConnectionRole.CallbackRpc,
+						BinaryPrimitives.ReadUInt32LittleEndian(hello.Payload.AsSpan(8)));
+					Assert.IsTrue(hello.Payload.AsSpan(16, 16).SequenceEqual(token));
+					var helloResult = new byte[24];
+					token.CopyTo(helloResult, 8);
+					SendFrame(socket, KeysharpInputdClient.MessageType.ClientHello,
+						hello.CorrelationId, helloResult);
+
+					var synthesis = ReceiveFrame(socket);
+					Assert.AreEqual(KeysharpInputdClient.MessageType.SynthesizeInput, synthesis.Type);
+					var hookPayload = new byte[56];
+					BinaryPrimitives.WriteUInt64LittleEndian(hookPayload, 77);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(8),
+						(uint)KeysharpInputdClient.HookType.KeyboardLowLevel);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(16), 0x0100);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(20), 0x41);
+					SendFrame(socket, KeysharpInputdClient.MessageType.HookEvent, 77, hookPayload);
+
+					var stateQuery = ReceiveFrame(socket);
+					Assert.AreEqual(KeysharpInputdClient.MessageType.GetKeyState, stateQuery.Type);
+					SendStatus(socket, KeysharpInputdClient.MessageType.SynthesisResult,
+						synthesis.CorrelationId, 0, 0);
+					SendFrame(socket, KeysharpInputdClient.MessageType.KeyStateResult,
+						stateQuery.CorrelationId, new byte[8]);
+
+					var decision = ReceiveFrame(socket);
+					Assert.AreEqual(KeysharpInputdClient.MessageType.HookDecision, decision.Type);
+					Assert.AreEqual(77ul, decision.CorrelationId);
+					SendStatus(socket, KeysharpInputdClient.MessageType.HookDecision,
+						decision.CorrelationId, 0, 0);
+
+					var rearm = ReceiveFrame(socket);
+					Assert.AreEqual(KeysharpInputdClient.MessageType.RearmHook, rearm.Type);
+					Assert.AreEqual((uint)KeysharpInputdClient.HookType.KeyboardLowLevel,
+						BinaryPrimitives.ReadUInt32LittleEndian(rearm.Payload));
+					Assert.AreEqual(9u, BinaryPrimitives.ReadUInt32LittleEndian(rearm.Payload.AsSpan(4)));
+					SendStatus(socket, KeysharpInputdClient.MessageType.RearmHook,
+						rearm.CorrelationId, 0, 1);
+				});
+
+				using var client = KeysharpInputdClient.Connect(
+					role: KeysharpInputdClient.ConnectionRole.CallbackRpc,
+					hookSessionToken: token);
+				var nestedCount = 0;
+				client.SetNestedHookEventHandler((rpc, hookEvent) =>
+				{
+					Assert.AreEqual(77ul, hookEvent.EventId);
+					// #HotIf criteria run on a Task rather than the physical hook-reader
+					// thread. The child must be able to take over this callback RPC while
+					// the parent response pump is paused in the handler.
+					Assert.IsTrue(Task.Run(rpc.QueryKeyState).Wait(TimeSpan.FromSeconds(2)));
+					nestedCount++;
+					rpc.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+				});
+
+				client.SendInput([KeysharpInputdClient.Input.Key(0x41)]);
+				client.RearmHook(KeysharpInputdClient.HookType.KeyboardLowLevel, 9);
+				await server.WaitAsync(TimeSpan.FromSeconds(5));
+				Assert.AreEqual(1, nestedCount);
+			}
+			finally
+			{
+				Environment.SetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable, previous);
+				try { File.Delete(path); } catch { }
+			}
+		}
+
+		private readonly record struct TestFrame(
+			KeysharpInputdClient.MessageType Type,
+			ulong CorrelationId,
+			byte[] Payload);
+
+		private static TestFrame ReceiveFrame(Socket socket)
+		{
+			var header = ReceiveExact(socket, 24);
+			var size = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header));
+			Assert.AreEqual(1, BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(4)));
+			Assert.AreEqual(0, BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(6)));
+			return new(
+				(KeysharpInputdClient.MessageType)BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(8)),
+				BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(16)),
+				ReceiveExact(socket, size - 24));
+		}
+
+		private static void SendStatus(
+			Socket socket,
+			KeysharpInputdClient.MessageType type,
+			ulong correlationId,
+			int status,
+			uint detail)
+		{
+			Span<byte> payload = stackalloc byte[8];
+			BinaryPrimitives.WriteInt32LittleEndian(payload, status);
+			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], detail);
+			SendFrame(socket, type, correlationId, payload);
+		}
+
+		private static void SendFrame(
+			Socket socket,
+			KeysharpInputdClient.MessageType type,
+			ulong correlationId,
+			ReadOnlySpan<byte> payload)
+		{
+			Span<byte> header = stackalloc byte[24];
+			BinaryPrimitives.WriteUInt32LittleEndian(header, checked((uint)(24 + payload.Length)));
+			BinaryPrimitives.WriteUInt16LittleEndian(header[4..], 1);
+			BinaryPrimitives.WriteUInt16LittleEndian(header[6..], 0);
+			BinaryPrimitives.WriteUInt32LittleEndian(header[8..], (uint)type);
+			BinaryPrimitives.WriteUInt64LittleEndian(header[16..], correlationId);
+			SendAll(socket, header);
+			SendAll(socket, payload);
+		}
+
+		private static void SendAll(Socket socket, ReadOnlySpan<byte> bytes)
+		{
+			var offset = 0;
+
+			while (offset < bytes.Length)
+			{
+				var sent = socket.Send(bytes[offset..], SocketFlags.None);
+
+				if (sent == 0)
+					throw new EndOfStreamException();
+
+				offset += sent;
+			}
+		}
+
+		private static byte[] ReceiveExact(Socket socket, int size)
+		{
+			var result = new byte[size];
+			var offset = 0;
+
+			while (offset < result.Length)
+			{
+				var read = socket.Receive(result.AsSpan(offset), SocketFlags.None);
+
+				if (read == 0)
+					throw new EndOfStreamException();
+
+				offset += read;
+			}
+
+			return result;
+		}
+#endif
+	}
+}

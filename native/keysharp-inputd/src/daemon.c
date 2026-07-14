@@ -29,6 +29,7 @@
 #include <sys/mman.h>
 #include <sched.h>
 #include <sys/socket.h>
+#include <sys/random.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -45,13 +46,6 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
 #define KSI_MAX_SYNTH_INPUTS 1024
 #define KSI_MAX_MODIFY_INPUTS KSI_MAX_SYNTH_INPUTS
 #define KSI_HOOK_DECISION_TIMEOUT_MS 1000u
-/* Shorter deadline used once a subscriber has already timed out at least once
- * without an intervening successful decision. Keeps the first-strike slack
- * generous for a merely-slow managed client (GC/JIT pauses) while collapsing the
- * worst-case hung-client freeze from ~5x1000ms toward ~1000ms+4x300ms. Chosen to
- * match the Windows LowLevelHooksTimeout default so a live client is not falsely
- * evicted. */
-#define KSI_HOOK_DECISION_RETRY_TIMEOUT_MS 300u
 /* Per-lane consecutive hook failures before the client is disconnected. */
 #define KSI_MAX_CONSECUTIVE_HOOK_FAILURES 5u
 #define KSI_MAX_LANE_ACTIONS 512u
@@ -63,8 +57,17 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
 #define KSI_MAX_CLIENT_READS_PER_PASS 8
 #define KSI_MAX_OUTPUT_ACTIONS 4096u
 #define KSI_MAX_SYNTH_HOOK_ACTIONS 4096u
+
+enum {
+    KSI_DETAIL_RESOURCE_EXHAUSTED = 12u,
+    KSI_DETAIL_RECURSION_LIMIT = 32u,
+    KSI_DETAIL_EXPANDED_INPUT_LIMIT = 33u,
+    KSI_DETAIL_CANCELLED = 125u,
+    KSI_DETAIL_CALLBACK_TIMEOUT = 408u,
+};
 #define KSI_MAX_OUTPUT_SYNTH_BYTES (1024u * 1024u)
 #define KSI_MAX_SYNTH_HOOK_STEPS_PER_PASS 256u
+#define KSI_MAX_RECURSION_DEPTH 32u
 #define KSI_HOOK_SEND_ORDER_WAIT_MS 10
 #define KSI_SHUTDOWN_TIMEOUT_MS 5000u
 #define KSI_GRAB_LEASE_TIMEOUT_MS 15000u
@@ -139,6 +142,10 @@ typedef struct ksi_client {
     bool identity_attempted;
     bool has_identity;
     bool authenticated;
+    bool role_initialized;
+    uint32_t connection_role;
+    uint8_t hook_session_token[KSI_HOOK_SESSION_TOKEN_SIZE];
+    uint64_t bound_hook_connection_id;
     /* Set by CLIENT_HELLO; missing handshakes are dropped after the deadline. */
     bool hello_seen;
     uint64_t connected_at_ms;
@@ -151,6 +158,10 @@ typedef struct ksi_client {
     uint32_t block_input_mask;
     /* Consecutive hook failures per lane: index 0 keyboard, 1 mouse. */
     uint32_t consecutive_hook_failures[2];
+    uint32_t quarantined_hooks;
+    uint32_t quarantine_generation[2];
+    uint64_t quarantine_rearm_after_ms[2];
+    uint64_t last_hook_quarantine_ms[2];
     uint64_t lease_expires_ms;
     /* Last time any message was received; drives the capless-idle reaper so an
      * authenticated but capability-less connection cannot pin a slot forever. */
@@ -207,7 +218,11 @@ typedef struct ksi_daemon_command {
         } prompt_done;
         struct {
             uint32_t hook_type; /* KSI_HOOK_KEYBOARD_LL / KSI_HOOK_MOUSE_LL */
-            char reason[32];
+            uint64_t event_id;
+            uint64_t hook_session_connection_id;
+            uint32_t nesting_depth;
+            uint32_t elapsed_ms;
+            uint32_t reason;
         } hook_failure;
     } data;
 } ksi_daemon_command;
@@ -297,10 +312,12 @@ typedef struct ksi_output_queue {
 
 typedef struct ksi_synth_completion {
     ksi_hook_send_ref *send_ref;
+    struct ksi_daemon_state *state;
     uint32_t client_id;
     uint64_t correlation_id;
-    uint32_t remaining;
-    bool result_sent;
+    atomic_uint remaining;
+    atomic_bool result_sent;
+    bool owns_atomic_transaction;
 } ksi_synth_completion;
 
 typedef enum ksi_lane_egress_type {
@@ -318,7 +335,7 @@ typedef struct ksi_lane_egress {
 
 typedef struct ksi_synthetic_hook_item {
     ksi_input input;
-    uint64_t queued_at_ms;
+    uint64_t queued_at_ns;
     ksi_synth_completion *completion;
     bool batch_start;  /* first node of a client batch; re-arms the surrogate reset */
 } ksi_synthetic_hook_item;
@@ -333,7 +350,16 @@ typedef struct ksi_synthetic_hook_queue {
     int wake_write_fd;
 } ksi_synthetic_hook_queue;
 
-/* Hook event snapshot; lanes never touch state->clients[] while iterating. */
+typedef struct ksi_lane_subscriber {
+    ksi_hook_send_ref *send_ref;
+    uint64_t connection_id;
+    uint64_t hook_session_id;
+    int response_fd;
+    bool uses_callback_rpc;
+} ksi_lane_subscriber;
+
+/* Immutable hook event snapshot. Lanes never touch state->clients[]. The
+ * flexible tail stores only the subscribers which actually receive this event. */
 typedef struct ksi_lane_event {
     uint64_t event_id;
     uint32_t hook_type;
@@ -342,11 +368,44 @@ typedef struct ksi_lane_event {
     ksi_lane_egress egress;
     ksi_hook_event_payload payload;
     size_t payload_size;
-    int subscriber_response_fds[KSI_MAX_CLIENTS];
-    ksi_hook_send_ref *subscriber_send_refs[KSI_MAX_CLIENTS];
-    uint64_t subscriber_connection_ids[KSI_MAX_CLIENTS];
     size_t subscriber_count;
+    uint32_t nesting_depth;
+    uint64_t inherited_deadline_ms;
+    struct ksi_nested_event_waiter *nested_waiter;
+    bool physical_input;
+    ksi_lane_subscriber subscribers[];
 } ksi_lane_event;
+
+typedef enum ksi_nested_wait_state {
+    KSI_NESTED_WAIT_PENDING = 0,
+    KSI_NESTED_WAIT_COMPLETED,
+    KSI_NESTED_WAIT_FAILED,
+    KSI_NESTED_WAIT_ABANDONED,
+} ksi_nested_wait_state;
+
+typedef struct ksi_nested_event_waiter {
+    pthread_mutex_t mutex;
+    pthread_cond_t condition;
+    ksi_nested_wait_state state;
+} ksi_nested_event_waiter;
+
+typedef struct ksi_nested_member {
+    ksi_input input;
+    ksi_lane_event *event;
+} ksi_nested_member;
+
+typedef struct ksi_nested_transaction {
+    ksi_nested_member *members;
+    uint32_t count;
+    uint32_t depth;
+    uint32_t origin_generation;
+    uint64_t origin_hook_connection_id;
+    ksi_synth_completion *completion;
+} ksi_nested_transaction;
+
+typedef struct ksi_nested_transaction_queue {
+    ksi_pipe_ring ring;
+} ksi_nested_transaction_queue;
 
 /* Decision routed from the main thread into a lane thread. The lane validates
  * that responder_fd matches the current subscriber it is waiting on; mismatched
@@ -394,6 +453,10 @@ typedef struct ksi_hook_lane {
     atomic_uint_least64_t current_event_id;  /* 0 = idle */
     atomic_int current_responder_fd;
     atomic_uint_least64_t current_responder_connection_id;
+    /* The HOOK_STREAM session which owns the active callback. Decisions may
+     * arrive on its bound CALLBACK_RPC fd/connection instead. */
+    atomic_uint_least64_t current_hook_session_connection_id;
+    atomic_uint current_nesting_depth;
     /* Set by lane_shutdown to abort waits and drain promptly. */
     atomic_int shutting_down;
     /* Incremented by EmergencyPassthrough. Events captured under an older
@@ -401,6 +464,7 @@ typedef struct ksi_hook_lane {
     atomic_uint flush_generation;
     ksi_lane_action_queue action_queue;
     ksi_lane_decision_queue decision_queue;
+    ksi_nested_transaction_queue nested_queue;
     struct ksi_daemon_state *state;
 } ksi_hook_lane;
 
@@ -417,6 +481,8 @@ typedef struct ksi_daemon_state {
     ksi_output_queue output_queue;
     ksi_synthetic_hook_queue synthetic_hook_queue;
     atomic_int synthetic_hook_inflight;
+    atomic_uint active_synthetic_transactions;
+    atomic_uint physical_hook_inflight;
     pthread_t sequencer_thread;
     bool sequencer_thread_started;
     atomic_int sequencer_running;
@@ -444,7 +510,9 @@ typedef struct ksi_binary_message_view {
 static int update_grab_state(ksi_daemon_state *state);
 static void clear_hook_state(ksi_daemon_state *state);
 static void record_client_hook_failure(
-    ksi_daemon_state *state, nfds_t index, uint32_t hook_type, const char *reason);
+    ksi_daemon_state *state, nfds_t index, uint32_t hook_type,
+    uint64_t event_id, uint32_t nesting_depth, uint32_t elapsed_ms,
+    uint32_t reason);
 static void lane_flush_passthrough(ksi_hook_lane *lane);
 static bool output_queue_push_release_all(ksi_output_queue *q);
 
@@ -472,6 +540,79 @@ static ssize_t find_client_index_by_connection(
     uint64_t connection_id);
 static void process_client_identified(ksi_daemon_state *state, ksi_daemon_command *command);
 static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_command *command);
+
+static bool fill_hook_session_token(uint8_t token[KSI_HOOK_SESSION_TOKEN_SIZE])
+{
+    size_t offset = 0u;
+
+    while (offset < KSI_HOOK_SESSION_TOKEN_SIZE) {
+        ssize_t got = getrandom(token + offset, KSI_HOOK_SESSION_TOKEN_SIZE - offset, 0);
+
+        if (got > 0) {
+            offset += (size_t)got;
+            continue;
+        }
+
+        if (got < 0 && errno == EINTR) {
+            continue;
+        }
+
+        memset(token, 0, KSI_HOOK_SESSION_TOKEN_SIZE);
+        return false;
+    }
+
+    return true;
+}
+
+static ksi_client *find_hook_session(
+    ksi_daemon_state *state,
+    const ksi_client *binding_client,
+    const uint8_t token[KSI_HOOK_SESSION_TOKEN_SIZE])
+{
+    if (state == NULL || binding_client == NULL || token == NULL) {
+        return NULL;
+    }
+
+    for (nfds_t i = 0; i < state->client_count; i++) {
+        ksi_client *candidate = &state->clients[i];
+
+        if (candidate->role_initialized
+            && candidate->connection_role == KSI_CONNECTION_HOOK_STREAM
+            && candidate->hello_seen
+            && candidate->authenticated
+            && candidate->has_identity
+            && candidate->pid == binding_client->pid
+            && candidate->uid == binding_client->uid
+            && memcmp(candidate->hook_session_token, token, KSI_HOOK_SESSION_TOKEN_SIZE) == 0) {
+            return candidate;
+        }
+    }
+
+    return NULL;
+}
+
+static const ksi_client *find_callback_rpc_for_session(
+    const ksi_daemon_state *state,
+    uint64_t hook_connection_id,
+    uint64_t except_connection_id)
+{
+    if (state == NULL || hook_connection_id == 0u) {
+        return NULL;
+    }
+
+    for (nfds_t i = 0; i < state->client_count; i++) {
+        const ksi_client *candidate = &state->clients[i];
+
+        if (candidate->connection_id != except_connection_id
+            && candidate->role_initialized
+            && candidate->connection_role == KSI_CONNECTION_CALLBACK_RPC
+            && candidate->bound_hook_connection_id == hook_connection_id) {
+            return candidate;
+        }
+    }
+
+    return NULL;
+}
 
 static void handle_signal(int signal_number)
 {

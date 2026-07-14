@@ -26,6 +26,7 @@ Supported message types:
 CLIENT_HELLO          HEARTBEAT
 SUBSCRIBE_HOOK        UNSUBSCRIBE_HOOK
 HOOK_EVENT            HOOK_DECISION
+HOOK_QUARANTINED      REARM_HOOK
 SYNTHESIZE_INPUT      SYNTHESIS_RESULT
 EMERGENCY_PASSTHROUGH SET_BLOCK_INPUT
 GET_INDICATOR_STATE   INDICATOR_STATE_RESULT
@@ -48,7 +49,7 @@ physical snapshot with Keysharp's queued synthetic button state. It requires
 `LIST_PERMISSIONS` and `RESET_PERMISSIONS` back the `keysharp-inputd trust`
 subcommand (see below).
 
-Protocol `0.2` permits a `HEARTBEAT` with correlation id `0` as a one-way grab
+Protocol `1.0` permits a `HEARTBEAT` with correlation id `0` as a one-way grab
 lease renewal. The daemon sends no response for that form, so hook-reader
 connections can renew without introducing an unexpected receive frame. Other
 heartbeat correlation ids retain request/response behavior.
@@ -59,7 +60,21 @@ Clients connect through the systemd socket at
 `/run/keysharp-inputd/keysharp-inputd.sock`. The daemon authenticates via
 `SO_PEERCRED` plus a hash of the peer's executable and argument vector.
 
-`CLIENT_HELLO` carries requested capabilities and optional flags:
+Protocol 1.0 is intentionally incompatible with 0.2. `CLIENT_HELLO` carries
+requested capabilities, optional flags, and one authenticated connection role:
+
+- `HOOK_STREAM` receives hook events and returns decisions.
+- `CALLBACK_RPC` is bound to a hook session and carries RPC made from callbacks.
+- `GENERAL_RPC` carries ordinary requests from unrelated script threads.
+
+A successful `HOOK_STREAM` hello returns a random 128-bit session token. A
+`CALLBACK_RPC` must present that token and match the hook stream's peer PID and
+UID, process start time, executable path, and executable hash. Exactly one callback
+RPC may bind to a hook session. Synthesis requests never carry a parent event id or
+claim callback ancestry; the daemon decides ancestry from its active callback stack
+and the bound socket.
+
+Capabilities and flags are:
 
 ```
 KSI_CAP_HOOK_KEYBOARD   KSI_CAP_HOOK_MOUSE
@@ -109,27 +124,35 @@ classify hook event  ──►  (mouse lane)
 SYNTHESIZE_INPUT     ──────────────────────────────►
 ```
 
-Each lane has its own decision-timeout deadline and its own pending event,
-so per-lane FIFO ordering is preserved but cross-lane ordering is relaxed:
-a SYNTHESIZE_INPUT from a client is queued onto the sequencer immediately
-and no longer waits for an in-flight hook decision to finalize. This matches
-Windows, where SendInput does not block on pending low-level hooks.
+Each lane has its own decision-timeout deadline and pending event stack. An
+ordinary `SYNTHESIZE_INPUT` completes only after every matching low-level hook
+has decided and each unsuppressed output has been admitted by the sequencer.
+When synthesis arrives on the callback RPC belonging to the active responder,
+it is a child transaction: same-lane events are pushed recursively and
+cross-lane events are submitted to the other live lane. The complete newest-to-
+oldest hook chain runs for every child event before the parent callback resumes.
+The managed callback RPC pumps nested `HOOK_EVENT` frames while waiting for its
+result and buffers correlation responses which complete child-before-parent.
+
+Recursion is limited to 32 callback transactions and synthesis requests are
+limited to 1024 `ksi_input` entries and 4096 expanded low-level hook events. Either
+limit rejects the child before hook delivery or uinput output. Recursion-limit and
+expanded-size failures use synthesis result details 32 and 33 respectively.
 
 Hook subscriptions require the matching hook access. `MODIFY` decisions and direct
 `SYNTHESIZE_INPUT` additionally require the matching synthesis access. Once
 `EVIOCGRAB` is active, passed events must be replayable through `uinput`; if
 `uinput` is unavailable, subscriptions are denied.
 
-Hook decisions have a one-second timeout. A timeout passes the event (fail-open
-replay to `uinput`) and increments a per-lane consecutive-failure counter for that
-client; any in-time decision on that lane resets it. After five consecutive
-timeouts/send-failures on a lane the daemon disconnects the client entirely —
-subscriptions dropped, grabs released, socket closed — so a crashed script cannot
-keep input trapped. Closing the socket (rather than a silent unsubscribe) is the
-signal Keysharp's reader uses to reinitialize its hooks, mirroring Windows, where
-the OS silently unhooks an unresponsive low-level hook and the app re-establishes
-it with `SetWindowsHookEx`. The counter is per lane, so a client answering keyboard
-decisions cannot mask a permanently stalled mouse lane (or vice versa).
+Every subscriber callback has a one-second absolute deadline, including time in
+nested synthesis. The first timeout passes the event for that subscriber and
+quarantines only that hook type. `HOOK_QUARANTINED` reports the event, generation,
+strike and cooldown. Once the overdue callback returns, Keysharp uses the bound
+callback RPC to send authenticated `REARM_HOOK`; a heartbeat cannot rearm it.
+Cooldowns are 1, 2, 4, 8 and 16 seconds. Sixty seconds without another quarantine
+resets the strike history. The fifth consecutive timeout invalidates the hook
+session so managed recovery establishes a fresh hook stream and callback RPC.
+Keyboard and mouse quarantine state is independent.
 
 `EMERGENCY_PASSTHROUGH` from a client already granted hook access clears all hook
 subscriptions, discards pending hook events, and releases all grabs.
@@ -156,6 +179,23 @@ lane's current responder — or a late decision after the one-second timeout —
 rejected. A `SYNTHESIZE_INPUT` request or `MODIFY` decision that would exceed the
 output bounds is rejected with a failure result rather than partially queued, and
 capacity is reserved for physical replay and the emergency chord.
+
+## Ordering and timestamps
+
+Synthetic batches receive a trusted daemon monotonic admission timestamp in
+nanoseconds. Before starting a batch, the daemon peeks every grabbed physical
+device; an earlier kernel `CLOCK_MONOTONIC` event runs first (ties favor the
+already-observed physical event). Synthesis also waits for every earlier physical
+hook callback to reach output admission. After a synthetic batch starts, its
+remaining members retain priority over later physical and unrelated synthetic input.
+Nested callback synthesis is the normal exception and preempts its parent.
+Emergency passthrough and fail-open recovery may preempt everything.
+
+The caller's `INPUT.time` is never used for scheduling. A nonzero value is copied
+to the generated hook payload, while zero is replaced with the current monotonic
+millisecond value. Past and future values are therefore visible as metadata but
+are delivered immediately. Synthetic events retain `device_id = 0`; physical
+events retain their daemon-assigned device id.
 
 ### Keyboard hook event fields
 

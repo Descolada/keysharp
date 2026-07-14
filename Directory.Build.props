@@ -16,6 +16,20 @@
     <!-- Keep framework-specific subfolders to avoid collisions when targeting multiple TFMs -->
     <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>true</AppendRuntimeIdentifierToOutputPath>
+    <!-- All host-specific intermediate trees remain build artifacts. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!-- NuGet writes project.assets.json below the intermediate root. Keep that
+       root OS-specific so WSL and Windows restores can share a checkout safely. -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <BaseIntermediateOutputPath>obj/windows/</BaseIntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <BaseIntermediateOutputPath>obj/linux/</BaseIntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <BaseIntermediateOutputPath>obj/osx/</BaseIntermediateOutputPath>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Keysharp' OR '$(MSBuildProjectName)' == 'Keyview'">

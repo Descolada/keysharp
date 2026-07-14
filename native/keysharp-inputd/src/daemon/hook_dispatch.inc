@@ -20,9 +20,7 @@ static void complete_hook_dispatch_fallback(
             memset(&payload, 0, sizeof(payload));
             payload.hook_type = hook_type;
             memcpy(&payload.event, event, event_size);
-            ok = output_queue_push_replay(&state->output_queue, hook_type, &payload,
-                sizeof(payload.event_id) + sizeof(payload.hook_type)
-                + sizeof(payload.reserved) + event_size);
+            ok = output_queue_push_replay(&state->output_queue, hook_type, &payload);
         }
     }
 
@@ -37,8 +35,7 @@ static void complete_hook_dispatch_fallback(
     }
 
     if (!ok && egress != NULL && egress->type == KSI_LANE_EGRESS_REPLAY) {
-        atomic_store(&g_fail_open_requested, 1);
-        command_queue_wake(state->commands);
+        request_fail_open(state);
     }
 }
 
@@ -106,7 +103,6 @@ static ksi_lane_event *create_hook_lane_event(
             .send_ref = delivery->hook_send_ref,
             .connection_id = delivery->connection_id,
             .hook_session_id = c->connection_id,
-            .response_fd = delivery->fd,
             .uses_callback_rpc = uses_callback_rpc,
         };
     }
@@ -158,6 +154,44 @@ static ksi_lane_event *create_hook_lane_event(
     return lane_event;
 }
 
+static void enqueue_hook_lane_event(ksi_daemon_state *state, ksi_lane_event *event)
+{
+    ksi_hook_lane *lane = lane_for_hook_type(state, event->hook_type);
+
+    if (event->physical_input) {
+        atomic_fetch_add(&state->physical_hook_inflight, 1u);
+    }
+
+    if (!ksi_pipe_ring_push(&lane->action_queue.ring, &event)) {
+        bool egress_ok = lane_event_enqueue_egress(lane, event);
+
+        if (!egress_ok && event->egress.type == KSI_LANE_EGRESS_REPLAY) {
+            request_fail_open(state);
+        }
+
+        fprintf(stderr, "inputd: hook lane queue full; bypassed hook event %llu\n",
+            (unsigned long long)event->event_id);
+        lane_event_release_send_refs(event);
+
+        if (event->physical_input) {
+            atomic_fetch_sub(&state->physical_hook_inflight, 1u);
+        }
+
+        if (event->synthetic_completion != NULL) {
+            if (egress_ok) {
+                synth_completion_complete(event->synthetic_completion);
+            } else {
+                synth_completion_fail(event->synthetic_completion, -1,
+                    KSI_DETAIL_RESOURCE_EXHAUSTED);
+            }
+
+            synthetic_hook_queue_complete_inflight(state);
+        }
+
+        free(event);
+    }
+}
+
 static void dispatch_hook_event_to_lane(
     ksi_daemon_state *state,
     uint32_t hook_type,
@@ -167,7 +201,6 @@ static void dispatch_hook_event_to_lane(
     ksi_synth_completion *completion,
     bool physical_input)
 {
-    ksi_hook_lane *lane = lane_for_hook_type(state, hook_type);
     ksi_lane_event *lane_event = create_hook_lane_event(
         state, hook_type, event, event_size, egress, completion, 0u, 0u);
 
@@ -178,43 +211,7 @@ static void dispatch_hook_event_to_lane(
     }
 
     lane_event->physical_input = physical_input;
-
-    if (lane_event->physical_input) {
-        atomic_fetch_add(&state->physical_hook_inflight, 1u);
-    }
-
-    if (!lane_action_queue_push(&lane->action_queue, lane_event)) {
-        bool egress_ok = lane_event_enqueue_egress(lane, lane_event);
-
-        if (!egress_ok) {
-            if (lane_event->egress.type == KSI_LANE_EGRESS_REPLAY) {
-                atomic_store(&g_fail_open_requested, 1);
-                command_queue_wake(state->commands);
-            }
-        }
-
-        fprintf(stderr, "inputd: hook lane queue full; bypassed hook event %llu\n",
-            (unsigned long long)lane_event->event_id);
-        lane_event_release_send_refs(lane_event);
-
-        if (lane_event->physical_input) {
-            atomic_fetch_sub(&state->physical_hook_inflight, 1u);
-        }
-
-        if (lane_event->synthetic_completion != NULL) {
-            if (egress_ok) {
-                synth_completion_complete(lane_event->synthetic_completion);
-            } else {
-                synth_completion_fail(lane_event->synthetic_completion, -1,
-                    KSI_DETAIL_RESOURCE_EXHAUSTED);
-            }
-
-            lane_event->synthetic_completion = NULL;
-            synthetic_hook_queue_complete_inflight(state);
-        }
-
-        free(lane_event);
-    }
+    enqueue_hook_lane_event(state, lane_event);
 }
 
 /* Re-emit the physical Ctrl+Alt+Backspace trigger through uinput after the grab
@@ -334,12 +331,9 @@ static void daemon_handle_hook_event(
             payload.hook_type = hook_type;
             memcpy(&payload.event, event, event_size);
 
-            if (!output_queue_push_replay(&state->output_queue, hook_type, &payload,
-                    sizeof(payload.event_id) + sizeof(payload.hook_type)
-                    + sizeof(payload.reserved) + event_size)) {
+            if (!output_queue_push_replay(&state->output_queue, hook_type, &payload)) {
                 fprintf(stderr, "inputd: replay enqueue of unhooked grabbed input failed\n");
-                atomic_store(&g_fail_open_requested, 1);
-                command_queue_wake(state->commands);
+                request_fail_open(state);
             }
         }
         return;

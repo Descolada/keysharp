@@ -12,6 +12,20 @@ namespace Keysharp.Tests
 	{
 #if LINUX
 		[Test, Category("Misc")]
+		public void StableProtocolValuesDescribeModifyAndSynthesisFailures()
+		{
+			Assert.AreEqual(2u, (uint)KeysharpInputdClient.HookDecision.Modify);
+			Assert.AreEqual(12u, (uint)KeysharpInputdClient.StatusDetail.ResourceExhausted);
+			Assert.AreEqual(32u, (uint)KeysharpInputdClient.StatusDetail.RecursionLimit);
+			Assert.AreEqual(33u, (uint)KeysharpInputdClient.StatusDetail.ExpandedInputLimit);
+			Assert.AreEqual(403u, (uint)KeysharpInputdClient.StatusDetail.PermissionDenied);
+			Assert.AreEqual(408u, (uint)KeysharpInputdClient.StatusDetail.CallbackTimeout);
+			Assert.AreEqual(2u, (uint)KeysharpInputdClient.HookDecisionDetail.StaleOrWrongResponder);
+			Assert.AreEqual(4u, (uint)KeysharpInputdClient.HookDecisionDetail.InvalidDecision);
+			Assert.AreEqual(7u, (uint)KeysharpInputdClient.HookDecisionDetail.EmptyModify);
+		}
+
+		[Test, Category("Misc")]
 		public async Task CallbackRpcPumpsNestedEventsAndBuffersParentResponse()
 		{
 			var path = $"/tmp/keysharp-inputd-test-{Environment.ProcessId}-{Guid.NewGuid():N}.sock";
@@ -46,6 +60,8 @@ namespace Keysharp.Tests
 						(uint)KeysharpInputdClient.HookType.KeyboardLowLevel);
 					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(16), 0x0100);
 					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(20), 0x41);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(28), 0x10);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(48), 1234);
 					SendFrame(socket, KeysharpInputdClient.MessageType.HookEvent, 77, hookPayload);
 
 					var stateQuery = ReceiveFrame(socket);
@@ -77,6 +93,8 @@ namespace Keysharp.Tests
 				client.SetNestedHookEventHandler((rpc, hookEvent) =>
 				{
 					Assert.AreEqual(77ul, hookEvent.EventId);
+					Assert.AreEqual(0x10u, hookEvent.Keyboard.Flags);
+					Assert.AreEqual(1234u, hookEvent.Keyboard.DeviceId);
 					// #HotIf criteria run on a Task rather than the physical hook-reader
 					// thread. The child must be able to take over this callback RPC while
 					// the parent response pump is paused in the handler.

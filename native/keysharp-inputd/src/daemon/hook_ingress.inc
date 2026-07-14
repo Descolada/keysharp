@@ -69,53 +69,68 @@ static bool enqueue_synth_direct_complete(
     return ok;
 }
 
+/* Builds the hook-visible form shared by ordinary and callback-recursive
+ * synthesis. A null event means the input has no active/representable hook and
+ * should go straight to output; false means event allocation failed. */
+static bool create_synthetic_lane_event(
+    ksi_daemon_state *state,
+    const ksi_input *input,
+    bool batch_start,
+    uint64_t origin_hook_connection_id,
+    uint32_t nesting_depth,
+    ksi_synth_completion *completion,
+    ksi_lane_event **event)
+{
+    uint32_t hook_type = hook_type_for_input(input);
+    ksi_hook_event_payload payload;
+    ksi_lane_egress egress = {
+        .type = KSI_LANE_EGRESS_SYNTH,
+        .synth_count = 1u,
+        .synth_flags = KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT
+            | (batch_start ? KSI_SYNTH_FLAG_BATCH_START : 0u),
+    };
+    size_t event_size = 0u;
+
+    *event = NULL;
+
+    if (hook_type == 0u || !any_matching_hook_subscriptions(state, hook_type)
+        || state->backend == NULL || state->backend->input_to_hook_event == NULL
+        || !state->backend->input_to_hook_event(
+            input, &hook_type, &payload, &event_size)) {
+        return true;
+    }
+
+    egress.synth_inputs[0] = *input;
+    *event = create_hook_lane_event(state, hook_type, &payload.event, event_size,
+        &egress, completion, origin_hook_connection_id, nesting_depth);
+    return *event != NULL;
+}
+
 static bool process_synthetic_hook_input(
     ksi_daemon_state *state,
     const ksi_input *input,
     ksi_synth_completion *completion,
     bool batch_start)
 {
-    uint32_t hook_type = hook_type_for_input(input);
-    ksi_hook_event_payload payload;
-    ksi_lane_egress egress;
-    size_t event_size;
+    ksi_lane_event *event;
 
     if (state == NULL || input == NULL) {
         synth_completion_fail(completion, -1, 1u);
         return false;
     }
 
-    if (hook_type == 0u || !any_matching_hook_subscriptions(state, hook_type)) {
-        return enqueue_synth_direct_complete(state, input, completion, batch_start);
+    if (!create_synthetic_lane_event(state, input, batch_start, 0u, 0u,
+            completion, &event)) {
+        synth_completion_fail(completion, -1, KSI_DETAIL_RESOURCE_EXHAUSTED);
+        return false;
     }
 
-    if (state->backend == NULL
-        || state->backend->input_to_hook_event == NULL
-        || !state->backend->input_to_hook_event(input, &hook_type, &payload, &event_size)) {
-        fprintf(stderr, "inputd: synthetic input could not be represented as a hook event; sending directly\n");
+    if (event == NULL) {
         return enqueue_synth_direct_complete(state, input, completion, batch_start);
     }
-
-    memset(&egress, 0, sizeof(egress));
-    egress.type = KSI_LANE_EGRESS_SYNTH;
-    egress.synth_count = 1u;
-    /* BATCH_FRAGMENT: same reason as enqueue_synth_direct — this egress is one
-     * event of a split client batch, so the per-batch surrogate reset must not
-     * run between it and its sibling fragments. BATCH_START on the first fragment
-     * re-arms the reset at the batch boundary. */
-    egress.synth_flags = KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT
-        | (batch_start ? KSI_SYNTH_FLAG_BATCH_START : 0u);
-    egress.synth_inputs[0] = *input;
 
     atomic_store(&state->synthetic_hook_inflight, 1);
-    dispatch_hook_event_to_lane(
-        state,
-        hook_type,
-        &payload.event,
-        event_size,
-        &egress,
-        completion,
-        false);
+    enqueue_hook_lane_event(state, event);
     return true;
 }
 

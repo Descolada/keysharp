@@ -89,6 +89,30 @@ namespace Keysharp.Internals.Input.Linux
 			Modify = 2,
 		}
 
+		internal enum StatusDetail : uint
+		{
+			None = 0,
+			PayloadTooSmall = 1,
+			InputCountLimit = 2,
+			PayloadSizeMismatch = 3,
+			ResourceExhausted = 12,
+			RecursionLimit = 32,
+			ExpandedInputLimit = 33,
+			Cancelled = 125,
+			PermissionDenied = 403,
+			CallbackTimeout = 408,
+		}
+
+		internal enum HookDecisionDetail : uint
+		{
+			PayloadTooSmall = 1,
+			StaleOrWrongResponder = 2,
+			InvalidDecision = 4,
+			InputCountLimit = 5,
+			PayloadSizeMismatch = 6,
+			EmptyModify = 7,
+		}
+
 		[Flags]
 		internal enum BlockInputMask : uint
 		{
@@ -267,17 +291,14 @@ namespace Keysharp.Internals.Input.Linux
 			=> exception is RequestFailedException
 			{
 				RequestType: MessageType.HookDecision,
-				Detail: 2u
+				Detail: (uint)HookDecisionDetail.StaleOrWrongResponder
 			};
-
-		// SYNTHESIS_RESULT detail 12: transient bounded-queue backpressure.
-		internal const uint SynthesisBackpressureDetail = 12u;
 
 		internal static bool IsSynthesisBackpressure(Exception exception)
 			=> exception is RequestFailedException
 			{
 				RequestType: MessageType.SynthesisResult,
-				Detail: SynthesisBackpressureDetail
+				Detail: (uint)StatusDetail.ResourceExhausted
 			};
 
 		internal Capabilities GrantedCapabilities { get; private set; }
@@ -772,12 +793,12 @@ namespace Keysharp.Internals.Input.Linux
 		{
 			ThrowIfDisposed();
 
-			var header = new byte[HeaderSize];
+			Span<byte> header = stackalloc byte[HeaderSize];
 			ReadAll(header, idleRetry);
 
 			var size = BinaryPrimitives.ReadUInt32LittleEndian(header);
-			var major = BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(4));
-			var minor = BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(6));
+			var major = BinaryPrimitives.ReadUInt16LittleEndian(header[4..]);
+			var minor = BinaryPrimitives.ReadUInt16LittleEndian(header[6..]);
 
 			if (size < HeaderSize || size > MaxMessageSize)
 				throw new InvalidDataException($"Invalid inputd frame size {size}.");
@@ -789,9 +810,9 @@ namespace Keysharp.Internals.Input.Linux
 			ReadAll(payload);
 
 			return new Frame(
-				(MessageType)BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(8)),
-				BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(12)),
-				BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(16)),
+				(MessageType)BinaryPrimitives.ReadUInt32LittleEndian(header[8..]),
+				BinaryPrimitives.ReadUInt32LittleEndian(header[12..]),
+				BinaryPrimitives.ReadUInt64LittleEndian(header[16..]),
 				payload);
 		}
 

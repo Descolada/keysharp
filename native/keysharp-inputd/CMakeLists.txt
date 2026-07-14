@@ -5,6 +5,8 @@ project(keysharp-inputd
     DESCRIPTION "Privileged input broker daemon for Keysharp"
     LANGUAGES C)
 
+include(CTest)
+
 include(GNUInstallDirs)
 
 set(CMAKE_C_STANDARD 11)
@@ -26,7 +28,9 @@ add_executable(keysharp-inputd
     src/ipc_unix.c
     src/main.c
     src/pipe_ring.c
+    src/synthetic_hooks.c
     src/trust_cli.c
+    src/wake_pipe.c
     src/worker_pool.c)
 
 target_include_directories(keysharp-inputd
@@ -90,38 +94,109 @@ install(CODE "
     endif()
 ")
 
-option(KEYSHARP_INPUTD_BUILD_TOOLS "Build keysharp-inputd local test tools" ON)
+option(KEYSHARP_INPUTD_BUILD_HOOKTEST "Build the installed-daemon diagnostic tool" ON)
+option(KEYSHARP_INPUTD_BUILD_PHYSICAL_TEST_TOOL
+    "Build the privileged manual physical-input source (never a CTest)" OFF)
 
-if(KEYSHARP_INPUTD_BUILD_TOOLS)
-    add_executable(keysharp-inputd-client
-        tools/client.c)
-
-    add_executable(keysharp-inputd-hooktest
-        tools/hooktest.c)
-
-    target_include_directories(keysharp-inputd-client
-        PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-    target_include_directories(keysharp-inputd-hooktest
-        PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-    target_compile_definitions(keysharp-inputd-client PRIVATE _GNU_SOURCE _POSIX_C_SOURCE=200809L)
-    target_compile_definitions(keysharp-inputd-hooktest PRIVATE _GNU_SOURCE _POSIX_C_SOURCE=200809L)
+if(KEYSHARP_INPUTD_BUILD_HOOKTEST)
+    add_executable(keysharp-inputd-hooktest tools/hooktest.c)
+    target_include_directories(keysharp-inputd-hooktest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_definitions(keysharp-inputd-hooktest PRIVATE
+        _GNU_SOURCE _POSIX_C_SOURCE=200809L)
 
     if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
-        target_compile_options(keysharp-inputd-client PRIVATE
-            -Wall
-            -Wextra
-            -Wpedantic
-            -Wconversion
-            -Wshadow)
         target_compile_options(keysharp-inputd-hooktest PRIVATE
-            -Wall
-            -Wextra
-            -Wpedantic
-            -Wconversion
-            -Wshadow)
+            -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
     endif()
+endif()
+
+if(KEYSHARP_INPUTD_BUILD_PHYSICAL_TEST_TOOL)
+    add_executable(keysharp-inputd-physical-source tools/physical-source.c)
+    target_compile_definitions(keysharp-inputd-physical-source PRIVATE
+        _GNU_SOURCE _POSIX_C_SOURCE=200809L)
+
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(keysharp-inputd-physical-source PRIVATE
+            -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
+endif()
+
+if(BUILD_TESTING)
+    add_executable(keysharp-inputd-unit-tests
+        tests/daemon_unit_tests.c
+        src/connection_ref.c
+        src/ipc_unix.c
+        src/pipe_ring.c
+        src/synthetic_hooks.c
+        src/wake_pipe.c
+        src/worker_pool.c
+        src/platform/linux_devices.c
+        src/platform/linux_synth.c
+        src/platform/platform_linux.c
+        src/platform/vk_evdev.c)
+
+    target_include_directories(keysharp-inputd-unit-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(keysharp-inputd-unit-tests PRIVATE
+        _GNU_SOURCE _POSIX_C_SOURCE=200809L KSI_PLATFORM_LINUX=1)
+    target_link_libraries(keysharp-inputd-unit-tests PRIVATE
+        keysharp-trust-lib Threads::Threads PkgConfig::LIBUDEV PkgConfig::LIBEVDEV)
+
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(keysharp-inputd-unit-tests PRIVATE
+            -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
+
+    add_test(NAME keysharp-inputd-unit-tests COMMAND keysharp-inputd-unit-tests)
+
+    add_executable(keysharp-inputd-synthetic-hooks-tests
+        tests/synthetic_hooks_tests.c
+        src/synthetic_hooks.c)
+    target_include_directories(keysharp-inputd-synthetic-hooks-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_definitions(keysharp-inputd-synthetic-hooks-tests PRIVATE
+        _GNU_SOURCE _POSIX_C_SOURCE=200809L)
+
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(keysharp-inputd-synthetic-hooks-tests PRIVATE
+            -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
+
+    add_test(NAME keysharp-inputd-synthetic-hooks-tests
+        COMMAND keysharp-inputd-synthetic-hooks-tests)
+
+    add_executable(keysharp-inputd-pipe-ring-tests
+        tests/pipe_ring_tests.c
+        src/pipe_ring.c)
+    target_include_directories(keysharp-inputd-pipe-ring-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(keysharp-inputd-pipe-ring-tests PRIVATE
+        _GNU_SOURCE _POSIX_C_SOURCE=200809L)
+    target_link_libraries(keysharp-inputd-pipe-ring-tests PRIVATE Threads::Threads)
+
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(keysharp-inputd-pipe-ring-tests PRIVATE
+            -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
+
+    add_test(NAME keysharp-inputd-pipe-ring-tests
+        COMMAND keysharp-inputd-pipe-ring-tests)
+
+    add_executable(keysharp-inputd-wake-pipe-tests
+        tests/wake_pipe_tests.c
+        src/wake_pipe.c)
+    target_include_directories(keysharp-inputd-wake-pipe-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(keysharp-inputd-wake-pipe-tests PRIVATE
+        _GNU_SOURCE _POSIX_C_SOURCE=200809L)
+
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(keysharp-inputd-wake-pipe-tests PRIVATE
+            -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
+
+    add_test(NAME keysharp-inputd-wake-pipe-tests
+        COMMAND keysharp-inputd-wake-pipe-tests)
 endif()

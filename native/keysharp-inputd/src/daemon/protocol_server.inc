@@ -530,38 +530,44 @@ static void handle_hook_decision(
     ksi_lane_decision decision;
 
     if (message->payload_size < sizeof(*payload)) {
-        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 1);
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1,
+            KSI_HOOK_DETAIL_PAYLOAD_TOO_SMALL);
         return;
     }
 
     payload = (const ksi_hook_decision_payload *)(const void *)message->payload;
 
     if (payload->input_count > KSI_MAX_MODIFY_INPUTS) {
-        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 5);
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1,
+            KSI_HOOK_DETAIL_INPUT_COUNT_LIMIT);
         return;
     }
 
     expected_size = sizeof(*payload) + ((size_t)payload->input_count * sizeof(payload->inputs[0]));
 
     if (message->payload_size != expected_size) {
-        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 6);
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1,
+            KSI_HOOK_DETAIL_PAYLOAD_SIZE_MISMATCH);
         return;
     }
 
     if (payload->decision != KSI_HOOK_DECISION_PASS
         && payload->decision != KSI_HOOK_DECISION_BLOCK
         && payload->decision != KSI_HOOK_DECISION_MODIFY) {
-        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 4);
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1,
+            KSI_HOOK_DETAIL_INVALID_DECISION);
         return;
     }
 
     if (payload->decision == KSI_HOOK_DECISION_MODIFY && payload->input_count == 0) {
-        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 7);
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1,
+            KSI_HOOK_DETAIL_EMPTY_MODIFY);
         return;
     }
 
     if (state == NULL) {
-        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 2);
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1,
+            KSI_HOOK_DETAIL_STALE_OR_WRONG_RESPONDER);
         return;
     }
 
@@ -569,7 +575,8 @@ static void handle_hook_decision(
         if (!client_has_capability(
                 client,
                 required_synthesis_capabilities(payload->inputs, payload->input_count))) {
-            send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 403);
+            send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1,
+                KSI_DETAIL_PERMISSION_DENIED);
             return;
         }
     }
@@ -580,13 +587,15 @@ static void handle_hook_decision(
     lane = lane_for_event_id(state, payload->event_id);
 
     if (lane == NULL) {
-        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 2);
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1,
+            KSI_HOOK_DETAIL_STALE_OR_WRONG_RESPONDER);
         return;
     }
 
     if (atomic_load(&lane->current_responder_fd) != client->fd
         || atomic_load(&lane->current_responder_connection_id) != client->connection_id) {
-        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 2);
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1,
+            KSI_HOOK_DETAIL_STALE_OR_WRONG_RESPONDER);
         return;
     }
 
@@ -714,33 +723,38 @@ static void handle_synthesize_input(
     size_t expected_size;
 
     if (client->connection_role == KSI_CONNECTION_HOOK_STREAM) {
-        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 403u);
+        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1,
+            KSI_DETAIL_PERMISSION_DENIED);
         return;
     }
 
     if (message->payload_size < sizeof(*payload)) {
-        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 1);
+        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1,
+            KSI_DETAIL_PAYLOAD_TOO_SMALL);
         return;
     }
 
     payload = (const ksi_synthesize_input_payload *)(const void *)message->payload;
 
     if (payload->count > KSI_MAX_SYNTH_INPUTS) {
-        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 2);
+        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1,
+            KSI_DETAIL_INPUT_COUNT_LIMIT);
         return;
     }
 
     expected_size = sizeof(*payload) + ((size_t)payload->count * sizeof(payload->inputs[0]));
 
     if (message->payload_size != expected_size) {
-        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 3);
+        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1,
+            KSI_DETAIL_PAYLOAD_SIZE_MISMATCH);
         return;
     }
 
     if (!client_has_capability(
             client,
             required_synthesis_capabilities(payload->inputs, payload->count))) {
-        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 403);
+        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1,
+            KSI_DETAIL_PERMISSION_DENIED);
         return;
     }
 
@@ -786,8 +800,8 @@ static void handle_synthesize_input(
                 return;
             }
 
-            if (!synthetic_hook_batch_count(
-                    payload->inputs, payload->count, &expanded_count)) {
+            if (!ksi_synthetic_hook_batch_count(payload->inputs, payload->count,
+                    KSI_MAX_SYNTH_HOOK_ACTIONS, &expanded_count)) {
                 send_status(client->fd, message->header,
                     KSI_MESSAGE_SYNTHESIS_RESULT, -1, KSI_DETAIL_EXPANDED_INPUT_LIMIT);
                 return;
@@ -795,7 +809,8 @@ static void handle_synthesize_input(
 
             completion = synth_completion_create(
                 state, client->hook_send_ref, message->header);
-            transaction = calloc(1, sizeof(*transaction));
+            transaction = calloc(1, sizeof(*transaction)
+                + expanded_count * sizeof(transaction->members[0]));
 
             if (completion == NULL || transaction == NULL) {
                 if (completion != NULL) {
@@ -816,21 +831,11 @@ static void handle_synthesize_input(
             transaction->completion = completion;
 
             if (expanded_count > 0u) {
-                transaction->members = calloc(expanded_count, sizeof(*transaction->members));
-
-                if (transaction->members == NULL) {
-                    synth_completion_fail(completion, -1, KSI_DETAIL_RESOURCE_EXHAUSTED);
-                    transaction->completion = NULL;
-                    nested_transaction_destroy(transaction);
-                    return;
-                }
-
                 size_t expanded_offset = 0u;
 
                 for (uint32_t i = 0u; i < payload->count; i++) {
-                    ksi_input expanded[
-                        sizeof(synthetic_mouse_primitives) / sizeof(synthetic_mouse_primitives[0])];
-                    size_t input_count = synthetic_hook_expand_input(&payload->inputs[i], expanded);
+                    ksi_input expanded[KSI_SYNTHETIC_HOOK_MAX_EXPANSION];
+                    size_t input_count = ksi_synthetic_hook_expand_input(&payload->inputs[i], expanded);
 
                     for (size_t j = 0u; j < input_count; j++) {
                         transaction->members[expanded_offset++].input = expanded[j];
@@ -840,36 +845,13 @@ static void handle_synthesize_input(
 
             for (uint32_t i = 0; i < transaction->count; i++) {
                 ksi_nested_member *member = &transaction->members[i];
-                uint32_t hook_type = hook_type_for_input(&member->input);
-                ksi_hook_event_payload hook_payload;
-                ksi_lane_egress egress;
-                size_t event_size = 0u;
 
-                if ((synth_flags & KSI_SYNTH_FLAG_BYPASS_HOOK) != 0u
-                    || hook_type == 0u
-                    || !any_matching_hook_subscriptions(state, hook_type)) {
+                if ((synth_flags & KSI_SYNTH_FLAG_BYPASS_HOOK) != 0u) {
                     continue;
                 }
 
-                if (state->backend == NULL
-                    || state->backend->input_to_hook_event == NULL
-                    || !state->backend->input_to_hook_event(
-                        &member->input, &hook_type, &hook_payload, &event_size)) {
-                    continue;
-                }
-
-                memset(&egress, 0, sizeof(egress));
-                egress.type = KSI_LANE_EGRESS_SYNTH;
-                egress.synth_count = 1u;
-                egress.synth_flags = KSI_SYNTH_FLAG_BYPASS_HOOK
-                    | KSI_SYNTH_FLAG_BATCH_FRAGMENT
-                    | (i == 0u ? KSI_SYNTH_FLAG_BATCH_START : 0u);
-                egress.synth_inputs[0] = member->input;
-                member->event = create_hook_lane_event(
-                    state, hook_type, &hook_payload.event, event_size, &egress, NULL,
-                    client->bound_hook_connection_id, depth);
-
-                if (member->event == NULL) {
+                if (!create_synthetic_lane_event(state, &member->input, i == 0u,
+                        client->bound_hook_connection_id, depth, NULL, &member->event)) {
                     synth_completion_fail(completion, -1, KSI_DETAIL_RESOURCE_EXHAUSTED);
                     transaction->completion = NULL;
                     nested_transaction_destroy(transaction);
@@ -879,7 +861,7 @@ static void handle_synthesize_input(
 
             synth_completion_begin_atomic(completion);
 
-            if (!nested_transaction_queue_push(&active_lane->nested_queue, transaction)) {
+            if (!ksi_pipe_ring_push(&active_lane->nested_queue.ring, &transaction)) {
                 synth_completion_fail(completion, -1, KSI_DETAIL_RESOURCE_EXHAUSTED);
                 transaction->completion = NULL;
                 nested_transaction_destroy(transaction);
@@ -895,7 +877,8 @@ static void handle_synthesize_input(
     if (synth_batch_needs_hook_queue(state, payload->inputs, payload->count, synth_flags)) {
         size_t expanded_count = 0u;
 
-        if (!synthetic_hook_batch_count(payload->inputs, payload->count, &expanded_count)) {
+        if (!ksi_synthetic_hook_batch_count(payload->inputs, payload->count,
+                KSI_MAX_SYNTH_HOOK_ACTIONS, &expanded_count)) {
             send_status(client->fd, message->header,
                 KSI_MESSAGE_SYNTHESIS_RESULT, -1, KSI_DETAIL_EXPANDED_INPUT_LIMIT);
             return;
@@ -1392,7 +1375,7 @@ static void process_daemon_commands(ksi_daemon_state *state)
         return;
     }
 
-    while (command_queue_pop(state->commands, &command)) {
+    while (ksi_pipe_ring_pop(&state->commands->ring, &command)) {
         process_daemon_command(state, &command);
         free_daemon_command(&command);
     }

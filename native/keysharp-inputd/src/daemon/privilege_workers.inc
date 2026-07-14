@@ -43,7 +43,7 @@ static void *identify_worker(void *arg)
     command.connection_id = task->connection_id;
     command.data.identified.result = result;
 
-    if (!command_queue_push(task->commands, &command)) {
+    if (!ksi_pipe_ring_push(&task->commands->ring, &command)) {
         free(result);
     }
 
@@ -94,7 +94,7 @@ static void *prompt_worker(void *arg)
     command.data.prompt_done.missing_capabilities = task->missing_capabilities;
     command.data.prompt_done.available_capabilities_at_start = task->available_capabilities_at_start;
 
-    (void)command_queue_push(task->commands, &command);
+    (void)ksi_pipe_ring_push(&task->commands->ring, &command);
     free(task);
     return NULL;
 }
@@ -144,4 +144,3 @@ static bool start_prompt_task(
 }
 
 /* --- End async workers --- */
-

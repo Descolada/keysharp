@@ -164,12 +164,15 @@ typedef enum ksi_hook_type {
 typedef enum ksi_hook_decision {
     KSI_HOOK_DECISION_PASS = 0,
     KSI_HOOK_DECISION_BLOCK = 1,
-    /* Suppress the original event and emit replacement inputs instead. The C#
+    /* Suppress the original event and synchronously emit input_count replacement
+     * inputs in their supplied order. MODIFY requires input_count > 0 and the
+     * synthesis capabilities needed by every replacement; invalid requests are
+     * rejected without affecting the original event. The C#
      * hook path no longer produces this — inline hook sends (modifier disguise /
      * Alt-Tab) now go out as a separate synthesis after a pure Block/Pass decision
      * (mirroring Windows: a hook returns block/pass and any extra input is an
-     * independent SendInput; the daemon acks such a send on receipt when the
-     * sending process hooks, avoiding a self-deadlock). Kept as a valid primitive. */
+     * independent SendInput; callback RPC recursively dispatches and completes
+     * that input before the parent hook resumes). Kept as a valid primitive. */
     KSI_HOOK_DECISION_MODIFY = 2,
 } ksi_hook_decision;
 
@@ -302,6 +305,33 @@ typedef struct ksi_status_payload {
     int32_t status;
     uint32_t detail;
 } ksi_status_payload;
+
+/* Stable status detail values. A zero detail accompanies success. Values 1--3
+ * describe malformed SYNTHESIZE_INPUT requests; the remaining values may also
+ * be returned by other request types where their names apply. */
+typedef enum ksi_status_detail {
+    KSI_DETAIL_NONE = 0u,
+    KSI_DETAIL_PAYLOAD_TOO_SMALL = 1u,
+    KSI_DETAIL_INPUT_COUNT_LIMIT = 2u,
+    KSI_DETAIL_PAYLOAD_SIZE_MISMATCH = 3u,
+    KSI_DETAIL_RESOURCE_EXHAUSTED = 12u,
+    KSI_DETAIL_RECURSION_LIMIT = 32u,
+    KSI_DETAIL_EXPANDED_INPUT_LIMIT = 33u,
+    KSI_DETAIL_CANCELLED = 125u,
+    KSI_DETAIL_PERMISSION_DENIED = 403u,
+    KSI_DETAIL_CALLBACK_TIMEOUT = 408u,
+} ksi_status_detail;
+
+/* HOOK_DECISION-specific failure details. These share the status payload wire
+ * field but are interpreted in the context of KSI_MESSAGE_HOOK_DECISION. */
+typedef enum ksi_hook_decision_detail {
+    KSI_HOOK_DETAIL_PAYLOAD_TOO_SMALL = 1u,
+    KSI_HOOK_DETAIL_STALE_OR_WRONG_RESPONDER = 2u,
+    KSI_HOOK_DETAIL_INVALID_DECISION = 4u,
+    KSI_HOOK_DETAIL_INPUT_COUNT_LIMIT = 5u,
+    KSI_HOOK_DETAIL_PAYLOAD_SIZE_MISMATCH = 6u,
+    KSI_HOOK_DETAIL_EMPTY_MODIFY = 7u,
+} ksi_hook_decision_detail;
 
 typedef enum ksi_connection_role {
     KSI_CONNECTION_GENERAL_RPC = 0,

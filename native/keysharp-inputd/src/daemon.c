@@ -11,8 +11,10 @@
 #include "keysharp_trust/permissions.h"
 #include "keysharp_inputd/platform.h"
 #include "keysharp_inputd/protocol.h"
+#include "keysharp_inputd/synthetic_hooks.h"
 #include "pipe_ring.h"
 #include "worker_pool.h"
+#include "wake_pipe.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -58,13 +60,6 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
 #define KSI_MAX_OUTPUT_ACTIONS 4096u
 #define KSI_MAX_SYNTH_HOOK_ACTIONS 4096u
 
-enum {
-    KSI_DETAIL_RESOURCE_EXHAUSTED = 12u,
-    KSI_DETAIL_RECURSION_LIMIT = 32u,
-    KSI_DETAIL_EXPANDED_INPUT_LIMIT = 33u,
-    KSI_DETAIL_CANCELLED = 125u,
-    KSI_DETAIL_CALLBACK_TIMEOUT = 408u,
-};
 #define KSI_MAX_OUTPUT_SYNTH_BYTES (1024u * 1024u)
 #define KSI_MAX_SYNTH_HOOK_STEPS_PER_PASS 256u
 #define KSI_MAX_RECURSION_DEPTH 32u
@@ -256,26 +251,6 @@ static void command_queue_destroy(ksi_daemon_command_queue *q)
     ksi_pipe_ring_close(&q->ring);
 }
 
-static bool command_queue_push(ksi_daemon_command_queue *q, const ksi_daemon_command *cmd)
-{
-    return q != NULL && ksi_pipe_ring_push(&q->ring, cmd);
-}
-
-static bool command_queue_pop(ksi_daemon_command_queue *q, ksi_daemon_command *cmd)
-{
-    return q != NULL && ksi_pipe_ring_pop(&q->ring, cmd);
-}
-
-static void command_queue_wake(const ksi_daemon_command_queue *q)
-{
-    if (q != NULL) ksi_pipe_ring_wake(&q->ring);
-}
-
-static void command_queue_drain_wake(const ksi_daemon_command_queue *q)
-{
-    if (q != NULL) ksi_pipe_ring_drain_wake(&q->ring);
-}
-
 /* Forward decls for types embedded in ksi_daemon_state.  Definitions and
  * helper functions live later in the file, alongside the sequencer thread. */
 typedef enum ksi_output_action_type {
@@ -293,7 +268,6 @@ typedef struct ksi_output_action {
     ksi_output_action_type type;
     uint32_t hook_type;
     ksi_hook_event_payload replay_payload;
-    size_t replay_payload_size;
     uint32_t synth_flags;
     uint32_t synth_count;
     ksi_input *synth_inputs;
@@ -354,7 +328,6 @@ typedef struct ksi_lane_subscriber {
     ksi_hook_send_ref *send_ref;
     uint64_t connection_id;
     uint64_t hook_session_id;
-    int response_fd;
     bool uses_callback_rpc;
 } ksi_lane_subscriber;
 
@@ -395,12 +368,12 @@ typedef struct ksi_nested_member {
 } ksi_nested_member;
 
 typedef struct ksi_nested_transaction {
-    ksi_nested_member *members;
     uint32_t count;
     uint32_t depth;
     uint32_t origin_generation;
     uint64_t origin_hook_connection_id;
     ksi_synth_completion *completion;
+    ksi_nested_member members[];
 } ksi_nested_transaction;
 
 typedef struct ksi_nested_transaction_queue {
@@ -990,11 +963,11 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         }
 
         if ((fds[0].revents & POLLIN) != 0) {
-            command_queue_drain_wake(&command_queue);
+            ksi_pipe_ring_drain_wake(&command_queue.ring);
         }
 
         if ((fds[synthetic_index].revents & POLLIN) != 0) {
-            drain_wake_fd(daemon_state->synthetic_hook_queue.wake_read_fd);
+            ksi_wake_pipe_drain(daemon_state->synthetic_hook_queue.wake_read_fd);
         }
 
         if ((fds[server_index].revents & POLLIN) != 0) {
@@ -1080,7 +1053,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
     ksi_worker_pool_request_stop(&g_identify_worker_pool);
 
     /* Wake the main loop so it observes keep_running=0. */
-    command_queue_wake(&command_queue);
+    ksi_pipe_ring_wake(&command_queue.ring);
 
     if (!ksi_worker_pool_join_before(&g_worker_pool, shutdown_deadline_ms)
         || !ksi_worker_pool_join_before(&g_identify_worker_pool, shutdown_deadline_ms)) {

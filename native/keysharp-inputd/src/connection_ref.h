@@ -10,6 +10,9 @@ typedef struct ksi_hook_send_ref ksi_hook_send_ref;
 ksi_hook_send_ref *hook_send_ref_create(int client_fd);
 bool hook_send_ref_acquire(ksi_hook_send_ref *ref);
 int hook_send_ref_fd(const ksi_hook_send_ref *ref);
+bool hook_send_ref_is_stalled(const ksi_hook_send_ref *ref);
+void hook_send_ref_mark_stalled(ksi_hook_send_ref *ref);
+void hook_send_ref_clear_stalled(ksi_hook_send_ref *ref);
 int hook_send_ref_send(
     ksi_hook_send_ref *ref,
     uint32_t message_type,

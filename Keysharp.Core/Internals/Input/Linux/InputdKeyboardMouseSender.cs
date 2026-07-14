@@ -282,15 +282,40 @@ namespace Keysharp.Internals.Input.Linux
 			SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : targetModifiers, 0, false, true, extraInfo);
 		}
 
+		internal override void SendUnicodePair(char high, char low, uint modifiers)
+		{
+			// A surrogate half is never ASCII, so both units always take the daemon
+			// unicode path. Emit them in ONE batch so the pair reconstructs (the
+			// daemon resets its pending high surrogate at every batch boundary).
+			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
+			Span<char> units = stackalloc char[2] { high, low };
+			SendDaemonUnicodeUnits(units, modifiers, extraInfo);
+		}
+
 		private void SendDaemonUnicodeChar(char ch, uint modifiers, long extraInfo)
 		{
-			SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
+			Span<char> units = stackalloc char[1] { ch };
+			SendDaemonUnicodeUnits(units, modifiers, extraInfo);
+		}
 
-			var inputs = new[]
+		// Emit one or more UTF-16 code units (a single char or a surrogate pair) as a
+		// single synthesis batch, wrapped by exactly one modifier clear/restore.
+		private void SendDaemonUnicodeUnits(ReadOnlySpan<char> units, uint modifiers, long extraInfo)
+		{
+			// Clear all logical/synthetic modifiers to a clean baseline first. The
+			// daemon fires its own self-contained Ctrl+Shift+U trigger and
+			// unconditionally releases Ctrl/Shift at the end; without clearing, a
+			// modifier the caller holds (e.g. Send "^{U+2603}c") is stranded and our
+			// logical state desyncs. The trailing restore re-presses `modifiers`.
+			SetModifierLRState(0u, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
+
+			var inputs = new KeysharpInputdClient.Input[units.Length * 2];
+
+			for (var i = 0; i < units.Length; i++)
 			{
-				KeysharpInputdClient.Input.Key(0, (ushort)ch, (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_UNICODE, extraInfo: (ulong)extraInfo),
-				KeysharpInputdClient.Input.Key(0, (ushort)ch, (KeysharpInputdClient.KeyEventFlags)(KEYEVENTF_UNICODE | KEYEVENTF_KEYUP), extraInfo: (ulong)extraInfo),
-			};
+				inputs[i * 2] = KeysharpInputdClient.Input.Key(0, units[i], (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_UNICODE, extraInfo: (ulong)extraInfo);
+				inputs[i * 2 + 1] = KeysharpInputdClient.Input.Key(0, units[i], (KeysharpInputdClient.KeyEventFlags)(KEYEVENTF_UNICODE | KEYEVENTF_KEYUP), extraInfo: (ulong)extraInfo);
+			}
 
 			if (sendMode != SendModes.Event)
 			{
@@ -725,16 +750,59 @@ namespace Keysharp.Internals.Input.Linux
 				return;
 			}
 
-			for (var offset = 0; offset < inputs.Count; offset += MaxInputdBatchSize)
+			var offset = 0;
+
+			while (offset < inputs.Count)
 			{
 				var count = Math.Min(MaxInputdBatchSize, inputs.Count - offset);
+
+				// Never end a batch on an unpaired UTF-16 high surrogate: its low half
+				// would land in the next batch, where the daemon's per-batch
+				// pending-high-surrogate reset drops the pair. Back off to exclude the
+				// whole dangling group. (Only matters when more data follows.)
+				if (offset + count < inputs.Count)
+					count = TrimTrailingHighSurrogate(inputs, offset, count);
+
 				var batch = new KeysharpInputdClient.Input[count];
 
 				for (var i = 0; i < count; i++)
 					batch[i] = inputs[offset + i];
 
 				KeysharpInputdManager.SendInputViaSynthesisChannel(batch, flags);
+				offset += count;
 			}
+		}
+
+		// If [offset, offset+count) ends with a unicode keydown carrying an unpaired
+		// high surrogate, return a shorter count that excludes that keydown (and its
+		// keyup) so the surrogate pair stays within one batch. Mirrors the daemon's
+		// pending_high_surrogate tracking.
+		private static int TrimTrailingHighSurrogate(IReadOnlyList<KeysharpInputdClient.Input> inputs, int offset, int count)
+		{
+			var pendingHighIdx = -1;
+
+			for (var i = offset; i < offset + count; i++)
+			{
+				var input = inputs[i];
+
+				if (input.Type != KeysharpInputdClient.InputType.Keyboard)
+					continue;
+
+				var kflags = input.Keyboard.Flags;
+
+				if ((kflags & KeysharpInputdClient.KeyEventFlags.Unicode) == 0
+					|| (kflags & KeysharpInputdClient.KeyEventFlags.KeyUp) != 0)
+					continue;
+
+				var unit = input.Keyboard.Scan;
+				pendingHighIdx = unit >= 0xD800 && unit <= 0xDBFF ? i : -1;
+			}
+
+			if (pendingHighIdx < 0)
+				return count;
+
+			var trimmed = pendingHighIdx - offset;
+			return trimmed > 0 ? trimmed : count;
 		}
 	}
 }

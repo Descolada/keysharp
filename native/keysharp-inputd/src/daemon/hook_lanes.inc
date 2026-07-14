@@ -461,6 +461,7 @@ static void synthetic_hook_queue_append_locked(
     q->items[tail].input = *input;
     q->items[tail].queued_at_ms = queued_at_ms;
     q->items[tail].completion = completion;
+    q->items[tail].batch_start = false;  /* push() marks the batch's first node */
     q->count++;
 }
 
@@ -538,8 +539,18 @@ static bool synthetic_hook_queue_push(
         completion->remaining = (uint32_t)node_count;
     }
 
+    size_t start_tail = (q->head + q->count) % KSI_MAX_SYNTH_HOOK_ACTIONS;
+
     for (uint32_t i = 0u; i < count; i++) {
         synthetic_hook_queue_append_input_locked(q, &inputs[i], queued_at_ms, completion);
+    }
+
+    /* Mark the first node of this client batch so the daemon re-arms its
+     * per-batch pending-high-surrogate reset at the batch boundary (fragments
+     * otherwise never reset). C# chunking is surrogate-aware, so a well-formed
+     * pair is never split across two batches. */
+    if (node_count != 0u) {
+        q->items[start_tail].batch_start = true;
     }
 
     pthread_mutex_unlock(&q->mutex);
@@ -576,13 +587,14 @@ static bool synthetic_hook_queue_pop(
     ksi_synthetic_hook_queue *q,
     ksi_input *input,
     uint64_t *queued_at_ms,
-    ksi_synth_completion **completion)
+    ksi_synth_completion **completion,
+    bool *batch_start)
 {
     ksi_synthetic_hook_item item;
     bool found = false;
 
     if (q == NULL || input == NULL || queued_at_ms == NULL
-        || completion == NULL || !q->mutex_initialized) {
+        || completion == NULL || batch_start == NULL || !q->mutex_initialized) {
         return false;
     }
 
@@ -607,6 +619,7 @@ static bool synthetic_hook_queue_pop(
     *input = item.input;
     *queued_at_ms = item.queued_at_ms;
     *completion = item.completion;
+    *batch_start = item.batch_start;
     return true;
 }
 
@@ -881,7 +894,7 @@ static bool lane_decision_queue_push_with_ack(
         return false;
     }
 
-    q->decision = *decision;
+    memcpy(&q->decision, decision, ksi_lane_decision_size(decision->input_count));
     q->has_decision = true;
     pthread_mutex_unlock(&q->mutex);
 
@@ -907,8 +920,10 @@ static bool lane_decision_queue_pop(ksi_lane_decision_queue *q, ksi_lane_decisio
         return false;
     }
 
-    *out = q->decision;
-    memset(&q->decision, 0, sizeof(q->decision));
+    memcpy(out, &q->decision, ksi_lane_decision_size(q->decision.input_count));
+    /* All readers are bounded by input_count; clearing it bounds any future read
+     * to 0 entries without a 40KB memset. */
+    q->decision.input_count = 0;
     q->has_decision = false;
     pthread_mutex_unlock(&q->mutex);
     return true;
@@ -1018,7 +1033,9 @@ static void lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event)
         uint64_t deadline;
         ksi_lane_decision decision;
 
-        memset(&decision, 0, sizeof(decision));
+        /* Header only; the inputs tail is filled (bounded) by the matched copy
+         * below and only ever read up to input_count. */
+        memset(&decision, 0, offsetof(ksi_lane_decision, inputs));
 
         if (send_fd < 0) {
             lane_post_hook_failure(lane->state, response_fd, conn_id, event->hook_type, "send");
@@ -1048,7 +1065,13 @@ static void lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event)
             continue;
         }
 
-        deadline = monotonic_ms() + KSI_HOOK_DECISION_TIMEOUT_MS;
+        /* Full slack on the first attempt; once a subscriber has already stalled
+         * (timed out without a later success), fast-fail so a hung client cannot
+         * compound ~1s per event into a multi-second input freeze. */
+        deadline = monotonic_ms()
+            + (hook_send_ref_is_stalled(send_ref)
+                ? KSI_HOOK_DECISION_RETRY_TIMEOUT_MS
+                : KSI_HOOK_DECISION_TIMEOUT_MS);
 
         while (!got_decision) {
             uint64_t now = monotonic_ms();
@@ -1078,7 +1101,8 @@ static void lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event)
                 if (candidate.event_id == event->event_id
                     && candidate.responder_fd == response_fd
                     && candidate.responder_connection_id == conn_id) {
-                    decision = candidate;
+                    memcpy(&decision, &candidate,
+                        ksi_lane_decision_size(candidate.input_count));
                     got_decision = true;
                     break;
                 }
@@ -1094,9 +1118,13 @@ static void lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event)
                 break;
             }
 
+            hook_send_ref_mark_stalled(send_ref);
             lane_post_hook_failure(lane->state, response_fd, conn_id, event->hook_type, "timeout");
             continue;
         }
+
+        /* A real decision arrived: the subscriber is responsive again. */
+        hook_send_ref_clear_stalled(send_ref);
 
         if (decision.decision == KSI_HOOK_DECISION_BLOCK) {
             final_decision = KSI_HOOK_DECISION_BLOCK;
@@ -1133,8 +1161,14 @@ finalize:
             }
         }
     } else if (final_decision == KSI_HOOK_DECISION_MODIFY && modify_count > 0u) {
+        /* BATCH_FRAGMENT: the modified event may be one fragment of a synthetic
+         * client batch being routed through this hook (e.g. a SendText emoji's
+         * low-surrogate unit). Carrying the flag keeps the daemon's per-batch
+         * pending-high-surrogate reset from firing between the pair's fragments,
+         * mirroring the PASS synth-egress sites (hook_ingress.inc). */
         if (!output_queue_push_synth(&lane->state->output_queue,
-                modify_inputs, modify_count, KSI_SYNTH_FLAG_BYPASS_HOOK)) {
+                modify_inputs, modify_count,
+                KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT)) {
             synthetic_ok = false;
             fprintf(stderr, "lane: modify synth enqueue failed for event %llu\n",
                 (unsigned long long)event->event_id);

@@ -1466,7 +1466,15 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
      * two fragment calls. Resetting between fragments discarded the high half
      * and silently dropped every astral character (emoji) whenever a keyboard
      * hook was installed — so fragments keep the pending state. */
-    if ((flags & KSI_SYNTH_FLAG_BATCH_FRAGMENT) == 0u) {
+    /* Reset the pending high surrogate at genuine client-batch boundaries only.
+     * Skip the reset for: a physical replay (REPLAY — carries no surrogate state
+     * and may be interleaved between a pair's two fragments), and a non-first
+     * fragment of a batch (BATCH_FRAGMENT without BATCH_START — the pair spans
+     * fragments). DO reset for a plain top-level client batch (no flags) and for
+     * the FIRST fragment of a batch (BATCH_START), which re-arms the boundary. */
+    if ((flags & KSI_SYNTH_FLAG_REPLAY) == 0u
+            && ((flags & KSI_SYNTH_FLAG_BATCH_FRAGMENT) == 0u
+                || (flags & KSI_SYNTH_FLAG_BATCH_START) != 0u)) {
         pending_high_surrogate = 0;
     }
 
@@ -1481,6 +1489,7 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
      * button presses in this same batch are emitted on the absolute device so
      * position+click stay atomic on one device (see send_mouse_input). */
     bool used_abs_move = false;
+    int had_error = 0;
 
     for (size_t i = 0; i < count; i++) {
         if (inputs[i].type == KSI_INPUT_KEYBOARD) {
@@ -1493,12 +1502,23 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
         }
 
         if (result != 0) {
-            break;
+            had_error = 1;
+
+            /* A data-validation failure (unmappable codepoint/vk, lone surrogate)
+             * must NOT drop the rest of the batch — skip just this input and keep
+             * going, matching Windows SendInput (which never rejects individual
+             * KEYEVENTF_UNICODE events). Only a genuine device write failure
+             * (synth_write_failed, latched in emit_event_to) aborts, since
+             * continuing would only spew failed writes until the recovery poll
+             * rebuilds the device. */
+            if (synth_write_failed) {
+                break;
+            }
         }
     }
 
     synth_pacing_active = false;
-    return result;
+    return had_error ? -1 : 0;
 }
 
 static int replay_keyboard_hook_event(const ksi_keyboard_hook_event *event)
@@ -1515,7 +1535,8 @@ static int replay_keyboard_hook_event(const ksi_keyboard_hook_event *event)
         input.data.keyboard.flags |= KSI_KEYEVENTF_KEYUP;
     }
 
-    return ksi_linux_synth_send_input(&input, 1, KSI_SYNTH_FLAG_BYPASS_HOOK);
+    return ksi_linux_synth_send_input(&input, 1,
+        KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_REPLAY);
 }
 
 static int replay_mouse_hook_event(const ksi_mouse_hook_event *event)
@@ -1575,7 +1596,8 @@ static int replay_mouse_hook_event(const ksi_mouse_hook_event *event)
             return -1;
     }
 
-    return ksi_linux_synth_send_input(&input, 1, KSI_SYNTH_FLAG_BYPASS_HOOK);
+    return ksi_linux_synth_send_input(&input, 1,
+        KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_REPLAY);
 }
 
 int ksi_linux_synth_replay_hook_event(uint32_t hook_type, const ksi_hook_event_payload *event)

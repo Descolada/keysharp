@@ -73,6 +73,9 @@ namespace Keysharp.Internals.Input.Linux
 		{
 			Pass = 0,
 			Block = 1,
+			// Suppress-and-replace. The hook path no longer emits this — a hook now
+			// returns pure Block/Pass and any inline send goes out as a separate
+			// synthesis (Windows-style). Kept for protocol completeness.
 			Modify = 2,
 		}
 

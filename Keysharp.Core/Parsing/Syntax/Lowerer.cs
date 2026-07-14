@@ -1575,7 +1575,9 @@ namespace Keysharp.Parsing.Syntax
 						&& (reqParts[0].Equals("capability", System.StringComparison.OrdinalIgnoreCase)
 							|| reqParts[0].Equals("capabilities", System.StringComparison.OrdinalIgnoreCase))
 						&& reqParts[1].Trim() is { Length: > 0 } caps)
-						return ExprStmt(Inv(Access("Keysharp.Builtins.Ks.RequestCapabilities"), Str(caps)));
+						// RequireCapabilities (not RequestCapabilities): a #Requires directive is a hard
+						// requirement, so a denied prompt exits the app. The runtime builtin does not exit.
+						return ExprStmt(Inv(Access("Keysharp.Builtins.Ks.RequireCapabilities"), Str(caps)));
 					return null;
 				}
 				// #Warn config is applied in a prescan (PrescanWarnDirectives) so it is location-independent (per the

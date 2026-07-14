@@ -238,11 +238,21 @@ static bool is_protected_exe(const char *path)
 
 /* Produces a stable identity hash for executables in protected (root-owned,
  * non-world-writable) locations.  Uses the path STRING — not file content — so
- * the record survives package updates, PLUS the process's full command line, so
- * each distinct invocation (in particular each script path carried in argv) is a
- * separate trust identity and prompts separately.  Also fills command_line_buffer
- * (argv0 skipped) for the prompt's display text.  A missing/empty cmdline degrades
- * gracefully to a path-only identity rather than failing. */
+ * the record survives package updates, PLUS the process's full command line so
+ * each distinct invocation (in particular each script path carried in argv) gets
+ * its own prompt.  Also fills command_line_buffer (argv0 skipped) for the
+ * prompt's display text.  A missing/empty cmdline degrades gracefully to a
+ * path-only identity rather than failing.
+ *
+ * SECURITY BOUNDARY: the enforced boundary is (uid, exe) — uid comes from
+ * SO_PEERCRED (unforgeable) and the exe portion is the kernel's real path/inode
+ * of the running binary (unforgeable).  The cmdline component is NOT a security
+ * separator: a process can rewrite its own /proc/<pid>/cmdline (setproctitle),
+ * so a HOSTILE same-uid process running the same trusted interpreter can forge a
+ * previously-trusted sibling script's command line and inherit that grant
+ * without a prompt.  Per-script prompting is therefore per-invocation
+ * granularity for COOPERATIVE scripts, not a defense against a malicious
+ * same-uid peer.  Cross-uid and cross-executable are genuinely blocked. */
 /* WILDCARD identity: SHA-256 over a domain tag plus ONLY the exe portion (path for a protected
  * install, content digest for a dev build) — deliberately excluding the command line, so it is the
  * same for every script run by the binary. Backs the "Allow for executable" grant. */
@@ -1600,8 +1610,10 @@ int ksi_permissions_identify_process(
          * replace this binary, so the path (not its content) is a safe, stable
          * exe identity; skipping the content read eliminates the O(filesize)
          * startup cost and lets records survive package updates. The command line
-         * is folded in too, so each script (its path in argv) is trusted — and
-         * prompted for — separately rather than all sharing the binary's grant. */
+         * is folded in too so each script (its path in argv) is prompted for
+         * separately — but note that is per-invocation granularity, NOT a security
+         * boundary: cmdline is process-forgeable, so the enforced separation is
+         * (uid, exe) only (see hash_protected_path_identity). */
         close(fd);
         return hash_protected_path_identity(
             path_buffer, pid, command_line_buffer, command_line_buffer_size, hash_buffer, wildcard_hash_buffer);
@@ -1912,106 +1924,81 @@ ksi_permission_decision ksi_permissions_prompt(
     (void)snprintf(
         prompt_text,
         sizeof(prompt_text),
-        "An application is requesting access to Keysharp.\n\n"
+        "An application is requesting sensitive system capabilities access.\n\n"
         "Executable:\n%s\n\n"
         "Arguments:\n%s\n\n"
         "Permission identity hash:\n%s\n\n"
         "Requested access:\n%s\n"
-        "Only allow scripts you trust.",
+        "Only allow applications you trust.",
         display_path,
         display_args,
         exe_hash != NULL && exe_hash[0] != '\0' ? exe_hash : "(unknown)",
         capability_text[0] != '\0' ? capability_text : "- No capabilities requested\n");
 
     {
-        char output[64];
         static const char *zenity_paths[] = { "/usr/bin/zenity", "/bin/zenity", NULL };
         static const char *kdialog_paths[] = { "/usr/bin/kdialog", "/bin/kdialog", NULL };
 
+        /* Simple two-button prompt: [Allow] / [Deny]. Allow grants access to this
+         * EXECUTABLE persistently ("always allow this program" — the wildcard
+         * identity, so it survives restart and covers every script the binary
+         * runs). Deny / window-close / Esc is SESSION-ONLY: it denies now and a
+         * re-run of the app prompts again (see process_client_prompt_done and
+         * keysharp-helper). A question dialog auto-sizes to its text, so there is
+         * no listbox height to tune. */
         for (size_t i = 0; zenity_paths[i] != NULL; i++) {
-            char title_arg[] = "--title=Keysharp permissions";
+            char title_arg[] = "--title=Capability permissions";
             char text_arg[sizeof(prompt_text) + 8u];
             char *argv[] = {
                 "zenity",
-                "--list",
-                "--radiolist",
+                "--question",
                 title_arg,
                 text_arg,
                 "--width=640",
-                "--height=360",
-                "--column=Pick",
-                "--column=Action",
-                "TRUE",
-                "Allow always",
-                "FALSE",
-                "Allow once",
-                "FALSE",
-                "Allow for executable",
-                "FALSE",
-                "Deny",
+                "--ok-label=Allow",
+                "--cancel-label=Deny",
                 NULL,
             };
 
             (void)snprintf(text_arg, sizeof(text_arg), "--text=%s", prompt_text);
 
-            if (run_prompt_command(zenity_paths[i], argv, pid, uid, gid, output, sizeof(output)) == 0) {
-                if (strcmp(output, "Allow always") == 0) {
-                    return KSI_PERMISSION_DECISION_ALLOW_ALWAYS;
-                }
+            int rc = run_prompt_command(zenity_paths[i], argv, pid, uid, gid, NULL, 0);
 
-                if (strcmp(output, "Allow once") == 0) {
-                    return KSI_PERMISSION_DECISION_ALLOW_ONCE;
-                }
-
-                if (strcmp(output, "Allow for executable") == 0) {
-                    return KSI_PERMISSION_DECISION_ALLOW_ALL_SCRIPTS;
-                }
-
-                /* Explicit Deny is a real (session-only) denial — see process_client_prompt_done.
-                 * A cancelled/closed dialog returns non-zero and falls through to PROMPT_UNAVAILABLE. */
-                if (strcmp(output, "Deny") == 0) {
-                    return KSI_PERMISSION_DECISION_DENY;
-                }
+            if (rc < 0) {
+                /* Could not launch this zenity path; try the next, then kdialog. */
+                continue;
             }
+
+            /* Launched: commit to its answer (do NOT cascade to another backend).
+             * Exit 0 = Allow; any other exit (Deny button, close, Esc) = Deny. */
+            return rc == 0
+                ? KSI_PERMISSION_DECISION_ALLOW_ALL_SCRIPTS
+                : KSI_PERMISSION_DECISION_DENY;
         }
 
         for (size_t i = 0; kdialog_paths[i] != NULL; i++) {
             char *argv[] = {
                 "kdialog",
-                "--geometry",
-                "640x480",
                 "--title",
-                "Keysharp permissions",
-                "--menu",
+                "Capability permissions",
+                "--yesno",
                 prompt_text,
-                "always",
-                "Allow always",
-                "once",
-                "Allow once",
-                "allscripts",
-                "Allow for executable",
-                "deny",
+                "--yes-label",
+                "Allow",
+                "--no-label",
                 "Deny",
                 NULL,
             };
 
-            if (run_prompt_command(kdialog_paths[i], argv, pid, uid, gid, output, sizeof(output)) == 0) {
-                if (strcmp(output, "always") == 0) {
-                    return KSI_PERMISSION_DECISION_ALLOW_ALWAYS;
-                }
+            int rc = run_prompt_command(kdialog_paths[i], argv, pid, uid, gid, NULL, 0);
 
-                if (strcmp(output, "once") == 0) {
-                    return KSI_PERMISSION_DECISION_ALLOW_ONCE;
-                }
-
-                if (strcmp(output, "allscripts") == 0) {
-                    return KSI_PERMISSION_DECISION_ALLOW_ALL_SCRIPTS;
-                }
-
-                if (strcmp(output, "deny") == 0) {
-                    return KSI_PERMISSION_DECISION_DENY;
-                }
+            if (rc < 0) {
+                continue;  /* this kdialog path could not be launched; try the next */
             }
+
+            return rc == 0
+                ? KSI_PERMISSION_DECISION_ALLOW_ALL_SCRIPTS
+                : KSI_PERMISSION_DECISION_DENY;
         }
     }
 

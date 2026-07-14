@@ -22,9 +22,11 @@
 #include <stdbool.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sched.h>
 #include <sys/socket.h>
 #include <time.h>
@@ -43,9 +45,22 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
 #define KSI_MAX_SYNTH_INPUTS 1024
 #define KSI_MAX_MODIFY_INPUTS KSI_MAX_SYNTH_INPUTS
 #define KSI_HOOK_DECISION_TIMEOUT_MS 1000u
+/* Shorter deadline used once a subscriber has already timed out at least once
+ * without an intervening successful decision. Keeps the first-strike slack
+ * generous for a merely-slow managed client (GC/JIT pauses) while collapsing the
+ * worst-case hung-client freeze from ~5x1000ms toward ~1000ms+4x300ms. Chosen to
+ * match the Windows LowLevelHooksTimeout default so a live client is not falsely
+ * evicted. */
+#define KSI_HOOK_DECISION_RETRY_TIMEOUT_MS 300u
 /* Per-lane consecutive hook failures before the client is disconnected. */
 #define KSI_MAX_CONSECUTIVE_HOOK_FAILURES 5u
 #define KSI_MAX_LANE_ACTIONS 512u
+/* Cap on read() iterations per client per poll pass. Without it a client that
+ * streams unanswered frames (e.g. one-way HEARTBEATs) keeps the evdev-reader
+ * thread in the client read loop, starving physical-device ingestion — the
+ * device plane already has KSI_MAX_DEVICE_EVENTS_PER_PASS. 8 x 64KB is generous
+ * for legitimate bursts; the common case still exits on the first short read. */
+#define KSI_MAX_CLIENT_READS_PER_PASS 8
 #define KSI_MAX_OUTPUT_ACTIONS 4096u
 #define KSI_MAX_SYNTH_HOOK_ACTIONS 4096u
 #define KSI_MAX_OUTPUT_SYNTH_BYTES (1024u * 1024u)
@@ -56,6 +71,11 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
 #define KSI_IDLE_EXIT_MS 30000u
 /* CLIENT_HELLO deadline; peers that connect and send nothing cannot pin slots. */
 #define KSI_HANDSHAKE_TIMEOUT_MS 10000u
+/* Idle deadline for authenticated-but-capability-less connections (no grants, no
+ * hook/block subscriptions). Reset by any message, so a live query channel that
+ * polls within this window is never reaped; only truly-idle capless connections
+ * that would otherwise pin a slot forever are dropped. */
+#define KSI_CAPLESS_IDLE_TIMEOUT_MS 300000u
 /* Minimum spacing between honored client-forced permission prompts. */
 #define KSI_FORCED_PROMPT_COOLDOWN_MS 3000u
 /* Reserve a few client slots for other users/root helpers on shared systems. */
@@ -111,6 +131,10 @@ typedef struct ksi_client {
     uid_t uid;
     gid_t gid;
     uint64_t start_time;   /* field 22 of /proc/<pid>/stat; 0 if not yet known */
+    /* Process start time captured at accept, compared against the value the
+     * identity worker reads later; a mismatch means the pid was recycled between
+     * accept and identify, so /proc no longer describes the connecting process. */
+    uint64_t accept_start_time;
     ksi_client_state state;
     bool identity_attempted;
     bool has_identity;
@@ -128,6 +152,9 @@ typedef struct ksi_client {
     /* Consecutive hook failures per lane: index 0 keyboard, 1 mouse. */
     uint32_t consecutive_hook_failures[2];
     uint64_t lease_expires_ms;
+    /* Last time any message was received; drives the capless-idle reaper so an
+     * authenticated but capability-less connection cannot pin a slot forever. */
+    uint64_t last_activity_ms;
     char exe_path[KSI_PERMISSION_MAX_PATH];
     char command_line[KSI_PERMISSION_MAX_COMMAND_LINE];
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
@@ -293,6 +320,7 @@ typedef struct ksi_synthetic_hook_item {
     ksi_input input;
     uint64_t queued_at_ms;
     ksi_synth_completion *completion;
+    bool batch_start;  /* first node of a client batch; re-arms the surrogate reset */
 } ksi_synthetic_hook_item;
 
 typedef struct ksi_synthetic_hook_queue {
@@ -331,6 +359,19 @@ typedef struct ksi_lane_decision {
     uint32_t input_count;
     ksi_input inputs[KSI_MAX_MODIFY_INPUTS];
 } ksi_lane_decision;
+
+/* Bytes actually meaningful in a decision: the header plus input_count inputs.
+ * The embedded inputs[] array is ~40KB; the common PASS decision uses 0 inputs,
+ * so copying/clearing the whole struct per event is wasted memory traffic on the
+ * hot path. Copy only the used prefix. All readers are bounded by input_count. */
+static inline size_t ksi_lane_decision_size(uint32_t input_count)
+{
+    if (input_count > KSI_MAX_MODIFY_INPUTS) {
+        input_count = KSI_MAX_MODIFY_INPUTS;
+    }
+
+    return offsetof(ksi_lane_decision, inputs) + (size_t)input_count * sizeof(ksi_input);
+}
 
 /* If a lane is full, new physical events bypass hooks and replay fail-open. */
 typedef struct ksi_lane_action_queue {
@@ -384,8 +425,14 @@ typedef struct ksi_daemon_state {
     ksi_hook_lane mouse_lane;
     /* Used to enqueue RELEASE_ALL on keyboard grab held->released. */
     bool keyboard_grab_active;
-    /* Last accepted FORCE_PROMPT, for prompt-spam throttling. */
-    uint64_t last_forced_prompt_ms;
+    /* Per-uid FORCE_PROMPT throttle. A global timestamp let one uid on the shared
+     * 0666 system socket suppress every other uid's forcePrompt re-ask; keying by
+     * uid confines the cooldown to the spamming user. LRU-evict when full. */
+    struct {
+        uid_t uid;
+        bool in_use;
+        uint64_t last_ms;
+    } forced_prompt_by_uid[16];
 } ksi_daemon_state;
 
 typedef struct ksi_binary_message_view {
@@ -398,6 +445,8 @@ static int update_grab_state(ksi_daemon_state *state);
 static void clear_hook_state(ksi_daemon_state *state);
 static void record_client_hook_failure(
     ksi_daemon_state *state, nfds_t index, uint32_t hook_type, const char *reason);
+static void lane_flush_passthrough(ksi_hook_lane *lane);
+static bool output_queue_push_release_all(ksi_output_queue *q);
 
 /* Per-hook-type failure-counter slot: 0 keyboard, 1 mouse. */
 static size_t hook_type_to_lane_index(uint32_t hook_type)
@@ -563,6 +612,19 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         return 1;
     }
 
+    /* Lock our pages resident. The hook lanes/sequencer run SCHED_FIFO, but that
+     * does not prevent a major page fault from stalling a latency-critical thread
+     * under memory pressure — and a stall here becomes system-wide keystroke lag
+     * since all input is grabbed. Best-effort: the system service runs as root
+     * (CAP_IPC_LOCK bypasses RLIMIT_MEMLOCK); a non-root/--foreground dev run may
+     * lack the cap, so a failure is a note, not fatal. The resident set is small
+     * and bounded (fixed lane/worker pools, ring buffers). */
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
+        fprintf(stderr,
+            "inputd: note: mlockall failed (%s); hook latency may degrade under "
+            "memory pressure\n", strerror(errno));
+    }
+
     if (backend->start() != 0) {
         fprintf(stderr, "failed to start %s input backend\n", backend->name);
         return 1;
@@ -710,6 +772,12 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
     /* Keep the grabbed-input producer at the same priority as lanes/sequencer. */
     set_realtime_priority("evdev reader");
+
+    /* This thread also writes request/response frames to clients. Bound how long a
+     * non-reading client can stall physical-input dispatch: tear its reply stream
+     * down after ~10ms of backpressure instead of the default 100ms. Lane/worker
+     * threads keep the full budget (their writes never gate device ingestion). */
+    ksi_ipc_set_write_drain_budget_ms(10);
 
     uint64_t idle_since_ms = 0u;
 

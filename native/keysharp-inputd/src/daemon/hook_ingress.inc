@@ -37,23 +37,26 @@ static bool synth_batch_needs_hook_queue(
     return false;
 }
 
-static bool enqueue_synth_direct(ksi_daemon_state *state, const ksi_input *input)
+static bool enqueue_synth_direct(ksi_daemon_state *state, const ksi_input *input, bool batch_start)
 {
     /* BATCH_FRAGMENT: this is one event of an already-received client batch (the
      * synthetic hook queue re-emits them individually), so per-batch synthesis
      * state (the pending unicode high surrogate) must carry across to the next
-     * fragment rather than being reset (see ksi_linux_synth_send_input). */
-    return output_queue_push_synth(
-        &state->output_queue, input, 1u,
-        KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT);
+     * fragment rather than being reset (see ksi_linux_synth_send_input).
+     * BATCH_START on the first fragment re-arms that reset at the batch boundary. */
+    uint32_t flags = KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT
+        | (batch_start ? KSI_SYNTH_FLAG_BATCH_START : 0u);
+
+    return output_queue_push_synth(&state->output_queue, input, 1u, flags);
 }
 
 static bool enqueue_synth_direct_complete(
     ksi_daemon_state *state,
     const ksi_input *input,
-    ksi_synth_completion *completion)
+    ksi_synth_completion *completion,
+    bool batch_start)
 {
-    bool ok = enqueue_synth_direct(state, input);
+    bool ok = enqueue_synth_direct(state, input, batch_start);
 
     if (completion != NULL) {
         if (ok) {
@@ -69,7 +72,8 @@ static bool enqueue_synth_direct_complete(
 static bool process_synthetic_hook_input(
     ksi_daemon_state *state,
     const ksi_input *input,
-    ksi_synth_completion *completion)
+    ksi_synth_completion *completion,
+    bool batch_start)
 {
     uint32_t hook_type = hook_type_for_input(input);
     ksi_hook_event_payload payload;
@@ -82,14 +86,14 @@ static bool process_synthetic_hook_input(
     }
 
     if (hook_type == 0u || !any_matching_hook_subscriptions(state, hook_type)) {
-        return enqueue_synth_direct_complete(state, input, completion);
+        return enqueue_synth_direct_complete(state, input, completion, batch_start);
     }
 
     if (state->backend == NULL
         || state->backend->input_to_hook_event == NULL
         || !state->backend->input_to_hook_event(input, &hook_type, &payload, &event_size)) {
         fprintf(stderr, "inputd: synthetic input could not be represented as a hook event; sending directly\n");
-        return enqueue_synth_direct_complete(state, input, completion);
+        return enqueue_synth_direct_complete(state, input, completion, batch_start);
     }
 
     memset(&egress, 0, sizeof(egress));
@@ -97,8 +101,10 @@ static bool process_synthetic_hook_input(
     egress.synth_count = 1u;
     /* BATCH_FRAGMENT: same reason as enqueue_synth_direct — this egress is one
      * event of a split client batch, so the per-batch surrogate reset must not
-     * run between it and its sibling fragments. */
-    egress.synth_flags = KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT;
+     * run between it and its sibling fragments. BATCH_START on the first fragment
+     * re-arms the reset at the batch boundary. */
+    egress.synth_flags = KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT
+        | (batch_start ? KSI_SYNTH_FLAG_BATCH_START : 0u);
     egress.synth_inputs[0] = *input;
 
     atomic_store(&state->synthetic_hook_inflight, 1);
@@ -117,17 +123,18 @@ static bool process_synthetic_hook_queue_one(ksi_daemon_state *state)
     ksi_input input;
     uint64_t queued_at_ms;
     ksi_synth_completion *completion = NULL;
+    bool batch_start = false;
 
     if (state == NULL
         || atomic_load(&state->synthetic_hook_inflight) != 0
         || !synthetic_hook_queue_pop(&state->synthetic_hook_queue,
-            &input, &queued_at_ms, &completion)) {
+            &input, &queued_at_ms, &completion, &batch_start)) {
         return false;
     }
 
     (void)queued_at_ms;
 
-    if (!process_synthetic_hook_input(state, &input, completion)) {
+    if (!process_synthetic_hook_input(state, &input, completion, batch_start)) {
         fprintf(stderr, "inputd: failed to route synthetic hook input\n");
     }
 

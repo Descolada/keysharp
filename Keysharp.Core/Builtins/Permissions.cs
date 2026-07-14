@@ -65,20 +65,41 @@ namespace Keysharp.Builtins
 			var screenCapture = requested.Contains(KeysharpCapability.ScreenCapture);
 			var accessibility = requested.Contains(KeysharpCapability.AccessibilityAutomation);
 
-			// When input capabilities are requested, route screen capture through the
-			// same inputd call.  On Linux this produces one combined prompt for all
-			// capabilities; inputd writes the PID session so that keysharp-helper finds it
-			// and skips its own prompt.  When no input caps are requested, screen capture
-			// falls through to RequestScreenCapture below.
+			// Input capabilities (hooks/synth/block) are one enforcement domain and screen
+			// capture is a SEPARATE one, each with its own prompt — like macOS's separate
+			// Accessibility and Screen Recording permissions. Request each exactly once
+			// (screenCapture:false here so it is not also asked for inside the input call).
 			if (monitoring || injection || blockInput || accessibility)
-				permissions.RequestInputCapabilities(monitoring, injection, blockInput, screenCapture, accessibility, prompt: true, operation: "RequestCapabilities");
+				permissions.RequestInputCapabilities(monitoring, injection, blockInput, screenCapture: false, accessibility, prompt: true, operation: "RequestCapabilities");
 
-			// Always call RequestScreenCapture — on Linux keysharp-helper checks the PID
-			// session (possibly written by inputd above) and skips prompting if already
-			// granted.  On non-Linux platforms this shows the platform's own dialog.
 			if (screenCapture)
 				permissions.RequestScreenCapture(prompt: true, operation: "RequestCapabilities");
+		}
 
+		/// <summary>
+		/// Backing method for the <c>#Requires capability</c> directive: requests the listed
+		/// capabilities up front and EXITS the app if any is denied — the script declared it
+		/// cannot run without them. The runtime <see cref="RequestCapabilities"/> builtin
+		/// deliberately does NOT exit; it returns status for the script to handle instead.
+		/// </summary>
+		public static object RequireCapabilities(params object[] capabilities)
+		{
+			var requested = ParseRequestedCapabilities(capabilities);
+			RequestCapabilitiesBatched(requested);
+
+			var denied = new List<string>();
+
+			foreach (var cap in requested)
+				if (!QueryCapabilityStatus(cap).IsGranted)
+					denied.Add(CapabilityName(cap));
+
+			if (denied.Count == 0)
+				return DefaultObject;
+
+			_ = OutputDebugLine(
+				$"Keysharp: required capability/capabilities not granted: {string.Join(", ", denied)}. Exiting. " +
+				"Re-run and choose Allow (or grant it persistently) to continue.");
+			return Flow.ExitApp(1L);
 		}
 
 		private static PermissionResult QueryCapabilityStatus(KeysharpCapability capability)
@@ -104,10 +125,9 @@ namespace Keysharp.Builtins
 		private static PermissionResult QueryBlockInputCapability()
 		{
 #if LINUX
-				return Keysharp.Internals.Input.Linux.KeysharpInputdManager.EnsureCapabilities(
-					Keysharp.Internals.Input.Linux.KeysharpInputdClient.Capabilities.BlockInput,
-					"QueryCapabilities",
-					forcePrompt: false);
+				// Status query — peek, never prompt.
+				return Keysharp.Internals.Input.Linux.KeysharpInputdManager.PeekInputCapability(
+					Keysharp.Internals.Input.Linux.KeysharpInputdClient.Capabilities.BlockInput);
 #else
 			return new PermissionResult(PermissionStatus.NotApplicable);
 #endif

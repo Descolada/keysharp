@@ -15,6 +15,11 @@
 struct ksi_hook_send_ref {
     int fd;
     atomic_uint ref_count;
+    /* Set by the lane thread when this subscriber times out a decision; a
+     * subsequent event then uses a shorter deadline (fast-fail) until the
+     * subscriber answers again. Bounds a hung-client freeze. Lane-thread only in
+     * practice, atomic for a clean cross-thread read. */
+    atomic_bool stalled;
     pthread_mutex_t send_mutex;
     pthread_mutex_t order_mutex;
     pthread_cond_t order_cond;
@@ -90,6 +95,25 @@ bool hook_send_ref_acquire(ksi_hook_send_ref *ref)
 int hook_send_ref_fd(const ksi_hook_send_ref *ref)
 {
     return ref == NULL ? -1 : ref->fd;
+}
+
+bool hook_send_ref_is_stalled(const ksi_hook_send_ref *ref)
+{
+    return ref != NULL && atomic_load(&ref->stalled);
+}
+
+void hook_send_ref_mark_stalled(ksi_hook_send_ref *ref)
+{
+    if (ref != NULL) {
+        atomic_store(&ref->stalled, true);
+    }
+}
+
+void hook_send_ref_clear_stalled(ksi_hook_send_ref *ref)
+{
+    if (ref != NULL) {
+        atomic_store(&ref->stalled, false);
+    }
 }
 
 int hook_send_ref_send(

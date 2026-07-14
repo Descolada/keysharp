@@ -180,18 +180,23 @@ namespace Keysharp.Internals.Os
 
 		public override PermissionResult RequestInputMonitoring(bool? prompt = null, string operation = null)
 		{
-			return KeysharpInputdManager.EnsureCapabilities(
-				KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse,
-				operation ?? "keyboard/mouse monitoring",
-				forcePrompt: prompt == true);
+			var caps = KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse;
+
+			// prompt:false is a status query — peek, never prompt.
+			if (prompt == false)
+				return KeysharpInputdManager.PeekInputCapability(caps);
+
+			return KeysharpInputdManager.EnsureCapabilities(caps, operation ?? "keyboard/mouse monitoring", forcePrompt: prompt == true);
 		}
 
 		public override PermissionResult RequestInputInjection(bool? prompt = null, string operation = null)
 		{
-			return KeysharpInputdManager.EnsureCapabilities(
-				KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
-				operation ?? "keyboard/mouse sending",
-				forcePrompt: prompt == true);
+			var caps = KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse;
+
+			if (prompt == false)
+				return KeysharpInputdManager.PeekInputCapability(caps);
+
+			return KeysharpInputdManager.EnsureCapabilities(caps, operation ?? "keyboard/mouse sending", forcePrompt: prompt == true);
 		}
 
 		public override PermissionResult RequestScreenCapture(bool? prompt = null, string operation = null)
@@ -201,10 +206,12 @@ namespace Keysharp.Internals.Os
 			return Platform.Screen.RequestCaptureAuthorization(operation ?? "screen capture", prompt == true);
 		}
 
-		// Batch all capabilities into a single inputd call so the user sees at most one
-		// prompt. Screen capture is included in the inputd request so the combined prompt
-		// covers it; inputd writes the PID session grant for all capabilities on ALLOW_ONCE,
-		// allowing keysharp-helper to skip its own prompt when it checks the session file.
+		// Input capabilities (hooks/synth/block) are one enforcement domain (keysharp-inputd)
+		// and screen capture is a SEPARATE one (keysharp-helper) with its own prompt — like
+		// macOS's separate Accessibility and Screen Recording permissions. So they are
+		// requested independently: the inputd request coalesces to the full input set
+		// (ExpandInputPermissionRequest) for a single input prompt, and screen capture
+		// prompts on its own. Aggregate to the worst status (Combine).
 		public override PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool accessibilityAutomation = false, bool? prompt = null, string operation = null)
 		{
 			var flags = KeysharpInputdClient.Capabilities.None;
@@ -213,12 +220,16 @@ namespace Keysharp.Internals.Os
 			if (monitoring)    flags |= KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse;
 			if (injection)     flags |= KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse;
 			if (blockInput)    flags |= KeysharpInputdClient.Capabilities.BlockInput;
-			if (screenCapture) flags |= KeysharpInputdClient.Capabilities.ScreenCapture;
 
-			if (flags == KeysharpInputdClient.Capabilities.None)
-				return new(PermissionStatus.NotApplicable);
+			var result = new PermissionResult(PermissionStatus.NotApplicable);
 
-			return KeysharpInputdManager.EnsureCapabilities(flags, operation ?? "RequestCapabilities", forcePrompt: prompt == true);
+			if (flags != KeysharpInputdClient.Capabilities.None)
+				result = Combine(result, KeysharpInputdManager.EnsureCapabilities(flags, operation ?? "RequestCapabilities", forcePrompt: prompt == true));
+
+			if (screenCapture)
+				result = Combine(result, RequestScreenCapture(prompt, operation));
+
+			return result;
 		}
 	}
 #endif

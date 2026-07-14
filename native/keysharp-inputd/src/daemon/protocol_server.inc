@@ -1,3 +1,43 @@
+/* Per-uid FORCE_PROMPT cooldown. Returns true if this uid asked for a forced
+ * prompt within KSI_FORCED_PROMPT_COOLDOWN_MS of its previous accepted one (so
+ * the force should be dropped); otherwise records now for this uid and returns
+ * false. Keyed by uid so a spamming user cannot suppress other users' re-asks. */
+static bool forced_prompt_throttled(ksi_daemon_state *state, uid_t uid)
+{
+    uint64_t now = monotonic_ms();
+    size_t n = sizeof(state->forced_prompt_by_uid) / sizeof(state->forced_prompt_by_uid[0]);
+    size_t free_slot = n;
+    size_t oldest = 0;
+    uint64_t oldest_ms = UINT64_MAX;
+
+    for (size_t i = 0; i < n; i++) {
+        if (state->forced_prompt_by_uid[i].in_use && state->forced_prompt_by_uid[i].uid == uid) {
+            if (now < state->forced_prompt_by_uid[i].last_ms + KSI_FORCED_PROMPT_COOLDOWN_MS) {
+                return true;
+            }
+
+            state->forced_prompt_by_uid[i].last_ms = now;
+            return false;
+        }
+
+        if (!state->forced_prompt_by_uid[i].in_use && free_slot == n) {
+            free_slot = i;
+        }
+
+        if (state->forced_prompt_by_uid[i].in_use && state->forced_prompt_by_uid[i].last_ms < oldest_ms) {
+            oldest_ms = state->forced_prompt_by_uid[i].last_ms;
+            oldest = i;
+        }
+    }
+
+    /* No slot for this uid yet: use a free slot, else evict the least-recent. */
+    size_t slot = (free_slot != n) ? free_slot : oldest;
+    state->forced_prompt_by_uid[slot].in_use = true;
+    state->forced_prompt_by_uid[slot].uid = uid;
+    state->forced_prompt_by_uid[slot].last_ms = now;
+    return false;
+}
+
 static void handle_client_hello(
     ksi_daemon_state *state,
     ksi_client *client,
@@ -21,16 +61,11 @@ static void handle_client_hello(
 	/* Rate-limit client-forced prompts: within the cooldown, drop the force so the
 	 * hello is served like a normal one (persistent denies stay suppressed and no
 	 * new prompt is spawned). This blocks a FORCE_PROMPT spam loop without breaking a
-	 * genuine, well-spaced RequestCapabilities re-ask. */
-	if (force_prompt) {
-		uint64_t now = monotonic_ms();
-
-		if (state->last_forced_prompt_ms != 0u
-			&& now < state->last_forced_prompt_ms + KSI_FORCED_PROMPT_COOLDOWN_MS) {
-			force_prompt = false;
-		} else {
-			state->last_forced_prompt_ms = now;
-		}
+	 * genuine, well-spaced RequestCapabilities re-ask. The cooldown is keyed by uid
+	 * so one user on the shared 0666 system socket cannot suppress another user's
+	 * force-prompt re-ask. */
+	if (force_prompt && forced_prompt_throttled(state, client->uid)) {
+		force_prompt = false;
 	}
 
 	/* The client completed its handshake; it is no longer subject to the
@@ -508,7 +543,9 @@ static void handle_hook_decision(
         return;
     }
 
-    memset(&decision, 0, sizeof(decision));
+    /* Header only; the inputs tail is filled (bounded) by the memcpy below and
+     * only ever read up to input_count. */
+    memset(&decision, 0, offsetof(ksi_lane_decision, inputs));
     decision.event_id = payload->event_id;
     decision.decision = payload->decision;
     decision.responder_fd = client->fd;
@@ -581,7 +618,12 @@ static void handle_synthesize_input(
         return;
     }
 
-    if (synth_batch_needs_hook_queue(state, payload->inputs, payload->count, payload->flags)) {
+    /* BYPASS_HOOK is the only client-legal flag. BATCH_FRAGMENT/REPLAY/BATCH_START
+     * are daemon-internal (they gate the surrogate-reset); strip anything else a
+     * client sets so it cannot splice surrogate state or reach internal paths. */
+    uint32_t synth_flags = payload->flags & KSI_SYNTH_FLAG_BYPASS_HOOK;
+
+    if (synth_batch_needs_hook_queue(state, payload->inputs, payload->count, synth_flags)) {
         ksi_synth_completion *completion = synth_completion_create(
             client->hook_send_ref, message->header);
 
@@ -589,6 +631,15 @@ static void handle_synthesize_input(
             send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 12);
             return;
         }
+
+        /* If the sending PROCESS is itself a hook subscriber, the hook-visible
+         * injected events will re-enter that process's own hook — whose reader
+         * thread may be the very thread now blocked waiting for this result. In
+         * that case ack on RECEIPT rather than deferring until dispatch, so the
+         * daemon never makes a process wait on its own hook dispatch (Windows-
+         * style: the hook infrastructure, not the client, prevents the deadlock).
+         * Determined here, before the queue push, from daemon-side state alone. */
+        bool ack_on_receipt = process_has_active_hook(state, client->pid, client->uid);
 
         if (!synthetic_hook_queue_push(
                 &state->synthetic_hook_queue,
@@ -603,11 +654,19 @@ static void handle_synthesize_input(
         if (completion->remaining == 0u) {
             synth_completion_send_once(completion, 0, 0u);
             synth_completion_destroy(completion);
+        } else if (ack_on_receipt) {
+            /* Result now; the completion object stays attached and is destroyed
+             * when dispatch finishes (send_once is idempotent, so the dispatch
+             * path's later completion is a no-op). The injected events still
+             * re-enter the hook chain, exactly as before — only the ack timing
+             * changes. handle_synthesize_input and the queue drain both run on the
+             * main thread, so this write is ordered before the lane's read. */
+            synth_completion_send_once(completion, 0, 0u);
         }
         return;
     } else {
         if (!output_queue_push_synth(&state->output_queue,
-                payload->inputs, payload->count, payload->flags)) {
+                payload->inputs, payload->count, synth_flags)) {
             send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 12);
             return;
         }
@@ -623,6 +682,9 @@ static void handle_binary_message(
     const ksi_binary_message_view *message)
 {
     (void)backend;
+
+    /* Any message keeps the connection out of the capless-idle reaper. */
+    client->last_activity_ms = monotonic_ms();
 
     if (g_verbose) {
         printf("client %d binary type=%u size=%u correlation=%llu\n",
@@ -739,7 +801,7 @@ static bool process_client_buffer_direct(ksi_daemon_state *state, ksi_client *cl
 
 static int read_client_frames_direct(ksi_daemon_state *state, ksi_client *client)
 {
-    for (;;) {
+    for (int reads = 0; reads < KSI_MAX_CLIENT_READS_PER_PASS; reads++) {
         ssize_t bytes_read;
         size_t available = KSI_MAX_MESSAGE_SIZE - client->rx_used;
 
@@ -756,6 +818,7 @@ static int read_client_frames_direct(ksi_daemon_state *state, ksi_client *client
 
         if (bytes_read < 0) {
             if (errno == EINTR) {
+                reads--;  /* EINTR is not a real read; don't spend budget on it */
                 continue;
             }
 
@@ -772,6 +835,12 @@ static int read_client_frames_direct(ksi_daemon_state *state, ksi_client *client
             return 1;
         }
     }
+
+    /* Budget exhausted while the client still had a full buffer of data each
+     * read. Keep the client (return 1, not 0/-1): unread bytes stay in the kernel
+     * recv buffer and the fd remains POLLIN-readable, so the next poll iteration
+     * re-enters here — now interleaved with device/hook ingress. */
+    return 1;
 }
 
 static void send_indicator_state_result(int client_fd, const ksi_message_header *request)
@@ -960,8 +1029,13 @@ static void add_client(
     client->pid = credentials->pid;
     client->uid = credentials->uid;
     client->gid = credentials->gid;
+    /* Snapshot the process start time now; the identity worker re-reads it later
+     * and process_client_identified rejects the identity if it changed (pid
+     * recycled between accept and the /proc read). */
+    client->accept_start_time = ksi_permissions_get_process_start_time(credentials->pid);
     client->state = KSI_CLIENT_STATE_READY;
     client->connected_at_ms = monotonic_ms();
+    client->last_activity_ms = client->connected_at_ms;
     client->hello_seen = false;
     state->client_count++;
 

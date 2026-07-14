@@ -333,6 +333,22 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
 
     client = &state->clients[client_index];
 
+    /* Reject the identity if the process the worker read is not the one we
+     * accepted: a zero/mismatched start time means the pid was recycled between
+     * accept and the /proc read (TOCTOU). Deny caps rather than trust a possibly
+     * different process's exe. (Note: exec() within the same pid does NOT change
+     * start_time, so this closes pid-reuse only, not a fork-then-exec-in-pid race;
+     * that residual is accepted — the (uid, exe) boundary is same-uid-weak by
+     * design, see permissions.c.) */
+    if (result != NULL && result->has_identity
+        && (result->start_time == 0u || client->accept_start_time == 0u
+            || result->start_time != client->accept_start_time)) {
+        fprintf(stderr,
+            "inputd: rejecting identity for client pid=%ld: process start time changed "
+            "between accept and identify (pid recycled)\n", (long)client->pid);
+        result = NULL;
+    }
+
     if (result != NULL && result->has_identity) {
         client->has_identity = true;
         client->start_time = result->start_time;
@@ -509,6 +525,26 @@ static bool any_matching_hook_subscriptions(const ksi_daemon_state *state, uint3
     return false;
 }
 
+/* True if any connection belonging to the given process (pid+uid) is a hook
+ * subscriber. Used to decide whether a synthesis from that process re-enters its
+ * OWN hook (so its result must be acked on receipt to avoid a self-deadlock). */
+static bool process_has_active_hook(const ksi_daemon_state *state, pid_t pid, uid_t uid)
+{
+    if (state == NULL) {
+        return false;
+    }
+
+    for (nfds_t i = 0; i < state->client_count; i++) {
+        const ksi_client *c = &state->clients[i];
+
+        if (c->pid == pid && c->uid == uid && c->hook_subscriptions != 0u) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static int update_grab_state(ksi_daemon_state *state)
 {
     uint32_t hook_mask = active_hook_subscription_mask(state);
@@ -674,6 +710,26 @@ static void expire_unauthenticated_clients(ksi_daemon_state *state)
     for (nfds_t i = state->client_count; i > 0; i--) {
         nfds_t index = i - 1u;
         ksi_client *client = &state->clients[index];
+
+        /* Capless-idle reaper: an authenticated connection holding no grants and
+         * no hook/block subscriptions, idle past the timeout, is dropped so it
+         * cannot pin a per-uid slot forever. Guarded on READY + !pending_hello so
+         * a client mid-identify or mid-prompt is never reaped; any message resets
+         * last_activity_ms, so a live query channel that polls is kept. */
+        if (client->hello_seen
+            && client->state == KSI_CLIENT_STATE_READY
+            && !client->pending_hello_valid
+            && client->granted_capabilities == 0u
+            && client->hook_subscriptions == 0u
+            && client->block_input_mask == 0u
+            && client->last_activity_ms != 0u
+            && now >= client->last_activity_ms + KSI_CAPLESS_IDLE_TIMEOUT_MS) {
+            fprintf(stderr,
+                "inputd: dropping client fd=%d: capability-less and idle for %u ms\n",
+                client->fd, (unsigned)KSI_CAPLESS_IDLE_TIMEOUT_MS);
+            remove_client(state, index);
+            continue;
+        }
 
         if (client->hello_seen || client->connected_at_ms == 0u
             || now < client->connected_at_ms + KSI_HANDSHAKE_TIMEOUT_MS) {

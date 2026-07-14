@@ -162,6 +162,12 @@ typedef enum ksi_hook_type {
 typedef enum ksi_hook_decision {
     KSI_HOOK_DECISION_PASS = 0,
     KSI_HOOK_DECISION_BLOCK = 1,
+    /* Suppress the original event and emit replacement inputs instead. The C#
+     * hook path no longer produces this — inline hook sends (modifier disguise /
+     * Alt-Tab) now go out as a separate synthesis after a pure Block/Pass decision
+     * (mirroring Windows: a hook returns block/pass and any extra input is an
+     * independent SendInput; the daemon acks such a send on receipt when the
+     * sending process hooks, avoiding a self-deadlock). Kept as a valid primitive. */
     KSI_HOOK_DECISION_MODIFY = 2,
 } ksi_hook_decision;
 
@@ -318,6 +324,24 @@ typedef struct ksi_client_hello_result_payload {
  * fragments loses its high half and the emoji is silently dropped whenever a
  * keyboard hook is installed. */
 #define KSI_SYNTH_FLAG_BATCH_FRAGMENT 0x00000002u
+/* DAEMON-INTERNAL (never set by clients): this push is a physical hook-event
+ * replay (see replay_keyboard_hook_event / replay_mouse_hook_event), NOT a
+ * client batch. A replay carries no UTF-16 surrogate state of its own (keyboard
+ * replays use SCANCODE, mouse replays never touch unicode), and the sequencer
+ * can interleave one between the two fragments of a synthetic surrogate pair, so
+ * it must NOT run the per-batch pending-high-surrogate reset — otherwise a mouse
+ * move (or other grabbed-device replay) between the high and low fragments drops
+ * the emoji. Treated as surrogate-state-neutral, like BATCH_FRAGMENT. */
+#define KSI_SYNTH_FLAG_REPLAY 0x00000004u
+/* DAEMON-INTERNAL (never set by clients): this is the FIRST fragment of a client
+ * batch on the synthetic-hook path. Fragments normally suppress the surrogate
+ * reset (BATCH_FRAGMENT) so a pair can span two fragments, but that also meant
+ * the reset NEVER ran on the hooked path, letting a malformed client batch
+ * ending in a lone high surrogate splice into the next client's batch. Marking
+ * the first fragment of each batch re-arms the reset exactly at batch
+ * boundaries. (C# chunking is surrogate-aware so a well-formed pair is never
+ * split across two client batches.) */
+#define KSI_SYNTH_FLAG_BATCH_START 0x00000008u
 
 typedef struct ksi_synthesize_input_payload {
     uint32_t count;

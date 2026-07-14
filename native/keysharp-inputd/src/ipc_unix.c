@@ -383,6 +383,19 @@ static uint64_t ipc_monotonic_ms(void)
  * a slow client never blocks sends to other clients. */
 #define KSI_WRITE_DRAIN_BUDGET_MS 100
 
+/* Per-thread drain budget. Lane/worker threads keep the full 100ms (their writes
+ * never gate device ingestion), but the evdev-reader thread — which also services
+ * request/response frames (send_status, LIST_PERMISSIONS, GET_KEY_STATE) — sets a
+ * much smaller value so a non-reading client can only stall physical-input
+ * dispatch for a few ms, not 100ms per reply. Defaults to the full budget so
+ * behavior is unchanged on any thread that does not call the setter. */
+static _Thread_local int t_write_drain_budget_ms = KSI_WRITE_DRAIN_BUDGET_MS;
+
+void ksi_ipc_set_write_drain_budget_ms(int ms)
+{
+    t_write_drain_budget_ms = ms > 0 ? ms : 1;
+}
+
 static int write_exact(int fd, const void *buffer, size_t length)
 {
     const uint8_t *cursor = buffer;
@@ -416,7 +429,7 @@ static int write_exact(int fd, const void *buffer, size_t length)
             int poll_result;
 
             if (drain_deadline_ms == 0u) {
-                drain_deadline_ms = now_ms + KSI_WRITE_DRAIN_BUDGET_MS;
+                drain_deadline_ms = now_ms + (uint64_t)t_write_drain_budget_ms;
             }
 
             if (now_ms >= drain_deadline_ms) {

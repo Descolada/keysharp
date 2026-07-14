@@ -427,7 +427,8 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 				try
 				{
-					SendInputdHookDecision(client, hookEvent, block, hookDecisionPrefixInputs);
+					SendInputdHookDecision(client, hookEvent, block);
+					EmitInlineHookSends(hookDecisionPrefixInputs);
 
 					if (!block
 						&& CursorClipActive
@@ -595,120 +596,40 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		private bool inputdPanicCtrlDown;
 		private bool inputdPanicAltDown;
 
+		// A hook decision is now PURE suppress-or-pass, mirroring Windows (a low-level
+		// hook returns block/pass; it does not "modify" the event). Any input the hook
+		// synthesized inline (modifier disguise / Alt-Tab, captured in prefixInputs) is
+		// emitted AFTER the decision by EmitInlineHookSends as an independent send.
 		private static void SendInputdHookDecision(
 			KeysharpInputdClient client,
 			in KeysharpInputdClient.HookEvent hookEvent,
-			bool block,
-			IReadOnlyList<KeysharpInputdClient.Input> prefixInputs)
+			bool block)
 		{
-			if (prefixInputs == null || prefixInputs.Count == 0)
-			{
-				client.SendHookDecision(
-					hookEvent.EventId,
-					block ? KeysharpInputdClient.HookDecision.Block : KeysharpInputdClient.HookDecision.Pass);
+			client.SendHookDecision(
+				hookEvent.EventId,
+				block ? KeysharpInputdClient.HookDecision.Block : KeysharpInputdClient.HookDecision.Pass);
+		}
+
+		// Emit input the hook callback synthesized inline (disguise / Alt-Tab modifier
+		// management) as a separate, hook-visible synthesis AFTER the block/pass decision
+		// — exactly like a Windows hook calling SendInput. The events re-enter the hook
+		// chain (tagged with the sender's ignore level, so they don't re-trigger). This
+		// runs on the hook reader thread, but the daemon prevents the self-deadlock on
+		// its own: it acks the synthesis on receipt because the sending process is a hook
+		// subscriber, so this thread never waits for its own hook dispatch.
+		private static void EmitInlineHookSends(IReadOnlyList<KeysharpInputdClient.Input> inputs)
+		{
+			if (inputs == null || inputs.Count == 0)
 				return;
-			}
 
-			var replacementInputs = new List<KeysharpInputdClient.Input>(Math.Min(MaxHookDecisionInputs, prefixInputs.Count + (block ? 0 : 1)));
-
-			for (var i = 0; i < prefixInputs.Count && replacementInputs.Count < MaxHookDecisionInputs; i++)
-				replacementInputs.Add(prefixInputs[i]);
-
-			if (!block && TryInputFromHookEvent(hookEvent, out var originalInput) && replacementInputs.Count < MaxHookDecisionInputs)
-				replacementInputs.Add(originalInput);
-
-			client.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Modify, replacementInputs);
-		}
-
-		private static bool TryInputFromHookEvent(in KeysharpInputdClient.HookEvent hookEvent, out KeysharpInputdClient.Input input)
-		{
-			if (hookEvent.HookType == KeysharpInputdClient.HookType.KeyboardLowLevel)
-				return TryInputFromKeyboardHookEvent(hookEvent.Keyboard, out input);
-
-			if (hookEvent.HookType == KeysharpInputdClient.HookType.MouseLowLevel)
-				return TryInputFromMouseHookEvent(hookEvent.Mouse, out input);
-
-			input = default;
-			return false;
-		}
-
-		private static bool TryInputFromKeyboardHookEvent(
-			KeysharpInputdClient.KeyboardHookEvent ev,
-			out KeysharpInputdClient.Input input)
-		{
-			var keyUp = (ev.Flags & 0x80u) != 0 || ev.Message == 0x0101u || ev.Message == 0x0105u;
-
-			// A unicode unit (VK_PACKET) has no scancode identity — its scan field IS the UTF-16 code
-			// unit (keyboard_input_to_hook_event mirrors it there). Reconstruct it as the unicode input
-			// it was; stamping it ScanCode instead hands the daemon an unresolvable VK_PACKET+surrogate
-			// "key" that it drops, so a reentrant send during a SendText would eat the unicode char.
-			if (ev.VkCode == VK_PACKET)
+			try
 			{
-				input = KeysharpInputdClient.Input.Key(
-					0,
-					(ushort)ev.ScanCode,
-					KeysharpInputdClient.KeyEventFlags.Unicode
-						| (keyUp ? KeysharpInputdClient.KeyEventFlags.KeyUp : 0),
-					extraInfo: ev.ExtraInfo);
-				return ev.ScanCode != 0;
+				KeysharpInputdManager.SendInputViaSynthesisChannel(inputs);
 			}
-
-			var flags = KeysharpInputdClient.KeyEventFlags.ScanCode;
-
-			if ((ev.Flags & 0x01u) != 0)
-				flags |= KeysharpInputdClient.KeyEventFlags.ExtendedKey;
-
-			if (keyUp)
-				flags |= KeysharpInputdClient.KeyEventFlags.KeyUp;
-
-			input = KeysharpInputdClient.Input.Key(
-				(ushort)ev.VkCode,
-				(ushort)ev.ScanCode,
-				flags,
-				extraInfo: ev.ExtraInfo);
-			return ev.ScanCode != 0 || ev.VkCode != 0;
-		}
-
-		private static bool TryInputFromMouseHookEvent(
-			KeysharpInputdClient.MouseHookEvent ev,
-			out KeysharpInputdClient.Input input)
-		{
-			var flags = (KeysharpInputdClient.MouseEventFlags)0;
-
-			foreach (var (flag, message) in MouseHookMessages)
+			catch (Exception ex)
 			{
-				if (ev.Message != message)
-					continue;
-
-				flags = flag;
-				break;
+				Ks.OutputDebugLine($"keysharp-inputd inline hook send failed: {ex.Message}");
 			}
-
-			if (flags == 0)
-			{
-				input = default;
-				return false;
-			}
-
-			var dx = 0;
-			var dy = 0;
-			var mouseData = 0u;
-
-			if ((flags & KeysharpInputdClient.MouseEventFlags.Move) != 0)
-			{
-				dx = ev.X;
-				dy = ev.Y;
-
-				if ((ev.MouseData & (uint)KeysharpInputdClient.MouseEventFlags.Absolute) != 0)
-					flags |= KeysharpInputdClient.MouseEventFlags.Absolute;
-			}
-			else if ((flags & (KeysharpInputdClient.MouseEventFlags.Wheel | KeysharpInputdClient.MouseEventFlags.HWheel)) != 0)
-				mouseData = unchecked((uint)((int)ev.MouseData >> 16));
-			else if ((flags & (KeysharpInputdClient.MouseEventFlags.XDown | KeysharpInputdClient.MouseEventFlags.XUp)) != 0)
-				mouseData = ev.MouseData;
-
-			input = KeysharpInputdClient.Input.MouseEvent(dx, dy, mouseData, flags, extraInfo: ev.ExtraInfo);
-			return true;
 		}
 
 		private void CheckInputdPanicCombo(in KeysharpInputdClient.HookEvent hookEvent)

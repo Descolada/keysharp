@@ -2104,10 +2104,10 @@ namespace Keysharp.Internals.Input.Keyboard
 										// To know why the following requires sendMode != SM_PLAY, see SendUnicodeChar.
 										if (sendMode != SendModes.Play)
 										{
-											SendUnicodeChar(wc1, modsForNextKey.Value | persistentModifiersForThisSendKeys);
-
 											if (wc2 != 0)
-												SendUnicodeChar(wc2, modsForNextKey.Value | persistentModifiersForThisSendKeys);
+												SendUnicodePair(wc1, wc2, modsForNextKey.Value | persistentModifiersForThisSendKeys);
+											else
+												SendUnicodeChar(wc1, modsForNextKey.Value | persistentModifiersForThisSendKeys);
 										}
 										else // Note that this method generally won't work with Unicode characters except
 										{
@@ -2593,6 +2593,18 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal abstract void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint eventFlags, long extraInfo);
 
 		internal abstract void SendUnicodeChar(char ch, uint modifiers);
+
+		// Send a UTF-16 surrogate pair as one logical unit. Default: two
+		// SendUnicodeChar calls (Windows/Unix/macOS reconstruct the codepoint
+		// per-unit). The Linux inputd sender overrides this to emit both units in a
+		// single synthesis batch, so the daemon's per-batch high-surrogate reset
+		// cannot drop the high half between two separate batches (astral chars in
+		// SendMode Event with no hook installed would otherwise vanish).
+		internal virtual void SendUnicodePair(char high, char low, uint modifiers)
+		{
+			SendUnicodeChar(high, modifiers);
+			SendUnicodeChar(low, modifiers);
+		}
 
 		protected internal virtual bool TrySendPlatformSpecialCharKeyEvent(char ch, KeyEventTypes eventType, uint modifiersLR) => false;
 

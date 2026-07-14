@@ -76,8 +76,13 @@ static void dispatch_hook_event_to_lane(
         + sizeof(lane_event->payload.reserved)
         + event_size;
 
-    for (nfds_t i = 0; i < state->client_count
-            && lane_event->subscriber_count < KSI_MAX_CLIENTS; i++) {
+    /* Iterate clients newest-connected first so the most-recently-installed hook
+     * decides first, matching the Windows WH_KEYBOARD_LL/WH_MOUSE_LL chain order
+     * (SetWindowsHookEx installs at the head; CallNextHookEx walks toward older
+     * hooks). clients[] is append-ordered (oldest at index 0), so walk it in
+     * reverse. nfds_t is unsigned, hence the decrement-guard form. */
+    for (nfds_t i = state->client_count;
+            i-- > 0 && lane_event->subscriber_count < KSI_MAX_CLIENTS; ) {
         const ksi_client *c = &state->clients[i];
 
         if ((c->hook_subscriptions & subscription_bit) == 0u) {
@@ -229,13 +234,19 @@ static void daemon_handle_hook_event(
         }
     }
 
-    if (!is_injected && (active_block_input_mask(state) & block_bit) != 0) {
-        return;
-    }
+    /* BlockInput suppresses delivery to APPLICATIONS, not to the owning hook.
+     * On Windows BlockInput() is independent of the LL hook chain: hooks (and
+     * therefore hotkeys/InputHooks, including the one that will turn BlockInput
+     * back off) keep firing on physical input while it is active. So do NOT drop
+     * the event here; dispatch it to the hook as usual but force egress to NONE
+     * below so it is never replayed to apps regardless of the PASS decision. */
+    bool block_active = !is_injected && (active_block_input_mask(state) & block_bit) != 0;
 
     if (!any_matching_hook_subscriptions(state, hook_type)) {
-        /* Mixed devices may be grabbed for the other input class. */
-        if (!is_injected) {
+        /* Mixed devices may be grabbed for the other input class. When BlockInput
+         * is active with no hook subscribed, keep the old behavior of dropping the
+         * event from apps (no replay). */
+        if (!is_injected && !block_active) {
             ksi_hook_event_payload payload;
             memset(&payload, 0, sizeof(payload));
             payload.hook_type = hook_type;
@@ -256,7 +267,7 @@ static void daemon_handle_hook_event(
         ksi_lane_egress egress;
 
         memset(&egress, 0, sizeof(egress));
-        egress.type = is_injected ? KSI_LANE_EGRESS_NONE : KSI_LANE_EGRESS_REPLAY;
+        egress.type = (is_injected || block_active) ? KSI_LANE_EGRESS_NONE : KSI_LANE_EGRESS_REPLAY;
         dispatch_hook_event_to_lane(state, hook_type, event, event_size, &egress, NULL);
     }
 }

@@ -9,11 +9,19 @@ namespace Keysharp.Internals.Input.Linux
 	{
 		private static readonly Lock gate = new();
 		private static readonly Lock queryGate = new();
+		// A SEPARATE query connection/gate used only by the hook reader thread. A
+		// blocking Send on another thread holds queryGate until its SYNTHESIS_RESULT,
+		// which (with a hook active) can only complete after the lane finishes the
+		// current physical event's decision — which needs the hook reader thread,
+		// which may itself want a state query. Routing hook-thread queries to their
+		// own gate breaks that circular wait.
+		private static readonly Lock hookQueryGate = new();
 
 		// client handles hook/control traffic; queryClient handles synthesis/state queries.
 		// Volatile lets IsDaemonReachable answer without blocking behind a prompt.
 		private static volatile KeysharpInputdClient client;
 		private static KeysharpInputdClient queryClient;
+		private static KeysharpInputdClient hookQueryClient;
 		private const KeysharpInputdClient.Capabilities InputdGrantedCapabilities =
 			KeysharpInputdClient.Capabilities.HookKeyboard
 			| KeysharpInputdClient.Capabilities.HookMouse
@@ -21,10 +29,25 @@ namespace Keysharp.Internals.Input.Linux
 			| KeysharpInputdClient.Capabilities.SynthMouse
 			| KeysharpInputdClient.Capabilities.BlockInput;
 
+		// Session "declined" latch (macOS-style): capabilities the user denied/cancelled
+		// this run. Once latched, we return Denied WITHOUT issuing a hello/prompt, so a
+		// single Deny doesn't turn into a re-prompt storm across the several connections
+		// and subsystems that each independently ensure capabilities. Cleared only by an
+		// explicit user-driven re-request (forcePrompt). Guarded by `gate`.
+		// This latch (plus TrySetBlockInput's block-off early-return) is also what keeps
+		// ExitApp/teardown from prompting: teardown only re-requests input caps when hooks
+		// were active, in which case they are already granted (no prompt) or already
+		// declined (short-circuited here) — so no separate shutdown flag is needed.
+		private static KeysharpInputdClient.Capabilities declinedCapabilities;
+
 		// Bounded daemon queue overflow is transient backpressure; retry briefly.
 		private const int SynthesisBackpressureRetryMs = 4;
 		private const long SynthesisBackpressureMaxWaitMs = 4000;
 
+		// Deadlock prevention for "Send while a hook callback is in action" (e.g. inline
+		// disguise/Alt-Tab emit, or a Send inside #HotIf) is handled entirely by the
+		// daemon: it acks a hook-visible synthesis on receipt when the sending process is
+		// itself a hook subscriber, so the client needs no special-casing here.
 		internal static void SendInputViaSynthesisChannel(
 			IReadOnlyList<KeysharpInputdClient.Input> inputs,
 			KeysharpInputdClient.SynthFlags flags = KeysharpInputdClient.SynthFlags.None)
@@ -238,13 +261,38 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
+		// The hook reader thread must never contend on queryGate (see hookQueryGate).
+		private static bool OnHookReaderThread
+			=> Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsHookReaderThread;
+
 		private static KeysharpInputdClient GetOrCreateQueryClient()
 		{
-			// Lock order: gate, then queryGate.
+			var hookThread = OnHookReaderThread;
+
+			// Lock order: gate, then query/hookQuery gate.
 			lock (gate)
 			{
 				if (client == null)
 					return null;
+
+				if (hookThread)
+				{
+					lock (hookQueryGate)
+					{
+						if (hookQueryClient != null)
+							return hookQueryClient;
+
+						try
+						{
+							hookQueryClient = KeysharpInputdClient.Connect();
+						}
+						catch (Exception ex) when (IsConnectException(ex))
+						{
+						}
+
+						return hookQueryClient;
+					}
+				}
 
 				lock (queryGate)
 				{
@@ -271,9 +319,12 @@ namespace Keysharp.Internals.Input.Linux
 			if (qc == null)
 				return false;
 
-			lock (queryGate)
+			var hookThread = OnHookReaderThread;
+			var g = hookThread ? hookQueryGate : queryGate;
+
+			lock (g)
 			{
-				if (!ReferenceEquals(qc, queryClient))
+				if (!ReferenceEquals(qc, hookThread ? hookQueryClient : queryClient))
 					return false;
 
 				try
@@ -287,8 +338,18 @@ namespace Keysharp.Internals.Input.Linux
 				catch (Exception ex) when (IsTransportException(ex))
 				{
 					Ks.OutputDebugLine($"keysharp-inputd query channel lost: {ex.Message}");
-					try { queryClient?.Dispose(); } catch { }
-					queryClient = null;
+
+					if (hookThread)
+					{
+						try { hookQueryClient?.Dispose(); } catch { }
+						hookQueryClient = null;
+					}
+					else
+					{
+						try { queryClient?.Dispose(); } catch { }
+						queryClient = null;
+					}
+
 					return false;
 				}
 			}
@@ -319,14 +380,35 @@ namespace Keysharp.Internals.Input.Linux
 		{
 			lock (gate)
 			{
+				// Turning blocking OFF never needs the capability — never prompt/deny to
+				// UN-block during teardown (ExitApp / per-Send restore) for a capability
+				// that was never granted.
+				if (mask == KeysharpInputdClient.BlockInputMask.None
+					&& (client == null || !HasCapabilities(client, KeysharpInputdClient.Capabilities.BlockInput)))
+				{
+					message = string.Empty;
+					return true;
+				}
+
 				if (!TryEnsureConnected("block input", out _, out message))
 					return false;
 
-				if (!HasCapabilities(client, KeysharpInputdClient.Capabilities.BlockInput)
-					&& !client.TryRequestCapabilities(KeysharpInputdClient.Capabilities.BlockInput, out _))
+				if (!HasCapabilities(client, KeysharpInputdClient.Capabilities.BlockInput))
 				{
-					message = $"keysharp-inputd did not grant block-input capability. Granted: {client.GrantedCapabilities}.";
-					return false;
+					var want = ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities.BlockInput)
+						& InputdGrantedCapabilities;
+
+					// Respect the session declined latch so block input does not re-prompt
+					// after the user already declined input access this run.
+					if ((want & declinedCapabilities) == want
+						|| !client.TryRequestCapabilities(want, want, out _))
+					{
+						if (!HasCapabilities(client, KeysharpInputdClient.Capabilities.BlockInput))
+							declinedCapabilities |= want;
+
+						message = $"keysharp-inputd did not grant block-input capability. Granted: {client.GrantedCapabilities}.";
+						return false;
+					}
 				}
 
 				try
@@ -348,6 +430,29 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
+		/// <summary>
+		/// Non-prompting status peek (mirrors macOS CGPreflight*): reports the current grant
+		/// state for the given capability WITHOUT issuing a hello or prompt. Ungranted /
+		/// undecided reports Denied. Used by the status-query path (RequestCapabilities with
+		/// no args, EnsurePermissions) so those never pop a dialog.
+		/// </summary>
+		internal static PermissionResult PeekInputCapability(KeysharpInputdClient.Capabilities required)
+		{
+			lock (gate)
+			{
+				var cap = required & InputdGrantedCapabilities;
+
+				if (cap == KeysharpInputdClient.Capabilities.None)
+					return new PermissionResult(PermissionStatus.NotApplicable);
+
+				if (MainClientHasCapability(cap))
+					return new PermissionResult(PermissionStatus.Granted);
+
+				return new PermissionResult(PermissionStatus.Denied,
+					"keysharp-inputd has not granted this capability (status peek, no prompt).");
+			}
+		}
+
 		internal static PermissionResult EnsureCapabilities(KeysharpInputdClient.Capabilities required, string operation = null, bool forcePrompt = false)
 		{
 			operation ??= "input automation";
@@ -356,6 +461,20 @@ namespace Keysharp.Internals.Input.Linux
 			{
 				var requested = ExpandInputPermissionRequest(required);
 				var requiredFromInputd = requested & InputdGrantedCapabilities;
+
+				// An explicit user re-request (forcePrompt) clears the declined latch.
+				if (forcePrompt)
+					declinedCapabilities &= ~requiredFromInputd;
+
+				// Already declined this run: deny WITHOUT a hello/prompt (unless the caps
+				// are actually granted already). This is what stops one Deny from
+				// cascading into a re-prompt storm as each subsystem re-asks.
+				if (!forcePrompt && requiredFromInputd != KeysharpInputdClient.Capabilities.None
+					&& !MainClientHasCapability(requiredFromInputd)
+					&& (requiredFromInputd & declinedCapabilities) == requiredFromInputd)
+					return new PermissionResult(PermissionStatus.Denied,
+						$"Access to keysharp-inputd for '{operation}' was declined for this run. " +
+						$"Re-run the app to be prompted again (or grant it persistently with Allow).");
 
 				if (!TryEnsureConnected(operation, out var connectStatus, out var connectMessage))
 					return new PermissionResult(connectStatus, connectMessage);
@@ -366,6 +485,9 @@ namespace Keysharp.Internals.Input.Linux
 						|| client.TryRequestCapabilities(requested, requiredFromInputd, out _, forcePrompt))
 						return new PermissionResult(PermissionStatus.Granted);
 
+					// Denied by the daemon (user pressed Deny / dismissed the prompt).
+					// Latch it so nothing re-prompts for the rest of this run.
+					declinedCapabilities |= requiredFromInputd;
 					return new PermissionResult(PermissionStatus.Denied,
 						$"keysharp-inputd did not grant the required capabilities for '{operation}'. " +
 						$"Required from inputd: {requiredFromInputd}, requested: {requested}, granted: {client.GrantedCapabilities}.");
@@ -469,16 +591,14 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal static KeysharpInputdClient.Capabilities ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities requested)
 		{
-			const KeysharpInputdClient.Capabilities hook =
-				KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse;
-			const KeysharpInputdClient.Capabilities synth =
-				KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse;
-
-			// Hooks can synthesize later (remaps), so hook grants include synthesis.
-			if ((requested & hook) != 0)
-				requested |= hook | synth;
-			else if ((requested & synth) != 0)
-				requested |= synth;
+			// Any input capability broadens to the full input set (hooks + synthesis +
+			// block input) so ONE prompt covers everything the executable will use,
+			// mirroring macOS's single Accessibility permission, instead of each
+			// subsystem (hook install, Send, BlockInput) prompting for its own subset.
+			// Screen capture and accessibility automation are separate domains and are
+			// NOT folded in here.
+			if ((requested & InputdGrantedCapabilities) != 0)
+				requested |= InputdGrantedCapabilities;
 
 			return requested;
 		}
@@ -502,6 +622,12 @@ namespace Keysharp.Internals.Input.Linux
 			{
 				try { queryClient?.Dispose(); } catch { }
 				queryClient = null;
+			}
+
+			lock (hookQueryGate)
+			{
+				try { hookQueryClient?.Dispose(); } catch { }
+				hookQueryClient = null;
 			}
 		}
 

@@ -32,4 +32,9 @@ int ksi_ipc_send_framed_message(
     size_t payload_size);
 void ksi_ipc_close_client(int client_fd);
 
+/* Set the calling thread's write drain budget (ms). The evdev-reader thread uses
+ * a small value so a non-reading client cannot stall physical input for the full
+ * default 100ms per reply. Other threads keep the default. */
+void ksi_ipc_set_write_drain_budget_ms(int ms);
+
 #endif

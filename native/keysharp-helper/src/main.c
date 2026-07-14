@@ -135,6 +135,9 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
     char exe_path[KSI_PERMISSION_MAX_PATH];
     char command_line[KSI_PERMISSION_MAX_COMMAND_LINE];
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
+    /* WILDCARD identity (exe portion only): keys the "Allow for all scripts" grant
+     * so screen capture honors it exactly like keysharp-inputd does for input caps. */
+    char wildcard_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
     uint32_t allowed;
     uint32_t missing;
     uint32_t denied;
@@ -152,13 +155,20 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
             sizeof(exe_path),
             command_line,
             sizeof(command_line),
-            exe_hash) != 0) {
+            exe_hash,
+            wildcard_hash) != 0) {
         fprintf(stderr, "keysharp-helper: failed to identify requester pid=%ld\n", (long)requester_pid);
         result = KSS_TRUST_UNAVAILABLE;
         goto cleanup;
     }
 
+    /* Grants can be keyed on the per-script identity OR the wildcard (all-scripts)
+     * identity — check both, mirroring keysharp-inputd's check_capabilities_sync. */
     allowed = ksi_permissions_get_allowed_capabilities(store, requester_uid, exe_hash);
+
+    if (wildcard_hash[0] != '\0')
+        allowed |= ksi_permissions_get_allowed_capabilities(store, requester_uid, wildcard_hash);
+
     missing = KST_CAP_SCREEN_CAPTURE & ~allowed;
 
     /* Also check the shared PID-keyed session file.  This is written by any daemon
@@ -213,14 +223,28 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
             fprintf(stderr, "keysharp-helper: failed to update trust store\n");
             result = KSS_TRUST_UNAVAILABLE;
         }
+    } else if (decision == KSI_PERMISSION_DECISION_ALLOW_ALL_SCRIPTS) {
+        /* "Allow for all scripts": persist under the WILDCARD identity (exe portion
+         * only) so the grant covers every script run by this same binary, not just
+         * the one that prompted. Falls back to the per-script hash if the wildcard
+         * identity is unknown. Mirrors keysharp-inputd's ALLOW_ALL_SCRIPTS handling. */
+        const char *grant_hash = wildcard_hash[0] != '\0' ? wildcard_hash : exe_hash;
+
+        if (ksi_permissions_grant_persistent(store, requester_uid, grant_hash, exe_path, missing) == 0) {
+            result = KSS_TRUST_TRUSTED;
+        } else {
+            fprintf(stderr, "keysharp-helper: failed to update trust store\n");
+            result = KSS_TRUST_UNAVAILABLE;
+        }
     } else if (decision == KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE) {
         /* No dialog backend was reachable — treat as transient deny so the
          * user gets another chance once a prompt UI becomes available. */
         result = KSS_TRUST_UNAVAILABLE;
     } else {
-        if (ksi_permissions_deny_persistent(store, requester_uid, exe_hash, exe_path, missing) != 0) {
-            fprintf(stderr, "keysharp-helper: failed to update trust store\n");
-        }
+        /* Deny is SESSION-ONLY: do NOT persist it, so a re-run of the app prompts
+         * again (matching the daemon's session-only Deny and the Allow/Deny model).
+         * Within this run the C# side caches the denial (HelperClient consent
+         * cache) so the helper is not re-invoked. result stays KSS_TRUST_DENIED. */
     }
 
 cleanup:
@@ -1525,7 +1549,8 @@ static int trust_main(int argc, char **argv, const char *argv0)
                     pid_arg,
                     path, sizeof(path),
                     command_line, sizeof(command_line),
-                    hash_buf) != 0) {
+                    hash_buf,
+                    NULL) != 0) {
                 fprintf(stderr, "keysharp-helper: cannot identify pid %ld\n", (long)pid_arg);
                 goto done;
             }

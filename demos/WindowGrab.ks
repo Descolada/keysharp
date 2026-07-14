@@ -44,10 +44,6 @@ class WindowGrab {
             [this.PrettyMod() " + Right-click", "Toggle 50% / opaque"],
             ["Esc (while dragging)", "Cancel — snap back to where it started"],
             ["Ctrl+Alt+Shift+Q", "Exit"] ]
-        ; On stock Linux desktops Super+drag is the compositor's OWN window-move gesture, so it fights this demo.
-        ; Point those users at the one-line rebind (Windows never sees this row — the gesture is conflict-free there).
-        if (DirExist("/usr/share/fonts") && !DirExist("/System/Library/CoreServices"))
-            lines.Push(["Linux", "Super+drag clashing? Edit ModMove/ModFade at the top of the script"])
         Shell.Show("Window Grab", lines)
         Shell.SetTrayMenu([])              ; no tray-friendly actions (grabs need the cursor over a window) -> just Show shortcuts + Exit
     }

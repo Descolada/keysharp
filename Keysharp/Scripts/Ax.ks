@@ -2735,9 +2735,13 @@ class Ax {
                 this.TVElement.Opt("+Redraw")
                 return
             }
-            this.RecurseTreeView(root)
+            priority := this.GetPriorityPath(root, this.Stored.oElement)
+            this.RecurseTreeView(root, 0, "", "", priority)
             this.TVElement.Opt("+Redraw")
-            if this.Stored.HasOwnProp("oElement") {
+            if priority.Selected {
+                this.TVElement.Modify(priority.Item, "Vis Select")
+                this.SBMain.SetText("  Path: " priority.ViewPath)
+            } else if this.Stored.HasOwnProp("oElement") {
                 for k, v in this.Stored.TreeView
                     if this.Stored.oElement.IsEqual(v)
                         this.TVElement.Modify(k, "Vis Select"), this.SBMain.SetText("  Path: " v.Path)
@@ -2760,17 +2764,76 @@ class Ax {
                 return oElement
         }
 
-        RecurseTreeView(oElement, parent:=0, path:="", depth:=0) {
+        GetPriorityPath(root, target) {
+            priority := {Found:false, Path:"", Selected:false, Item:0, ViewPath:""}
+            try {
+                if root.IsEqual(target) {
+                    priority.Found := true
+                    return priority
+                }
+                current := target, path := ""
+                Loop 256 {
+                    parent := current.Parent, childIndex := 0
+                    if !parent
+                        return priority
+                    for index, child in parent.Children {
+                        if child.IsEqual(current) {
+                            childIndex := index
+                            break
+                        }
+                    }
+                    if !childIndex
+                        return priority
+                    path := childIndex (path ? "," path : "")
+                    if root.IsEqual(parent) {
+                        priority.Found := true, priority.Path := path
+                        return priority
+                    }
+                    current := parent
+                }
+            }
+            return priority
+        }
+
+        RecurseTreeView(oElement, parent:=0, path:="", sourcePath:="", priority:=0, treeItem:=0) {
             if !oElement
                 return
-            this.Stored.TreeView[TWEl := this.TVElement.Add(this.GetShortDescription(oElement), parent, "Expand")] := oElement.DefineProp("Path", {value:path})
-            i := 0
+            if !treeItem
+                this.Stored.TreeView[treeItem := this.TVElement.Add(this.GetShortDescription(oElement), parent, "Expand")] := oElement.DefineProp("Path", {value:path})
+            if IsObject(priority) && priority.Found && sourcePath = priority.Path {
+                this.TVElement.Opt("+Redraw")
+                this.TVElement.Modify(treeItem, "Vis Select")
+                this.SBMain.SetText("  Path: " path)
+                Sleep -1
+                this.TVElement.Opt("-Redraw")
+                priority.Selected := true, priority.Item := treeItem, priority.ViewPath := path
+            }
+            childNodes := [], visibleIndex := 0
             try children := oElement.Children
             catch
                 return
-            for _, v in children {
-                if !this.OnlyVisibleElements || this.IsVisible(v)
-                    ++i, this.RecurseTreeView(v, TWEl, path (path ? "," : "") i, depth + 1)
+            for sourceIndex, v in children {
+                if !this.OnlyVisibleElements || this.IsVisible(v) {
+                    ++visibleIndex
+                    childPath := path (path ? "," : "") visibleIndex
+                    childSourcePath := sourcePath (sourcePath ? "," : "") sourceIndex
+                    this.Stored.TreeView[childItem := this.TVElement.Add(this.GetShortDescription(v), treeItem, "Expand")] := v.DefineProp("Path", {value:childPath})
+                    childNodes.Push({Element:v, Item:childItem, Path:childPath, SourcePath:childSourcePath})
+                }
+            }
+            priorityIndex := 0
+            if IsObject(priority) && priority.Found && !priority.Selected {
+                for index, child in childNodes {
+                    if priority.Path = child.SourcePath || InStr(priority.Path, child.SourcePath ",") = 1 {
+                        priorityIndex := index
+                        this.RecurseTreeView(child.Element, treeItem, child.Path, child.SourcePath, priority, child.Item)
+                        break
+                    }
+                }
+            }
+            for index, child in childNodes {
+                if index != priorityIndex
+                    this.RecurseTreeView(child.Element, treeItem, child.Path, child.SourcePath, priority, child.Item)
             }
         }
 

@@ -2416,6 +2416,7 @@ namespace Keysharp.Builtins
 			base.InsertItem(index, item);
 			item.Parent = parent;
 			item.TreeView = treeView ?? parent?.TreeView;
+			item.TreeView?.RegisterNode(item);
 
 			if (etoItems != null)
 			{
@@ -2431,6 +2432,7 @@ namespace Keysharp.Builtins
 		protected override void RemoveItem(int index)
 		{
 			var item = index >= 0 && index < Count ? this[index] : null;
+			item?.TreeView?.UnregisterNode(item);
 			base.RemoveItem(index);
 			if (item != null && etoItems != null)
 				_ = etoItems.Remove(item);
@@ -2438,6 +2440,9 @@ namespace Keysharp.Builtins
 
 		protected override void ClearItems()
 		{
+			foreach (var node in this)
+				node.TreeView?.UnregisterNode(node);
+
 			base.ClearItems();
 			etoItems?.Clear();
 		}
@@ -2460,6 +2465,7 @@ namespace Keysharp.Builtins
 			{
 				var node = this[i];
 				node.TreeView = owner;
+				owner.RegisterNode(node);
 				node.Nodes?.SetOwner(owner);
 			}
 		}
@@ -2504,6 +2510,7 @@ namespace Keysharp.Builtins
 		private readonly int addStyle, removeStyle;
 		private readonly int addExStyle, removeExStyle;
 		private readonly Dictionary<ITreeGridItem, bool> expandStates = [];
+		private readonly Dictionary<long, TreeNode> nodesById = [];
 		private bool reloadSuspended;
 		private TreeNode selectedNode;
 		private GridColumn checkColumn;
@@ -2652,9 +2659,27 @@ namespace Keysharp.Builtins
 
 		internal void RemoveMarkForExpansion(TreeNode node) => _ = expandStates.Remove(node);
 
+		internal TreeNode FindNode(long id) => nodesById.TryGetValue(id, out var node) ? node : null;
+
+		internal void RegisterNode(TreeNode node)
+		{
+			if (node != null)
+				nodesById[node.Handle.ToInt64()] = node;
+		}
+
+		internal void UnregisterNode(TreeNode node)
+		{
+			if (node == null)
+				return;
+
+			_ = nodesById.Remove(node.Handle.ToInt64());
+			foreach (var child in node.Nodes)
+				UnregisterNode(child);
+		}
+
 		/// <summary>
 		/// Batches model updates: while suspended (via -Redraw), <see cref="ReloadDataIfActive"/> is a no-op so that
-		/// bulk Add/Delete operations don't rebuild the entire GTK tree model (and re-measure every row) on each call.
+		/// bulk Add/Delete operations don't rebuild the entire native tree model (and re-measure every row) on each call.
 		/// A single <see cref="TreeGridView.ReloadData"/> on +Redraw then refreshes the view once. This avoids O(N^2)
 		/// construction and the "gtk_tree_view_unref_tree_helper: assertion 'node != NULL' failed" warnings caused by
 		/// repeatedly resetting the model while rows are still referenced.

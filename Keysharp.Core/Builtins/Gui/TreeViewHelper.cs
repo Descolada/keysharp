@@ -7,8 +7,12 @@ namespace Keysharp.Builtins
 			if (id == 0)
 				return parent.TopNode;
 
+#if WINDOWS
 			var match = parent.Nodes.Find(id.ToString(), true);
 			return match.Length == 0 ? null : match[0];
+#else
+			return parent.FindNode(id);
+#endif
 		}
 
 		internal static long TV_NodeOptions(TreeNode node, long parent, string options, bool modify)

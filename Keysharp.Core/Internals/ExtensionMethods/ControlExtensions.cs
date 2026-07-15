@@ -361,7 +361,7 @@ namespace System.Windows.Forms
 		/// <param name="control">The <see cref="Control"/> to resume drawing for.</param>
 		internal static void ResumeDrawing(this Control control)
 		{
-#if LINUX
+#if !WINDOWS
 			control.ResumeLayout();
 			if (control is KeysharpTreeView ktv)
 			{
@@ -370,7 +370,7 @@ namespace System.Windows.Forms
 			}
 			else if (control is TreeGridView tgv)
 				tgv.ReloadData();
-#elif WINDOWS
+#else
 			_ = WindowsAPI.SendMessage(control.Handle, WindowsAPI.WM_SETREDRAW, 1, 0);
 			control.Refresh();
 #endif
@@ -626,11 +626,11 @@ namespace System.Windows.Forms
 		/// <param name="control">The <see cref="Control"/> to suspend drawing for.</param>
 		internal static void SuspendDrawing(this Control control)
 		{
-#if LINUX
+#if !WINDOWS
 			if (control is KeysharpTreeView ktv)
 				ktv.SuspendReload();
 			control.SuspendLayout();
-#elif WINDOWS
+#else
 			_ = WindowsAPI.SendMessage(control.Handle, WindowsAPI.WM_SETREDRAW, 0, 0);
 #endif
 		}
@@ -967,4 +967,3 @@ namespace System.Windows.Forms
 #endif
 	}
 }
-

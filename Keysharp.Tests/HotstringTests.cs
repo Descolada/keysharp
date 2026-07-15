@@ -453,6 +453,25 @@ namespace Keysharp.Tests
 			}
 		}
 
+#if OSX
+		[Test, Category("Hotstring")]
+		public void MacRemapPropagatesNativeAutoRepeatMetadata()
+		{
+			var eventInfo = new Keysharp.Internals.Input.Hooks.HookEventInfo(1, false, true, 0, null, null).BuildEventInfo();
+			Assert.AreEqual(true, Script.GetPropertyValue(eventInfo, "IsAutoRepeat"));
+
+			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("a::b");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+
+			var lowerer = new Keysharp.Parsing.Syntax.Lowerer();
+			var generated = lowerer.Build(prog, "Test").ToFullString();
+			Assert.IsTrue(generated.Contains("A_EventInfo"), generated);
+			Assert.IsTrue(generated.Contains("IsAutoRepeat"), generated);
+			Assert.IsTrue(generated.Contains(" AutoRepeat}"), generated);
+			Assert.IsTrue(generated.Contains("{Blind}{b DownR"), generated);
+		}
+#endif
+
 		[Test, Category("Hotstring"), NonParallelizable]
 		public void HotstringParsing2()
 		{

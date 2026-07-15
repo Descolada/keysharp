@@ -1167,7 +1167,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <param name="moveOffset"></param>
 		internal virtual void SendKey(uint vk, uint sc, uint modifiersLR, uint modifiersLRPersistent
 									   , long repeatCount, KeyEventTypes eventType, uint keyAsModifiersLR, nint targetWindow
-									   , int x = CoordUnspecified, int y = CoordUnspecified, bool moveOffset = false)
+									   , int x = CoordUnspecified, int y = CoordUnspecified, bool moveOffset = false, bool autoRepeat = false)
 		{
 			// Caller is now responsible for verifying this:
 			// Avoid changing modifier states and other things if there is nothing to be sent.
@@ -1254,7 +1254,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				{
 					// Sending mouse clicks via ControlSend is not supported, so in that case fall back to the
 					// old method of sending the VK directly (which probably has no effect 99% of the time):
-					SendKeyEvent(eventType, vk, sc, targetWindow, true, KeyIgnoreLevel(sendLevel));
+					SendKeyEvent(eventType, vk, sc, targetWindow, true, KeyIgnoreLevel(sendLevel), autoRepeat);
 				}
 			} // for() [aRepeatCount]
 
@@ -1839,6 +1839,7 @@ namespace Keysharp.Internals.Input.Keyboard
 							// Since above didn't "goto", this item isn't {Click}.
 							eventType = KeyEventTypes.KeyDownAndUp;         // Set defaults.
 							repeatCount = 1L;
+							var autoRepeat = false;
 							keyNameLength = keyTextLength;
 							var splitct = 0;
 							var keyTokenSpan = braceSpan;
@@ -1881,6 +1882,10 @@ namespace Keysharp.Internals.Input.Keyboard
 										{
 											eventType = KeyEventTypes.KeyUp;
 										}
+										else if (nextWord.Equals("AutoRepeat", StringComparison.OrdinalIgnoreCase))
+										{
+											autoRepeat = true;
+										}
 										else if (!keyTokenSpan.StartsWith("ASC", StringComparison.OrdinalIgnoreCase))
 										{
 											if (long.TryParse(nextWord, out var templ))
@@ -1900,6 +1905,12 @@ namespace Keysharp.Internals.Input.Keyboard
 									// There is no complaint for values <1 to support scripts that want to conditionally send
 									// zero keystrokes, e.g. Send {a %Count%}
 								}
+							}
+
+							if (autoRepeat && eventType != KeyEventTypes.KeyDown)
+							{
+								_ = Dialogs.MsgBox("AutoRepeat requires a Down or DownR key event in Send().", null, "16");
+								return;
 							}
 
 							var keySource = KeySource.None;
@@ -1989,7 +2000,7 @@ namespace Keysharp.Internals.Input.Keyboard
 								// Alt to still be down after the command is over, even though F is modified
 								// by Alt.
 								SendKey(vk, sc, modsForNextKey.Value, persistentModifiersForThisSendKeys
-										, repeatCount, eventType, keyAsModifiersLR, targetWindow);
+										, repeatCount, eventType, keyAsModifiersLR, targetWindow, autoRepeat: autoRepeat);
 
 #if !WINDOWS
 								if (mappedModifiersForHold != 0 && eventType == KeyEventTypes.KeyUp)
@@ -2050,7 +2061,7 @@ namespace Keysharp.Internals.Input.Keyboard
 									// Don't tell it to save & restore modifiers because special keys like this one
 									// should have maximum flexibility (i.e. nothing extra should be done so that the
 									// user can have more control):
-									SendKeyEvent(eventType, vk, 0, targetWindow, true);
+									SendKeyEvent(eventType, vk, 0, targetWindow, true, autoRepeat: autoRepeat);
 
 									if (sendMode == SendModes.Event)
 										LongOperationUpdateForSendKeys();
@@ -2394,7 +2405,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 		internal abstract void PutMouseEventIntoArray(uint eventFlags, uint data, int x, int y);
 
-		internal abstract void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo);
+		internal abstract void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo, bool autoRepeat = false);
 
 		internal abstract int SiEventCount();
 
@@ -2437,7 +2448,8 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <param name="doKeyDelay"></param>
 		/// <param name="extraInfo"></param>
 		///
-		internal virtual void SendKeyEvent(KeyEventTypes eventType, uint vk, uint sc = 0u, nint targetWindow = default, bool doKeyDelay = false, long extraInfo = KeyIgnoreAllExceptModifier)
+		internal virtual void SendKeyEvent(KeyEventTypes eventType, uint vk, uint sc = 0u, nint targetWindow = default, bool doKeyDelay = false,
+									   long extraInfo = KeyIgnoreAllExceptModifier, bool autoRepeat = false)
 		{
 			if ((vk | sc) == 0)//If neither VK nor SC was specified, return.
 				return;
@@ -2528,7 +2540,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				if (eventType != KeyEventTypes.KeyUp)  // i.e. always do it for KEYDOWNANDUP
 				{
 					if (putEventIntoArray)
-						PutKeybdEventIntoArray(keyAsModifiersLR, vk, sc, eventFlags, extraInfo);
+						PutKeybdEventIntoArray(keyAsModifiersLR, vk, sc, eventFlags, extraInfo, autoRepeat);
 					else
 					{
 						// The following global is used to flag as our own the keyboard driver's LCtrl-down keystroke
@@ -2542,7 +2554,7 @@ namespace Keysharp.Internals.Input.Keyboard
 						if (hookableAltGr)
 							altGrExtraInfo = extraInfo;
 
-						SendKeybdEvent(KeyEventTypes.KeyDown, vk, sc, eventFlags, (uint)extraInfo);// naked scan code (the 0xE0 prefix, if any, is omitted)
+						SendKeybdEvent(KeyEventTypes.KeyDown, vk, sc, eventFlags, (uint)extraInfo, autoRepeat);// naked scan code (the 0xE0 prefix, if any, is omitted)
 						altGrExtraInfo = 0; // Unconditional reset.
 					}
 
@@ -2590,7 +2602,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			throw new NotImplementedException();
 		}
 
-		internal abstract void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint eventFlags, long extraInfo);
+		internal abstract void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint eventFlags, long extraInfo, bool autoRepeat = false);
 
 		internal abstract void SendUnicodeChar(char ch, uint modifiers);
 

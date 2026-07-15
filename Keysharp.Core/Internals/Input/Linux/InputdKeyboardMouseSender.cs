@@ -109,7 +109,7 @@ namespace Keysharp.Internals.Input.Linux
 		// No journal-playback hook via uinput/inputd; SendPlay is sent as SendEvent (see WarnIfPlayUnsupported).
 		protected override bool SupportsPlayMode => false;
 
-		internal override void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo)
+		internal override void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo, bool autoRepeat = false)
 		{
 			if (vk == 0 && sc == 0 && eventFlags == 0)
 			{
@@ -232,7 +232,7 @@ namespace Keysharp.Internals.Input.Linux
 		}
 
 		/// <summary>Immediate single-event send, equivalent to keybd_event() on Windows.</summary>
-		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint flags, long extraInfo)
+		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint flags, long extraInfo, bool autoRepeat = false)
 		{
 			var keyFlags = NormalizeKeyFlags(vk, ref sc, (KeysharpInputdClient.KeyEventFlags)flags);
 

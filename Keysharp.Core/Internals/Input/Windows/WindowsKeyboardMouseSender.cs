@@ -559,7 +559,7 @@ namespace Keysharp.Internals.Input.Windows
 		/// <param name="sc"></param>
 		/// <param name="eventFlags"></param>
 		/// <param name="extraInfo"></param>
-		internal override void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo)
+		internal override void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo, bool autoRepeat = false)
 		{
 			var key_up = (eventFlags & KEYEVENTF_KEYUP) != 0;
 
@@ -1208,7 +1208,7 @@ namespace Keysharp.Internals.Input.Windows
 				_ = WindowsAPI.PostMessage(targetWindow, WM_KEYUP, vk, (uint)(lParam | 0xC0000001));
 		}
 
-		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint flags, long extraInfo)
+		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint flags, long extraInfo, bool autoRepeat = false)
 		{
 			var scLowByte = sc & 0xFF;
 			var eventFlags = ((sc >> 8) & 0xFF) != 0 ? KEYEVENTF_EXTENDEDKEY : 0u;

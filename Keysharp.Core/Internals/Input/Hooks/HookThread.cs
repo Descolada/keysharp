@@ -29,14 +29,16 @@ namespace Keysharp.Internals.Input.Hooks
 	{
 		private readonly long timestamp;
 		private readonly bool isInjected;
+		private readonly bool isAutoRepeat;
 		private readonly ulong extraInfo;
 		private readonly object extra;
 		private readonly uint? deviceId;
 
-		internal HookEventInfo(long timestamp, bool isInjected, ulong extraInfo, object extra, uint? deviceId)
+		internal HookEventInfo(long timestamp, bool isInjected, bool isAutoRepeat, ulong extraInfo, object extra, uint? deviceId)
 		{
 			this.timestamp = timestamp;
 			this.isInjected = isInjected;
+			this.isAutoRepeat = isAutoRepeat;
 			this.extraInfo = extraInfo;
 			this.extra = extra;
 			this.deviceId = deviceId;
@@ -53,6 +55,7 @@ namespace Keysharp.Internals.Input.Hooks
 			var obj = new KeysharpObject();
 			obj.DefinePropInternal("Timestamp", new OwnPropsDesc(obj, timestamp));
 			obj.DefinePropInternal("IsInjected", new OwnPropsDesc(obj, isInjected));
+			obj.DefinePropInternal("IsAutoRepeat", new OwnPropsDesc(obj, isAutoRepeat));
 
 			var rawExtraInfo = unchecked((long)extraInfo);
 			if (rawExtraInfo >= KeyboardMouseSender.KeyIgnoreMin() && rawExtraInfo <= KeyboardMouseSender.KeyIgnoreLevel(0))
@@ -1940,7 +1943,8 @@ namespace Keysharp.Internals.Input.Hooks
 		// Returns a factory that builds the script-visible A_EventInfo object only if the script reads it. The
 		// factory flows untouched through the dispatch path and is resolved by ThreadAccessors.A_EventInfo.
 		private static Func<object> CreateEventInfo(HookEventArgs e, ulong extraInfo, uint eventFlags, object extra, uint? deviceId)
-			=> new HookEventInfo(EventTimestamp(e), e.IsEventSimulated || (eventFlags & HOOK_EVENT_INJECTED) != 0, extraInfo, extra, deviceId).BuildEventInfo;
+			=> new HookEventInfo(EventTimestamp(e), e.IsEventSimulated || (eventFlags & HOOK_EVENT_INJECTED) != 0,
+				e.IsAutoRepeat, extraInfo, extra, deviceId).BuildEventInfo;
 
 		private static long EventTimestamp(HookEventArgs e)
 		{

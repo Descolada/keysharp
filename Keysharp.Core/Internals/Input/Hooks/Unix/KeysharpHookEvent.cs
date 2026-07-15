@@ -106,6 +106,7 @@ namespace Keysharp.Internals.Input.Hooks
 		internal long Timestamp { get; }
 		internal EventMask Mask { get; init; }
 		internal bool IsEventSimulated { get; init; }
+		internal bool IsAutoRepeat { get; init; }
 		internal bool SuppressEvent { get; set; }
 		internal bool HasKeyboard { get; init; }
 		internal bool HasMouse => !HasKeyboard;

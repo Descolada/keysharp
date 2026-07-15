@@ -3261,6 +3261,7 @@ namespace Keysharp.Parsing.Syntax
 			CallStmt("Keysharp.Builtins." + (isMouse ? "Mouse.SetMouseDelay" : "Keyboard.SetKeyDelay"),
 				SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(-1L)));
 		private static StatementSyntax SendStmt(string text) => CallStmt("Keysharp.Builtins.Keyboard.Send", Str(text));
+		private static StatementSyntax SendStmt(ExpressionSyntax text) => CallStmt("Keysharp.Builtins.Keyboard.Send", text);
 
 		private MemberDeclarationSyntax RemapCallback(string name, List<StatementSyntax> body) =>
 			SyntaxFactory.MethodDeclaration(ObjType, SyntaxFactory.Identifier(name)).AddModifiers(PublicTok, StaticTok)
@@ -3318,6 +3319,23 @@ namespace Keysharp.Parsing.Syntax
 
 			var p = $"{{Blind{blindMods}}}{remapDestModifiers}{{{remapDest}{(remapWheel ? "" : " DownR")}}}";
 
+#if OSX
+			StatementSyntax RemapDownSend()
+			{
+				if (remapWheel)
+					return SendStmt(p);
+
+				// Preserve macOS's native press-and-hold behavior by marking only physical repeat
+				// callbacks as repeat events. Send itself never consults A_EventInfo implicitly.
+				var isAutoRepeat = Op("GetPropertyValue", Access("Keysharp.Builtins.Accessors.A_EventInfo"), Str("IsAutoRepeat"));
+				var suffix = SyntaxFactory.ParenthesizedExpression(SyntaxFactory.ConditionalExpression(
+					IfTest(isAutoRepeat), Str(" AutoRepeat}"), Str("}")));
+				return SendStmt(Op("Concat", Str(p[..^1]), suffix));
+			}
+#else
+			StatementSyntax RemapDownSend() => SendStmt(p);
+#endif
+
 			var downName = "__Remap_" + (++_hotCount);
 			var upName = "__Remap_" + (++_hotCount);
 			var downStatements = new List<StatementSyntax> { SetDelay(remapDestIsMouse) };
@@ -3325,9 +3343,9 @@ namespace Keysharp.Parsing.Syntax
 				downStatements.Add(SyntaxFactory.IfStatement(
 					SyntaxFactory.BinaryExpression(SyntaxKind.EqualsExpression,
 						IfTest(Inv(Access("Keysharp.Builtins.Keyboard.GetKeyState"), Str(remapDest))), False),
-					SyntaxFactory.Block(SendStmt(p))));
+					SyntaxFactory.Block(RemapDownSend())));
 			else
-				downStatements.Add(SendStmt(p));
+				downStatements.Add(RemapDownSend());
 			downStatements.Add(SyntaxFactory.ReturnStatement(Str("")));
 			_hotMembers.Add(RemapCallback(downName, downStatements));
 			_hotMembers.Add(RemapCallback(upName, new List<StatementSyntax>

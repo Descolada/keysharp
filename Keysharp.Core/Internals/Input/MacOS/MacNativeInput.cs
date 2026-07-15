@@ -23,6 +23,7 @@ namespace Keysharp.Internals.Input.MacOS
 		internal const uint kCGHeadInsertEventTap = 0;
 		internal const uint kCGEventTapOptionDefault = 0;
 		internal const uint kCGEventSourceUserData = 42;
+		internal const uint kCGKeyboardEventAutorepeat = 8;
 		internal const uint kCGKeyboardEventKeycode = 9;
 		internal const uint kCGMouseEventButtonNumber = 3;
 		internal const uint kCGScrollWheelEventDeltaAxis1 = 11;
@@ -196,9 +197,12 @@ namespace Keysharp.Internals.Input.MacOS
 
 		// One process-wide CGEventSource reused across every Post* call. CGEventSourceCreate makes a heavy
 		// window-server round-trip, so creating+releasing one per event was costly over a large Send or a
-		// smooth MouseMove loop. A null (zero) source is still valid for CGEventCreate*, so whatever the
-		// factory returns is cached and never retried. The process owns it for its lifetime (there is no
-		// per-instance shutdown hook for this static class), so it is not released per event.
+		// smooth MouseMove loop. Use the combined-session state, as Apple specifies for applications posting
+		// within a login session; HID-system state is intended for hardware drivers. Keyboard sequencing does
+		// not rely on this global state table because delivery is asynchronous -- PostKeyboard sets the sender's
+		// predicted flags explicitly. A null (zero) source is still valid for CGEventCreate*, so whatever the
+		// factory returns is cached and never retried. The process owns it for its lifetime (there is no per-
+		// instance shutdown hook for this static class), so it is not released per event.
 		private static nint sharedEventSource;
 		private static bool sharedEventSourceInitialized;
 		private static object sharedEventSourceLock;
@@ -206,9 +210,28 @@ namespace Keysharp.Internals.Input.MacOS
 		private static nint SharedEventSource()
 			=> LazyInitializer.EnsureInitialized(
 				ref sharedEventSource, ref sharedEventSourceInitialized, ref sharedEventSourceLock,
-				static () => CGEventSourceCreate(kCGEventSourceStateHIDSystemState));
+				static () => CGEventSourceCreate(kCGEventSourceStateCombinedSessionState));
 
-		internal static void PostKeyboard(uint vk, bool keyDown, long extraInfo)
+		private static ulong FlagsForModifiers(uint modifiersLR)
+		{
+			// Retain CapsLock, whose toggle state is independent of the transient modifiers managed by Send.
+			// Do not copy the source's Shift/Ctrl/Option/Cmd flags: delivery is asynchronous, so they may still
+			// describe an earlier synthetic event in this same Send operation.
+			var flags = CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState) & kCGEventFlagMaskAlphaShift;
+
+			if ((modifiersLR & (MOD_LSHIFT | MOD_RSHIFT)) != 0)
+				flags |= kCGEventFlagMaskShift;
+			if ((modifiersLR & (MOD_LCONTROL | MOD_RCONTROL)) != 0)
+				flags |= kCGEventFlagMaskControl;
+			if ((modifiersLR & (MOD_LALT | MOD_RALT)) != 0)
+				flags |= kCGEventFlagMaskAlternate;
+			if ((modifiersLR & (MOD_LWIN | MOD_RWIN)) != 0)
+				flags |= kCGEventFlagMaskCommand;
+
+			return flags;
+		}
+
+		internal static void PostKeyboard(uint vk, bool keyDown, long extraInfo, uint modifiersLR, bool autoRepeat = false)
 		{
 			if (!KeyCodes.TryMapVkToMacCode(vk, out var keyCode))
 				return;
@@ -217,6 +240,9 @@ namespace Keysharp.Internals.Input.MacOS
 
 			if (ev != nint.Zero)
 			{
+				CGEventSetFlags(ev, FlagsForModifiers(modifiersLR));
+				if (keyDown && autoRepeat)
+					CGEventSetIntegerValueField(ev, kCGKeyboardEventAutorepeat, 1);
 				CGEventSetIntegerValueField(ev, kCGEventSourceUserData, extraInfo);
 				CGEventPost(kCGHIDEventTap, ev);
 				CFRelease(ev);
@@ -261,6 +287,9 @@ namespace Keysharp.Internals.Input.MacOS
 					return;
 
 				CGEventKeyboardSetUnicodeString(ev, scalar.Length, scalar);
+				// A Unicode payload is already the final literal text. Inheriting keyboard flags can transform it
+				// or invoke an application shortcut, so clear modifiers (including CapsLock) explicitly.
+				CGEventSetFlags(ev, 0);
 				CGEventSetIntegerValueField(ev, kCGEventSourceUserData, extraInfo);
 				CGEventPost(kCGHIDEventTap, ev);
 				CFRelease(ev);
@@ -358,7 +387,38 @@ namespace Keysharp.Internals.Input.MacOS
 
 	internal sealed class MacKeyboardMouseSender : Keysharp.Internals.Input.Unix.UnixKeyboardMouseSender
 	{
-		protected override void DispatchKeybdEvent(Keysharp.Internals.Input.Hooks.Unix.UnixHookThread lht, KeyEventTypes eventType, uint vk, long extraInfo)
+		private uint postedModifiersLR;
+		private bool postedModifiersInitialized;
+
+		private uint CurrentPostedModifiers()
+		{
+			if (!postedModifiersInitialized)
+			{
+				postedModifiersLR = GetModifierLRState(true);
+				postedModifiersInitialized = true;
+			}
+
+			return postedModifiersLR;
+		}
+
+		private void PostKeyboardWithPredictedState(Keysharp.Internals.Input.Hooks.Unix.UnixHookThread lht, uint vk, bool keyDown,
+											long extraInfo, bool autoRepeat = false)
+		{
+			bool? isNeutral = null;
+			var keyAsModifiersLR = lht.KeyToModifiersLR(vk, 0, ref isNeutral);
+			var modifiersLR = CurrentPostedModifiers();
+
+			if (keyDown)
+				modifiersLR |= keyAsModifiersLR;
+			else
+				modifiersLR &= ~keyAsModifiersLR;
+
+			postedModifiersLR = modifiersLR;
+			MacNativeInput.PostKeyboard(vk, keyDown, extraInfo, modifiersLR, autoRepeat);
+		}
+
+		protected override void DispatchKeybdEvent(Keysharp.Internals.Input.Hooks.Unix.UnixHookThread lht, KeyEventTypes eventType,
+											  uint vk, long extraInfo, bool autoRepeat)
 		{
 			WithSendScope(lht, () =>
 			{
@@ -370,15 +430,15 @@ namespace Keysharp.Internals.Input.MacOS
 				switch (eventType)
 				{
 					case KeyEventTypes.KeyDown:
-						MacNativeInput.PostKeyboard(vk, true, extraInfo);
+						PostKeyboardWithPredictedState(lht, vk, true, extraInfo, autoRepeat);
 						break;
 					case KeyEventTypes.KeyUp:
 						if (vk != VK_CAPITAL || !MacCapsLockState.IsAvailable)
-							MacNativeInput.PostKeyboard(vk, false, extraInfo);
+							PostKeyboardWithPredictedState(lht, vk, false, extraInfo);
 						break;
 					case KeyEventTypes.KeyDownAndUp:
-						MacNativeInput.PostKeyboard(vk, true, extraInfo);
-						MacNativeInput.PostKeyboard(vk, false, extraInfo);
+						PostKeyboardWithPredictedState(lht, vk, true, extraInfo, autoRepeat);
+						PostKeyboardWithPredictedState(lht, vk, false, extraInfo);
 						break;
 				}
 			});
@@ -399,10 +459,12 @@ namespace Keysharp.Internals.Input.MacOS
 			=> TrySendPlatformUnicodeText(lht, ch.ToString(), extraInfo);
 
 		protected override void DispatchEventArray(Keysharp.Internals.Input.Hooks.Unix.UnixHookThread lht, InputArrayState state, long extraInfo, double scale)
-			=> WithSendScope(lht, () => ReplayMacEventArray(state.Events, extraInfo, scale));
+			=> WithSendScope(lht, () => ReplayMacEventArray(state, extraInfo, scale));
 
-		private void ReplayMacEventArray(List<ArrayEvent> events, long extraInfo, double scale)
+		private void ReplayMacEventArray(InputArrayState state, long extraInfo, double scale)
 		{
+			var events = state.Events;
+			var modifiersLR = state.InitialModifiers;
 			var textBatch = new StringBuilder();
 
 			void FlushText()
@@ -431,10 +493,12 @@ namespace Keysharp.Internals.Input.MacOS
 							Keysharp.Internals.Flow.SleepWithoutInterruption(ev.DelayMs);
 						break;
 					case ArrayEventType.KeyDown:
-						MacNativeInput.PostKeyboard(ev.Vk, true, extraInfo);
+						modifiersLR |= ev.ModifiersLR;
+						MacNativeInput.PostKeyboard(ev.Vk, true, extraInfo, modifiersLR, ev.AutoRepeat);
 						break;
 					case ArrayEventType.KeyUp:
-						MacNativeInput.PostKeyboard(ev.Vk, false, extraInfo);
+						modifiersLR &= ~ev.ModifiersLR;
+						MacNativeInput.PostKeyboard(ev.Vk, false, extraInfo, modifiersLR);
 						break;
 					case ArrayEventType.MouseMoveRel:
 						MacNativeInput.PostMouseMoveRelative(ClampShort(ev.X * scale), ClampShort(ev.Y * scale), extraInfo);
@@ -464,6 +528,20 @@ namespace Keysharp.Internals.Input.MacOS
 			}
 
 			FlushText();
+			postedModifiersLR = modifiersLR;
+			postedModifiersInitialized = true;
+		}
+
+		internal override void SetModifierLRState(uint modifiersLRnew, uint modifiersLRnow, nint targetWindow,
+			bool disguiseDownWinAlt, bool disguiseUpWinAlt, long extraInfo = KeyIgnoreAllExceptModifier)
+		{
+			// Seed the native event stream from the sender's synchronous prediction. Each modifier event posted
+			// by base updates this field before the next event is created, independently of WindowServer timing.
+			postedModifiersLR = modifiersLRnow;
+			postedModifiersInitialized = true;
+			base.SetModifierLRState(modifiersLRnew, modifiersLRnow, targetWindow,
+				disguiseDownWinAlt, disguiseUpWinAlt, extraInfo);
+			postedModifiersLR = modifiersLRnew;
 		}
 
 		internal override void MouseEvent(uint eventFlags, uint data, int x = CoordUnspecified, int y = CoordUnspecified)
@@ -680,8 +758,8 @@ namespace Keysharp.Internals.Input.MacOS
 				{
 					case '\r':
 						FlushChunk();
-						MacNativeInput.PostKeyboard(VK_RETURN, true, extraInfo);
-						MacNativeInput.PostKeyboard(VK_RETURN, false, extraInfo);
+						MacNativeInput.PostKeyboard(VK_RETURN, true, extraInfo, 0);
+						MacNativeInput.PostKeyboard(VK_RETURN, false, extraInfo, 0);
 						lastWasCR = true;
 						break;
 					case '\n':
@@ -691,19 +769,19 @@ namespace Keysharp.Internals.Input.MacOS
 							break;
 						}
 						FlushChunk();
-						MacNativeInput.PostKeyboard(VK_RETURN, true, extraInfo);
-						MacNativeInput.PostKeyboard(VK_RETURN, false, extraInfo);
+						MacNativeInput.PostKeyboard(VK_RETURN, true, extraInfo, 0);
+						MacNativeInput.PostKeyboard(VK_RETURN, false, extraInfo, 0);
 						break;
 					case '\t':
 						FlushChunk();
-						MacNativeInput.PostKeyboard(VK_TAB, true, extraInfo);
-						MacNativeInput.PostKeyboard(VK_TAB, false, extraInfo);
+						MacNativeInput.PostKeyboard(VK_TAB, true, extraInfo, 0);
+						MacNativeInput.PostKeyboard(VK_TAB, false, extraInfo, 0);
 						lastWasCR = false;
 						break;
 					case '\b':
 						FlushChunk();
-						MacNativeInput.PostKeyboard(VK_BACK, true, extraInfo);
-						MacNativeInput.PostKeyboard(VK_BACK, false, extraInfo);
+						MacNativeInput.PostKeyboard(VK_BACK, true, extraInfo, 0);
+						MacNativeInput.PostKeyboard(VK_BACK, false, extraInfo, 0);
 						lastWasCR = false;
 						break;
 					default:

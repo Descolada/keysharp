@@ -31,11 +31,13 @@ namespace Keysharp.Internals.Input.Unix
 		{
 			internal readonly List<ArrayEvent> Events;
 			internal int Count;
+			internal readonly uint InitialModifiers;
 			internal readonly uint PrevEventModifiers;
 
-			internal InputArrayState(List<ArrayEvent> events, uint prevEventModifiers)
+			internal InputArrayState(List<ArrayEvent> events, uint initialModifiers, uint prevEventModifiers)
 			{
 				Events = events;
+				InitialModifiers = initialModifiers;
 				PrevEventModifiers = prevEventModifiers;
 			}
 		}
@@ -101,6 +103,8 @@ namespace Keysharp.Internals.Input.Unix
 
 			// Key
 			internal readonly uint Vk;
+			internal readonly uint ModifiersLR;
+			internal readonly bool AutoRepeat;
 
 			// Delay
 			internal readonly int DelayMs;
@@ -114,11 +118,13 @@ namespace Keysharp.Internals.Input.Unix
 			internal readonly MouseButton Button;
 			internal readonly short WheelDelta;
 
-			private ArrayEvent(ArrayEventType type, uint vk, int delayMs, string text,
-							int x, int y, MouseButton button, short wheelDelta)
+			private ArrayEvent(ArrayEventType type, uint vk, uint modifiersLR, int delayMs, string text,
+							int x, int y, MouseButton button, short wheelDelta, bool autoRepeat = false)
 			{
 				Type = type;
 				Vk = vk;
+				ModifiersLR = modifiersLR;
+				AutoRepeat = autoRepeat;
 				DelayMs = delayMs;
 				Text = text;
 				X = x;
@@ -127,29 +133,29 @@ namespace Keysharp.Internals.Input.Unix
 				WheelDelta = wheelDelta;
 			}
 
-			internal static ArrayEvent Key(ArrayEventType type, uint vk)
-				=> new(type, vk, 0, null, 0, 0, MouseButton.NoButton, 0);
+			internal static ArrayEvent Key(ArrayEventType type, uint vk, uint modifiersLR, bool autoRepeat)
+				=> new(type, vk, modifiersLR, 0, null, 0, 0, MouseButton.NoButton, 0, autoRepeat);
 
 			internal static ArrayEvent Delay(int ms)
-				=> new(ArrayEventType.DelayMs, 0, ms, null, 0, 0, MouseButton.NoButton, 0);
+				=> new(ArrayEventType.DelayMs, 0, 0, ms, null, 0, 0, MouseButton.NoButton, 0);
 
 			internal static ArrayEvent TextEvent(string text)
-				=> new(ArrayEventType.Text, 0, 0, text, 0, 0, MouseButton.NoButton, 0);
+				=> new(ArrayEventType.Text, 0, 0, 0, text, 0, 0, MouseButton.NoButton, 0);
 
 			internal static ArrayEvent MouseMoveAbs(int x, int y)
-				=> new(ArrayEventType.MouseMoveAbs, 0, 0, null, x, y, MouseButton.NoButton, 0);
+				=> new(ArrayEventType.MouseMoveAbs, 0, 0, 0, null, x, y, MouseButton.NoButton, 0);
 
 			internal static ArrayEvent MouseMoveRel(int dx, int dy)
-				=> new(ArrayEventType.MouseMoveRel, 0, 0, null, dx, dy, MouseButton.NoButton, 0);
+				=> new(ArrayEventType.MouseMoveRel, 0, 0, 0, null, dx, dy, MouseButton.NoButton, 0);
 
 			internal static ArrayEvent MouseButtonEvent(ArrayEventType type, MouseButton button, int x, int y)
-				=> new(type, 0, 0, null, x, y, button, 0);
+				=> new(type, 0, 0, 0, null, x, y, button, 0);
 
 			internal static ArrayEvent MouseWheelV(short delta)
-				=> new(ArrayEventType.MouseWheelV, 0, 0, null, 0, 0, MouseButton.NoButton, delta);
+				=> new(ArrayEventType.MouseWheelV, 0, 0, 0, null, 0, 0, MouseButton.NoButton, delta);
 
 			internal static ArrayEvent MouseWheelH(short delta)
-				=> new(ArrayEventType.MouseWheelH, 0, 0, null, 0, 0, MouseButton.NoButton, delta);
+				=> new(ArrayEventType.MouseWheelH, 0, 0, 0, null, 0, 0, MouseButton.NoButton, delta);
 		}
 
 		protected void AddArrayEvent(in ArrayEvent ev)
@@ -176,7 +182,7 @@ namespace Keysharp.Internals.Input.Unix
 				eventModifiersLR = modifiersLR;
 
 				var cap = maxEvents > 0 ? Math.Min(maxEvents, 2048) : 512;
-				inputStack.Push(new InputArrayState(new List<ArrayEvent>(cap), prev));
+				inputStack.Push(new InputArrayState(new List<ArrayEvent>(cap), modifiersLR, prev));
 			}
 			sendInputCursorPos.X = CoordUnspecified;
 			sendInputCursorPos.Y = CoordUnspecified;
@@ -278,7 +284,7 @@ namespace Keysharp.Internals.Input.Unix
 					return;
 			}
 		}
-		internal override void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo)
+		internal override void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo, bool autoRepeat = false)
 		{
 			bool isKeyUp = (eventFlags & (uint)KEYEVENTF_KEYUP) != 0;
 			bool isUnicode = (eventFlags & (uint)KEYEVENTF_UNICODE) != 0;
@@ -309,7 +315,8 @@ namespace Keysharp.Internals.Input.Unix
 			}
 
 			// Normal key: record as down/up.
-			AddArrayEvent(ArrayEvent.Key(isKeyUp ? ArrayEventType.KeyUp : ArrayEventType.KeyDown, vk));
+			AddArrayEvent(ArrayEvent.Key(isKeyUp ? ArrayEventType.KeyUp : ArrayEventType.KeyDown, vk, keyAsModifiersLR,
+				!isKeyUp && autoRepeat));
 		}
 
 		internal override void SendEventArray(ref long finalKeyDelay, uint modsDuringSend)
@@ -846,14 +853,14 @@ namespace Keysharp.Internals.Input.Unix
 			}
 		}
 
-		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint eventFlags, long extraInfo)
+		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint eventFlags, long extraInfo, bool autoRepeat = false)
 		{
 			EnsureInputSendPermission("send keyboard input");
 			var lht = Script.TheScript.HookThread as UnixHookThread;
 			if (lht == null)
 				return;
 
-			DispatchKeybdEvent(lht, eventType, vk, extraInfo);
+			DispatchKeybdEvent(lht, eventType, vk, extraInfo, autoRepeat);
 		}
 
 		internal override void SendUnicodeChar(char ch, uint modifiers)
@@ -1025,7 +1032,7 @@ namespace Keysharp.Internals.Input.Unix
 			=> WithSendScope(lht, () => ReplayEventArrayEvents(state.Events, extraInfo, scale));
 
 		// Dispatch a single keyboard event to the platform backend.
-		protected virtual void DispatchKeybdEvent(UnixHookThread lht, KeyEventTypes eventType, uint vk, long extraInfo)
+		protected virtual void DispatchKeybdEvent(UnixHookThread lht, KeyEventTypes eventType, uint vk, long extraInfo, bool autoRepeat)
 			=> WithSendScope(lht, () => SendKeyEventDirect(eventType, vk, extraInfo));
 
 		protected virtual bool TrySendPlatformUnicodeChar(UnixHookThread lht, char ch, long extraInfo, bool hasMappedKeystroke, uint vk, bool needShift, bool needAltGr) => false;

@@ -106,6 +106,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 		internal int Code { get; init; }
 		internal nint WParam { get; init; }
 		internal bool IsEventSimulated { get; init; }
+		internal bool IsAutoRepeat { get; init; }
 		internal bool SuppressEvent { get; set; }
 		internal uint Flags { get; init; }
 		internal nint StructPtr { get; init; }

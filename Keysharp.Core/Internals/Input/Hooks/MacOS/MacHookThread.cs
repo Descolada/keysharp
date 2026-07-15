@@ -117,7 +117,11 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 				mask |= EventMask.SimulatedEvent;
 			Keysharp.Internals.MacKeyboard.UpdateIndicatorSnapshotFromMask(mask);
 
-			var args = new KeyboardHookEventArgs(keyUp ? EventType.KeyReleased : EventType.KeyPressed, vk, sc, mask);
+			var args = new KeyboardHookEventArgs(keyUp ? EventType.KeyReleased : EventType.KeyPressed, vk, sc, mask)
+			{
+				IsAutoRepeat = type == MacNativeInput.kCGEventKeyDown
+					&& MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGKeyboardEventAutorepeat) != 0
+			};
 			return ProcessNativeKeyboardEvent(args, vk, sc, keyUp, extraInfo);
 		}
 

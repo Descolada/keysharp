@@ -685,8 +685,14 @@ function windowInfo(w, includeSpecial) {
   try {
     if (safeBool(w.deleted)) return null;
     if (!includeSpecial) {
-      if (typeof w.managed !== "undefined" && !safeBool(w.managed)) return null;
-      if (safeBool(w.specialWindow)) return null;
+      // KWin includes layer-shell surfaces in workspace.windowAt().  An Overlay uses an empty
+      // wl_surface input region, but windowAt() is a geometric/stacking query and can still put
+      // that surface first.  Reject non-client special/unmanaged surfaces while retaining real
+      // popup windows: an own-process menu covering a click-through overlay must remain visible
+      // to WinFromPoint so callers can yield the click to it.
+      var popup = safeBool(safeRead(w, "popupWindow", false));
+      if (!popup && typeof w.managed !== "undefined" && !safeBool(w.managed)) return null;
+      if (!popup && safeBool(w.specialWindow)) return null;
     }
     var id = windowId(w);
     if (!id) return null;
@@ -763,37 +769,46 @@ function readWorkArea() {
   return { ok: !!area, area: rd(area) };
 }
 function windowAtPoint(px, py) {
-  var w = null;
+  function usableAtPoint(cand) {
+    if (!cand) return null;
+    if (safeBool(cand.deleted) || safeBool(cand.hidden) || safeBool(cand.minimized)) return null;
+    var g = safeRead(cand, "frameGeometry", safeRead(cand, "geometry", null));
+    if (!g || g.width <= 0 || g.height <= 0) return null;
+    if (px < g.x || py < g.y || px >= g.x + g.width || py >= g.y + g.height) return null;
+    // windowInfo performs the important input-target filtering.  In particular it skips
+    // click-through layer surfaces but preserves popup windows.
+    return windowInfo(cand) ? cand : null;
+  }
+
   try {
     if (typeof workspace.windowAt === "function") {
-      var hits = workspace.windowAt(Qt.point(px, py), 1);
-      if (hits && typeof hits.length !== "undefined" && hits.length > 0) w = hits[0];
-      else if (hits) w = hits;
+      // A negative count asks KWin for every matching window, topmost first.  Asking for one and
+      // filtering afterward loses the real target whenever a click-through layer surface is on
+      // top (most visibly when the desktop, rather than an ordinary app window, is underneath).
+      var hits = workspace.windowAt(Qt.point(px, py), -1);
+      if (hits && typeof hits.length !== "undefined") {
+        for (var i = 0; i < hits.length; ++i) {
+          var hit = usableAtPoint(hits[i]);
+          if (hit) return hit;
+        }
+      } else {
+        var hit = usableAtPoint(hits);
+        if (hit) return hit;
+      }
     }
-  } catch (e) {
-    w = null;
-  }
-  if (!w) {
+  } catch (e) {}
+
+  // Compatibility path for KWin versions without workspace.windowAt().  stackingOrder is
+  // bottom-to-top, so scan it backwards and take the first eligible hit.  The old active-window/
+  // smallest-area heuristic was not a z-order operation and selected obscured windows.
+  try {
     var order = windowListCompat();
-    var matches = [];
-    for (var i = 0; i < order.length; ++i) {
-      var cand = order[i];
-      if (!cand) continue;
-      if (safeBool(cand.deleted) || safeBool(cand.hidden) || safeBool(cand.minimized)) continue;
-      if (safeBool(cand.specialWindow)) continue;
-      if (typeof cand.managed !== "undefined" && !safeBool(cand.managed)) continue;
-      var g = safeRead(cand, "frameGeometry", safeRead(cand, "geometry", null));
-      if (!g || g.width <= 0 || g.height <= 0) continue;
-      if (px < g.x || py < g.y || px >= g.x + g.width || py >= g.y + g.height) continue;
-      if (safeBool(cand.active)) { w = cand; break; }
-      matches.push({ cand: cand, area: g.width * g.height });
+    for (var i = order.length - 1; i >= 0; --i) {
+      var hit = usableAtPoint(order[i]);
+      if (hit) return hit;
     }
-    if (!w && matches.length > 0) {
-      matches.sort(function(a, b) { return a.area - b.area; });
-      w = matches[0].cand;
-    }
-  }
-  return w;
+  } catch (e) {}
+  return null;
 }
 var keysharpOps = {
   ping: function(args) {

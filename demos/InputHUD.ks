@@ -32,7 +32,7 @@
     to drag a HUD still register), telling physical from injected input via A_EventInfo.IsInjected, lock-key
     toggle state polled with GetKeyState(key, "T") and surfaced as green LEDs, Overlay canvases drawn with
     Image primitives (FillRoundRect/FillEllipse/DrawText) and updated live via SetImage, live repositioning
-    through Overlay.X/Y and live rescaling via Overlay.Scale (Win/Linux) or logical W/H (macOS) — re-rendered at
+    through Overlay.Move and live rescaling via Overlay.Scale (Win/Linux) or logical W/H (macOS) — re-rendered at
     DPI*zoom to stay crisp and centre-anchored so it scales in place — and HotIf-scoped hotkeys so the drag/zoom
     only capture the click while the cursor is over a HUD (so normal clicks pass straight through).
 
@@ -532,17 +532,25 @@ class InputHUD {
     ; variants, so InputHUD and WindowGrab can run together without their drag gestures colliding.
     ; ======================================================================
     static SetupDrag() {
-        ; The `!Shell.Blocked()` guard yields the click to our tray menu (or any own-process popup) when it's
+        ; The `!Shell.Blocked(x, y)` guard yields the click to our tray menu (or any own-process popup) when it's
         ; drawn on top of a HUD — the click-through overlay would otherwise let this hook swallow it (z-order).
-        HotIf((*) => this.OverHud() != "" && !Shell.Blocked())
+        HotIf((*) => this.CanDrag())
         Hotkey("LButton", (*) => this.DragHud())
         Hotkey("RButton", (*) => this.ZoomHud())
         HotIf()
     }
 
     static OverHud() {
-        CoordMode("Mouse", "Screen")
-        MouseGetPos(&mx, &my)
+        Shell.EventPos(&mx, &my)
+        return this.OverHudAt(mx, my)
+    }
+
+    static CanDrag() {
+        Shell.EventPos(&x, &y)
+        return this.OverHudAt(x, y) != "" && !Shell.Blocked(x, y)
+    }
+
+    static OverHudAt(mx, my) {
         ; A hidden HUD captures nothing — clicks over its old spot pass straight through the click-through overlay.
         if (this.kbOn && this.InRect(mx, my, this.kb))
             return "kb"
@@ -569,7 +577,7 @@ class InputHUD {
                 MouseGetPos(&mx, &my)
                 o.cx := mx - offX, o.cy := my - offY     ; move the centre; x/y follow (size is unchanged mid-drag)
                 o.x := Round(o.cx - o.pw / 2), o.y := Round(o.cy - o.ph / 2)
-                o.ov.X := o.x, o.ov.Y := o.y
+                o.ov.Move(o.x, o.y)
                 Sleep 8
             }
             this.SaveHud(which, o)                       ; remember where the user parked this HUD for next run
@@ -653,7 +661,7 @@ class InputHUD {
 #else
         o.ov.Scale := this.DPI * z
 #endif
-        o.ov.X := o.x, o.ov.Y := o.y
+        o.ov.Move(o.x, o.y)
     }
 
     static ClampZoom(z) => Min(this.ZoomMax, Max(this.ZoomMin, z))
@@ -781,8 +789,8 @@ class InputHUD {
         this.ms.cx := msX + this.ms.pw / 2, this.ms.cy := msY + this.ms.ph / 2
         this.Geometry(this.kb)
         this.Geometry(this.ms)
-        this.kb.ov.X := this.kb.x, this.kb.ov.Y := this.kb.y
-        this.ms.ov.X := this.ms.x, this.ms.ov.Y := this.ms.y
+        this.kb.ov.Move(this.kb.x, this.kb.y)
+        this.ms.ov.Move(this.ms.x, this.ms.y)
     }
 }
 

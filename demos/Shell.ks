@@ -1,8 +1,7 @@
 #Requires AutoHotkey v2.0
-#import KS { A_ScreenScale }     ; A_ScreenScale (Keysharp's per-platform DPI scale) lives in the KS module. Import it
-                                 ; here so this shared layer is self-contained: Render() reads it, and a new demo that
-                                 ; #includes Shell.ks must not have to remember the import. KS imports are script-global,
-                                 ; so an includer already importing it (every current demo does) is harmless.
+#import KS { A_ScreenScale, WinFromPoint } ; KS additions used for DPI-aware layout and event-point window hit-testing.
+                                           ; Import here so this shared layer is self-contained; duplicate imports from
+                                           ; an including demo are harmless because KS imports are script-global.
 
 /*
     Shell — the shared support layer the demos in this folder build on. It provides three things each demo
@@ -153,7 +152,7 @@ class Shell {
         this.registered := true
         ; A plain left-click, but only while the cursor is over the card (HotIf), so every other click passes
         ; straight through the click-through overlay. Over the checkbox it toggles the setting; elsewhere it dismisses.
-        HotIf((*) => Shell.shown && Shell.Over() && !Shell.Blocked())
+        HotIf((*) => Shell.CanClick())
         Hotkey("LButton", (*) => Shell.OnClick())
         HotIf()
         Hotkey(this.ReopenHotkey, (*) => Shell.Reshow())   ; global: reopen after the card is dismissed
@@ -249,7 +248,7 @@ class Shell {
         if (this.posX != "" && this.OnScreenRect(this.posX, this.posY, pw, ph))
             rx := this.posX, ry := this.posY
         this.rect := {x: rx, y: ry, w: pw, h: ph}
-        this.ov.X := this.rect.x, this.ov.Y := this.rect.y
+        this.ov.Move(this.rect.x, this.rect.y)
         ; Screen rects of the two clickable regions (in the OS coordinate system): the ✕ close button and the
         ; "don't show" checkbox+label. A click anywhere ELSE on the card starts a move (see OnClick/DragCard).
         this.closeRect := {x: this.rect.x + Round((w - pad - closeW) * geo),
@@ -290,7 +289,7 @@ class Shell {
             while GetKeyState("LButton", "P") {
                 MouseGetPos(&mx, &my)
                 this.rect.x := mx - offX, this.rect.y := my - offY
-                this.ov.X := this.rect.x, this.ov.Y := this.rect.y
+                this.ov.Move(this.rect.x, this.rect.y)
                 Sleep 8
             }
         } finally {
@@ -306,24 +305,43 @@ class Shell {
 
     static Over() => this.InRect(this.rect)
 
+    static CanClick() {
+        if !this.shown
+            return false
+        this.EventPos(&x, &y)
+        return this.InRectAt(this.rect, x, y) && !this.Blocked(x, y)
+    }
+
     static InRect(rc) {
         if !IsObject(rc)
             return false
-        CoordMode("Mouse", "Screen")
-        MouseGetPos(&mx, &my)
-        return mx >= rc.x && mx < rc.x + rc.w && my >= rc.y && my < rc.y + rc.h
+        this.EventPos(&mx, &my)
+        return this.InRectAt(rc, mx, my)
     }
 
-    ; Z-order guard for the click-through overlays. Our overlays are click-through, so WindowFromPoint (what
-    ; MouseGetPos reports) skips them and returns whatever real window is under the cursor — the app the card
-    ; floats OVER (a different process) in the normal case, but OUR OWN tray menu when it's popped ON TOP of the
-    ; card. So "the window under the cursor belongs to this process" reliably means a menu of ours is covering the
-    ; overlay: the click must go to it, not our click-hook. Cross-platform (MouseGetPos + WinGetPID + ProcessExist,
-    ; no per-OS window styles). Used in the LButton HotIf of both this card and the InputHUD HUDs.
-    static Blocked() {
+    static InRectAt(rc, x, y) => IsObject(rc) && x >= rc.x && x < rc.x + rc.w && y >= rc.y && y < rc.y + rc.h
+
+    ; A mouse HotIf/callback should hit-test the event which triggered it, not issue a second cursor query after
+    ; the pointer may already have moved. Hook events expose their screen-coordinate snapshot through A_EventInfo;
+    ; non-mouse callers fall back to the live cursor so these helpers remain usable from ordinary script code.
+    static EventPos(&x, &y) {
+        local info := A_EventInfo
+        if IsObject(info) && info.HasOwnProp("X") && info.HasOwnProp("Y") {
+            x := info.X, y := info.Y
+            return
+        }
+        CoordMode("Mouse", "Screen")
+        MouseGetPos(&x, &y)
+    }
+
+    ; Z-order guard for the click-through overlays. WinFromPoint skips a click-through overlay and returns the real
+    ; window at the event coordinates — normally the app the card floats over (a different process), but our own
+    ; tray menu when it is popped on top. Thus an own-process result means the click must go to that menu, not our
+    ; click hook. Used in the LButton HotIf of both this card and the InputHUD HUDs.
+    static Blocked(x, y) {
         if !this.ourPid
             this.ourPid := ProcessExist()          ; own PID (A_ProcessID is unset in Keysharp)
-        MouseGetPos(, , &win)
+        local win := WinFromPoint(x, y)
         return win && WinGetPID(win) = this.ourPid
     }
 

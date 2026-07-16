@@ -1,5 +1,7 @@
 using Keysharp.Builtins;
 using Keysharp.Internals.Input;
+using Keysharp.Internals.Input.Hooks;
+using Keysharp.Internals.Threading;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
@@ -86,6 +88,23 @@ namespace Keysharp.Tests
 
 			var ek = (InputObject)Input.InputHook("V", "{Enter}"); // visible + a keyboard end key
 			Assert.IsTrue(ek.input.KeyboardIsNeeded);    // keyboard end key keeps the keyboard hook
+		}
+
+		[Test, Category("InputHook")]
+		public void MouseEventInfoCarriesScreenPositionOnlyForMouseEvents()
+		{
+			var mouse = new HookEventInfo(123, false, false, 0, null, 7, 321, 654);
+			s.Threads.CurrentThread.eventInfo = (Func<object>)mouse.BuildEventInfo;
+
+			var visible = ThreadAccessors.A_EventInfo;
+			Assert.AreEqual(321L, Script.GetPropertyValue(visible, "X"));
+			Assert.AreEqual(654L, Script.GetPropertyValue(visible, "Y"));
+
+			var keyboard = new HookEventInfo(456, false, false, 0, null, 8);
+			s.Threads.CurrentThread.eventInfo = (Func<object>)keyboard.BuildEventInfo;
+			visible = ThreadAccessors.A_EventInfo;
+			Assert.AreEqual(0L, KeysharpObject.HasOwnProp(visible, "X"));
+			Assert.AreEqual(0L, KeysharpObject.HasOwnProp(visible, "Y"));
 		}
 	}
 }

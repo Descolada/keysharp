@@ -33,8 +33,11 @@ namespace Keysharp.Internals.Input.Hooks
 		private readonly ulong extraInfo;
 		private readonly object extra;
 		private readonly uint? deviceId;
+		private readonly int? mouseX;
+		private readonly int? mouseY;
 
-		internal HookEventInfo(long timestamp, bool isInjected, bool isAutoRepeat, ulong extraInfo, object extra, uint? deviceId)
+		internal HookEventInfo(long timestamp, bool isInjected, bool isAutoRepeat, ulong extraInfo, object extra,
+			uint? deviceId, int? mouseX = null, int? mouseY = null)
 		{
 			this.timestamp = timestamp;
 			this.isInjected = isInjected;
@@ -42,13 +45,22 @@ namespace Keysharp.Internals.Input.Hooks
 			this.extraInfo = extraInfo;
 			this.extra = extra;
 			this.deviceId = deviceId;
+			this.mouseX = mouseX;
+			this.mouseY = mouseY;
+		}
+
+		/// <summary>Returns the screen-coordinate snapshot carried by a mouse hook event. Keyboard events have none.</summary>
+		private bool TryGetMousePosition(out int x, out int y)
+		{
+			x = mouseX.GetValueOrDefault();
+			y = mouseY.GetValueOrDefault();
+			return mouseX.HasValue && mouseY.HasValue;
 		}
 
 		/// <summary>
-		/// Builds the script-visible A_EventInfo object for this event. Used as the Func&lt;object&gt; factory
-		/// parked in A_EventInfo, so it runs only if the script actually reads the variable. A holder shared
-		/// across dispatch paths (e.g. a key-down and its paired key-up) may be built once per thread; that is
-		/// fine since each thread caches its own result and the values are equal.
+		/// Builds the script-visible A_EventInfo object for this event. A bound factory is parked in A_EventInfo,
+		/// so this runs only if the script actually reads the variable. A factory shared across dispatch paths may
+		/// be invoked once per thread; that is fine since each thread caches its own result and the values are equal.
 		/// </summary>
 		internal object BuildEventInfo()
 		{
@@ -63,6 +75,15 @@ namespace Keysharp.Internals.Input.Hooks
 
 			if (deviceId.HasValue)
 				obj.DefinePropInternal("DeviceId", new OwnPropsDesc(obj, (long)deviceId.Value));
+
+			// Mouse hook coordinates are already a compositor-consistent screen snapshot. Exposing them lets a
+			// #HotIf predicate hit-test the event which is actually awaiting its suppress/pass decision, without a
+			// second global-cursor query (an IPC round trip on Wayland). Keyboard events intentionally omit X/Y.
+			if (TryGetMousePosition(out var x, out var y))
+			{
+				obj.DefinePropInternal("X", new OwnPropsDesc(obj, (long)x));
+				obj.DefinePropInternal("Y", new OwnPropsDesc(obj, (long)y));
+			}
 
 			if (extra != null)
 				obj.DefinePropInternal("Extra", new OwnPropsDesc(obj, extra));
@@ -1943,8 +1964,23 @@ namespace Keysharp.Internals.Input.Hooks
 		// Returns a factory that builds the script-visible A_EventInfo object only if the script reads it. The
 		// factory flows untouched through the dispatch path and is resolved by ThreadAccessors.A_EventInfo.
 		private static Func<object> CreateEventInfo(HookEventArgs e, ulong extraInfo, uint eventFlags, object extra, uint? deviceId)
-			=> new HookEventInfo(EventTimestamp(e), e.IsEventSimulated || (eventFlags & HOOK_EVENT_INJECTED) != 0,
-				e.IsAutoRepeat, extraInfo, extra, deviceId).BuildEventInfo;
+		{
+			int? mouseX = null, mouseY = null;
+
+			if (e is MouseHookEventArgs mouse)
+			{
+				mouseX = mouse.Data.X;
+				mouseY = mouse.Data.Y;
+			}
+			else if (e is MouseWheelHookEventArgs wheel)
+			{
+				mouseX = wheel.Data.X;
+				mouseY = wheel.Data.Y;
+			}
+
+			return new HookEventInfo(EventTimestamp(e), e.IsEventSimulated || (eventFlags & HOOK_EVENT_INJECTED) != 0,
+				e.IsAutoRepeat, extraInfo, extra, deviceId, mouseX, mouseY).BuildEventInfo;
+		}
 
 		private static long EventTimestamp(HookEventArgs e)
 		{

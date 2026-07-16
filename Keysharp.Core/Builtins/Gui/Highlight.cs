@@ -41,6 +41,7 @@ namespace Keysharp.Builtins
 			// Signature of the frame currently painted onto the overlay, so Refresh can tell a pure move (just
 			// reposition) from a resize/recolor (repaint the frame first) without rebuilding when nothing changed.
 			private int builtW = int.MinValue, builtH = int.MinValue, builtD = int.MinValue;
+			private double builtScale = double.NaN;
 			private string builtColor = "";
 
 			// visible = caller intent (Show issued, no intervening Hide/Destroy); shown = overlay actually mapped.
@@ -144,6 +145,7 @@ namespace Keysharp.Builtins
 				_ = overlay?.Destroy();
 				overlay = null;
 				builtW = builtH = builtD = int.MinValue;
+				builtScale = double.NaN;
 				builtColor = "";
 				return DefaultObject;
 			}
@@ -169,13 +171,15 @@ namespace Keysharp.Builtins
 				}
 
 				var d = thickness;
+				var scale = RasterScale;
 				int bw = rw + 2 * d, bh = rh + 2 * d, bx = rx - d, by = ry - d;
 
 				overlay ??= new KeysharpOverlay();
+				overlay.Scale = scale;
 
-				if (bw != builtW || bh != builtH || d != builtD || color != builtColor)
+				if (bw != builtW || bh != builtH || d != builtD || scale != builtScale || color != builtColor)
 				{
-					using var frame = BuildFrame(bw, bh, d, color);
+					using var frame = BuildFrame(bw, bh, d, color, scale);
 
 					if (frame != null)
 						_ = overlay.SetImage(frame);
@@ -183,6 +187,7 @@ namespace Keysharp.Builtins
 					builtW = bw;
 					builtH = bh;
 					builtD = d;
+					builtScale = scale;
 					builtColor = color;
 					_ = overlay.Show(bx, by, bw, bh);   // re-push the freshly painted frame at the new position
 				}
@@ -196,9 +201,11 @@ namespace Keysharp.Builtins
 
 			// Paints a d-thick frame of `colorHex` around a (bw x bh) transparent canvas as four filled edges,
 			// leaving the centre transparent so the highlight frames the target instead of covering it.
-			private static KeysharpImage BuildFrame(int bw, int bh, int d, string colorHex)
+			private static KeysharpImage BuildFrame(int bw, int bh, int d, string colorHex, double scale)
 			{
-				if (KeysharpImage.Create(null, (long)bw, (long)bh) is not KeysharpImage img)
+				// On macOS the overlay window is measured in logical points, so render its transparent frame into a
+				// backing-resolution bitmap. Windows/Linux overlay geometry is already in physical pixels and stays 1:1.
+				if (KeysharpImage.Create(null, (long)bw, (long)bh, null, scale) is not KeysharpImage img)
 					return null;
 
 				if (d > 0)
@@ -217,6 +224,12 @@ namespace Keysharp.Builtins
 
 				return img;
 			}
+
+#if OSX
+			private static double RasterScale => Math.Max(1.0, Ks.A_ScreenScale);
+#else
+			private const double RasterScale = 1.0;
+#endif
 
 			// Normalizes a color (a name like "Red", a 0xRRGGBB integer, or a "#RRGGBB"/"0xRRGGBB"/bare-hex string)
 			// to the canonical 6-hex-digit string, matching how Gui.BackColor reports colors. Unparseable -> red.

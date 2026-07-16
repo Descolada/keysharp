@@ -322,7 +322,8 @@ catch
 if !threw
     FileAppend "fail field assignment", "*"
 
-if (A_OSType = "WIN32_NT") {
+#if WINDOWS
+{
     pt3 := POINT()
     if !DllCall("GetCursorPos", POINT.Ptr, pt3)
         FileAppend "fail getcursor", "*"
@@ -378,5 +379,6 @@ if (A_OSType = "WIN32_NT") {
     if !IsNumber(kernel32) || kernel32 == 0
         FileAppend "fail numeric pointer return", "*"
 }
+#endif
 
 FileAppend "pass", "*"

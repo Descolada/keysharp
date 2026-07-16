@@ -132,13 +132,13 @@ namespace Keysharp.Internals.Input.Hooks
 
 	internal sealed class MouseHookEventArgs : HookEventArgs
 	{
-		internal MouseHookEventArgs(EventType type, MouseButton button, int x, int y, EventMask mask = EventMask.None, ulong timestamp = 0)
+		internal MouseHookEventArgs(EventType type, MouseButton button, int x, int y, EventMask mask = EventMask.None, ulong timestamp = 0, int clicks = 1)
 			: base(type, timestamp, mask)
 		{
 			Data = new MouseEventData
 			{
 				Button = button,
-				Clicks = 1,
+				Clicks = Math.Max(1, clicks),
 				X = x,
 				Y = y
 			};

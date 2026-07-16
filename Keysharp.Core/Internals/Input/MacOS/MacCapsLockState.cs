@@ -31,6 +31,9 @@ namespace Keysharp.Internals.Input.MacOS
 		private static extern int IOObjectRelease(uint obj);
 
 		[DllImport(IOKitLib)]
+		private static extern int IOServiceClose(uint connect);
+
+		[DllImport(IOKitLib)]
 		private static extern int IOHIDGetModifierLockState(uint handle, int selector, [MarshalAs(UnmanagedType.I1)] out bool state);
 
 		[DllImport(IOKitLib)]
@@ -39,78 +42,115 @@ namespace Keysharp.Internals.Input.MacOS
 		[DllImport(SystemLib)]
 		private static extern nint mach_task_self();
 
-		private static readonly Lock connLock = new();
-		// Serializes the get+set pair in TryToggle so two intended toggles (physical suppressed CapsLock on
-		// the CGEvent-tap thread and Send("{CapsLock}") on the script/sender thread) can't interleave their
-		// read-modify-write and collapse into a single net toggle. Distinct from connLock (which only guards
-		// connection acquisition), so no reentrancy is assumed.
-		private static readonly Lock toggleLock = new();
+		// Own the connection and every operation performed through it under one lock. Besides making a
+		// toggle atomic, this prevents a stale-handle retry on one thread from closing the handle while
+		// another thread is inside IOHIDGet/SetModifierLockState.
+		private static readonly Lock stateLock = new();
 		private static uint connection;
-		private static bool connectionFailed;
 
-		private static bool TryGetConnection(out uint conn)
+		static MacCapsLockState()
+			=> AppDomain.CurrentDomain.ProcessExit += (_, _) => CloseConnection();
+
+		private static bool TryGetConnectionCore(out uint conn)
 		{
-			lock (connLock)
+			if (connection != 0)
 			{
-				if (connection != 0)
-				{
-					conn = connection;
-					return true;
-				}
+				conn = connection;
+				return true;
+			}
 
-				conn = 0;
+			conn = 0;
+			uint service = 0;
+			try
+			{
+				service = IOServiceGetMatchingService(0, IOServiceMatching(kIOHIDSystemClass));
+				if (service == 0)
+					return false;
 
-				if (connectionFailed)
+				var kr = IOServiceOpen(service, mach_task_self(), kIOHIDParamConnectType, out var handle);
+				if (kr != 0 || handle == 0)
+					return false;
+
+				connection = handle;
+				conn = handle;
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+			finally
+			{
+				if (service != 0)
+					_ = IOObjectRelease(service);
+			}
+		}
+
+		internal static bool IsAvailable
+		{
+			get
+			{
+				lock (stateLock)
+					return TryGetConnectionCore(out _);
+			}
+		}
+
+		internal static bool TryGet(out bool on)
+		{
+			lock (stateLock)
+				return TryAccessCore(null, out on);
+		}
+
+		internal static bool TrySet(bool on)
+		{
+			lock (stateLock)
+				return TryAccessCore(on, out _);
+		}
+
+		internal static bool TryToggle()
+		{
+			lock (stateLock)
+				return TryAccessCore(null, out var on) && TryAccessCore(!on, out _);
+		}
+
+		private static bool TryAccessCore(bool? desired, out bool state)
+		{
+			state = desired.GetValueOrDefault();
+			for (var attempt = 0; attempt < 2; attempt++)
+			{
+				if (!TryGetConnectionCore(out var conn))
 					return false;
 
 				try
 				{
-					var service = IOServiceGetMatchingService(0, IOServiceMatching(kIOHIDSystemClass));
-
-					if (service == 0)
-					{
-						connectionFailed = true;
-						return false;
-					}
-
-					var kr = IOServiceOpen(service, mach_task_self(), kIOHIDParamConnectType, out var handle);
-					_ = IOObjectRelease(service);
-
-					if (kr != 0 || handle == 0)
-					{
-						connectionFailed = true;
-						return false;
-					}
-
-					connection = handle;
-					conn = handle;
-					return true;
+					var result = desired.HasValue
+						? IOHIDSetModifierLockState(conn, kIOHIDCapsLockState, desired.Value)
+						: IOHIDGetModifierLockState(conn, kIOHIDCapsLockState, out state);
+					if (result == 0)
+						return true;
 				}
-				catch
-				{
-					connectionFailed = true;
-					return false;
-				}
+				catch { /* Retry once with a fresh connection. */ }
+
+				InvalidateConnectionCore(conn);
 			}
+
+			return false;
 		}
 
-		internal static bool IsAvailable => TryGetConnection(out _);
-
-		internal static bool TryGet(out bool on)
+		private static void InvalidateConnectionCore(uint expected)
 		{
-			on = false;
-			return TryGetConnection(out var conn)
-				&& IOHIDGetModifierLockState(conn, kIOHIDCapsLockState, out on) == 0;
+			if (connection != expected)
+				return;
+
+			try { _ = IOServiceClose(connection); }
+			catch { /* The handle is unusable either way; forget it below. */ }
+			connection = 0;
 		}
 
-		internal static bool TrySet(bool on)
-			=> TryGetConnection(out var conn)
-			&& IOHIDSetModifierLockState(conn, kIOHIDCapsLockState, on) == 0;
-
-		internal static bool TryToggle()
+		private static void CloseConnection()
 		{
-			lock (toggleLock)
-				return TryGet(out var on) && TrySet(!on);
+			lock (stateLock)
+				InvalidateConnectionCore(connection);
 		}
 	}
 }

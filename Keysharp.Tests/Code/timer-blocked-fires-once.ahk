@@ -6,14 +6,15 @@ fn := () {
 }
 
 BlockWithoutPumping(ms) {
-    if (A_OSType = "WIN32_NT")
-        DllCall("kernel32.dll\Sleep", "uint", ms)
-    else if (A_OSType = "UNIX")
-        DllCall("libc.so.6\usleep", "uint", ms * 1000)
-    else if (A_OSType = "MACOSX")
-        DllCall("libc.dylib\usleep", "uint", ms * 1000)
-    else
-        Sleep(ms)
+#if WINDOWS
+    DllCall("kernel32.dll\Sleep", "uint", ms)
+#elif LINUX
+    DllCall("libc.so.6\usleep", "uint", ms * 1000)
+#elif OSX
+    DllCall("libc.dylib\usleep", "uint", ms * 1000)
+#else
+    Sleep(ms)
+#endif
 }
 
 SetTimer(fn, 80)

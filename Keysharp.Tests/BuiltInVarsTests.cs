@@ -52,6 +52,14 @@ namespace Keysharp.Tests
 		[Test, Category("BuiltInVars"), NonParallelizable]
 		public void PropsScriptProperties()
 		{
+#if WINDOWS
+			const string expectedOsType = "WINDOWS";
+#elif OSX
+			const string expectedOsType = "OSX";
+#else
+			const string expectedOsType = "LINUX";
+#endif
+			Assert.AreEqual(expectedOsType, Accessors.A_OSType);
 			Assert.IsTrue(TestScript("props-script-properties", false));
 		}
 

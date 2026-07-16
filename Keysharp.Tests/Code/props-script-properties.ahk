@@ -2,6 +2,19 @@
 
 ; Can't really test if some of these properties have "valid" values. So at least just test if they can be compiled properly in a script.
 
+#if WINDOWS
+expectedOsType := "WINDOWS"
+#elif OSX
+expectedOsType := "OSX"
+#else
+expectedOsType := "LINUX"
+#endif
+
+if (A_OSType = expectedOsType)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
 x := A_WorkingDir
 
 if (x != "")

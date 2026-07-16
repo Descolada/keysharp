@@ -1,6 +1,5 @@
 #if OSX
 using System.Runtime.InteropServices;
-using System.Text;
 using Keysharp.Builtins;
 using Keysharp.Internals.Input.Keyboard;
 using Keysharp.Internals.Input.Hooks;
@@ -23,11 +22,22 @@ namespace Keysharp.Internals.Input.MacOS
 		internal const uint kCGHeadInsertEventTap = 0;
 		internal const uint kCGEventTapOptionDefault = 0;
 		internal const uint kCGEventSourceUserData = 42;
+		internal const uint kCGEventSourceUnixProcessID = 41;
+		internal const uint kCGEventSourceStateID = 45;
 		internal const uint kCGKeyboardEventAutorepeat = 8;
 		internal const uint kCGKeyboardEventKeycode = 9;
+		internal const uint kCGMouseEventNumber = 0;
+		internal const uint kCGMouseEventClickState = 1;
 		internal const uint kCGMouseEventButtonNumber = 3;
+		internal const uint kCGMouseEventDeltaX = 4;
+		internal const uint kCGMouseEventDeltaY = 5;
 		internal const uint kCGScrollWheelEventDeltaAxis1 = 11;
 		internal const uint kCGScrollWheelEventDeltaAxis2 = 12;
+		internal const uint kCGScrollWheelEventFixedPtDeltaAxis1 = 93;
+		internal const uint kCGScrollWheelEventFixedPtDeltaAxis2 = 94;
+		internal const uint kCGScrollWheelEventPointDeltaAxis1 = 96;
+		internal const uint kCGScrollWheelEventPointDeltaAxis2 = 97;
+		internal const uint kCGScrollWheelEventIsContinuous = 88;
 
 		internal const uint kCGEventLeftMouseDown = 1;
 		internal const uint kCGEventLeftMouseUp = 2;
@@ -46,11 +56,31 @@ namespace Keysharp.Internals.Input.MacOS
 		internal const uint kCGEventTapDisabledByTimeout = 0xFFFFFFFE;
 		internal const uint kCGEventTapDisabledByUserInput = 0xFFFFFFFF;
 
-		private const ulong kCGEventFlagMaskAlphaShift = 1UL << 16;
-		private const ulong kCGEventFlagMaskShift = 1UL << 17;
-		private const ulong kCGEventFlagMaskControl = 1UL << 18;
-		private const ulong kCGEventFlagMaskAlternate = 1UL << 19;
-		private const ulong kCGEventFlagMaskCommand = 1UL << 20;
+		internal const ulong kCGEventFlagMaskAlphaShift = 1UL << 16;
+		internal const ulong kCGEventFlagMaskShift = 1UL << 17;
+		internal const ulong kCGEventFlagMaskControl = 1UL << 18;
+		internal const ulong kCGEventFlagMaskAlternate = 1UL << 19;
+		internal const ulong kCGEventFlagMaskCommand = 1UL << 20;
+
+		// sourceUserData is the only application-owned field which survives a CGEventPost round-trip.
+		// Give all Keysharp events a private signature and keep the original AHK extra-info value in a
+		// signed 36-bit payload. Presence of a layout-derived Unicode string is not event identity: Quartz
+		// associates such a string with ordinary virtual-key events automatically.
+		private const ulong MetadataSignatureMask = 0xFFFF_FF00_0000_0000;
+		private const ulong MetadataSignature = 0x4B53_4900_0000_0000; // "KSI"
+		private const int MetadataKindShift = 36;
+		private const ulong MetadataKindMask = 0x0000_00F0_0000_0000;
+		private const ulong MetadataPayloadMask = 0x0000_000F_FFFF_FFFF;
+		private const ulong MetadataPayloadSign = 0x0000_0008_0000_0000;
+
+		[Flags]
+		internal enum InjectedEventKind : byte
+		{
+			None = 0,
+			UnicodeText = 1,
+			KeyUp = 2,
+			Mouse = 4
+		}
 
 		private static readonly nint runLoopDefaultMode = CreateRunLoopMode("kCFRunLoopDefaultMode");
 
@@ -70,8 +100,8 @@ namespace Keysharp.Internals.Input.MacOS
 		[LibraryImport(ApplicationServices)]
 		internal static partial nint CGEventCreateMouseEvent(nint source, uint mouseType, CGPoint mouseCursorPosition, uint mouseButton);
 
-		[DllImport(ApplicationServices)]
-		internal static extern nint CGEventCreateScrollWheelEvent(nint source, uint units, uint wheelCount, int wheel1, int wheel2, int wheel3);
+		[LibraryImport(ApplicationServices, EntryPoint = "CGEventCreateScrollWheelEvent2")]
+		internal static partial nint CGEventCreateScrollWheelEvent2(nint source, uint units, uint wheelCount, int wheel1, int wheel2, int wheel3);
 
 		[LibraryImport(ApplicationServices)]
 		internal static partial nint CGEventSourceCreate(uint stateId);
@@ -84,6 +114,12 @@ namespace Keysharp.Internals.Input.MacOS
 
 		[LibraryImport(ApplicationServices)]
 		internal static partial long CGEventGetIntegerValueField(nint cgEvent, uint field);
+
+		[LibraryImport(ApplicationServices)]
+		internal static partial double CGEventGetDoubleValueField(nint cgEvent, uint field);
+
+		[LibraryImport(ApplicationServices)]
+		internal static partial uint CGEventGetType(nint cgEvent);
 
 		[LibraryImport(ApplicationServices)]
 		internal static partial ulong CGEventGetFlags(nint cgEvent);
@@ -101,8 +137,26 @@ namespace Keysharp.Internals.Input.MacOS
 		[return: MarshalAs(UnmanagedType.I1)]
 		internal static partial bool CGEventSourceKeyState(uint sourceState, ushort virtualKey);
 
-		[LibraryImport(ApplicationServices, StringMarshalling = StringMarshalling.Utf16)]
-		internal static partial void CGEventKeyboardSetUnicodeString(nint cgEvent, long stringLength, string unicodeString);
+		[LibraryImport(ApplicationServices)]
+		[return: MarshalAs(UnmanagedType.I1)]
+		internal static partial bool CGEventSourceButtonState(uint sourceState, uint button);
+
+		// UniChar is UTF-16. Keep the native entry point pointer-based so the sender can pass a
+		// scalar-sized slice of the caller's string without allocating a temporary substring.
+		[DllImport(ApplicationServices, EntryPoint = "CGEventKeyboardSetUnicodeString")]
+		private static extern unsafe void CGEventKeyboardSetUnicodeStringCore(nint cgEvent, long stringLength, char* unicodeString);
+
+		internal static void CGEventKeyboardSetUnicodeString(nint cgEvent, long stringLength, string unicodeString)
+		{
+			var length = (int)Math.Clamp(stringLength, 0L, unicodeString.Length);
+			SetKeyboardUnicodeString(cgEvent, unicodeString.AsSpan(0, length));
+		}
+
+		private static unsafe void SetKeyboardUnicodeString(nint cgEvent, ReadOnlySpan<char> unicodeString)
+		{
+			fixed (char* p = unicodeString)
+				CGEventKeyboardSetUnicodeStringCore(cgEvent, unicodeString.Length, p);
+		}
 
 		// Pointer-based signature (UniChar == C# char, both UTF-16) so callers can pass a stack/Span buffer
 		// and TryGetKeyboardUnicodeString need not allocate a marshalled char[] per keystroke.
@@ -128,10 +182,14 @@ namespace Keysharp.Internals.Input.MacOS
 		internal static partial void CFRunLoopRemoveSource(nint rl, nint source, nint mode);
 
 		[LibraryImport(CoreFoundation)]
-		internal static partial void CFRunLoopRun();
+		internal static partial int CFRunLoopRunInMode(nint mode, double seconds, [MarshalAs(UnmanagedType.I1)] bool returnAfterSourceHandled);
 
 		[LibraryImport(CoreFoundation)]
 		internal static partial void CFRunLoopStop(nint rl);
+
+		[LibraryImport(CoreFoundation)]
+		[return: MarshalAs(UnmanagedType.I1)]
+		internal static partial bool CFMachPortIsValid(nint port);
 
 		[LibraryImport(CoreFoundation)]
 		internal static partial void CFRelease(nint cf);
@@ -159,40 +217,58 @@ namespace Keysharp.Internals.Input.MacOS
 			(1UL << (int)kCGEventOtherMouseUp) |
 			(1UL << (int)kCGEventOtherMouseDragged);
 
-		internal static ulong HookEventMask => KeyboardEventMask | MouseEventMask;
+		internal static ulong EventMaskFor(bool keyboard, bool mouse) =>
+			(keyboard ? KeyboardEventMask : 0)
+			| (mouse ? MouseEventMask | (1UL << (int)kCGEventFlagsChanged) : 0);
+		internal static bool IsKeyboardEvent(uint type) => type < 64 && (KeyboardEventMask & (1UL << (int)type)) != 0;
+		internal static bool IsMouseEvent(uint type) => type < 64 && (MouseEventMask & (1UL << (int)type)) != 0;
+
+		internal static MacKeyboardState.Origin ClassifyEventOrigin(nint cgEvent, bool hasKeysharpMetadata)
+		{
+			if (hasKeysharpMetadata)
+				return MacKeyboardState.Origin.KeysharpSynthetic;
+
+			var sourcePid = CGEventGetIntegerValueField(cgEvent, kCGEventSourceUnixProcessID);
+			var sourceState = CGEventGetIntegerValueField(cgEvent, kCGEventSourceStateID);
+			if (sourcePid > 0 || sourceState is -1 or 0)
+				return MacKeyboardState.Origin.ForeignSynthetic;
+			if (sourceState == kCGEventSourceStateHIDSystemState)
+				return MacKeyboardState.Origin.PhysicalHid;
+
+			return MacKeyboardState.Origin.Unknown;
+		}
 
 		private static nint CreateRunLoopMode(string value)
 			=> CFStringCreateWithCString(nint.Zero, value, 0x08000100); // kCFStringEncodingUTF8
 
-		internal static bool IsModifierVk(uint vk) =>
-			vk is VK_LSHIFT or VK_RSHIFT or VK_LCONTROL or VK_RCONTROL or VK_LMENU or VK_RMENU or VK_LWIN or VK_RWIN or VK_CAPITAL;
-
-		internal static bool IsKeyUpFromFlagsChanged(uint vk, ulong flags) => vk switch
+		internal static long EncodeInjectedExtraInfo(long extraInfo, InjectedEventKind kind)
 		{
-			VK_LSHIFT or VK_RSHIFT => (flags & kCGEventFlagMaskShift) == 0,
-			VK_LCONTROL or VK_RCONTROL => (flags & kCGEventFlagMaskControl) == 0,
-			VK_LMENU or VK_RMENU => (flags & kCGEventFlagMaskAlternate) == 0,
-			VK_LWIN or VK_RWIN => (flags & kCGEventFlagMaskCommand) == 0,
-			VK_CAPITAL => (flags & kCGEventFlagMaskAlphaShift) == 0,
-			_ => false
-		};
+			if (extraInfo is < -(1L << 35) or >= (1L << 35))
+				throw new ArgumentOutOfRangeException(nameof(extraInfo), "macOS injected event metadata supports signed 36-bit extra-info values.");
 
-		internal static EventMask ToEventMask(ulong flags)
+			var encoded = MetadataSignature
+				| (((ulong)kind << MetadataKindShift) & MetadataKindMask)
+				| (unchecked((ulong)extraInfo) & MetadataPayloadMask);
+			return unchecked((long)encoded);
+		}
+
+		internal static bool TryDecodeInjectedExtraInfo(long encoded, out long extraInfo, out InjectedEventKind kind)
 		{
-			var mask = EventMask.None;
+			var raw = unchecked((ulong)encoded);
+			if ((raw & MetadataSignatureMask) != MetadataSignature)
+			{
+				extraInfo = encoded;
+				kind = InjectedEventKind.None;
+				return false;
+			}
 
-			if ((flags & kCGEventFlagMaskShift) != 0)
-				mask |= EventMask.LeftShift | EventMask.RightShift;
-			if ((flags & kCGEventFlagMaskControl) != 0)
-				mask |= EventMask.LeftCtrl | EventMask.RightCtrl;
-			if ((flags & kCGEventFlagMaskAlternate) != 0)
-				mask |= EventMask.LeftAlt | EventMask.RightAlt;
-			if ((flags & kCGEventFlagMaskCommand) != 0)
-				mask |= EventMask.LeftMeta | EventMask.RightMeta;
-			if ((flags & kCGEventFlagMaskAlphaShift) != 0)
-				mask |= EventMask.CapsLock;
+			var payload = raw & MetadataPayloadMask;
+			if ((payload & MetadataPayloadSign) != 0)
+				payload |= ~MetadataPayloadMask;
 
-			return mask;
+			extraInfo = unchecked((long)payload);
+			kind = (InjectedEventKind)((raw & MetadataKindMask) >> MetadataKindShift);
+			return true;
 		}
 
 		// One process-wide CGEventSource reused across every Post* call. CGEventSourceCreate makes a heavy
@@ -212,12 +288,14 @@ namespace Keysharp.Internals.Input.MacOS
 				ref sharedEventSource, ref sharedEventSourceInitialized, ref sharedEventSourceLock,
 				static () => CGEventSourceCreate(kCGEventSourceStateCombinedSessionState));
 
-		private static ulong FlagsForModifiers(uint modifiersLR)
+		private static ulong FlagsForModifiers(uint modifiersLR, bool? capsLockOn)
 		{
 			// Retain CapsLock, whose toggle state is independent of the transient modifiers managed by Send.
 			// Do not copy the source's Shift/Ctrl/Option/Cmd flags: delivery is asynchronous, so they may still
 			// describe an earlier synthetic event in this same Send operation.
-			var flags = CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState) & kCGEventFlagMaskAlphaShift;
+			var flags = capsLockOn.HasValue
+				? capsLockOn.Value ? kCGEventFlagMaskAlphaShift : 0
+				: CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState) & kCGEventFlagMaskAlphaShift;
 
 			if ((modifiersLR & (MOD_LSHIFT | MOD_RSHIFT)) != 0)
 				flags |= kCGEventFlagMaskShift;
@@ -231,22 +309,31 @@ namespace Keysharp.Internals.Input.MacOS
 			return flags;
 		}
 
-		internal static void PostKeyboard(uint vk, bool keyDown, long extraInfo, uint modifiersLR, bool autoRepeat = false)
+		internal static nint CreateKeyboardEvent(uint vk, bool keyDown, long extraInfo, uint modifiersLR,
+			bool autoRepeat = false, bool? capsLockOn = null)
 		{
 			if (!KeyCodes.TryMapVkToMacCode(vk, out var keyCode))
-				return;
+				return nint.Zero;
 
 			var ev = CGEventCreateKeyboardEvent(SharedEventSource(), (ushort)keyCode, keyDown);
 
 			if (ev != nint.Zero)
 			{
-				CGEventSetFlags(ev, FlagsForModifiers(modifiersLR));
+				CGEventSetFlags(ev, FlagsForModifiers(modifiersLR, capsLockOn));
 				if (keyDown && autoRepeat)
 					CGEventSetIntegerValueField(ev, kCGKeyboardEventAutorepeat, 1);
-				CGEventSetIntegerValueField(ev, kCGEventSourceUserData, extraInfo);
-				CGEventPost(kCGHIDEventTap, ev);
-				CFRelease(ev);
+				var kind = keyDown ? InjectedEventKind.None : InjectedEventKind.KeyUp;
+				CGEventSetIntegerValueField(ev, kCGEventSourceUserData, EncodeInjectedExtraInfo(extraInfo, kind));
 			}
+
+			return ev;
+		}
+
+		internal static bool PostKeyboard(uint vk, bool keyDown, long extraInfo, uint modifiersLR,
+			bool autoRepeat = false, bool? capsLockOn = null)
+		{
+			var ev = CreateKeyboardEvent(vk, keyDown, extraInfo, modifiersLR, autoRepeat, capsLockOn);
+			return PostAndRelease(ev);
 		}
 
 		internal static void PostUnicodeText(string text, long extraInfo)
@@ -254,9 +341,19 @@ namespace Keysharp.Internals.Input.MacOS
 			if (string.IsNullOrEmpty(text))
 				return;
 
-			foreach (var rune in text.EnumerateRunes())
-				PostUnicodeScalar(rune.ToString(), extraInfo);
+			for (var offset = 0; offset < text.Length;)
+			{
+				var length = NextUnicodeScalarLength(text.AsSpan(offset));
+				PostUnicodeChunk(text.AsSpan(offset, length), extraInfo);
+				offset += length;
+			}
 		}
+
+		// A CGEvent is the event tap's smallest suppressible unit. Keep one Unicode scalar per
+		// event so suppressing one character can never discard adjacent injected text. A valid
+		// surrogate pair stays atomic because Quartz cannot inject either half independently.
+		internal static int NextUnicodeScalarLength(ReadOnlySpan<char> text)
+			=> text.Length >= 2 && char.IsHighSurrogate(text[0]) && char.IsLowSurrogate(text[1]) ? 2 : 1;
 
 		internal static bool TryGetKeyboardUnicodeString(nint cgEvent, Span<char> buffer, out int length)
 		{
@@ -276,45 +373,46 @@ namespace Keysharp.Internals.Input.MacOS
 			return length != 0;
 		}
 
-		private static void PostUnicodeScalar(string scalar, long extraInfo)
+		private static void PostUnicodeChunk(ReadOnlySpan<char> text, long extraInfo)
 		{
 			var source = SharedEventSource();
-
-			void Post(bool down)
-			{
-				var ev = CGEventCreateKeyboardEvent(source, 0, down);
-				if (ev == nint.Zero)
-					return;
-
-				CGEventKeyboardSetUnicodeString(ev, scalar.Length, scalar);
-				// A Unicode payload is already the final literal text. Inheriting keyboard flags can transform it
-				// or invoke an application shortcut, so clear modifiers (including CapsLock) explicitly.
-				CGEventSetFlags(ev, 0);
-				CGEventSetIntegerValueField(ev, kCGEventSourceUserData, extraInfo);
-				CGEventPost(kCGHIDEventTap, ev);
-				CFRelease(ev);
-			}
-
-			Post(true);
-			Post(false);
+			PostUnicodeEvent(source, text, extraInfo, true);
+			PostUnicodeEvent(source, text, extraInfo, false);
 		}
 
-		internal static void PostMouseMove(int x, int y, long extraInfo)
-			=> PostMouseEvent(kCGEventMouseMoved, new CGPoint(x, y), 0, extraInfo);
-
-		internal static void PostMouseMoveRelative(int dx, int dy, long extraInfo)
+		private static void PostUnicodeEvent(nint source, ReadOnlySpan<char> text, long extraInfo, bool down)
 		{
-			if (!Platform.Mouse.TryGetCursorPos(out var x, out var y))
-				return;
-
-			PostMouseMove(x + dx, y + dy, extraInfo);
+			var ev = CreateUnicodeEvent(source, text, extraInfo, down);
+			if (!PostAndRelease(ev))
+				throw new InvalidOperationException("Core Graphics could not create a Unicode keyboard event.");
 		}
 
-		internal static void PostMouseButton(MouseButton button, bool down, int x, int y, long extraInfo)
+		internal static nint CreateUnicodeEvent(nint source, string text, long extraInfo, bool down)
+			=> CreateUnicodeEvent(source, text.AsSpan(), extraInfo, down);
+
+		private static nint CreateUnicodeEvent(nint source, ReadOnlySpan<char> text, long extraInfo, bool down)
+		{
+			var ev = CGEventCreateKeyboardEvent(source, 0, down);
+			if (ev == nint.Zero)
+				return nint.Zero;
+
+			SetKeyboardUnicodeString(ev, text);
+			// A Unicode payload is already the final literal text. Inheriting keyboard flags can transform it
+			// or invoke an application shortcut, so clear modifiers (including CapsLock) explicitly.
+			CGEventSetFlags(ev, 0);
+			var kind = InjectedEventKind.UnicodeText | (down ? InjectedEventKind.None : InjectedEventKind.KeyUp);
+			CGEventSetIntegerValueField(ev, kCGEventSourceUserData, EncodeInjectedExtraInfo(extraInfo, kind));
+			return ev;
+		}
+
+		internal static bool PostMouseMove(int x, int y, long extraInfo, MouseButton draggingButton = MouseButton.NoButton)
+			=> PostMouseEvent(MouseMoveType(draggingButton), new CGPoint(x, y), ToCGMouseButtonOrZero(draggingButton), extraInfo);
+
+		internal static bool PostMouseButton(MouseButton button, bool down, int x, int y, long extraInfo, int clickCount = 1, long eventNumber = 0)
 		{
 			var cgButton = ToCGMouseButton(button);
 			if (cgButton == uint.MaxValue)
-				return;
+				return false;
 
 			var type = (button, down) switch
 			{
@@ -326,10 +424,15 @@ namespace Keysharp.Internals.Input.MacOS
 				_ => kCGEventOtherMouseUp
 			};
 
-			PostMouseEvent(type, new CGPoint(x, y), cgButton, extraInfo);
+			return PostMouseEvent(type, new CGPoint(x, y), cgButton, extraInfo, Math.Max(1, clickCount), eventNumber);
 		}
 
 		internal static void PostMouseWheel(short delta, MouseWheelScrollDirection direction, long extraInfo)
+		{
+			PostAndRelease(CreateScrollWheelEvent(delta, direction, extraInfo));
+		}
+
+		internal static nint CreateScrollWheelEvent(short delta, MouseWheelScrollDirection direction, long extraInfo)
 		{
 			var clicks = delta / (int)MouseUtils.WHEEL_DELTA;
 			if (clicks == 0)
@@ -337,28 +440,74 @@ namespace Keysharp.Internals.Input.MacOS
 
 			var source = SharedEventSource();
 			var ev = direction == MouseWheelScrollDirection.Vertical
-				? CGEventCreateScrollWheelEvent(source, 1, 1, clicks, 0, 0)
-				: CGEventCreateScrollWheelEvent(source, 1, 2, 0, clicks, 0);
+				? CGEventCreateScrollWheelEvent2(source, 1, 1, clicks, 0, 0)
+				: CGEventCreateScrollWheelEvent2(source, 1, 2, 0, clicks, 0);
 
 			if (ev != nint.Zero)
 			{
-				CGEventSetIntegerValueField(ev, kCGEventSourceUserData, extraInfo);
-				CGEventPost(kCGHIDEventTap, ev);
-				CFRelease(ev);
+				// Quartz's line constructor accepts only integers, while Windows/inputd carry a
+				// signed 120-unit delta (including partial notches). Mark partial values continuous
+				// and populate the 16.16 fixed-point line field so the value survives our hook and
+				// applications which consume precise scrolling.
+				if (delta % (int)MouseUtils.WHEEL_DELTA != 0)
+				{
+					var preciseLines = delta / (double)MouseUtils.WHEEL_DELTA;
+					var fixedDelta = (long)Math.Round(preciseLines * 65536.0);
+					var lineField = direction == MouseWheelScrollDirection.Vertical
+						? kCGScrollWheelEventDeltaAxis1
+						: kCGScrollWheelEventDeltaAxis2;
+					var fixedField = direction == MouseWheelScrollDirection.Vertical
+						? kCGScrollWheelEventFixedPtDeltaAxis1
+						: kCGScrollWheelEventFixedPtDeltaAxis2;
+					CGEventSetIntegerValueField(ev, lineField, 0);
+					CGEventSetIntegerValueField(ev, fixedField, fixedDelta);
+					CGEventSetIntegerValueField(ev, kCGScrollWheelEventIsContinuous, 1);
+				}
+
+				CGEventSetIntegerValueField(ev, kCGEventSourceUserData,
+					EncodeInjectedExtraInfo(extraInfo, InjectedEventKind.Mouse));
 			}
+
+			return ev;
 		}
 
-		private static void PostMouseEvent(uint type, CGPoint point, uint button, long extraInfo)
+		internal static nint CreateMouseEvent(uint type, CGPoint point, uint button, long extraInfo, int clickCount = 0, long eventNumber = 0)
 		{
 			var ev = CGEventCreateMouseEvent(SharedEventSource(), type, point, button);
 
 			if (ev != nint.Zero)
 			{
-				CGEventSetIntegerValueField(ev, kCGEventSourceUserData, extraInfo);
-				CGEventPost(kCGHIDEventTap, ev);
-				CFRelease(ev);
+				if (clickCount > 0)
+					CGEventSetIntegerValueField(ev, kCGMouseEventClickState, clickCount);
+				if (eventNumber != 0)
+					CGEventSetIntegerValueField(ev, kCGMouseEventNumber, eventNumber);
+				CGEventSetIntegerValueField(ev, kCGEventSourceUserData,
+					EncodeInjectedExtraInfo(extraInfo, InjectedEventKind.Mouse));
 			}
+
+			return ev;
 		}
+
+		private static bool PostMouseEvent(uint type, CGPoint point, uint button, long extraInfo, int clickCount = 0, long eventNumber = 0)
+			=> PostAndRelease(CreateMouseEvent(type, point, button, extraInfo, clickCount, eventNumber));
+
+		private static bool PostAndRelease(nint ev)
+		{
+			if (ev == nint.Zero)
+				return false;
+
+			try { CGEventPost(kCGHIDEventTap, ev); }
+			finally { CFRelease(ev); }
+			return true;
+		}
+
+		internal static uint MouseMoveType(MouseButton draggingButton) => draggingButton switch
+		{
+			MouseButton.Button1 => kCGEventLeftMouseDragged,
+			MouseButton.Button2 => kCGEventRightMouseDragged,
+			MouseButton.Button3 or MouseButton.Button4 or MouseButton.Button5 => kCGEventOtherMouseDragged,
+			_ => kCGEventMouseMoved
+		};
 
 		internal static MouseButton ToMouseButton(uint type, uint buttonNumber) => type switch
 		{
@@ -383,526 +532,13 @@ namespace Keysharp.Internals.Input.MacOS
 			MouseButton.Button5 => 4,
 			_ => uint.MaxValue
 		};
-	}
 
-	internal sealed class MacKeyboardMouseSender : Keysharp.Internals.Input.Unix.UnixKeyboardMouseSender
-	{
-		private uint postedModifiersLR;
-		private bool postedModifiersInitialized;
-
-		private uint CurrentPostedModifiers()
+		private static uint ToCGMouseButtonOrZero(MouseButton button)
 		{
-			if (!postedModifiersInitialized)
-			{
-				postedModifiersLR = GetModifierLRState(true);
-				postedModifiersInitialized = true;
-			}
-
-			return postedModifiersLR;
-		}
-
-		private void PostKeyboardWithPredictedState(Keysharp.Internals.Input.Hooks.Unix.UnixHookThread lht, uint vk, bool keyDown,
-											long extraInfo, bool autoRepeat = false)
-		{
-			bool? isNeutral = null;
-			var keyAsModifiersLR = lht.KeyToModifiersLR(vk, 0, ref isNeutral);
-			var modifiersLR = CurrentPostedModifiers();
-
-			if (keyDown)
-				modifiersLR |= keyAsModifiersLR;
-			else
-				modifiersLR &= ~keyAsModifiersLR;
-
-			postedModifiersLR = modifiersLR;
-			MacNativeInput.PostKeyboard(vk, keyDown, extraInfo, modifiersLR, autoRepeat);
-		}
-
-		protected override void DispatchKeybdEvent(Keysharp.Internals.Input.Hooks.Unix.UnixHookThread lht, KeyEventTypes eventType,
-											  uint vk, long extraInfo, bool autoRepeat)
-		{
-			WithSendScope(lht, () =>
-			{
-				EnsureInputSendPermission("send keyboard input");
-
-				if (vk == VK_CAPITAL && eventType != KeyEventTypes.KeyUp && MacCapsLockState.TryToggle())
-					return;
-
-				switch (eventType)
-				{
-					case KeyEventTypes.KeyDown:
-						PostKeyboardWithPredictedState(lht, vk, true, extraInfo, autoRepeat);
-						break;
-					case KeyEventTypes.KeyUp:
-						if (vk != VK_CAPITAL || !MacCapsLockState.IsAvailable)
-							PostKeyboardWithPredictedState(lht, vk, false, extraInfo);
-						break;
-					case KeyEventTypes.KeyDownAndUp:
-						PostKeyboardWithPredictedState(lht, vk, true, extraInfo, autoRepeat);
-						PostKeyboardWithPredictedState(lht, vk, false, extraInfo);
-						break;
-				}
-			});
-		}
-
-		protected override bool TrySendPlatformUnicodeText(Keysharp.Internals.Input.Hooks.Unix.UnixHookThread lht, string text, long extraInfo)
-		{
-			WithSendScope(lht, () =>
-			{
-				EnsureInputSendPermission("send text input");
-				MacNativeInput.PostUnicodeText(text, extraInfo);
-			});
-
-			return true;
-		}
-
-		protected override bool TrySendPlatformUnicodeChar(Keysharp.Internals.Input.Hooks.Unix.UnixHookThread lht, char ch, long extraInfo, bool hasMappedKeystroke, uint vk, bool needShift, bool needAltGr)
-			=> TrySendPlatformUnicodeText(lht, ch.ToString(), extraInfo);
-
-		protected override void DispatchEventArray(Keysharp.Internals.Input.Hooks.Unix.UnixHookThread lht, InputArrayState state, long extraInfo, double scale)
-			=> WithSendScope(lht, () => ReplayMacEventArray(state, extraInfo, scale));
-
-		private void ReplayMacEventArray(InputArrayState state, long extraInfo, double scale)
-		{
-			var events = state.Events;
-			var modifiersLR = state.InitialModifiers;
-			var textBatch = new StringBuilder();
-
-			void FlushText()
-			{
-				if (textBatch.Length == 0)
-					return;
-
-				EmitMacTextWithControls(textBatch.ToString(), extraInfo);
-				textBatch.Clear();
-			}
-
-			foreach (var ev in events)
-			{
-				if (ev.Type == ArrayEventType.Text)
-				{
-					textBatch.Append(ev.Text);
-					continue;
-				}
-
-				FlushText();
-
-				switch (ev.Type)
-				{
-					case ArrayEventType.DelayMs:
-						if (ev.DelayMs > 0)
-							Keysharp.Internals.Flow.SleepWithoutInterruption(ev.DelayMs);
-						break;
-					case ArrayEventType.KeyDown:
-						modifiersLR |= ev.ModifiersLR;
-						MacNativeInput.PostKeyboard(ev.Vk, true, extraInfo, modifiersLR, ev.AutoRepeat);
-						break;
-					case ArrayEventType.KeyUp:
-						modifiersLR &= ~ev.ModifiersLR;
-						MacNativeInput.PostKeyboard(ev.Vk, false, extraInfo, modifiersLR);
-						break;
-					case ArrayEventType.MouseMoveRel:
-						MacNativeInput.PostMouseMoveRelative(ClampShort(ev.X * scale), ClampShort(ev.Y * scale), extraInfo);
-						break;
-					case ArrayEventType.MouseMoveAbs:
-					{
-						int mx = ev.X, my = ev.Y;
-						EnsureCoords(ref mx, ref my);
-						MacNativeInput.PostMouseMove(ClampShort(mx * scale), ClampShort(my * scale), extraInfo);
-						break;
-					}
-					case ArrayEventType.MousePress:
-					case ArrayEventType.MouseRelease:
-					{
-						int mx = ev.X, my = ev.Y;
-						EnsureCoords(ref mx, ref my);
-						MacNativeInput.PostMouseButton(ev.Button, ev.Type == ArrayEventType.MousePress, ClampShort(mx * scale), ClampShort(my * scale), extraInfo);
-						break;
-					}
-					case ArrayEventType.MouseWheelV:
-						MacNativeInput.PostMouseWheel(ev.WheelDelta, MouseWheelScrollDirection.Vertical, extraInfo);
-						break;
-					case ArrayEventType.MouseWheelH:
-						MacNativeInput.PostMouseWheel(ev.WheelDelta, MouseWheelScrollDirection.Horizontal, extraInfo);
-						break;
-				}
-			}
-
-			FlushText();
-			postedModifiersLR = modifiersLR;
-			postedModifiersInitialized = true;
-		}
-
-		internal override void SetModifierLRState(uint modifiersLRnew, uint modifiersLRnow, nint targetWindow,
-			bool disguiseDownWinAlt, bool disguiseUpWinAlt, long extraInfo = KeyIgnoreAllExceptModifier)
-		{
-			// Seed the native event stream from the sender's synchronous prediction. Each modifier event posted
-			// by base updates this field before the next event is created, independently of WindowServer timing.
-			postedModifiersLR = modifiersLRnow;
-			postedModifiersInitialized = true;
-			base.SetModifierLRState(modifiersLRnew, modifiersLRnow, targetWindow,
-				disguiseDownWinAlt, disguiseUpWinAlt, extraInfo);
-			postedModifiersLR = modifiersLRnew;
-		}
-
-		internal override void MouseEvent(uint eventFlags, uint data, int x = CoordUnspecified, int y = CoordUnspecified)
-		{
-			EnsureInputSendPermission("send mouse input");
-			if (sendMode != SendModes.Event)
-			{
-				PutMouseEventIntoArray(eventFlags, data, x, y);
-				return;
-			}
-
-			var lht = Script.TheScript.HookThread as Keysharp.Internals.Input.Hooks.Unix.UnixHookThread;
-			if (lht == null)
-				return;
-
-			WithSendScope(lht, () => ReplayMacMouseEvent(eventFlags, data, x, y, KeyIgnoreLevel(ThreadAccessors.A_SendLevel)));
-		}
-
-		internal override void MouseMove(ref int x, ref int y, ref uint eventFlags, long speed, bool moveOffset)
-		{
-			EnsureInputSendPermission("move mouse");
-			if (x == CoordUnspecified || y == CoordUnspecified)
-				return;
-
-			if (sendMode == SendModes.Play)
-			{
-				PutMouseEventIntoArray((uint)MOUSEEVENTF.MOVE | (moveOffset ? MsgOffsetMouseMove : 0), 0, x, y);
-				DoMouseDelay();
-
-				if (moveOffset)
-				{
-					x = CoordUnspecified;
-					y = CoordUnspecified;
-				}
-
-				return;
-			}
-
-			if (moveOffset)
-			{
-				if (sendMode == SendModes.Input)
-				{
-					if (sendInputCursorPos.X == CoordUnspecified)
-					{
-						if (GetCursorPos(out sendInputCursorPos))
-						{
-							x += sendInputCursorPos.X;
-							y += sendInputCursorPos.Y;
-						}
-					}
-					else
-					{
-						x += sendInputCursorPos.X;
-						y += sendInputCursorPos.Y;
-					}
-				}
-				else if (GetCursorPos(out POINT pos))
-				{
-					x += pos.X;
-					y += pos.Y;
-				}
-			}
-			else
-			{
-				CoordToScreen(ref x, ref y, CoordMode.Mouse);
-			}
-
-			if (sendMode == SendModes.Input)
-			{
-				sendInputCursorPos.X = x;
-				sendInputCursorPos.Y = y;
-				AddArrayEvent(ArrayEvent.MouseMoveAbs(x, y));
-				DoMouseDelay();
-				return;
-			}
-
-			if (speed < 0)
-				speed = 0;
-			else if (speed > MaxMouseSpeed)
-				speed = MaxMouseSpeed;
-
-			if (speed == 0 || !GetCursorPos(out POINT cursorPos))
-			{
-				MacNativeInput.PostMouseMove(x, y, KeyIgnoreLevel(ThreadAccessors.A_SendLevel));
-				DoMouseDelay();
-				return;
-			}
-
-			long cx = cursorPos.X;
-			long cy = cursorPos.Y;
-			const int incrMouseMinSpeed = 32;
-			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
-
-			void Step(ref long cur, long dest)
-			{
-				if (cur == dest)
-					return;
-
-				var delta = (dest > cur ? dest - cur : cur - dest) / speed;
-				if (delta == 0 || delta < incrMouseMinSpeed)
-					delta = incrMouseMinSpeed;
-
-				if (dest > cur)
-					cur = Math.Min(dest, cur + delta);
-				else
-					cur = Math.Max(dest, cur - delta);
-			}
-
-			while (cx != x || cy != y)
-			{
-				Step(ref cx, x);
-				Step(ref cy, y);
-				MacNativeInput.PostMouseMove((int)cx, (int)cy, extraInfo);
-				DoMouseDelay();
-			}
-		}
-
-		private void ReplayMacMouseEvent(uint eventFlags, uint data, int x, int y, long extraInfo)
-		{
-			if ((eventFlags & 0xFFFF0000) != 0)
-			{
-				var button = KeyCodes.VkToMouseButton(eventFlags & 0xFFFF);
-				var type = (KeyEventTypes)(eventFlags >> 16);
-				EmitMacButton(button, type, x, y, extraInfo);
-				DoMouseDelay();
-				return;
-			}
-
-			var actionFlags = eventFlags & (0x1FFFu & ~(uint)MOUSEEVENTF.MOVE);
-			var hasMove = (eventFlags & (uint)MOUSEEVENTF.MOVE) != 0;
-			var relativeMove = (eventFlags & MsgOffsetMouseMove) != 0;
-
-			if (hasMove)
-			{
-				if (relativeMove)
-					MacNativeInput.PostMouseMoveRelative(x, y, extraInfo);
-				else
-				{
-					EnsureCoords(ref x, ref y);
-					MacNativeInput.PostMouseMove(x, y, extraInfo);
-				}
-			}
-
-			switch (actionFlags)
-			{
-				case (uint)MOUSEEVENTF.LEFTDOWN:
-					EmitMacButton(MouseButton.Button1, KeyEventTypes.KeyDown, x, y, extraInfo);
-					break;
-				case (uint)MOUSEEVENTF.LEFTUP:
-					EmitMacButton(MouseButton.Button1, KeyEventTypes.KeyUp, x, y, extraInfo);
-					break;
-				case (uint)MOUSEEVENTF.RIGHTDOWN:
-					EmitMacButton(MouseButton.Button2, KeyEventTypes.KeyDown, x, y, extraInfo);
-					break;
-				case (uint)MOUSEEVENTF.RIGHTUP:
-					EmitMacButton(MouseButton.Button2, KeyEventTypes.KeyUp, x, y, extraInfo);
-					break;
-				case (uint)MOUSEEVENTF.MIDDLEDOWN:
-					EmitMacButton(MouseButton.Button3, KeyEventTypes.KeyDown, x, y, extraInfo);
-					break;
-				case (uint)MOUSEEVENTF.MIDDLEUP:
-					EmitMacButton(MouseButton.Button3, KeyEventTypes.KeyUp, x, y, extraInfo);
-					break;
-				case (uint)MOUSEEVENTF.XDOWN:
-					EmitMacButton(data == MouseUtils.XBUTTON2 ? MouseButton.Button5 : MouseButton.Button4, KeyEventTypes.KeyDown, x, y, extraInfo);
-					break;
-				case (uint)MOUSEEVENTF.XUP:
-					EmitMacButton(data == MouseUtils.XBUTTON2 ? MouseButton.Button5 : MouseButton.Button4, KeyEventTypes.KeyUp, x, y, extraInfo);
-					break;
-				case (uint)MOUSEEVENTF.WHEEL:
-					MacNativeInput.PostMouseWheel(unchecked((short)data), MouseWheelScrollDirection.Vertical, extraInfo);
-					break;
-				case (uint)MOUSEEVENTF.HWHEEL:
-					MacNativeInput.PostMouseWheel(unchecked((short)data), MouseWheelScrollDirection.Horizontal, extraInfo);
-					break;
-			}
-
-			DoMouseDelay();
-		}
-
-		private static void EmitMacButton(MouseButton button, KeyEventTypes type, int x, int y, long extraInfo)
-		{
-			if (button == MouseButton.NoButton)
-				return;
-
-			EnsureCoords(ref x, ref y);
-
-			if (type != KeyEventTypes.KeyUp)
-				MacNativeInput.PostMouseButton(button, true, x, y, extraInfo);
-			if (type != KeyEventTypes.KeyDown)
-				MacNativeInput.PostMouseButton(button, false, x, y, extraInfo);
-		}
-
-		private static void EmitMacTextWithControls(string text, long extraInfo)
-		{
-			if (string.IsNullOrEmpty(text))
-				return;
-
-			var chunk = new StringBuilder();
-			bool lastWasCR = false;
-
-			void FlushChunk()
-			{
-				if (chunk.Length == 0)
-					return;
-
-				MacNativeInput.PostUnicodeText(chunk.ToString(), extraInfo);
-				chunk.Clear();
-			}
-
-			foreach (var ch in text)
-			{
-				switch (ch)
-				{
-					case '\r':
-						FlushChunk();
-						MacNativeInput.PostKeyboard(VK_RETURN, true, extraInfo, 0);
-						MacNativeInput.PostKeyboard(VK_RETURN, false, extraInfo, 0);
-						lastWasCR = true;
-						break;
-					case '\n':
-						if (lastWasCR)
-						{
-							lastWasCR = false;
-							break;
-						}
-						FlushChunk();
-						MacNativeInput.PostKeyboard(VK_RETURN, true, extraInfo, 0);
-						MacNativeInput.PostKeyboard(VK_RETURN, false, extraInfo, 0);
-						break;
-					case '\t':
-						FlushChunk();
-						MacNativeInput.PostKeyboard(VK_TAB, true, extraInfo, 0);
-						MacNativeInput.PostKeyboard(VK_TAB, false, extraInfo, 0);
-						lastWasCR = false;
-						break;
-					case '\b':
-						FlushChunk();
-						MacNativeInput.PostKeyboard(VK_BACK, true, extraInfo, 0);
-						MacNativeInput.PostKeyboard(VK_BACK, false, extraInfo, 0);
-						lastWasCR = false;
-						break;
-					default:
-						chunk.Append(ch);
-						lastWasCR = false;
-						break;
-				}
-			}
-
-			FlushChunk();
+			var result = ToCGMouseButton(button);
+			return result == uint.MaxValue ? 0 : result;
 		}
 	}
 
-	internal sealed class MacNativeEventTap : IDisposable
-	{
-		private readonly MacHookThread owner;
-		private readonly MacNativeInput.CGEventTapCallBack callback;
-		private readonly ManualResetEventSlim ready = new(false);
-		private Thread thread;
-		private nint tap;
-		private nint source;
-		private nint runLoop;
-		private volatile bool stopping;
-
-		internal MacNativeEventTap(MacHookThread owner)
-		{
-			this.owner = owner;
-			callback = OnEvent;
-		}
-
-		internal bool Start(int timeoutMs)
-		{
-			if (thread != null)
-				return true;
-
-			stopping = false;
-			ready.Reset();
-			thread = new Thread(Run) { IsBackground = true, Name = "Keysharp macOS CGEvent tap" };
-			thread.Start();
-			return ready.Wait(timeoutMs) && tap != nint.Zero;
-		}
-
-		internal void Stop()
-		{
-			stopping = true;
-
-			if (runLoop != nint.Zero)
-				MacNativeInput.CFRunLoopStop(runLoop);
-
-			if (thread != null && thread.IsAlive)
-				_ = thread.Join(250);
-
-			thread = null;
-		}
-
-		private void Run()
-		{
-			runLoop = MacNativeInput.CFRunLoopGetCurrent();
-			tap = MacNativeInput.CGEventTapCreate(
-				MacNativeInput.kCGSessionEventTap,
-				MacNativeInput.kCGHeadInsertEventTap,
-				MacNativeInput.kCGEventTapOptionDefault,
-				MacNativeInput.HookEventMask,
-				callback,
-				nint.Zero);
-
-			if (tap == nint.Zero)
-			{
-				ready.Set();
-				return;
-			}
-
-			source = MacNativeInput.CFMachPortCreateRunLoopSource(nint.Zero, tap, nint.Zero);
-			if (source == nint.Zero)
-			{
-				ready.Set();
-				return;
-			}
-
-			MacNativeInput.CFRunLoopAddSource(runLoop, source, MacNativeInput.RunLoopDefaultMode);
-			ready.Set();
-			MacNativeInput.CFRunLoopRun();
-
-			if (source != nint.Zero)
-			{
-				MacNativeInput.CFRunLoopRemoveSource(runLoop, source, MacNativeInput.RunLoopDefaultMode);
-				MacNativeInput.CFRelease(source);
-				source = nint.Zero;
-			}
-
-			if (tap != nint.Zero)
-			{
-				MacNativeInput.CFRelease(tap);
-				tap = nint.Zero;
-			}
-
-			runLoop = nint.Zero;
-		}
-
-		private nint OnEvent(nint proxy, uint type, nint cgEvent, nint userInfo)
-		{
-			if (type == MacNativeInput.kCGEventTapDisabledByTimeout || type == MacNativeInput.kCGEventTapDisabledByUserInput)
-			{
-				if (tap != nint.Zero)
-					MacNativeInput.CGEventTapEnable(tap, true);
-				return cgEvent;
-			}
-
-			if (stopping || cgEvent == nint.Zero)
-				return cgEvent;
-
-			var suppress = owner.ProcessNativeKeyboardEvent(type, cgEvent)
-				|| owner.ProcessNativeMouseEvent(type, cgEvent);
-			return suppress ? nint.Zero : cgEvent;
-		}
-
-		public void Dispose()
-		{
-			Stop();
-			ready.Dispose();
-		}
-	}
 }
 #endif

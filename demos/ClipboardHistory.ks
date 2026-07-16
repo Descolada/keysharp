@@ -41,8 +41,9 @@ class ClipboardHistory {
     static clearTip := (*) => ToolTip()
 
     static Install() {
-        if DirExist("/System/Library/CoreServices")   ; macOS pastes with Cmd+V
-            this.pasteKeys := "#v"
+#if OSX
+        this.pasteKeys := "#v"                       ; macOS pastes with Cmd+V
+#endif
 
         Shell.SetTrayIcon("📋")
         OnClipboardChange((dt, *) => this.OnClip(dt))  ; lambda keeps `this`; also keeps the script alive
@@ -182,7 +183,11 @@ class ClipboardHistory {
         ; matches the OS coordinate system — physical px on Windows/Linux (geo = dpi), logical points on macOS
         ; (geo = 1, Cocoa handles HiDPI itself). See Shell/InputHUD for the same pattern.
         local dpi := A_ScreenScale
-        local geo := DirExist("/System/Library/CoreServices") ? 1 : dpi
+#if OSX
+        local geo := 1
+#else
+        local geo := dpi
+#endif
 
         local img := Image.Create(w, h, , dpi)
         img.FillRoundRect(0, 0, w, h, 12, "0xF01C1F28")

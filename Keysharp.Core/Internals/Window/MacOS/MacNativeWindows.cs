@@ -59,6 +59,8 @@ namespace Keysharp.Internals.Window.MacOS
 
 	internal static partial class MacNativeWindows
 	{
+		private static readonly Lock mouseTransparentWindowsLock = new();
+		private static readonly HashSet<uint> mouseTransparentWindows = [];
 		private const uint kCFStringEncodingUTF8 = 0x08000100;
 		private const int kCFNumberSInt32Type = 3;
 		private const int kCFNumberDoubleType = 13;
@@ -212,16 +214,29 @@ namespace Keysharp.Internals.Window.MacOS
 				includeTextMetadata: false,
 				includeOwnerName: true);
 
-			// The Dock's transparent full-screen overlay sits in front of (and covers) the entire
-			// desktop, including the actual dock bar — there's no separate "real" window to prefer
-			// it over. Rather than excluding it outright (which would make the Dock uninspectable),
-			// defer it: prefer any other containing window first, and only report the overlay — as
-			// "Dock" — when the point genuinely isn't over anything else (e.g. the dock bar itself).
+			return TrySelectWindowAtPoint(snapshot, location, out info);
+		}
+
+		internal static void SetMouseTransparentWindow(uint windowNumber, bool transparent)
+		{
+			if (windowNumber == 0 || windowNumber == uint.MaxValue)
+				return;
+
+			lock (mouseTransparentWindowsLock)
+				if (transparent) mouseTransparentWindows.Add(windowNumber);
+				else mouseTransparentWindows.Remove(windowNumber);
+		}
+
+		internal static bool TrySelectWindowAtPoint(IReadOnlyList<MacNativeWindow> windows, POINT location,
+			out MacNativeWindow info)
+		{
 			MacNativeWindow? deferredOverlay = null;
 
-			foreach (var w in snapshot)
+			foreach (var w in windows)
 			{
 				if (!w.VisibleOnScreen || !w.Bounds.Contains(location.X, location.Y))
+					continue;
+				if (IsMouseTransparentWindow(w.WindowNumber))
 					continue;
 
 				if (w.IsDockOwned && w.IsFullScreenOverlay)
@@ -242,6 +257,12 @@ namespace Keysharp.Internals.Window.MacOS
 
 			info = default;
 			return false;
+		}
+
+		private static bool IsMouseTransparentWindow(uint windowNumber)
+		{
+			lock (mouseTransparentWindowsLock)
+				return mouseTransparentWindows.Contains(windowNumber);
 		}
 
 		// Coalesces rapid native window visibility changes (e.g. a window that is shown and then

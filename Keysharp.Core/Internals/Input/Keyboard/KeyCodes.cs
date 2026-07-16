@@ -20,17 +20,22 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal const int TranslateNotHandled = int.MinValue;
 
 		private static readonly object providerLock = new();
-		private static IKeyCodeMapperProvider provider;
+		private static volatile IKeyCodeMapperProvider provider;
 
 		static KeyCodes()
 		{
 			AppDomain.CurrentDomain.ProcessExit += (_, __) =>
 			{
+				IKeyCodeMapperProvider providerToDispose;
 				lock (providerLock)
 				{
-					provider?.Dispose();
+					providerToDispose = provider;
 					provider = null;
 				}
+
+				// A provider may tear down native observers. Never do that while holding the
+				// singleton lock: native cleanup is allowed to call into a platform/UI loop.
+				providerToDispose?.Dispose();
 			};
 		}
 
@@ -88,22 +93,20 @@ namespace Keysharp.Internals.Input.Keyboard
 			provider?.ConfigureLayout(rules, model, layout, variant, options);
 		}
 
-		internal static nint GetCurrentKeymapHandle()
-		{
-			EnsureProvider();
-			return provider?.GetCurrentKeymapHandle() ?? nint.Zero;
-		}
+		internal static nint GetCurrentKeymapHandle() => PreparedProvider()?.GetCurrentKeymapHandle() ?? nint.Zero;
 
-		internal static string GetCurrentKeymapName()
-		{
-			EnsureProvider();
-			return provider?.GetCurrentKeymapName() ?? "";
-		}
+		internal static string GetCurrentKeymapName() => PreparedProvider()?.GetCurrentKeymapName() ?? "";
 
-		internal static nint ResolveKeyboardLayout(string layout)
+		internal static nint ResolveKeyboardLayout(string layout) => PreparedProvider()?.ResolveKeyboardLayout(layout) ?? nint.Zero;
+
+		private static IKeyCodeMapperProvider PreparedProvider()
 		{
 			EnsureProvider();
-			return provider?.ResolveKeyboardLayout(layout) ?? nint.Zero;
+#if OSX
+			// Explicit layout queries may prepare the UI-owned snapshot; tap callbacks never call this path.
+			provider?.PrepareForInputHook();
+#endif
+			return provider;
 		}
 
 		/// <summary>
@@ -133,6 +136,18 @@ namespace Keysharp.Internals.Input.Keyboard
 #endif
 
 #if OSX
+		/// <summary>
+		/// Preloads macOS keyboard-layout data and registers its change observer before a
+		/// Quartz event tap starts delivering callbacks. Callback-time translation is deliberately
+		/// snapshot-only and will use the fixed fallback map if preparation did not produce a layout.
+		/// This method may synchronously enter the UI thread and therefore must not be called by a tap callback.
+		/// </summary>
+		internal static void PrepareForInputHook()
+		{
+			EnsureProvider();
+			provider?.PrepareForInputHook();
+		}
+
 		internal static bool TryMapMacCodeToVk(uint keycode, out uint vk)
 		{
 			EnsureProvider();
@@ -153,14 +168,21 @@ namespace Keysharp.Internals.Input.Keyboard
 			if (provider != null)
 				return;
 
+			IKeyCodeMapperProvider created = null;
 			lock (providerLock)
 			{
 				if (provider != null)
 					return;
 
-				provider = CreateProvider();
-				provider.StartLayoutChangeMonitoring();
+				created = CreateProvider();
+				provider = created;
 			}
+
+			// macOS is initialized explicitly by PrepareForInputHook before the event tap
+			// starts. In particular, never make first-use translation synchronously enter UI.
+#if !OSX
+			created.StartLayoutChangeMonitoring();
+#endif
 		}
 
 		private static IKeyCodeMapperProvider CreateProvider()
@@ -234,6 +256,13 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// Implementations that have no such notification source can leave this as a no-op.
 		/// </summary>
 		void StartLayoutChangeMonitoring() { }
+
+		/// <summary>
+		/// Performs any initialization which must finish before a native input hook can call
+		/// mapping methods. Implementations must keep ordinary mapping calls non-blocking with
+		/// respect to the UI thread after this returns.
+		/// </summary>
+		void PrepareForInputHook() => StartLayoutChangeMonitoring();
 	}
 
 	internal sealed class NullKeyCodeMapperProvider : IKeyCodeMapperProvider

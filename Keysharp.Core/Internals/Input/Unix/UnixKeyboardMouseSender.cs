@@ -33,12 +33,17 @@ namespace Keysharp.Internals.Input.Unix
 			internal int Count;
 			internal readonly uint InitialModifiers;
 			internal readonly uint PrevEventModifiers;
+			internal readonly SendModes Mode;
+			internal readonly POINT PrevCursorPosition;
 
-			internal InputArrayState(List<ArrayEvent> events, uint initialModifiers, uint prevEventModifiers)
+			internal InputArrayState(List<ArrayEvent> events, uint initialModifiers, uint prevEventModifiers,
+				SendModes mode, POINT prevCursorPosition)
 			{
 				Events = events;
 				InitialModifiers = initialModifiers;
 				PrevEventModifiers = prevEventModifiers;
+				Mode = mode;
+				PrevCursorPosition = prevCursorPosition;
 			}
 		}
 
@@ -175,14 +180,20 @@ namespace Keysharp.Internals.Input.Unix
 
 		internal override void InitEventArray(int maxEvents, uint modifiersLR)
 		{
+			// Allocate before changing any sender state so an allocation failure cannot leave a
+			// half-open frame or corrupt the prediction belonging to an outer send.
+			var cap = maxEvents > 0 ? Math.Min(maxEvents, 2048) : 512;
+			var events = new List<ArrayEvent>(cap);
+
 			lock (inputGate)
 			{
-				// Save previous modifier prediction so nested sends restore correctly.
+				// Reserve and construct the complete frame before changing the modifier prediction.
+				// After EnsureCapacity succeeds, Push is a non-allocating assignment.
+				inputStack.EnsureCapacity(inputStack.Count + 1);
 				var prev = eventModifiersLR;
+				var state = new InputArrayState(events, modifiersLR, prev, sendMode, sendInputCursorPos);
 				eventModifiersLR = modifiersLR;
-
-				var cap = maxEvents > 0 ? Math.Min(maxEvents, 2048) : 512;
-				inputStack.Push(new InputArrayState(new List<ArrayEvent>(cap), modifiersLR, prev));
+				inputStack.Push(state);
 			}
 			sendInputCursorPos.X = CoordUnspecified;
 			sendInputCursorPos.Y = CoordUnspecified;
@@ -190,17 +201,28 @@ namespace Keysharp.Internals.Input.Unix
 
 		internal override void CleanupEventArray(long finalKeyDelay)
 		{
+			sendMode = PopEventArray();
+			DoKeyDelay(finalKeyDelay);
+		}
+
+		internal override void AbortEventArray()
+		{
+			sendMode = PopEventArray();
+		}
+
+		private SendModes PopEventArray()
+		{
 			lock (inputGate)
 			{
 				if (inputStack.Count != 0)
 				{
 					var st = inputStack.Pop();
 					eventModifiersLR = st.PrevEventModifiers;
+					sendInputCursorPos = st.PrevCursorPosition;
 				}
-			}
 
-			sendMode = SendModes.Event;
-			DoKeyDelay(finalKeyDelay);
+				return inputStack.Count == 0 ? SendModes.Event : inputStack.Peek().Mode;
+			}
 		}
 
 		internal override int SiEventCount()
@@ -328,8 +350,9 @@ namespace Keysharp.Internals.Input.Unix
 				if (inputStack.Count == 0)
 					return;
 
-				st = inputStack.Pop();
-				eventModifiersLR = st.PrevEventModifiers;
+				// Dispatch does not own the frame. Cleanup/abort pops it exactly once, which keeps
+				// nested sends and exceptional dispatches from consuming an outer send's state.
+				st = inputStack.Peek();
 			}
 
 			if (st.Events.Count == 0)
@@ -1002,7 +1025,7 @@ namespace Keysharp.Internals.Input.Unix
 		}
 
 		// Run an action inside a send scope so the hook thread can classify echoed synthetic input.
-		protected static void WithSendScope(UnixHookThread lht, Action action, bool ungrab = true)
+		protected static void WithSendScope(UnixHookThread lht, Action action)
 		{
 			var sendScope = lht.EnterSendScope();
 			try
@@ -1055,19 +1078,6 @@ namespace Keysharp.Internals.Input.Unix
 		internal override ToggleValueType ToggleKeyState(uint vk, ToggleValueType toggleValue)
 		{
 			var script = Script.TheScript;
-#if OSX
-			// The CapsLock lock state can only be changed through IOKit on macOS;
-			// synthetic keystrokes posted via CGEvents have no effect on it.
-			if (vk == VK_CAPITAL && Keysharp.Internals.Input.MacOS.MacCapsLockState.TryGet(out var capsOn))
-			{
-				var starting = capsOn ? ToggleValueType.On : ToggleValueType.Off;
-
-				if ((toggleValue == ToggleValueType.On || toggleValue == ToggleValueType.Off) && starting != toggleValue)
-					_ = Keysharp.Internals.Input.MacOS.MacCapsLockState.TrySet(toggleValue == ToggleValueType.On);
-
-				return starting;
-			}
-#endif
 			// Can't use the down-state query because it doesn't have toggle-state info:
 			var startingState = script.HookThread.IsKeyToggledOn(vk) ? ToggleValueType.On : ToggleValueType.Off;
 
@@ -1116,13 +1126,6 @@ namespace Keysharp.Internals.Input.Unix
 
 		protected internal override void LongOperationUpdate() { }
 		protected internal override void LongOperationUpdateForSendKeys() { }
-
-		internal override void SetModifierLRState(uint modifiersLRnew, uint modifiersLRnow, nint targetWindow
-			, bool disguiseDownWinAlt, bool disguiseUpWinAlt, long extraInfo = KeyIgnoreAllExceptModifier)
-		{
-			base.SetModifierLRState(modifiersLRnew, modifiersLRnow, targetWindow,
-				disguiseDownWinAlt, disguiseUpWinAlt, extraInfo);
-		}
 
 		protected override void RegisterHook() { }
 
@@ -1180,6 +1183,21 @@ namespace Keysharp.Internals.Input.Unix
 
 		internal sealed class PlatformEventSimulator
 		{
+#if OSX
+			private static void MissingMacBackend()
+				=> throw new InvalidOperationException("A macOS input path reached the generic no-op Unix simulator. Add an explicit MacKeyboardMouseSender implementation for this operation.");
+
+			public void SimulateKeyPress(uint vk) => MissingMacBackend();
+			public void SimulateKeyRelease(uint vk) => MissingMacBackend();
+			public void SimulateMouseMovementRelative(short x, short y) => MissingMacBackend();
+			public void SimulateMouseMovement(short x, short y) => MissingMacBackend();
+			public void SimulateMousePress(MouseButton button) => MissingMacBackend();
+			public void SimulateMousePress(short x, short y, MouseButton button) => MissingMacBackend();
+			public void SimulateMouseRelease(MouseButton button) => MissingMacBackend();
+			public void SimulateMouseRelease(short x, short y, MouseButton button) => MissingMacBackend();
+			public void SimulateMouseWheel(short delta, MouseWheelScrollDirection direction, MouseWheelScrollType type) => MissingMacBackend();
+			public void SimulateTextEntry(string text) => MissingMacBackend();
+#else
 			public void SimulateKeyPress(uint vk) { }
 			public void SimulateKeyRelease(uint vk) { }
 			public void SimulateMouseMovementRelative(short x, short y) { }
@@ -1190,6 +1208,7 @@ namespace Keysharp.Internals.Input.Unix
 			public void SimulateMouseRelease(short x, short y, MouseButton button) { }
 			public void SimulateMouseWheel(short delta, MouseWheelScrollDirection direction, MouseWheelScrollType type) { }
 			public void SimulateTextEntry(string text) { }
+#endif
 		}
 
 		internal sealed class PlatformKeySimulationBackend

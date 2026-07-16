@@ -103,7 +103,11 @@ class WindowGrab {
         ; movement covers twice as many pixels and the fade would run twice as fast — divide by the DPI scale so
         ; a given *perceived* drag maps to the same opacity change at any scaling. macOS already reports the
         ; cursor in logical points (perceived units), so there it stays 1.
-        scale := DirExist("/System/Library/CoreServices") ? 1 : A_ScreenScale
+#if OSX
+        scale := 1
+#else
+        scale := A_ScreenScale
+#endif
 
         while GetKeyState("RButton", "P") {
             if GetKeyState("Escape", "P") {          ; Esc aborts the fade: restore the opacity we started with

@@ -547,12 +547,17 @@ using String = Keysharp.Builtins.String
 			}
 
 			var ms = new MemoryStream();
+#if WINDOWS
+			const Microsoft.CodeAnalysis.Platform compiledPlatform = Microsoft.CodeAnalysis.Platform.X64;
+#else
+			const Microsoft.CodeAnalysis.Platform compiledPlatform = Microsoft.CodeAnalysis.Platform.AnyCpu;
+#endif
 			var compilation = CSharpCompilation.Create(outputname)
 								.WithOptions(
 									new CSharpCompilationOptions(OutputKind.WindowsApplication)
 									.WithUsings(usings)
 									.WithOptimizationLevel(OptimizationLevel.Release)
-									.WithPlatform(OperatingSystem.IsWindows() ? Microsoft.CodeAnalysis.Platform.X64 : Microsoft.CodeAnalysis.Platform.AnyCpu)
+									.WithPlatform(compiledPlatform)
 									.WithConcurrentBuild(true)
 								)
 								.AddReferences(references)

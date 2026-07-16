@@ -745,6 +745,7 @@ namespace Keysharp.Internals
 				Script.InvokeOnUIThread(() =>
 				{
 					EnsureForm();
+					form.CanFocus = !clickThrough;
 					// From here PaintOwned owns `snap` (it keeps it as `displayed`, or disposes it after resizing), so
 					// mark ownership transferred BEFORE the call: a throw past this point must not ALSO dispose it on
 					// the catch path (that would double-free the bitmap the form now holds).
@@ -863,6 +864,8 @@ namespace Keysharp.Internals
 			{
 				FormBorderStyle = Keysharp.Builtins.FormBorderStyle.None,
 				ShowInTaskbar = false,
+				ShowActivated = false,
+				CanFocus = false,
 				TopMost = true,
 				// Must be resizable so PaintOwned can SHRINK the window, not just grow it: GTK3 forces AutoSize when
 				// !Resizable and ignores gtk_window_resize() on a non-resizable window, so a smaller PaintOwned size

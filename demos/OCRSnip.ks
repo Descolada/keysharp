@@ -50,8 +50,9 @@ class OCRSnip {
     ; split into cheap, independently-movable click-through overlays: two 1px full-screen guide lines, a small
     ; reticle at the pointer, and a lazily-sized selection box. Following the cursor is then just a window move.
     static RetHalf := 21               ; half-size of the square reticle overlay, in LOGICAL px (its centre sits on the pointer)
-    static retHalfPx := 21             ; RetHalf scaled to physical screen px for the active snip (set in SetupTracking)
-    static uiScale := 1                ; DPI scale for the tracking overlays: A_ScreenScale on Win/Linux, 1 on macOS (set in SetupTracking)
+    static DPI := 1                    ; raster scale: every overlay canvas is rendered at physical display resolution
+    static Geo := 1                    ; screen geometry scale: DPI on Win/Linux, 1 logical-point unit on macOS
+    static retHalfPx := 21             ; RetHalf scaled to the OS screen-coordinate units for the active snip
     static ih := ""                    ; InputHook feeding event-driven OnMouseMove (replaces Sleep-poll tracking)
     static GuideV := "", GuideH := ""  ; vertical / horizontal full-screen alignment guides
     static Reticle := ""               ; the crosshair reticle that follows the pointer
@@ -69,9 +70,14 @@ class OCRSnip {
 
     static Install() {
         this.hoverTimer := ObjBindMethod(this, "HoverCheck")
+        this.DPI := A_ScreenScale
+#if OSX
+        this.Geo := 1
         ; macOS: Ctrl+LButton is a system secondary-click, so build the trigger on Cmd+Shift there instead.
-        if DirExist("/System/Library/CoreServices")
-            this.ArmMods := "#+"
+        this.ArmMods := "#+"
+#else
+        this.Geo := this.DPI
+#endif
         Shell.SetTrayIcon("🔎")
         Hotkey(this.ArmMods "LButton", (*) => this.Start(true))     ; hold the modifier + press-drag = snip NOW
         Hotkey(this.ArmMods this.ArmKey, (*) => this.Start(false))  ; hands-free: arm, then drag when ready
@@ -275,13 +281,14 @@ class OCRSnip {
             return
         }
 
-        local th := Max(1, Round(2 * this.uiScale))   ; border thickness in physical px — scale so it isn't a hairline on HiDPI
+        local geo := this.Geo, th := Max(1, Round(2 * geo))
+        local rw := this.LogicalSize(r.w), rh := this.LogicalSize(r.h)
         local pieces := [
-            [this.SelFill,    r.x,             r.y,             r.w, r.h],   ; fill
-            [this.SelBars[1], r.x,             r.y,             r.w, th ],   ; top
-            [this.SelBars[2], r.x,             r.y + r.h - th,  r.w, th ],   ; bottom
-            [this.SelBars[3], r.x,             r.y,             th,  r.h],   ; left
-            [this.SelBars[4], r.x + r.w - th,  r.y,             th,  r.h]]   ; right
+            [this.SelFill,    r.x,             r.y,             rw, rh],   ; fill
+            [this.SelBars[1], r.x,             r.y,             rw, 2 ],   ; top
+            [this.SelBars[2], r.x,             r.y + r.h - th,  rw, 2 ],   ; bottom
+            [this.SelBars[3], r.x,             r.y,             2,  rh],   ; left
+            [this.SelBars[4], r.x + r.w - th,  r.y,             2,  rh]]   ; right
         for p in pieces {
             if this.selShown
                 p[1].Move(p[2], p[3], p[4], p[5])
@@ -302,11 +309,11 @@ class OCRSnip {
 
     ; Draws a crosshair reticle (a "+" with a centre gap) at (cx, cy). A dark outline pass under a bright
     ; fill pass keeps it clearly visible on any background — the standard region-select cursor look.
-    static DrawCrosshair(img, cx, cy, scale := 1) {
-        ; arm length, centre gap and stroke widths are in LOGICAL px; scale them so the reticle keeps its
-        ; perceived size (and the arms stay within the DPI-scaled overlay) on a HiDPI display.
-        local arm := Round(17 * scale), gap := Round(6 * scale)
-        for pass in [{col: "0xC0101010", th: Max(1, Round(4 * scale))}, {col: "0xFFF5F5F5", th: Max(1, Round(2 * scale))}] {
+    static DrawCrosshair(img, cx, cy) {
+        ; Coordinates and stroke widths stay in logical units. Overlay.Scale rasterizes them at the display DPI,
+        ; preserving the same perceived size while avoiding Cocoa's blurry upscale of a 1x transparent bitmap.
+        local arm := 17, gap := 6
+        for pass in [{col: "0xC0101010", th: 4}, {col: "0xFFF5F5F5", th: 2}] {
             img.DrawLine(cx - arm, cy, cx - gap, cy, pass.col, pass.th)   ; left arm
             img.DrawLine(cx + gap, cy, cx + arm, cy, pass.col, pass.th)   ; right arm
             img.DrawLine(cx, cy - arm, cx, cy - gap, pass.col, pass.th)   ; top arm
@@ -315,7 +322,7 @@ class OCRSnip {
     }
 
     static DrawWordOverlays(words) {
-        local pad := 3, radius := 6, x, y, w, h
+        local pad := Round(3 * this.Geo), radius := 6, x, y, w, h
 
         this.ClearWordOverlays(false)
 
@@ -345,11 +352,13 @@ class OCRSnip {
 
         ; Draw every box straight onto the overlay's own canvas (no off-screen image = no defensive copy). Ops
         ; before Show don't upload, so it's one window, one paint, one upload for the whole set.
-        local bw := maxX - minX, bh := maxY - minY
-        local ov := Overlay(minX, minY, bw, bh)
+        local bw := maxX - minX, bh := maxY - minY, geo := this.Geo
+        local ov := Overlay(minX, minY, this.LogicalSize(bw), this.LogicalSize(bh), this.DPI)
         for r in rects {
-            ov.FillRoundRect(r.x - minX, r.y - minY, r.w, r.h, radius, "0x2200A1FF")
-            ov.DrawRoundRect(r.x - minX + 1, r.y - minY + 1, Max(1, r.w - 2), Max(1, r.h - 2), radius, "0xB000A1FF", 2)
+            local rx := (r.x - minX) / geo, ry := (r.y - minY) / geo
+            local rw := r.w / geo, rh := r.h / geo
+            ov.FillRoundRect(rx, ry, rw, rh, radius, "0x2200A1FF")
+            ov.DrawRoundRect(rx + 1, ry + 1, Max(1, rw - 2), Max(1, rh - 2), radius, "0xB000A1FF", 2)
         }
         ov.Show()
         this.WordOverlays.Push(ov)
@@ -384,36 +393,33 @@ class OCRSnip {
         this.selShown := false
         this.moveDirty := true          ; place the guides/reticle on the cursor on the first loop tick
 
-        ; Faint full-screen guide lines for precise alignment (1px each; repositioned as the cursor moves)...
-        this.GuideV := Overlay(mx, d.y, 1, d.h)
+        ; Faint full-screen guide lines for precise alignment (1 logical px each; repositioned as the cursor moves)...
+        this.GuideV := Overlay(mx, d.y, 1, this.LogicalSize(d.h), this.DPI)
         this.GuideV.Clear("0x661A73E8")
         this.GuideV.Show()
 
-        this.GuideH := Overlay(d.x, my, d.w, 1)
+        this.GuideH := Overlay(d.x, my, this.LogicalSize(d.w), 1, this.DPI)
         this.GuideH.Clear("0x661A73E8")
         this.GuideH.Show()
 
         ; ...a bold crosshair reticle at the pointer (drawn once into a small overlay that just gets moved).
-        ; The reticle and (below) the selection border are sized in PHYSICAL screen px, so scale them by the DPI
-        ; factor — otherwise on a 200% display the reticle is half-size and the border a hairline while the rest of
-        ; the suite scales. geo = A_ScreenScale on Win/Linux (overlays placed in physical px); 1 on macOS, where the
-        ; OS coordinate system is logical points and Cocoa scales HiDPI itself (matches Shell.ks / InputHUD).
-        local sc := DirExist("/System/Library/CoreServices") ? 1 : A_ScreenScale
-        this.uiScale := sc
-        this.retHalfPx := Round(this.RetHalf * sc)
-        local s := this.retHalfPx * 2
-        this.Reticle := Overlay(mx - this.retHalfPx, my - this.retHalfPx, s, s)
-        this.DrawCrosshair(this.Reticle, this.retHalfPx, this.retHalfPx, sc)
+        ; Author the reticle in logical units and let Overlay.Scale create its physical-resolution canvas. Screen
+        ; geometry still follows the OS: physical px on Win/Linux (geo = DPI), logical points on macOS (geo = 1).
+        ; Keeping raster DPI separate from geometry is what makes the small transparent reticle crisp on Retina.
+        this.retHalfPx := Round(this.RetHalf * this.Geo)
+        local s := this.RetHalf * 2
+        this.Reticle := Overlay(mx - this.retHalfPx, my - this.retHalfPx, s, s, this.DPI)
+        this.DrawCrosshair(this.Reticle, this.RetHalf, this.RetHalf)
         this.Reticle.Show()
 
         ; ...and the selection box: a translucent fill plus four thin border edges. Each is a tiny solid tile the
         ; overlay STRETCHES to size, so growing the box while dragging is a window resize + one display copy —
         ; never a per-frame bitmap rebuilt through the image pipeline.
-        this.SelFill := Overlay(0, 0, 4, 4)
+        this.SelFill := Overlay(0, 0, 4, 4, this.DPI)
         this.SelFill.Clear("0x331A73E8")
         this.SelBars := []
         loop 4 {
-            local bar := Overlay(0, 0, 4, 4)
+            local bar := Overlay(0, 0, 4, 4, this.DPI)
             bar.Clear("0xD81A73E8")
             this.SelBars.Push(bar)
         }
@@ -424,6 +430,10 @@ class OCRSnip {
         this.ih.OnMouseMove := (h, x, y) => this.OnMove(x, y)
         this.ih.Start()
     }
+
+    ; Converts a positive screen-coordinate extent back to logical overlay units. Overlay.Scale then maps it to
+    ; physical pixels on Win/Linux; on macOS Geo is 1 because Cocoa window geometry is already in logical points.
+    static LogicalSize(px) => Max(1, Round(px / this.Geo))
 
     static TeardownTracking() {
         this.Dragging := false

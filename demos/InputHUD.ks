@@ -95,7 +95,6 @@ class InputHUD {
     static leds := []                    ; pre-laid-out status-strip LEDs (built alongside the keyboard)
     static togPoll := true               ; a lock key fired -> refresh toggle state on the next tick
     static togTick := 0                  ; slow-poll counter (catches lock changes made by other apps)
-    static isMac := false
     static kbDirty := true               ; a render is pending (rendered on the main-thread tick)
     static msDirty := true
     ; Zoom (right-drag over a HUD): each HUD carries its own on-screen scale factor. Horizontal drag distance
@@ -112,7 +111,6 @@ class InputHUD {
     static wheelOff := (*) => (InputHUD.wheelFlash := 0, InputHUD.msDirty := true)
 
     static Install() {
-        this.isMac := DirExist("/System/Library/CoreServices")
         Shell.SetTrayIcon("⌨️")
         ; Overlays / Image text / ToolTip all use the GUI toolkit, which isn't ready during top-level
         ; auto-execute (before the event loop is up). SetTimer callbacks run on the main/UI thread once it
@@ -127,7 +125,11 @@ class InputHUD {
         ; reports: physical pixels on Windows/Linux (Geo = DPI), logical points on macOS (Geo = 1, since Cocoa
         ; handles HiDPI itself — the overlay is still drawn from the physical-resolution canvas).
         this.DPI := A_ScreenScale
-        this.Geo := this.isMac ? 1 : this.DPI
+#if OSX
+        this.Geo := 1
+#else
+        this.Geo := this.DPI
+#endif
         this.ms := {ov: Overlay(0, 0, 118, 188, this.DPI), cx: 0, cy: 0, x: 0, y: 0, w: 118, h: 188, pw: Round(118 * this.Geo), ph: Round(188 * this.Geo), zoom: 1, zoomImg: ""}
         this.BuildKeyboard()
         this.RefreshToggles()            ; seed the lock LEDs so the first paint already shows the real state
@@ -257,9 +259,11 @@ class InputHUD {
     ; The bottom modifier row differs per OS (Command/Option on macOS; Win/Alt/Menu elsewhere).
     ; vks: LCtrl 162, LWin 91, LAlt 164, Space 32, RAlt 165, RWin 92, Apps 93, RCtrl 163.
     static BottomRow() {
-        if this.isMac
-            return [ [162,"Ctrl",1.25],[164,"Opt",1.25],[91,"Cmd",1.25],[32,"",6.25],[92,"Cmd",1.25],[165,"Opt",1.25],[163,"Ctrl",1.5] ]
+#if OSX
+        return [ [162,"Ctrl",1.25],[164,"Opt",1.25],[91,"Cmd",1.25],[32,"",6.25],[92,"Cmd",1.25],[165,"Opt",1.25],[163,"Ctrl",1.5] ]
+#else
         return [ [162,"Ctrl",1.25],[91,"Win",1.25],[164,"Alt",1.25],[32,"",6.25],[165,"Alt",1.25],[92,"Win",1.25],[93,"Menu",1.25],[163,"Ctrl",1.25] ]
+#endif
     }
 
     ; Positions a key and pre-measures its label (so rendering never re-measures — keeps redraws cheap).
@@ -643,12 +647,12 @@ class InputHUD {
     ; — changing Scale just re-defines the canvas, it doesn't repaint — while macOS carries the zoom in the logical
     ; W/H (Cocoa renders the HiDPI backing itself). Position is set here too so size and position land together.
     static ApplyGeom(o, z) {
-        if this.isMac {
-            o.ov.W := Round(o.w * z)
-            o.ov.H := Round(o.h * z)
-        } else {
-            o.ov.Scale := this.DPI * z
-        }
+#if OSX
+        o.ov.W := Round(o.w * z)
+        o.ov.H := Round(o.h * z)
+#else
+        o.ov.Scale := this.DPI * z
+#endif
         o.ov.X := o.x, o.ov.Y := o.y
     }
 

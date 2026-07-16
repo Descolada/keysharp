@@ -62,8 +62,9 @@ namespace Keysharp.Tests
 		[Test, Category("Directives")]
 		public void RequiresCapability()
 		{
-			// `#Requires capability <names>` must lower to a RequestCapabilities(...) call in the auto-exec
-			// section, so a script's permissions are prompted at startup rather than sprung on first use.
+			// `#Requires capability <names>` must lower to a RequireCapabilities(...) call in the auto-exec
+			// section. Unlike the runtime RequestCapabilities builtin, denial of a declared hard requirement
+			// terminates startup instead of allowing the script to continue without the required permission.
 			// A bare version requirement (`#Requires AutoHotkey v2.0`) must NOT emit one. Assert on the
 			// generated C# (emitCode: true) so the check never contacts the permission daemon.
 			var ch = new CompilerHelper();
@@ -72,23 +73,23 @@ namespace Keysharp.Tests
 				"#Requires AutoHotkey v2.0\n#Requires capability ScreenCapture, InputMonitoring\nx := 1\n",
 				"reqcap-emit", null, false, true);
 			Assert.IsNotNull(arr, code);
-			Assert.IsTrue(code.Contains("RequestCapabilities(\"ScreenCapture, InputMonitoring\")"),
-				"the capability directive should emit a RequestCapabilities call; generated:\n" + code);
+			Assert.IsTrue(code.Contains("RequireCapabilities(\"ScreenCapture, InputMonitoring\")"),
+				"the capability directive should emit a RequireCapabilities call; generated:\n" + code);
 
 			// The plural alias also works.
 			var (arrPl, codePl) = ch.CompileCodeToByteArray(
 				"#Requires AutoHotkey v2.0\n#Requires capabilities InputMonitoring\nx := 1\n",
 				"reqcap-plural", null, false, true);
 			Assert.IsNotNull(arrPl, codePl);
-			Assert.IsTrue(codePl.Contains("RequestCapabilities(\"InputMonitoring\")"),
-				"the plural `#Requires capabilities` alias should emit a RequestCapabilities call");
+			Assert.IsTrue(codePl.Contains("RequireCapabilities(\"InputMonitoring\")"),
+				"the plural `#Requires capabilities` alias should emit a RequireCapabilities call");
 
 			// Control: a version-only #Requires must NOT emit a capability request.
 			var (arrNone, codeNone) = ch.CompileCodeToByteArray(
 				"#Requires AutoHotkey v2.0\nx := 1\n", "reqcap-none", null, false, true);
 			Assert.IsNotNull(arrNone, codeNone);
-			Assert.IsFalse(codeNone.Contains("RequestCapabilities"),
-				"a version-only #Requires must not emit RequestCapabilities");
+			Assert.IsFalse(codeNone.Contains("RequireCapabilities"),
+				"a version-only #Requires must not emit RequireCapabilities");
 		}
 	}
 }

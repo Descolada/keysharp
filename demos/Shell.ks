@@ -120,11 +120,13 @@ class Shell {
     }
 
     static EmojiFont(size) {
-        if DirExist("/System/Library/CoreServices")
-            return "Apple Color Emoji " size
-        if DirExist("/usr/share/fonts")
-            return "Noto Color Emoji " size
+#if OSX
+        return "Apple Color Emoji " size
+#elif LINUX
+        return "Noto Color Emoji " size
+#else
         return "Segoe UI Emoji " size
+#endif
     }
 
     ; --- the cheat-sheet card ----------------------------------------------
@@ -174,7 +176,11 @@ class Shell {
         ; click / checkbox hit-test) use `geo`, matching the OS coordinate system: physical px on Windows/Linux
         ; (geo = dpi), logical points on macOS (geo = 1, Cocoa handles HiDPI itself).
         local dpi := A_ScreenScale
-        local geo := DirExist("/System/Library/CoreServices") ? 1 : dpi
+#if OSX
+        local geo := 1
+#else
+        local geo := dpi
+#endif
 
         ; Measure so the card fits its content exactly.
         local m := Image.Create(1, 1)

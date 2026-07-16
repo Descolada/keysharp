@@ -4,10 +4,13 @@ namespace Keysharp.Internals.Os
 	internal static class EmbeddedDependencyLoader
 	{
 		internal static Dictionary<string, Assembly> assemblyResources = new(StringComparer.OrdinalIgnoreCase);
-		internal static string dllExt =
-				OperatingSystem.IsWindows() ? ".dll"
-				: OperatingSystem.IsMacOS() ? ".dylib"
-				: ".so";
+#if WINDOWS
+		internal const string dllExt = ".dll";
+#elif OSX
+		internal const string dllExt = ".dylib";
+#else
+		internal const string dllExt = ".so";
+#endif
 
 		static EmbeddedDependencyLoader()
 		{

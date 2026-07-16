@@ -338,33 +338,13 @@ namespace Keysharp.Internals
 #if OSX
 	internal sealed class MacKeyboard : IKeyboard
 	{
-		private const ulong ShiftKeyMask = 1UL << 17;
-		private const ulong ControlKeyMask = 1UL << 18;
-		private const ulong AlternateKeyMask = 1UL << 19;
-		private const ulong CommandKeyMask = 1UL << 20;
 		private const ulong AlphaShiftKeyMask = 1UL << 16;
 		private static volatile bool indicatorSnapshotValid;
 		private static bool indicatorSnapshotNum;
 		private static bool indicatorSnapshotScroll;
 
 		public bool TryQueryModifierLRState(out uint mods, byte[] keymapBuffer = null)
-		{
-			mods = 0u;
-
-			if (!TryGetCurrentModifierFlags(Keysharp.Internals.Input.MacOS.MacNativeInput.kCGEventSourceStateCombinedSessionState, out var flags))
-				return false;
-
-			if ((flags & ShiftKeyMask) != 0)
-				mods |= MOD_LSHIFT | MOD_RSHIFT;
-			if ((flags & ControlKeyMask) != 0)
-				mods |= MOD_LCONTROL | MOD_RCONTROL;
-			if ((flags & AlternateKeyMask) != 0)
-				mods |= MOD_LALT | MOD_RALT;
-			if ((flags & CommandKeyMask) != 0)
-				mods |= MOD_LWIN | MOD_RWIN;
-
-			return true;
-		}
+			=> TryQueryModifierLRState(Keysharp.Internals.Input.MacOS.MacNativeInput.kCGEventSourceStateCombinedSessionState, out mods);
 
 		public bool TryQueryKeyStateLogical(uint vk, out bool isDown)
 			=> TryQueryMacKeyState(vk, Keysharp.Internals.Input.MacOS.MacNativeInput.kCGEventSourceStateCombinedSessionState, useIndicators: true, out isDown);
@@ -410,22 +390,19 @@ namespace Keysharp.Internals
 			if (vk == 0)
 				return false;
 
-			if (TryQueryModifierLRState(sourceState, out var mods))
+			if (vk is VK_SHIFT or VK_CONTROL or VK_MENU)
 			{
-				switch (vk)
+				var (left, right) = vk switch
 				{
-					case VK_SHIFT: isDown = (mods & (MOD_LSHIFT | MOD_RSHIFT)) != 0; return true;
-					case VK_LSHIFT: isDown = (mods & MOD_LSHIFT) != 0; return true;
-					case VK_RSHIFT: isDown = (mods & MOD_RSHIFT) != 0; return true;
-					case VK_CONTROL: isDown = (mods & (MOD_LCONTROL | MOD_RCONTROL)) != 0; return true;
-					case VK_LCONTROL: isDown = (mods & MOD_LCONTROL) != 0; return true;
-					case VK_RCONTROL: isDown = (mods & MOD_RCONTROL) != 0; return true;
-					case VK_MENU: isDown = (mods & (MOD_LALT | MOD_RALT)) != 0; return true;
-					case VK_LMENU: isDown = (mods & MOD_LALT) != 0; return true;
-					case VK_RMENU: isDown = (mods & MOD_RALT) != 0; return true;
-					case VK_LWIN: isDown = (mods & MOD_LWIN) != 0; return true;
-					case VK_RWIN: isDown = (mods & MOD_RWIN) != 0; return true;
-				}
+					VK_SHIFT => (VK_LSHIFT, VK_RSHIFT),
+					VK_CONTROL => (VK_LCONTROL, VK_RCONTROL),
+					_ => (VK_LMENU, VK_RMENU)
+				};
+
+				var leftOk = Keysharp.Internals.Input.MacOS.MacKeyboardState.TryQuery(left, sourceState, out var leftDown);
+				var rightOk = Keysharp.Internals.Input.MacOS.MacKeyboardState.TryQuery(right, sourceState, out var rightDown);
+				isDown = leftDown || rightDown;
+				return leftOk && rightOk;
 			}
 
 			if (useIndicators && (vk == VK_CAPITAL || vk == VK_NUMLOCK || vk == VK_SCROLL))
@@ -460,21 +437,26 @@ namespace Keysharp.Internals
 
 		private static bool TryQueryModifierLRState(uint sourceState, out uint mods)
 		{
-			mods = 0u;
+			var result = 0u;
+			var success = true;
+			Query(VK_LSHIFT, MOD_LSHIFT);
+			Query(VK_RSHIFT, MOD_RSHIFT);
+			Query(VK_LCONTROL, MOD_LCONTROL);
+			Query(VK_RCONTROL, MOD_RCONTROL);
+			Query(VK_LMENU, MOD_LALT);
+			Query(VK_RMENU, MOD_RALT);
+			Query(VK_LWIN, MOD_LWIN);
+			Query(VK_RWIN, MOD_RWIN);
+			mods = result;
+			return success;
 
-			if (!TryGetCurrentModifierFlags(sourceState, out var flags))
-				return false;
-
-			if ((flags & ShiftKeyMask) != 0)
-				mods |= MOD_LSHIFT | MOD_RSHIFT;
-			if ((flags & ControlKeyMask) != 0)
-				mods |= MOD_LCONTROL | MOD_RCONTROL;
-			if ((flags & AlternateKeyMask) != 0)
-				mods |= MOD_LALT | MOD_RALT;
-			if ((flags & CommandKeyMask) != 0)
-				mods |= MOD_LWIN | MOD_RWIN;
-
-			return true;
+			void Query(uint vk, uint modifier)
+			{
+				if (!Keysharp.Internals.Input.MacOS.MacKeyboardState.TryQuery(vk, sourceState, out var down))
+					success = false;
+				else if (down)
+					result |= modifier;
+			}
 		}
 
 		private static bool TryGetCurrentModifierFlags(uint sourceState, out ulong flags)

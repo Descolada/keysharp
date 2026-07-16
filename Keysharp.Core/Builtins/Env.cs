@@ -583,10 +583,15 @@ namespace Keysharp.Builtins
 
 			if (string.IsNullOrEmpty(launcher))
 			{
+#if WINDOWS
+				const string appHostExtension = ".exe";
+#else
+				const string appHostExtension = "";
+#endif
 				var entryAsm = Assembly.GetEntryAssembly()?.Location;
 				var entryDir = string.IsNullOrEmpty(entryAsm) ? null : Path.GetDirectoryName(entryAsm);
 				var appHost = entryDir == null ? null
-							  : Path.Combine(entryDir, Path.GetFileNameWithoutExtension(entryAsm) + (OperatingSystem.IsWindows() ? ".exe" : ""));
+							  : Path.Combine(entryDir, Path.GetFileNameWithoutExtension(entryAsm) + appHostExtension);
 
 				if (appHost != null && File.Exists(appHost))
 					launcher = appHost;

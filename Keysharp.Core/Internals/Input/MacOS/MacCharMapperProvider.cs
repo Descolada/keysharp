@@ -9,9 +9,9 @@ namespace Keysharp.Internals.Input.Unix
 	{
 		private readonly Lock mapperLock = new();
 		private readonly Dictionary<int, (uint vk, bool needShift, bool needAltGr)> cache = new();
-		private nint lastLayoutPtr;
 		private nint retainedLayoutDataRef;
 		private nint retainedLayoutPtr;
+		private string retainedLayoutName = "";
 
 		// Carbon HIToolbox modifier-key-state bits (used to select between candidate runes per key,
 		// and passed directly as UCKeyTranslate's modifierKeyState parameter).
@@ -39,29 +39,14 @@ namespace Keysharp.Internals.Input.Unix
 			0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,0x2D,0x2E,0x2F,
 			0x30,0x31,0x32
 		};
-
-		private static readonly ushort[] physicalCandidateKeyCodes =
-		{
-			// Text-producing keys.
-			0x0A,
-			0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0B,0x0C,0x0D,0x0E,0x0F,
-			0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
-			0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,0x2D,0x2E,0x2F,
-			0x30,0x31,0x32,0x33,0x35,0x36,0x37,0x38,0x39,0x3A,0x3B,0x3C,0x3D,0x3E,
-
-			// Function, keypad, media, navigation.
-			0x40,0x41,0x43,0x45,0x47,0x48,0x49,0x4A,0x4B,0x4C,0x4E,0x4F,
-			0x50,0x51,0x52,0x53,0x54,0x55,0x56,0x57,0x58,0x59,0x5A,0x5B,0x5C,
-			0x5D,0x5E,0x5F,0x60,0x61,0x62,0x63,0x64,0x65,0x66,0x67,0x68,0x69,
-			0x6A,0x6B,0x6D,0x6F,0x71,0x72,0x73,0x74,0x75,0x76,0x77,0x78,0x79,
-			0x7A,0x7B,0x7C,0x7D,0x7E
-		};
+		private static readonly uint[] textModifierStates =
+			[0, shiftKeyState, optionKeyState, shiftKeyState | optionKeyState];
 
 		private static Dictionary<uint, uint> BuildVkToMacKeyCodeMap()
 		{
 			var map = new Dictionary<uint, uint>();
 
-			foreach (var keyCode in physicalCandidateKeyCodes)
+			for (uint keyCode = 0; keyCode <= 0x7E; keyCode++)
 			{
 				if (!MapMacKeyCodeToVk(keyCode, out var vk))
 					continue;
@@ -80,11 +65,12 @@ namespace Keysharp.Internals.Input.Unix
 		private static readonly nint kTISNotifySelectedKeyboardInputSourceChanged = CreateCfString("TISNotifySelectedKeyboardInputSourceChanged");
 		private const nint kCFNotificationSuspensionBehaviorDeliverImmediately = 4;
 
-		// The OS posts the layout-change notification to a single distributed center, so a
-		// single static instance pointer is sufficient to route the unmanaged callback back
-		// to the provider that registered for it.
-		private static MacCharMapperProvider monitoringInstance;
+		private static readonly nint observerToken = 1;
+		private static WeakReference<MacCharMapperProvider> layoutObserver;
 		private bool monitoringStarted;
+		private bool layoutPrepared;
+		private volatile bool disposed;
+		private int reloadRequests;
 
 		public bool TryMapRuneToKeystroke(Rune rune, nint? layout, out uint vk, out bool needShift, out bool needAltGr)
 		{
@@ -94,18 +80,12 @@ namespace Keysharp.Internals.Input.Unix
 			{
 				var key = rune.Value;
 
-				var layoutPtr = GetCurrentKeyboardLayoutPtr();
+				var layoutPtr = retainedLayoutPtr;
 
 				if (layoutPtr == nint.Zero)
 				{
 					needAltGr = false;
 					return KeyCodes.TryMapAsciiToVk(rune, out vk, out needShift);
-				}
-
-				if (layoutPtr != lastLayoutPtr)
-				{
-					cache.Clear();
-					lastLayoutPtr = layoutPtr;
 				}
 
 				if (cache.TryGetValue(key, out var hit))
@@ -142,36 +122,15 @@ namespace Keysharp.Internals.Input.Unix
 					return false;
 				}
 
-				if (TryFindForModifiers(layoutPtr, rune, 0, out vk))
+				foreach (var modifiers in textModifierStates)
 				{
-					needShift = false;
-					needAltGr = false;
-					cache[key] = (vk, false, false);
-					return true;
-				}
-
-				if (TryFindForModifiers(layoutPtr, rune, shiftKeyState, out vk))
-				{
-					needShift = true;
-					needAltGr = false;
-					cache[key] = (vk, true, false);
-					return true;
-				}
-
-				if (TryFindForModifiers(layoutPtr, rune, optionKeyState, out vk))
-				{
-					needShift = false;
-					needAltGr = true;
-					cache[key] = (vk, false, true);
-					return true;
-				}
-
-				if (TryFindForModifiers(layoutPtr, rune, shiftKeyState | optionKeyState, out vk))
-				{
-					needShift = true;
-					needAltGr = true;
-					cache[key] = (vk, true, true);
-					return true;
+					if (TryFindForModifiers(layoutPtr, rune, modifiers, out vk))
+					{
+						needShift = (modifiers & shiftKeyState) != 0;
+						needAltGr = (modifiers & optionKeyState) != 0;
+						cache[key] = (vk, needShift, needAltGr);
+						return true;
+					}
 				}
 
 			}
@@ -183,22 +142,15 @@ namespace Keysharp.Internals.Input.Unix
 		public bool TryMapKeystrokeToRune(uint vk, bool shift, bool altGr, out Rune rune)
 		{
 			rune = default;
-
 			lock (mapperLock)
 			{
 				if (!vkToMacKeyCode.TryGetValue(vk, out var keyCode))
 					return false;
 
-				var layoutPtr = GetCurrentKeyboardLayoutPtr();
+				var layoutPtr = retainedLayoutPtr;
 
 				if (layoutPtr == nint.Zero)
 					return false;
-
-				if (layoutPtr != lastLayoutPtr)
-				{
-					cache.Clear();
-					lastLayoutPtr = layoutPtr;
-				}
 
 				uint modifiers = 0;
 
@@ -219,17 +171,10 @@ namespace Keysharp.Internals.Input.Unix
 				if (!vkToMacKeyCode.TryGetValue(vk, out var keyCode))
 					return KeyCodes.TranslateNotHandled;
 
-				var layoutPtr = GetCurrentKeyboardLayoutPtr();
+				var layoutPtr = retainedLayoutPtr;
 
 				if (layoutPtr == nint.Zero)
 					return KeyCodes.TranslateNotHandled;
-
-				if (layoutPtr != lastLayoutPtr)
-				{
-					cache.Clear();
-					lastLayoutPtr = layoutPtr;
-					ResetDeadKeyStateCore();
-				}
 
 				uint modifiers = 0;
 
@@ -326,82 +271,147 @@ namespace Keysharp.Internals.Input.Unix
 
 		private int WritePendingSpacing(Span<char> buffer)
 		{
-			var n = 0;
-
-			for (var i = 0; i < pendingSpacing.Length && n < buffer.Length; i++)
-				buffer[n++] = pendingSpacing[i];
-
+			var n = Math.Min(pendingSpacing.Length, buffer.Length);
+			pendingSpacing.CopyTo(0, buffer, n);
 			return n;
 		}
 
 		private static int CopyToBuffer(string s, Span<char> buffer)
 		{
 			var n = Math.Min(s.Length, buffer.Length);
-
-			for (var i = 0; i < n; i++)
-				buffer[i] = s[i];
-
+			s.AsSpan(0, n).CopyTo(buffer);
 			return n;
 		}
 
 		public void ConfigureLayout(string rules, string model, string layout, string variant, string options)
+			=> QueueLayoutReload();
+
+		private void InvalidateMappingsCore()
 		{
-			lock (mapperLock)
+			cache.Clear();
+			ResetDeadKeyStateCore();
+		}
+
+		private void QueueLayoutReload()
+		{
+			if (disposed)
+				return;
+			if (Interlocked.Increment(ref reloadRequests) == 1)
+				_ = ThreadPool.QueueUserWorkItem(_ => Script.PostToUIThread(ProcessQueuedLayoutReload));
+		}
+
+		private void ProcessQueuedLayoutReload()
+		{
+			while (true)
 			{
-				cache.Clear();
-				lastLayoutPtr = nint.Zero;
-				ResetDeadKeyStateCore();
-				ReleaseRetainedLayoutData();
+				var requests = Volatile.Read(ref reloadRequests);
+				if (disposed)
+				{
+					Interlocked.Exchange(ref reloadRequests, 0);
+					return;
+				}
+				try { PublishCapturedLayout(CaptureCurrentLayout()); }
+				catch (Exception ex) { Ks.OutputDebugLine($"macOS keyboard-layout refresh failed: {ex.Message}"); }
+				if (Interlocked.CompareExchange(ref reloadRequests, 0, requests) == requests)
+					return;
 			}
 		}
 
-		public void StartLayoutChangeMonitoring()
+		public void PrepareForInputHook()
 		{
 			lock (mapperLock)
 			{
-				if (monitoringStarted)
+				if (disposed || (layoutPrepared && monitoringStarted))
 					return;
-
-				monitoringStarted = true;
-				monitoringInstance = this;
 			}
 
-			// TIS/Carbon notification registration is most reliable on the UI thread.
 			Script.InvokeOnUIThread(() =>
 			{
-				var center = CFNotificationCenterGetDistributedCenter();
+				bool needsLayout;
+				lock (mapperLock)
+					needsLayout = !layoutPrepared && !disposed;
 
-				if (center == nint.Zero)
-					return;
-
-				unsafe
-				{
-					CFNotificationCenterAddObserver(
-						center,
-						nint.Zero,
-						&OnSelectedKeyboardInputSourceChanged,
-						kTISNotifySelectedKeyboardInputSourceChanged,
-						nint.Zero,
-						kCFNotificationSuspensionBehaviorDeliverImmediately);
-				}
+				if (needsLayout)
+					PublishCapturedLayout(CaptureCurrentLayout());
+				StartLayoutChangeMonitoringOnUiThread();
 			});
 		}
 
+		private void StartLayoutChangeMonitoringOnUiThread()
+		{
+			lock (mapperLock)
+			{
+				if (monitoringStarted || disposed)
+					return;
+			}
+
+			var registered = false;
+			try
+			{
+				var center = CFNotificationCenterGetDistributedCenter();
+				if (center != nint.Zero)
+				{
+					layoutObserver = new(this);
+					unsafe
+					{
+						CFNotificationCenterAddObserver(
+							center,
+							observerToken,
+							&OnSelectedKeyboardInputSourceChanged,
+							kTISNotifySelectedKeyboardInputSourceChanged,
+							nint.Zero,
+							kCFNotificationSuspensionBehaviorDeliverImmediately);
+					}
+					registered = true;
+				}
+			}
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"macOS keyboard-layout observer registration failed: {ex.Message}");
+			}
+
+			lock (mapperLock)
+			{
+				if (registered && !disposed)
+				{
+					monitoringStarted = true;
+					return;
+				}
+			}
+
+			layoutObserver = null;
+			if (registered)
+			{
+				var center = CFNotificationCenterGetDistributedCenter();
+				if (center != nint.Zero)
+					CFNotificationCenterRemoveEveryObserver(center, observerToken);
+			}
+		}
+
 		[UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
-		private static void OnSelectedKeyboardInputSourceChanged(nint center, nint observer, nint name, nint obj, nint userInfo) =>
-		monitoringInstance?.ConfigureLayout(null, null, null, null, null);
+		private static void OnSelectedKeyboardInputSourceChanged(nint center, nint observer, nint name, nint obj, nint userInfo)
+		{
+			try
+			{
+				if (observer == observerToken && layoutObserver?.TryGetTarget(out var provider) == true)
+					provider.QueueLayoutReload();
+			}
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"macOS keyboard-layout refresh failed: {ex.Message}");
+			}
+		}
 
 		public nint GetCurrentKeymapHandle()
 		{
 			lock (mapperLock)
-				return GetCurrentKeyboardLayoutPtr();
+				return retainedLayoutPtr;
 		}
 
 		public string GetCurrentKeymapName()
 		{
-			string result = "";
-			Script.InvokeOnUIThread(() => result = GetCurrentInputSourceNameCore());
-			return result;
+			lock (mapperLock)
+				return retainedLayoutName;
 		}
 
 		public nint ResolveKeyboardLayout(string layout)
@@ -413,29 +423,31 @@ namespace Keysharp.Internals.Input.Unix
 
 		public void Dispose()
 		{
+			nint dataRef;
 			lock (mapperLock)
 			{
-				cache.Clear();
-				lastLayoutPtr = nint.Zero;
-				ResetDeadKeyStateCore();
-				ReleaseRetainedLayoutData();
+				if (disposed)
+					return;
+				disposed = true;
+				InvalidateMappingsCore();
+				dataRef = retainedLayoutDataRef;
+				retainedLayoutDataRef = nint.Zero;
+				retainedLayoutPtr = nint.Zero;
+				retainedLayoutName = "";
+				layoutPrepared = false;
 
 				if (monitoringStarted)
-				{
-					monitoringStarted = false;
-
-					if (ReferenceEquals(monitoringInstance, this))
-						monitoringInstance = null;
-
-					// Unlike registration, removing observers doesn't need the UI thread, and
-					// Dispose() can run during shutdown after the UI message loop has stopped
-					// pumping -- InvokeOnUIThread's synchronous Send would then block forever.
-					var center = CFNotificationCenterGetDistributedCenter();
-
-					if (center != nint.Zero)
-						CFNotificationCenterRemoveEveryObserver(center, nint.Zero);
-				}
+					layoutObserver = null;
 			}
+
+			if (dataRef != nint.Zero)
+				CFRelease(dataRef);
+
+			if (!monitoringStarted)
+				return;
+			var center = CFNotificationCenterGetDistributedCenter();
+			if (center != nint.Zero)
+				CFNotificationCenterRemoveEveryObserver(center, observerToken);
 		}
 
 		public bool TryMapVkToMacKeyCode(uint vk, out uint keyCode) => vkToMacKeyCode.TryGetValue(vk, out keyCode);
@@ -609,9 +621,10 @@ namespace Keysharp.Internals.Input.Unix
 		/// </summary>
 		private static bool TryTranslate(nint layoutPtr, ushort keyCode, uint modifierState, out Rune rune)
 		{
-			var (success, result) = TryTranslateCore(layoutPtr, keyCode, modifierState);
-			rune = result;
-			return success;
+			uint deadKeyState = 0;
+			var (len, text) = UCKeyTranslateRaw(layoutPtr, keyCode, modifierState, ref deadKeyState);
+			rune = default;
+			return len > 0 && Rune.TryGetRuneAt(text, 0, out rune);
 		}
 
 		/// <summary>
@@ -658,54 +671,10 @@ namespace Keysharp.Internals.Input.Unix
 			return (len, translated);
 		}
 
-		private static unsafe (bool success, Rune rune) TryTranslateCore(nint layoutPtr, ushort keyCode, uint modifierState)
+		private readonly record struct CapturedLayout(bool HasSource, nint DataRef, nint LayoutPtr, string Name);
+
+		private static CapturedLayout CaptureCurrentLayout()
 		{
-			if (layoutPtr == nint.Zero)
-				return (false, default);
-
-			uint deadKeyState = 0;
-			const int bufferLen = 8;
-			var chars = stackalloc ushort[bufferLen];
-
-			var status = UCKeyTranslate(
-				layoutPtr,
-				keyCode,
-				kUCKeyActionDown,
-				modifierState,
-				0,
-				0,
-				&deadKeyState,
-				bufferLen,
-				out var actualLength,
-				chars);
-
-			if (status != 0 || actualLength == 0)
-				return (false, default);
-
-			var len = (int)Math.Min(actualLength, bufferLen);
-			var translated = new string((char*)chars, 0, len);
-
-			if (translated.Length == 1 && translated[0] == '�')
-				return (false, default);
-
-			return (Rune.TryGetRuneAt(translated, 0, out var rune), rune);
-		}
-
-		private nint GetCurrentKeyboardLayoutPtr()
-		{
-			if (retainedLayoutPtr != nint.Zero)
-				return retainedLayoutPtr;
-
-			// TIS/Carbon access is most reliable on the UI thread. Load once and cache.
-			Script.InvokeOnUIThread(LoadLayoutDataCore);
-			return retainedLayoutPtr;
-		}
-
-		private void LoadLayoutDataCore()
-		{
-			if (retainedLayoutPtr != nint.Zero)
-				return;
-
 			// Prefer the actual current input source so non-ASCII characters can be translated. 
 			// The ASCII-capable source is only a fallback, since it represents a US-like layout 
 			// used for keyboard shortcuts and would never contain non-ASCII characters.
@@ -715,29 +684,29 @@ namespace Keysharp.Internals.Input.Unix
 				source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource();
 
 			if (source == nint.Zero)
-				return;
+				return default;
 
 			try
 			{
-				var keyRef = GetTisUnicodeLayoutDataPropertyKey();
+				var name = GetInputSourceName(source);
+				var keyRef = tisUnicodeLayoutKey;
 				if (keyRef == nint.Zero)
-					return;
+					return new(true, nint.Zero, nint.Zero, name);
 
 				var dataRef = TISGetInputSourceProperty(source, keyRef);
 				if (dataRef == nint.Zero)
-					return;
+					return new(true, nint.Zero, nint.Zero, name);
 
 				// Guard against invalid native values before dereferencing CFData.
 				if (CFGetTypeID(dataRef) != CFDataGetTypeID())
-					return;
+					return new(true, nint.Zero, nint.Zero, name);
 
 				var ptr = CFDataGetBytePtr(dataRef);
 				if (ptr == nint.Zero)
-					return;
+					return new(true, nint.Zero, nint.Zero, name);
 
 				CFRetain(dataRef);
-				retainedLayoutDataRef = dataRef;
-				retainedLayoutPtr = ptr;
+				return new(true, dataRef, ptr, name);
 			}
 			finally
 			{
@@ -745,30 +714,46 @@ namespace Keysharp.Internals.Input.Unix
 			}
 		}
 
-		private string GetCurrentInputSourceNameCore()
+		private void PublishCapturedLayout(CapturedLayout captured)
 		{
-			var source = TISCopyCurrentKeyboardLayoutInputSource();
+			// A transient failure to obtain any input source preserves the last complete snapshot;
+			// explicit sources without Unicode layout data publish the zero-pointer fallback.
+			if (!captured.HasSource)
+				return;
 
-			if (source == nint.Zero)
-				source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource();
-
-			if (source == nint.Zero)
-				return "";
-
-			try
+			nint dataRefToRelease;
+			lock (mapperLock)
 			{
-				var id = GetInputSourcePropertyString(source, tisInputSourceIdKey);
-				var name = GetInputSourcePropertyString(source, tisLocalizedNameKey);
-
-				if (id != "" && name != "")
-					return $"{id}:{name}";
-
-				return id != "" ? id : name;
+				if (disposed)
+				{
+					dataRefToRelease = captured.DataRef;
+				}
+				else
+				{
+					dataRefToRelease = retainedLayoutDataRef;
+					retainedLayoutDataRef = captured.DataRef;
+					retainedLayoutPtr = captured.LayoutPtr;
+					retainedLayoutName = captured.Name;
+					layoutPrepared = true;
+					InvalidateMappingsCore();
+				}
 			}
-			finally
-			{
-				CFRelease(source);
-			}
+
+			// Translation holds mapperLock for the full UCKeyTranslate call, so once the swap
+			// above completes no callback can still be dereferencing the retired CFData bytes.
+			if (dataRefToRelease != nint.Zero)
+				CFRelease(dataRefToRelease);
+		}
+
+		private static string GetInputSourceName(nint source)
+		{
+			var id = GetInputSourcePropertyString(source, tisInputSourceIdKey);
+			var name = GetInputSourcePropertyString(source, tisLocalizedNameKey);
+
+			if (id != "" && name != "")
+				return $"{id}:{name}";
+
+			return id != "" ? id : name;
 		}
 
 		private static string GetInputSourcePropertyString(nint source, nint propertyKey)
@@ -800,32 +785,8 @@ namespace Keysharp.Internals.Input.Unix
 			return Encoding.UTF8.GetString(buffer, 0, nul >= 0 ? nul : buffer.Length);
 		}
 
-		private void ReleaseRetainedLayoutData()
-		{
-			if (retainedLayoutDataRef != nint.Zero)
-			{
-				CFRelease(retainedLayoutDataRef);
-				retainedLayoutDataRef = nint.Zero;
-			}
-
-			retainedLayoutPtr = nint.Zero;
-		}
-
-		private static nint GetTisUnicodeLayoutDataPropertyKey()
-		{
-			return tisUnicodeLayoutKey;
-		}
-
-		private static nint CreateCfString(string value)
-		{
-			try
-			{
-				return CFStringCreateWithCString(nint.Zero, value, kCFStringEncodingUTF8);
-			}
-			finally
-			{
-			}
-		}
+		private static nint CreateCfString(string value) =>
+			CFStringCreateWithCString(nint.Zero, value, kCFStringEncodingUTF8);
 
 		private const uint kCFStringEncodingUTF8 = 0x08000100;
 

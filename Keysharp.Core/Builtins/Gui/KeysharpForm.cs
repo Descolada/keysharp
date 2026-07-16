@@ -19,6 +19,9 @@ namespace Keysharp.Builtins
 		internal bool clickThrough;
 		private bool closingFromDestroy;
 		private nint originalWndProcPtr;
+#if OSX
+		private uint mouseTransparentWindow;
+#endif
 		internal bool BeenShown => beenShown;
 #if WINDOWS
 		internal bool HasExternalWndProcOverride => originalWndProcPtr != 0 && WindowsAPI.GetWindowLongPtr(Handle, WindowsAPI.GWL_WNDPROC) != originalWndProcPtr;
@@ -331,18 +334,21 @@ namespace Keysharp.Builtins
 				// been shown, so (re)apply any requested click-through here.
 				if (clickThrough)
 				{
-					Eto.Forms.EtoExtensions.SetFormClickThrough(this, true);
+					ApplyClickThrough(true);
 					// On Wayland the GdkWindow is often still unmapped at Shown (so the call above no-ops)
 					// and the input region is pushed to the surface only on a later frame, so reapply once
 					// the map has settled.
 					Eto.Forms.Application.Instance.AsyncInvoke(() =>
 					{
 						if (clickThrough)
-							Eto.Forms.EtoExtensions.SetFormClickThrough(this, true);
+							ApplyClickThrough(true);
 					});
 				}
 #endif
 			};
+#if OSX
+			Closed += (o, e) => ApplyClickThrough(false);
+#endif
 		}
 
 		// Makes the whole window transparent to mouse input so clicks pass through to whatever is beneath
@@ -382,9 +388,25 @@ namespace Keysharp.Builtins
 #else
 			// Eto exposes no cross-platform click-through option, so reach the native window. The GTK
 			// input shape only exists once the window is realized, so this is also reapplied from Shown.
-			Eto.Forms.EtoExtensions.SetFormClickThrough(this, enable);
+			ApplyClickThrough(enable);
 #endif
 		}
+
+#if !WINDOWS
+		private void ApplyClickThrough(bool enable)
+		{
+			Eto.Forms.EtoExtensions.SetFormClickThrough(this, enable);
+#if OSX
+			var current = enable && ControlObject is MonoMac.AppKit.NSWindow window && window.WindowNumber > 0
+				? (uint)window.WindowNumber : 0;
+			if (mouseTransparentWindow != 0 && current != mouseTransparentWindow)
+				MacNativeWindows.SetMouseTransparentWindow(mouseTransparentWindow, false);
+			mouseTransparentWindow = current;
+			if (current != 0)
+				MacNativeWindows.SetMouseTransparentWindow(current, true);
+#endif
+		}
+#endif
 
 		internal bool RemoveOwnedHandlers(ScriptEventScheduler scheduler)
 			=> (closedHandlers?.RemoveOwned(scheduler) == true)
@@ -539,7 +561,7 @@ namespace Keysharp.Builtins
 			// A resize on Wayland can drop the click-through input region (e.g. the Highlight overlay
 			// resizes on every update), so reapply it.
 			if (clickThrough)
-				Eto.Forms.EtoExtensions.SetFormClickThrough(this, true);
+				ApplyClickThrough(true);
 #endif
 		}
 

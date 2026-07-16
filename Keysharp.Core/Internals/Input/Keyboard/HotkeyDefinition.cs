@@ -26,6 +26,8 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal const uint NO_SUPPRESS_PREFIX = 0x01;
 		internal const uint NO_SUPPRESS_SUFFIX_VARIES = AT_LEAST_ONE_VARIANT_HAS_TILDE | AT_LEAST_ONE_VARIANT_LACKS_TILDE;
 		[ThreadStatic] private static long hotExprLastFoundHwnd;
+		[ThreadStatic] private static bool evaluatingCriterion;
+		private static readonly ConditionalWeakTable<Script, ScriptCriterionExecutors> criterionExecutors = new();
 		internal static string COMPOSITE_DELIMITER = " & ";
 		internal bool allowExtraModifiers = false;
 		internal bool constructedOK;
@@ -1417,46 +1419,23 @@ namespace Keysharp.Internals.Input.Keyboard
 				return 1L;
 
 			var criterionType = GetHotCriterionType(criterion);
-			Exception error = null;
-			var result = 0L;
-			var task = Task.Run(() =>
+			if (evaluatingCriterion)
 			{
-				hotExprLastFoundHwnd = 0L;
-				var script = Script.TheScript;
-				script.Threads.EnsureCurrentThreadVariables();
-				var tv = script.Threads.CurrentThread;
-				var oldEventInfo = tv.eventInfo;
-
 				try
 				{
-					tv.eventInfo = eventInfo;
-					var val = criterion.Call(hotkeyName);
-					var foundHwnd = hotExprLastFoundHwnd;
-
-					if (criterionType == HotCriterionEnum.IfCallback)
-					{
-						if (val is long callbackHwndOrBool)
-							result = callbackHwndOrBool != 0L ? foundHwnd != 0L ? foundHwnd : callbackHwndOrBool : 0L;
-						else
-							result = Script.ForceBool(val) ? foundHwnd != 0L ? foundHwnd : 1L : 0L;
-					}
-					else if (val is long l)
-						result = l;
-					else
-						result = Script.ForceBool(val) ? 1L : 0L;
+					// Nested evaluation stays on the admitted worker. Spawning another bounded request
+					// can deadlock all lanes when callbacks recursively trigger input decisions.
+					return EvaluateCriterion(criterion, criterionType, hotkeyName, eventInfo);
 				}
 				catch (Exception ex)
 				{
-					error = ex;
+					ReportCriterionError(ex);
+					return 0L;
 				}
-				finally
-				{
-					tv.eventInfo = oldEventInfo;
-					hotExprLastFoundHwnd = 0L;
-				}
-			});
+			}
 
 			var hotIfTimeoutMs = A_HotIfTimeout.Ad();
+			var isHookCallback = false;
 
 			// On the inputd hook reader thread this criterion is evaluated synchronously while the
 			// shared callback gate is held and the daemon's ~1s hook-decision deadline is ticking, so a
@@ -1468,23 +1447,99 @@ namespace Keysharp.Internals.Input.Keyboard
 			// stale answer could fire the wrong context hotkey. Off the hook thread (script/UI threads)
 			// the full A_HotIfTimeout still applies.
 #if LINUX
-			if (Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsHookReaderThread
-					&& hotIfTimeoutMs > HookThreadHotCriterionTimeoutMs)
+			isHookCallback = Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsHookReaderThread;
+			if (isHookCallback && hotIfTimeoutMs > HookThreadHotCriterionTimeoutMs)
 				hotIfTimeoutMs = HookThreadHotCriterionTimeoutMs;
+#elif OSX
+			isHookCallback = Keysharp.Internals.Input.MacOS.MacNativeEventTap.IsEventTapThread;
+			if (isHookCallback)
+			{
+				// Core Graphics applies its watchdog to the native callback, not to each HotIf.
+				// Every variant and both wheel axes therefore consume the same event deadline.
+				var remaining = Keysharp.Internals.Input.MacOS.MacNativeEventTap.RemainingCallbackMilliseconds;
+				if (remaining <= 0)
+					return 0L;
+				hotIfTimeoutMs = Math.Min(hotIfTimeoutMs,
+					Math.Min(Keysharp.Internals.Input.MacOS.MacNativeEventTap.CallbackBudgetMilliseconds, remaining));
+			}
 #endif
 
-			if (!task.Wait(TimeSpan.FromMilliseconds(hotIfTimeoutMs)))
-				return 0L;
+			var script = Script.TheScript;
+			var executors = criterionExecutors.GetValue(script, static _ => new ScriptCriterionExecutors());
+			var status = executors.Select(isHookCallback).Execute(() => EvaluateCriterion(criterion, criterionType,
+				hotkeyName, eventInfo), TimeSpan.FromMilliseconds(Math.Max(0, hotIfTimeoutMs)), out var value, out var error);
 
-			if (error != null)
+			if (status == CriterionExecutionStatus.Rejected)
 			{
-				_ = Script.TheScript.UIEventScheduler.EnqueueThreadLaunch(0, false, false, () =>
-					_ = Keysharp.Internals.Flow.TryCatch(() => ExceptionDispatchInfo.Throw(error)));
+				var rejected = executors.RecordRejection(isHookCallback);
+				// Log the first and exponentially-spaced subsequent rejections. This makes a stuck
+				// user criterion observable without flooding the debug UI from an input callback.
+				if ((rejected & (rejected - 1)) == 0)
+					_ = Ks.OutputDebugLine($"HotIf { (isHookCallback ? "hook" : "ordinary") } worker lane is saturated; " +
+						$"failing input open (rejection {rejected}).");
 				return 0L;
 			}
 
-			return result;
+			if (status == CriterionExecutionStatus.TimedOut)
+				return 0L;
+
+			if (status == CriterionExecutionStatus.Failed)
+			{
+				ReportCriterionError(error);
+				return 0L;
+			}
+
+			return value;
 		}
+
+		private static long EvaluateCriterion(IFuncObj criterion, HotCriterionEnum criterionType,
+			string hotkeyName, object eventInfo)
+		{
+			var previousEvaluation = evaluatingCriterion;
+			var previousFoundHwnd = hotExprLastFoundHwnd;
+			evaluatingCriterion = true;
+			hotExprLastFoundHwnd = 0L;
+
+			try
+			{
+				var script = Script.TheScript;
+				script.Threads.EnsureCurrentThreadVariables();
+				var tv = script.Threads.CurrentThread;
+				var oldEventInfo = tv.eventInfo;
+				try
+				{
+					tv.eventInfo = eventInfo;
+					var val = criterion.Call(hotkeyName);
+					var foundHwnd = hotExprLastFoundHwnd;
+
+					if (criterionType == HotCriterionEnum.IfCallback)
+					{
+						if (val is long callbackHwndOrBool)
+							return callbackHwndOrBool != 0L ? foundHwnd != 0L ? foundHwnd : callbackHwndOrBool : 0L;
+
+						return Script.ForceBool(val) ? foundHwnd != 0L ? foundHwnd : 1L : 0L;
+					}
+
+					if (val is long l)
+						return l;
+
+					return Script.ForceBool(val) ? 1L : 0L;
+				}
+				finally
+				{
+					tv.eventInfo = oldEventInfo;
+				}
+			}
+			finally
+			{
+				hotExprLastFoundHwnd = previousFoundHwnd;
+				evaluatingCriterion = previousEvaluation;
+			}
+		}
+
+		private static void ReportCriterionError(Exception error)
+			=> _ = Script.TheScript.UIEventScheduler.EnqueueThreadLaunch(0, false, false, () =>
+				_ = Keysharp.Internals.Flow.TryCatch(() => ExceptionDispatchInfo.Throw(error)));
 
 		internal static HotCriterionEnum GetHotCriterionType(IFuncObj criterion)
 			=> criterion?.Name switch

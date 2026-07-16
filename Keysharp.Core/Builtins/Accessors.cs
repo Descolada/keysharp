@@ -1339,9 +1339,17 @@ namespace Keysharp.Builtins
 		public static string A_NowUTC => Conversions.ToYYYYMMDDHH24MISS(DateTime.UtcNow);
 
 		/// <summary>
-		/// The type of Operating System being run, e.g. WIN32_WINDOWS for Windows 95/98/ME or WIN32_NT for Windows NT4/2000/XP/2003/Vista.
+		/// Keysharp's current platform name, matching the corresponding script preprocessor symbol.
 		/// </summary>
-		public static string A_OSType => Conversions.ToOSType(Environment.OSVersion.Platform);
+#if WINDOWS
+		public static string A_OSType => "WINDOWS";
+#elif OSX
+		public static string A_OSType => "OSX";
+#elif LINUX
+		public static string A_OSType => "LINUX";
+#else
+		public static string A_OSType => "UNKNOWN";
+#endif
 
 		/// <summary>
 		/// The Operating System version, e.g. WIN_VISTA, WIN_2003, WIN_XP, WIN_2000, WIN_NT4, WIN_95, WIN_98, WIN_ME.

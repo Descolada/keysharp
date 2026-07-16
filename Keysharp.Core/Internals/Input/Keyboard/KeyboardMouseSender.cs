@@ -298,6 +298,13 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal abstract void CleanupEventArray(long aFinalKeyDelay);
 
 		/// <summary>
+		/// Discards the event array owned by an interrupted send. Implementations which maintain
+		/// nested array state should override this to pop exactly the current frame without adding
+		/// a normal-completion delay.
+		/// </summary>
+		internal virtual void AbortEventArray() => CleanupEventArray(-1);
+
+		/// <summary>
 		/// For v1.0.25, the following situation is fixed by the code below: If LWin or LAlt
 		/// becomes a persistent modifier (e.g. via Send {LWin down}) and the user physically
 		/// releases LWin immediately before: 1) the {LWin up} is scheduled; and 2) SendKey()
@@ -1007,7 +1014,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 		internal abstract int PbEventCount();
 
-		internal void PerformMouseCommon(Actions actionType, uint vk, int x1, int y1, int x2, int y2,
+		internal virtual void PerformMouseCommon(Actions actionType, uint vk, int x1, int y1, int x2, int y2,
 										 long repeatCount, KeyEventTypes eventType, long speed, bool relative)
 		{
 			// The maximum number of events, which in this case would be from a MouseClickDrag.  To be conservative
@@ -1029,48 +1036,75 @@ namespace Keysharp.Internals.Input.Keyboard
 			}
 
 			WarnIfPlayUnsupported(sendMode);
-
-			if (sendMode != SendModes.Event) // We're also responsible for setting sSendMode to SM_EVENT prior to returning.
-				InitEventArray(MAX_PERFORM_MOUSE_EVENTS, 0);
-
-			// Turn it on unconditionally even if it was on, since Ctrl-Alt-Del might have disabled it.
-			// Turn it back off only if it wasn't ON before we started.
 			var blockinputPrev = script.KeyboardData.blockInput;
 			var doSelectiveBlockinput = (script.KeyboardData.blockInputMode == ToggleValueType.Mouse
 										 || script.KeyboardData.blockInputMode == ToggleValueType.SendAndMouse)
 										&& sendMode == SendModes.Event;
+			var eventArrayInitialized = false;
+			var selectiveBlockInputApplied = false;
 
-			if (doSelectiveBlockinput) // It seems best NOT to use g_BlockMouseMove for this, since often times the user would want keyboard input to be disabled too, until after the mouse event is done.
-				_ = Builtins.Keyboard.ScriptBlockInput(ToggleValueType.On); // Turn it on unconditionally even if it was on, since Ctrl-Alt-Del might have disabled it.
-
-			switch (actionType)
+			try
 			{
-				case Actions.ACT_MOUSEMOVE:
-					var unused = 0u;
-					MouseMove(ref x1, ref y1, ref unused, speed, relative); // Does nothing if coords are invalid.
-					break;
+				if (sendMode != SendModes.Event) // We're also responsible for setting sSendMode to SM_EVENT prior to returning.
+				{
+					try
+					{
+						InitEventArray(MAX_PERFORM_MOUSE_EVENTS, 0);
+					}
+					catch
+					{
+						sendMode = SendModes.Event;
+						throw;
+					}
+					eventArrayInitialized = true;
+				}
 
-				case Actions.ACT_MOUSECLICK:
-					MouseClick(vk, x1, y1, repeatCount, speed, eventType, relative); // Does nothing if coords are invalid.
-					break;
+				if (doSelectiveBlockinput) // It seems best NOT to use g_BlockMouseMove for this, since often times the user would want keyboard input to be disabled too, until after the mouse event is done.
+				{
+					_ = Builtins.Keyboard.ScriptBlockInput(ToggleValueType.On); // Turn it on unconditionally even if it was on, since Ctrl-Alt-Del might have disabled it.
+					selectiveBlockInputApplied = true;
+				}
 
-				case Actions.ACT_MOUSECLICKDRAG:
-					MouseClickDrag(vk, x1, y1, x2, y2, speed, relative); // Does nothing if coords are invalid.
-					break;
+				switch (actionType)
+				{
+					case Actions.ACT_MOUSEMOVE:
+						var unused = 0u;
+						MouseMove(ref x1, ref y1, ref unused, speed, relative); // Does nothing if coords are invalid.
+						break;
+
+					case Actions.ACT_MOUSECLICK:
+						MouseClick(vk, x1, y1, repeatCount, speed, eventType, relative); // Does nothing if coords are invalid.
+						break;
+
+					case Actions.ACT_MOUSECLICKDRAG:
+						MouseClickDrag(vk, x1, y1, x2, y2, speed, relative); // Does nothing if coords are invalid.
+						break;
+				}
+
+				if (eventArrayInitialized)
+				{
+					var finalKeyDelay = -1L; // Set default.
+
+					if (!abortArraySend && TotalEventCount() > 0)
+						SendEventArray(ref finalKeyDelay, 0); // Last parameter is ignored because keybd hook isn't removed for a pure-mouse SendInput.
+
+					eventArrayInitialized = false;
+					CleanupEventArray(finalKeyDelay);
+				}
 			}
-
-			if (sendMode != SendModes.Event)
+			finally
 			{
-				var finalKeyDelay = -1L; // Set default.
-
-				if (!abortArraySend && TotalEventCount() > 0)
-					SendEventArray(ref finalKeyDelay, 0); // Last parameter is ignored because keybd hook isn't removed for a pure-mouse SendInput.
-
-				CleanupEventArray(finalKeyDelay);
+				try
+				{
+					if (eventArrayInitialized)
+						AbortEventArray();
+				}
+				finally
+				{
+					if (selectiveBlockInputApplied && !blockinputPrev) // Turn it back off only if it was off before we started.
+						_ = Builtins.Keyboard.ScriptBlockInput(ToggleValueType.Off);
+				}
 			}
-
-			if (doSelectiveBlockinput && !blockinputPrev)  // Turn it back off only if it was off before we started.
-				_ = Builtins.Keyboard.ScriptBlockInput(ToggleValueType.Off);
 		}
 
 		internal void ProcessHotkey(int wParamVal, int lParamVal, HotkeyVariant variant, uint msg, ulong? hookExtraInfo = null, object eventInfo = null)
@@ -1378,6 +1412,24 @@ namespace Keysharp.Internals.Input.Keyboard
 				return;
 			}
 
+			try
+			{
+				// Finish is paired even if platform initialization fails after partially opening
+				// its scope; implementations must make Finish safe for that case.
+				OnSendKeysStarting();
+				SendKeysCore(keys, sendRaw, sendModeOrig, targetWindow);
+			}
+			finally
+			{
+				OnSendKeysFinished();
+			}
+		}
+
+		private void SendKeysCore(string keys, SendRawModes sendRaw, SendModes sendModeOrig, nint targetWindow)
+		{
+			var script = Script.TheScript;
+			var ht = script.HookThread;
+
 			var modsExcludedFromBlind = 0u;// For performance and also to reserve future flexibility, recognize {Blind} only when it's the first item in the string.
 			var i = 0;
 			var sub = keys.AsSpan();
@@ -1431,6 +1483,19 @@ namespace Keysharp.Internals.Input.Keyboard
 			var tv = script.Threads.CurrentThread.configData;
 			var origKeyDelay = tv.keyDelay;
 			var origPressDuration = tv.keyDuration;
+			var threadsAreAttached = false;
+			uint keybdLayoutThread = 0;
+			WindowInfoBase tempitem = null;
+			var kbd = script.KeyboardData;
+			var blockinputPrev = false;
+			var doSelectiveBlockInput = false;
+			var selectiveBlockInputApplied = false;
+			var priorCapslockState = ToggleValueType.Invalid;
+			var eventArrayInitialized = false;
+			var eventArrayModeFinalized = false;
+
+			try
+			{
 
 			if (sendModeOrig == SendModes.Input || sendModeOrig == SendModes.InputThenPlay) // Caller has ensured aTargetWindow==NULL for SendInput and SendPlay modes.
 			{
@@ -1480,10 +1545,6 @@ namespace Keysharp.Internals.Input.Keyboard
 			// 2) For ControlSend, captures the target-window thread that the keyboard-layout lookup later needs.
 			//    The layout handle and AltGr determination themselves are no longer computed here -- they are
 			//    deferred into KeybdLayoutRef and the lazy targetLayoutHasAltGr getter (resolved on first use).
-			var threadsAreAttached = false; // Set default.
-			uint keybdLayoutThread = 0;     //
-			WindowInfoBase tempitem = null;
-
 			if (targetWindow != 0) // Caller has ensured this is NULL for SendInput and SendPlay modes.
 			{
 				AttachTargetWindowThread(ref threadsAreAttached, ref keybdLayoutThread, ref tempitem, targetWindow);
@@ -1672,9 +1733,10 @@ namespace Keysharp.Internals.Input.Keyboard
 			// because otherwise lowercase letters would come through as uppercase and vice versa.
 			// Remember that apps like MS Word have an auto-correct feature that might make it
 			// wrongly seem that the turning off of Capslock below needs a Sleep(0) to take effect.
-			var priorCapslockState = tv.storeCapsLockMode && !inBlindMode && sendRaw != SendRawModes.RawText
-									 ? ToggleKeyState(VK_CAPITAL, ToggleValueType.Off)
-									 : ToggleValueType.Invalid; // In blind mode, don't do store capslock (helps remapping and also adds flexibility).
+			blockinputPrev = kbd.blockInput;
+			priorCapslockState = tv.storeCapsLockMode && !inBlindMode && sendRaw != SendRawModes.RawText
+								 ? ToggleKeyState(VK_CAPITAL, ToggleValueType.Off)
+								 : ToggleValueType.Invalid; // In blind mode, don't do store capslock (helps remapping and also adds flexibility).
 			// sendMode must be set only after setting Capslock state above, because the hook method
 			// is incapable of changing the on/off state of toggleable keys like Capslock.
 			// However, it can change Capslock state as seen in the window to which playback events are being
@@ -1682,20 +1744,21 @@ namespace Keysharp.Internals.Input.Keyboard
 			// not to rely on it.
 			sendMode = sendModeOrig;
 			WarnIfPlayUnsupported(sendMode);
+			doSelectiveBlockInput = (kbd.blockInputMode == ToggleValueType.Send || kbd.blockInputMode == ToggleValueType.SendAndMouse)
+								&& sendMode == SendModes.Event && targetWindow == 0;
 
 			if (sendMode != SendModes.Event) // Build an array.  We're also responsible for setting sendMode to SM_EVENT prior to returning.
 			{
 				maxEvents = sendMode == SendModes.Input ? MaxInitialEventsSI : MaxInitialEventsPB;
 				InitEventArray(maxEvents, modsCurrent);
+				eventArrayInitialized = true;
 			}
 
-			var kbd = script.KeyboardData;
-			var blockinputPrev = kbd.blockInput;
-			var doSelectiveBlockInput = (kbd.blockInputMode == ToggleValueType.Send || kbd.blockInputMode == ToggleValueType.SendAndMouse)
-										&& sendMode == SendModes.Event && targetWindow == 0;
-
 			if (doSelectiveBlockInput)
+			{
 				_ = Builtins.Keyboard.ScriptBlockInput(ToggleValueType.On); // Turn it on unconditionally even if it was on, since Ctrl-Alt-Del might have disabled it.
+				selectiveBlockInputApplied = true;
+			}
 
 			var vk = 0u;
 			var sc = 0u;
@@ -2258,6 +2321,8 @@ namespace Keysharp.Internals.Input.Keyboard
 					SendEventArray(ref finalKeyDelay, modsToSet);
 				}
 
+				eventArrayInitialized = false; // Cleanup owns the frame even if its final delay throws.
+				eventArrayModeFinalized = true;
 				CleanupEventArray(finalKeyDelay);
 			}
 			else // A non-array send is in effect, so a more elaborate adjustment to logical modifiers is called for.
@@ -2371,16 +2436,52 @@ namespace Keysharp.Internals.Input.Keyboard
 												  & modifiersLRLogicalNonIgnored);
 			}
 
-			if (priorCapslockState == ToggleValueType.AlwaysOn) // The current user setting requires us to turn it back on.
-				_ = ToggleKeyState(VK_CAPITAL, ToggleValueType.AlwaysOn);
-
-			// Might be better to do this after changing capslock state, since having the threads attached
-			// tends to help with updating the global state of keys (perhaps only under Win9x in this case):
-			if (threadsAreAttached)
-				DetachTargetWindowThread(script.NativeMainThreadID, keybdLayoutThread);
-
-			if (doSelectiveBlockInput && !blockinputPrev) // Turn it back off only if it was off before we started.
-				_ = Builtins.Keyboard.ScriptBlockInput(ToggleValueType.Off);
+			}
+			finally
+			{
+				// These are transaction resources, not best-effort epilogue. Restore every one even
+				// when parsing, allocation or a platform sender fails partway through Send.
+				try
+				{
+					if (eventArrayInitialized)
+					{
+						eventArrayInitialized = false;
+						eventArrayModeFinalized = true;
+						AbortEventArray();
+					}
+				}
+				finally
+				{
+					try
+					{
+						if (priorCapslockState == ToggleValueType.On)
+							_ = ToggleKeyState(VK_CAPITAL, ToggleValueType.On);
+					}
+					finally
+					{
+						try
+						{
+							if (threadsAreAttached)
+								DetachTargetWindowThread(script.NativeMainThreadID, keybdLayoutThread);
+						}
+						finally
+						{
+							try
+							{
+								if (selectiveBlockInputApplied && !blockinputPrev)
+									_ = Builtins.Keyboard.ScriptBlockInput(ToggleValueType.Off);
+							}
+							finally
+							{
+								tv.keyDelay = origKeyDelay;
+								tv.keyDuration = origPressDuration;
+								if (!eventArrayModeFinalized)
+									sendMode = SendModes.Event;
+							}
+						}
+					}
+				}
+			}
 
 #if WINDOWS
 			// v1.0.43.03: Someone reported that when a non-autoreplace hotstring calls us to do its backspacing, the
@@ -2398,10 +2499,13 @@ namespace Keysharp.Internals.Input.Keyboard
 				Keysharp.Internals.Flow.SleepWithoutInterruption(-1);
 #endif
 
-			// v1.0.43.08: Restore the original thread key-delay values in case above temporarily overrode them.
-			tv.keyDelay = origKeyDelay;
-			tv.keyDuration = origPressDuration;
 		}
+
+		/// <summary>Allows a platform sender to synchronize asynchronous native predictions at a Send boundary.</summary>
+		protected virtual void OnSendKeysStarting() { }
+
+		/// <summary>Closes the platform transaction opened by <see cref="OnSendKeysStarting"/>, including exceptional exits.</summary>
+		protected virtual void OnSendKeysFinished() { }
 
 		internal abstract void PutMouseEventIntoArray(uint eventFlags, uint data, int x, int y);
 

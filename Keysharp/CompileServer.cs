@@ -410,8 +410,9 @@ namespace Keysharp.Main
 
 			writer.Flush();
 
-			if (OperatingSystem.IsWindows())
-				server.WaitForPipeDrain();
+#if WINDOWS
+			server.WaitForPipeDrain();
+#endif
 		}
 	}
 

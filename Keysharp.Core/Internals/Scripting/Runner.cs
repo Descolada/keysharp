@@ -475,7 +475,14 @@ namespace Keysharp.Internals.Scripting
 			return method;
 		}
 
-		private static string HelpText(Assembly asm) =>
+		private static string HelpText(Assembly asm)
+		{
+#if WINDOWS
+			const string platformHelp = "  --install, --uninstall  Register/unregister Keysharp shell integration (used by the installer).\n  --close-instances       Close every running Keysharp process of this install (used by the installer).\n";
+#else
+			const string platformHelp = "";
+#endif
+			return
 			$"""
 			Keysharp {asm.GetName().Version} - a C# port and enhancement of AutoHotkey.
 
@@ -512,10 +519,11 @@ namespace Keysharp.Internals.Scripting
 			  --version, -v           Print the version.
 			  --about                 Print license information.
 			  --help, -h, -?          Show this help.
-			{(OperatingSystem.IsWindows() ? "  --install, --uninstall  Register/unregister Keysharp shell integration (used by the installer).\n  --close-instances       Close every running Keysharp process of this install (used by the installer).\n" : "")}
+			{platformHelp}
 			Options may be prefixed with "-" or "--". AutoHotkey-compatible run options may also use "/".
 			The KEYSHARP_DAEMON environment variable (1/0/true/false/on/off) forces the compile daemon on or off.
 			""";
+		}
 
 		internal static bool TryGetSwitch(string value, out string option)
 		{

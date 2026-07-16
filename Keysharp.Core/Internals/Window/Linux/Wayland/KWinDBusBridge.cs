@@ -685,28 +685,8 @@ function windowInfo(w, includeSpecial) {
   try {
     if (safeBool(w.deleted)) return null;
     if (!includeSpecial) {
-      // zwlr_layer_shell_v1 exposes its namespace as the window's application identity in KWin.
-      // Our passive image surfaces use this fixed namespace and have an empty wl_surface input
-      // region, so they must never be returned as the window which would receive a pointer event.
-      var resourceClass = safeString(safeRead(w, "resourceClass", ""));
-      var resourceName = safeString(safeRead(w, "resourceName", ""));
-      var desktopFileName = safeString(safeRead(w, "desktopFileName", ""));
-      if (resourceClass === "keysharp-image-overlay" || resourceName === "keysharp-image-overlay"
-          || desktopFileName === "keysharp-image-overlay") return null;
-
-      // KWin includes layer-shell surfaces in workspace.windowAt().  An Overlay uses an empty
-      // wl_surface input region, but windowAt() is a geometric/stacking query and can still put
-      // that surface first.  Reject non-client special/unmanaged surfaces while retaining real
-      // menu windows: an own-process menu covering a click-through overlay must remain visible
-      // to WinFromPoint so callers can yield the click to it.  Do not use popupWindow here: KWin's
-      // definition is deliberately broad (tooltips and similar UI concepts), and layer-shell
-      // surfaces can be classified as popups too.  That admitted our input-empty HUD itself.
-      var inputPopup = safeBool(safeRead(w, "menu", false))
-                    || safeBool(safeRead(w, "dropdownMenu", false))
-                    || safeBool(safeRead(w, "popupMenu", false))
-                    || safeBool(safeRead(w, "comboBox", false));
-      if (!inputPopup && typeof w.managed !== "undefined" && !safeBool(w.managed)) return null;
-      if (!inputPopup && safeBool(w.specialWindow)) return null;
+      if (typeof w.managed !== "undefined" && !safeBool(w.managed)) return null;
+      if (safeBool(w.specialWindow)) return null;
     }
     var id = windowId(w);
     if (!id) return null;
@@ -782,23 +762,30 @@ function readWorkArea() {
   if (!area) { try { area = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop); } catch (e) {} }
   return { ok: !!area, area: rd(area) };
 }
-function windowAtPoint(px, py) {
+function windowAtPoint(px, py, ownPid) {
+  function isOwnPassiveSurface(cand) {
+    // Keysharp's input-empty layer overlays deliberately use the on-screen-display scope.  Match
+    // both role and owner so another process's potentially interactive special window is preserved.
+    return ownPid > 0
+        && Math.round(safeRead(cand, "pid", 0) || 0) === ownPid
+        && safeBool(safeRead(cand, "onScreenDisplay", false));
+  }
+
   function usableAtPoint(cand) {
     if (!cand) return null;
     if (safeBool(cand.deleted) || safeBool(cand.hidden) || safeBool(cand.minimized)) return null;
+    if (isOwnPassiveSurface(cand)) return null;
     var g = safeRead(cand, "frameGeometry", safeRead(cand, "geometry", null));
     if (!g || g.width <= 0 || g.height <= 0) return null;
     if (px < g.x || py < g.y || px >= g.x + g.width || py >= g.y + g.height) return null;
-    // windowInfo performs the important input-target filtering.  In particular it skips
-    // click-through layer surfaces but preserves popup windows.
-    return windowInfo(cand) ? cand : null;
+    return cand;
   }
 
   try {
     if (typeof workspace.windowAt === "function") {
-      // A negative count asks KWin for every matching window, topmost first.  Asking for one and
-      // filtering afterward loses the real target whenever a click-through layer surface is on
-      // top (most visibly when the desktop, rather than an ordinary app window, is underneath).
+      // A negative count asks KWin for every input hit, topmost first.  Current KWin applies each
+      // Wayland surface's input region in this query.  Walking the full result also lets us skip a
+      // compositor OSD defensively and continue to the real receiver underneath.
       var hits = workspace.windowAt(Qt.point(px, py), -1);
       if (hits && typeof hits.length !== "undefined") {
         for (var i = 0; i < hits.length; ++i) {
@@ -856,12 +843,15 @@ var keysharpOps = {
   },
   getWindow: function(args) {
     var w = findWindow(argString(args, "id"));
-    return { ok: true, window: windowInfo(w) };
+    // A handle obtained from WinFromPoint may identify a desktop, panel or menu.  Direct handle
+    // lookup must round-trip those even though normal window enumeration omits special windows.
+    return { ok: true, window: windowInfo(w, true) };
   },
   windowAt: function(args) {
     var px = Math.round(argNumber(args, "x", 0));
     var py = Math.round(argNumber(args, "y", 0));
-    return { ok: true, window: windowInfo(windowAtPoint(px, py)) };
+    var ownPid = Math.round(argNumber(args, "ownPid", 0));
+    return { ok: true, window: windowInfo(windowAtPoint(px, py, ownPid), true) };
   },
   workArea: function(args) {
     return readWorkArea();

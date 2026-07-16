@@ -7,7 +7,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	/// </summary>
 	internal sealed class WaylandImageOverlay : IDisposable
 	{
-		private const string LayerNamespace = "keysharp-image-overlay";
+		// This string is both the layer-shell namespace and, on KWin, the surface's semantic scope.
+		// KWin maps unknown scopes to a normal application window.  Using a private value here therefore
+		// made our input-empty overlay look like an ordinary Keysharp window to windowAt/WinFromPoint,
+		// causing own-PID guards to mistake it for an interactive popup.  "on-screen-display" is the
+		// compositor-defined type which matches this passive, non-activating overlay surface.
+		private const string LayerNamespace = "on-screen-display";
 		private const int ConfigureTimeoutMs = 1000;
 
 		private readonly WaylandLayerShellClient client;

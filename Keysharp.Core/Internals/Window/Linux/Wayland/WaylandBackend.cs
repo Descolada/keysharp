@@ -224,7 +224,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			public bool TryGetWindowAt(int x, int y, out WaylandWindowInfo window)
 			{
 				window = null;
-				var json = RunJsonOperation("windowAt", new { x, y }, "window_at");
+				// Identify our passive layer-shell OSDs without excluding another process's potentially
+				// interactive special window.  The KWin script uses this only for at-point hit testing.
+				var json = RunJsonOperation("windowAt", new { x, y, ownPid = Environment.ProcessId }, "window_at");
 				return TryParseSingleWindow(json, out window);
 			}
 

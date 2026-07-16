@@ -685,14 +685,28 @@ function windowInfo(w, includeSpecial) {
   try {
     if (safeBool(w.deleted)) return null;
     if (!includeSpecial) {
+      // zwlr_layer_shell_v1 exposes its namespace as the window's application identity in KWin.
+      // Our passive image surfaces use this fixed namespace and have an empty wl_surface input
+      // region, so they must never be returned as the window which would receive a pointer event.
+      var resourceClass = safeString(safeRead(w, "resourceClass", ""));
+      var resourceName = safeString(safeRead(w, "resourceName", ""));
+      var desktopFileName = safeString(safeRead(w, "desktopFileName", ""));
+      if (resourceClass === "keysharp-image-overlay" || resourceName === "keysharp-image-overlay"
+          || desktopFileName === "keysharp-image-overlay") return null;
+
       // KWin includes layer-shell surfaces in workspace.windowAt().  An Overlay uses an empty
       // wl_surface input region, but windowAt() is a geometric/stacking query and can still put
       // that surface first.  Reject non-client special/unmanaged surfaces while retaining real
-      // popup windows: an own-process menu covering a click-through overlay must remain visible
-      // to WinFromPoint so callers can yield the click to it.
-      var popup = safeBool(safeRead(w, "popupWindow", false));
-      if (!popup && typeof w.managed !== "undefined" && !safeBool(w.managed)) return null;
-      if (!popup && safeBool(w.specialWindow)) return null;
+      // menu windows: an own-process menu covering a click-through overlay must remain visible
+      // to WinFromPoint so callers can yield the click to it.  Do not use popupWindow here: KWin's
+      // definition is deliberately broad (tooltips and similar UI concepts), and layer-shell
+      // surfaces can be classified as popups too.  That admitted our input-empty HUD itself.
+      var inputPopup = safeBool(safeRead(w, "menu", false))
+                    || safeBool(safeRead(w, "dropdownMenu", false))
+                    || safeBool(safeRead(w, "popupMenu", false))
+                    || safeBool(safeRead(w, "comboBox", false));
+      if (!inputPopup && typeof w.managed !== "undefined" && !safeBool(w.managed)) return null;
+      if (!inputPopup && safeBool(w.specialWindow)) return null;
     }
     var id = windowId(w);
     if (!id) return null;

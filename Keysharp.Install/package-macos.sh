@@ -392,6 +392,15 @@ if [ -n "${CONSOLE_USER}" ] && [ "${CONSOLE_USER}" != "root" ]; then
   CONSOLE_UID="$(id -u "${CONSOLE_USER}" 2>/dev/null || echo 0)"
   CONSOLE_HOME="$(dscl . -read "/Users/${CONSOLE_USER}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
 
+  # Launch Services registrations describe which applications can open a document, but registering
+  # Keysharp and Keyview together does not reliably select the Owner over the Alternate after an upgrade.
+  # Record an explicit per-user default after registration so reinstall order cannot make Keyview the
+  # default for Keysharp scripts. Keep Keyview registered above so it remains available in Open With.
+  launchctl asuser "${CONSOLE_UID}" sudo -u "${CONSOLE_USER}" \
+    defaults write com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers -array-add \
+    '{ LSHandlerContentType = "org.keysharp.script"; LSHandlerRoleAll = "org.keysharp.keysharp"; }' \
+    >/dev/null 2>&1 || echo "Warning: could not set Keysharp as the default script handler for ${CONSOLE_USER}." >&2
+
   # Remove TCC permission entries created under an incorrectly-cased bundle id (org.keysharp.Keysharp /
   # org.keysharp.Keyview) by earlier or ad-hoc-signed builds. The canonical ids are all-lowercase; the
   # mis-cased duplicates otherwise split the app's permissions across two identities (e.g. Input Monitoring

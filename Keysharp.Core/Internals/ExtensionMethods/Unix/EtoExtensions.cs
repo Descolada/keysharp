@@ -251,6 +251,7 @@ namespace Eto.Forms
                     // On the Wayland backend GTK pushes the input region to the wl_surface only on the next
                     // frame (on X11 it applies immediately), so force a redraw to make it take effect.
                     gtkWin.QueueDraw();
+                    KeepClickThrough(gtkWin, enable);
                 }
 #endif
             }
@@ -258,6 +259,44 @@ namespace Eto.Forms
             {
             }
         }
+
+#if LINUX
+        // GTK recomputes a CSD window's input shape (the visible window plus its invisible shadow/resize margins)
+        // inside gtk_window_size_allocate, which overwrites the empty region set above — and since GDK pushes the
+        // region to the wl_surface only on the next frame, GTK's region is the one that actually reaches the
+        // compositor and click-through is silently lost. "size-allocate" is G_SIGNAL_RUN_FIRST, so GTK's class
+        // handler runs before this one, which makes reapplying here the last write of the frame — the one that
+        // gets committed. Only CSD windows are affected, but the reapply is idempotent and cheap, so it is not
+        // gated on the backend. `on` tracks the live -ClickThrough state so a disabled window is not silently
+        // made click-through again by the next allocation.
+        private static void KeepClickThrough(Gtk.Window gtkWin, bool enable)
+        {
+            if (clickThroughState.TryGetValue(gtkWin.Handle, out var on))
+            {
+                on.Value = enable;
+                return;
+            }
+
+            if (!enable)
+                return;
+
+            clickThroughState[gtkWin.Handle] = on = new StrongBox<bool>(true);
+            gtkWin.SizeAllocated += (o, a) =>
+            {
+                if (!on.Value || gtkWin.Window is not Gdk.Window w)
+                    return;
+
+                var region = cairo_region_create();
+                gdk_window_input_shape_combine_region(w.Handle, region, 0, 0);
+                cairo_region_destroy(region);
+            };
+            gtkWin.Destroyed += (o, e) => _ = clickThroughState.Remove(gtkWin.Handle);
+        }
+
+        // Click-through state per hooked window, so the size-allocate handler is attached only once (SetFormClickThrough
+        // is called repeatedly: construction, Shown, and the post-map retry) and always sees the current setting.
+        private static readonly Dictionary<IntPtr, StrongBox<bool>> clickThroughState = [];
+#endif
 
         // Makes an image-overlay window override-redirect so it sits in the topmost X stacking layer, above EVERY
         // managed window — including _NET_WM_STATE_ABOVE / +AlwaysOnTop ones — so e.g. a highlight drawn over an

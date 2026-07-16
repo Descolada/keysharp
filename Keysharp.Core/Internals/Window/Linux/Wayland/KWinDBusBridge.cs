@@ -890,6 +890,14 @@ var keysharpOps = {
     w.keepAbove = argBool(args, "onTop", false);
     return { ok: true };
   },
+  setSkipTaskbar: function(args) {
+    var w = findWindow(argString(args, "id"));
+    if (!w) return { ok: false };
+    var skip = argBool(args, "skip", false);
+    // Pager and switcher travel with the taskbar: a tool window has no business in any of the three.
+    try { w.skipTaskbar = skip; w.skipPager = skip; w.skipSwitcher = skip; } catch (e) {}
+    return { ok: true };
+  },
   raise: function(args) {
     var w = findWindow(argString(args, "id"));
     if (!w) return { ok: false };

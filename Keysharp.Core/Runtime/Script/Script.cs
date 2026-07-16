@@ -434,6 +434,15 @@ namespace Keysharp.Runtime
 			// no longer force GDK_BACKEND=x11 (XWayland) — window management, input synthesis and screen
 			// capture all go through the compositor backends (KWin/GNOME/Cinnamon) on Wayland rather than
 			// X11. A user can still pin a backend explicitly via the GDK_BACKEND environment variable.
+
+			// Establish the compositor channel now, off the startup thread, so the first window doesn't pay for
+			// it. A Wayland client cannot place its own toplevel, so every Show is mapped wherever the
+			// compositor chooses and only then moved to the requested spot via that channel (see
+			// WaylandSelfPositioner) — which means its setup cost is visible as the window sitting in the wrong
+			// place. Cold, that measured ~1.2s on KWin; warm, ~80ms. Fire-and-forget: this only pre-pays a cost
+			// the first window/cursor/geometry query would otherwise pay inline, so failure needs no handling —
+			// the query paths all re-probe (with backoff) on their own.
+			Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.Prewarm();
 #endif
 		}
 

@@ -49,6 +49,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			internal bool BorderRemoved;              // ...and we have done so
 			internal bool KeepAbove;                  // assert keep-above (Eto +AlwaysOnTop is a no-op on Wayland)
 			internal bool KeptAbove;                  // ...and we have done so
+			internal bool SkipTaskbar;                // hide from taskbar/pager/switcher (GTK's hint is X11-only)
+			internal bool TaskbarSkipped;             // ...and we have done so
 			internal FormWindowState? PendingWindowState; // maximize/minimize/restore to reassert via the backend
 		}
 
@@ -66,6 +68,27 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static bool IsSupported => Platform.Desktop.IsWaylandSession && WaylandBackend.Current != null;
 
 		/// <summary>
+		/// Establishes the compositor backend and its command channel on a background thread, so the first
+		/// <see cref="Position"/> doesn't pay that setup while the window is already on screen at the wrong
+		/// position. Fire-and-forget and idempotent: the backend caches its probe and the channel is resident,
+		/// so a later query reuses whatever this warmed; if it fails, the normal (re-probing) paths are
+		/// unaffected. No-op off Wayland.
+		/// </summary>
+		internal static void Prewarm()
+		{
+			if (!Platform.Desktop.IsWaylandSession)
+				return;
+
+			_ = Task.Run(() =>
+			{
+				// Probe() resolves the backend; the window list is the cheapest op that builds the command
+				// channel, and is exactly what Correlate issues first.
+				try { _ = WaylandBackend.Current?.TryListWindows(true, out _); }
+				catch { }
+			});
+		}
+
+		/// <summary>
 		/// Request that our own window (identified by <paramref name="form"/>) be
 		/// moved so its top-left sits at screen (<paramref name="x"/>, <paramref name="y"/>). Either
 		/// coordinate may be <see cref="WindowInfoBase.Unchanged"/> to leave it untouched.
@@ -73,15 +96,15 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// first time. Returns immediately; the move runs asynchronously. No-op off Wayland or when
 		/// there is no capable backend.
 		/// </summary>
-		internal static void Position(Eto.Forms.Form form, string title, int x, int y, int matchW, int matchH, bool removeBorder = false, bool keepAbove = false)
+		internal static void Position(Eto.Forms.Form form, string title, int x, int y, int matchW, int matchH, bool removeBorder = false, bool keepAbove = false, bool skipTaskbar = false)
 		{
 			var formHandle = form?.Handle ?? 0;
 
 			if (formHandle == 0 || !IsSupported)
 				return;
 
-			// Nothing to do if there's no position to apply, no border to strip and no keep-above to assert.
-			if (x == WindowInfoBase.Unchanged && y == WindowInfoBase.Unchanged && !removeBorder && !keepAbove)
+			// Nothing to do without a position to apply, a border to strip, a keep-above or a taskbar entry to hide.
+			if (x == WindowInfoBase.Unchanged && y == WindowInfoBase.Unchanged && !removeBorder && !keepAbove && !skipTaskbar)
 				return;
 
 			var startWorker = false;
@@ -98,6 +121,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (matchH > 0) state.MatchH = matchH;
 				if (removeBorder) state.RemoveBorder = true;
 				if (keepAbove) state.KeepAbove = true;
+				if (skipTaskbar) state.SkipTaskbar = true;
 
 				if (!state.Busy)
 					startWorker = state.Busy = true;
@@ -246,6 +270,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
+		/// <summary>Whether any requested compositor-side trait is still unapplied. Caller must hold <see cref="sync"/>.</summary>
+		private static bool PendingTraits(FormState state)
+			=> (state.RemoveBorder && !state.BorderRemoved)
+			   || (state.KeepAbove && !state.KeptAbove)
+			   || (state.SkipTaskbar && !state.TaskbarSkipped);
+
 		private static FormState GetOrCreateState(nint formHandle, Eto.Forms.Form form)
 		{
 			if (!states.TryGetValue(formHandle, out var state))
@@ -266,8 +296,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					lock (sync) state.Busy = false;
 					return;
 				}
-
-				var borderDone = false;
 
 				while (true)
 				{
@@ -293,40 +321,49 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 						_ = backend.TryMoveResizeWindow(state.CompositorHandle, rect, true, false);
 					}
 
-					// Strip the titlebar AFTER the first move: a freshly mapped window may not be fully
-					// decorated by the compositor at correlation time, so removing the border before it is
-					// drawn doesn't stick. Doing it once the move round-trip has settled the window does.
-					if (!borderDone)
+					// Assert the traits GTK cannot express on Wayland, AFTER the first move: a freshly mapped window
+					// may not be fully decorated by the compositor at correlation time, so removing the border
+					// before it is drawn doesn't stick, while doing it once the move round-trip has settled does.
+					// Each trait is guarded by its own "requested but not yet applied" pair rather than a
+					// once-per-worker flag: a worker started by an earlier flagless SetWindowState/Move would
+					// otherwise latch that flag and silently drop traits set by the Show that follows it.
+					bool removeBorder, keepAbove, skipTaskbar;
+					lock (sync)
 					{
-						borderDone = true;
-						bool removeBorder, keepAbove;
-						lock (sync)
-						{
-							removeBorder = state.RemoveBorder && !state.BorderRemoved;
-							keepAbove = state.KeepAbove && !state.KeptAbove;
-						}
+						removeBorder = state.RemoveBorder && !state.BorderRemoved;
+						keepAbove = state.KeepAbove && !state.KeptAbove;
+						skipTaskbar = state.SkipTaskbar && !state.TaskbarSkipped;
+					}
 
-						if (removeBorder)
-						{
-							_ = backend.TrySetNoBorder(state.CompositorHandle, true);
-							lock (sync) state.BorderRemoved = true;
-						}
+					if (removeBorder)
+					{
+						_ = backend.TrySetNoBorder(state.CompositorHandle, true);
+						lock (sync) state.BorderRemoved = true;   // best-effort: applied once either way, so a
+					}                                             // failure can't spin this loop
 
-						// Eto's +AlwaysOnTop (gtk keep-above) is a no-op on Wayland — a client can't keep
-						// itself above — so assert it through the compositor.
-						if (keepAbove)
-						{
-							_ = backend.TrySetAlwaysOnTop(state.CompositorHandle, true);
-							lock (sync) state.KeptAbove = true;
-						}
+					// GTK's skip-taskbar hint only exists on X11, so a +ToolWindow overlay is listed in the
+					// taskbar/pager/switcher like a normal window here until the compositor is told otherwise.
+					if (skipTaskbar)
+					{
+						_ = backend.TrySetSkipTaskbar(state.CompositorHandle, true);
+						lock (sync) state.TaskbarSkipped = true;
+					}
+
+					// Eto's +AlwaysOnTop (gtk keep-above) is a no-op on Wayland — a client can't keep
+					// itself above — so assert it through the compositor.
+					if (keepAbove)
+					{
+						_ = backend.TrySetAlwaysOnTop(state.CompositorHandle, true);
+						lock (sync) state.KeptAbove = true;
 					}
 
 					lock (sync)
 					{
-						// Done only when no newer target or window-state request arrived while we were working;
-						// otherwise the lock guarantees a fresh Position()/SetWindowState() either sees Busy and
-						// lets us loop, or (once we clear Busy here) starts its own worker. No update is lost.
-						if (tx == state.TargetX && ty == state.TargetY && !state.PendingWindowState.HasValue)
+						// Done only when no newer target, window-state request or trait arrived while we were
+						// working; otherwise the lock guarantees a fresh Position()/SetWindowState() either sees
+						// Busy and lets us loop, or (once we clear Busy here) starts its own worker. No update is lost.
+						if (tx == state.TargetX && ty == state.TargetY && !state.PendingWindowState.HasValue
+								&& !PendingTraits(state))
 						{
 							state.Busy = false;
 							return;

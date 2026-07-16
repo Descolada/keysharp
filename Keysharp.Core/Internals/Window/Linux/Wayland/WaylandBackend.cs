@@ -294,6 +294,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				return RunCommandOperation("setNoBorder", new { id, noBorder }, "no_border");
 			}
 
+			public bool TrySetSkipTaskbar(nint handle, bool skip)
+			{
+				if (!TryGetCompositorId(handle, out var id))
+					return false;
+
+				return RunCommandOperation("setSkipTaskbar", new { id, skip }, "skip_taskbar");
+			}
+
 			public bool TrySetWindowState(nint handle, FormWindowState state)
 			{
 				if (!TryGetCompositorId(handle, out var id))

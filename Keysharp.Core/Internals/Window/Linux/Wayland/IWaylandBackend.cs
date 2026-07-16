@@ -166,6 +166,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>Keep the window above (true) / clear keep-above (false). False = unsupported.</summary>
 		bool TrySetAlwaysOnTop(nint handle, bool onTop) => false;
 
+		/// <summary>Hide one of our own windows from the taskbar/pager/switcher (true), or show it there (false).
+		/// GTK's skip-taskbar hint is X11-only, so on Wayland a tool window is otherwise listed like any other.
+		/// False = unsupported.</summary>
+		bool TrySetSkipTaskbar(nint handle, bool skip) => false;
+
 		/// <summary>Move the window in the compositor stacking order. False = unsupported.</summary>
 		bool TrySetZOrder(nint handle, ZOrder z) => false;
 

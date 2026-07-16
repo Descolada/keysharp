@@ -138,19 +138,7 @@ namespace Keysharp.Builtins
 				// beneath it. On Windows this adds WS_EX_LAYERED|WS_EX_TRANSPARENT; on Linux it sets an
 				// empty GTK input-shape region; on macOS it sets NSWindow.IgnoresMouseEvents. Pair with a
 				// transparent background (e.g. WinSetTransColor) for a hollow, click-through overlay.
-				"ClickThrough", (f, o) => {
-					if (o is bool b)
-					{
-						f.form.SetClickThrough(b);
-#if !WINDOWS
-						// A click-through overlay must stay non-CSD on Wayland, otherwise GTK manages (and
-						// clobbers) its input region. Mark it so the empty-titlebar CSD trick is skipped; its
-						// titlebar is instead removed via the compositor (noBorder). Processed before -Caption
-						// in our overlay option strings, so the flag is set before the CSD trick would run.
-						if (b) f.form.Properties["NoWaylandCsd"] = true;
-#endif
-					}
-				}
+				"ClickThrough", (f, o) => { if (o is bool b) f.form.SetClickThrough(b); }
 			},
 			{
 				"Disabled", (f, o) => { if (o is bool b) f.form.Enabled = !b; }
@@ -2953,23 +2941,27 @@ namespace Keysharp.Builtins
 			// Wayland: a client cannot set its own top-level position (form.SetLocation above is a no-op
 			// there), so once the window is mapped, ask the compositor backend to place it. We only position
 			// when an X/Y/Center was explicitly requested (a plain Show is left to the compositor's own
-			// placement), and we also strip the titlebar of a borderless click-through overlay here (it is
-			// kept non-CSD so click-through holds, so its titlebar must come off via the compositor's
-			// noBorder). No-op on X11 and on compositors that can't move/decorate windows.
+			// placement), and we reassert here every other window trait GTK cannot express on Wayland. No-op on
+			// X11 and on compositors that can't move/decorate windows.
 			// IsSupported (a cheap Wayland-session check) is tested first so we don't evaluate form.Handle on
 			// X11 — there it triggers a native gdk_x11_window_get_xid call.
 			if (!hide && Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.IsSupported)
 			{
 				var hasPos = requestedLocation.X != int.MinValue || requestedLocation.Y != int.MinValue;
-				var removeBorder = !caption && form.clickThrough;
+				// A -Caption window normally loses its titlebar via GTK (the empty-titlebar CSD trick in Eto's
+				// GtkWindow), which only works before the window is realized. A window made borderless after that
+				// is still server-decorated, so ask the compositor to undecorate it.
+				var removeBorder = !caption;
 				// Eto's +AlwaysOnTop maps to gtk keep-above, which is a no-op on Wayland, so reassert it via
 				// the compositor backend.
 				var keepAbove = form.TopMost;
+				// Likewise gtk_window_set_skip_taskbar_hint: X11-only, so +ToolWindow needs the compositor.
+				var skipTaskbar = !form.ShowInTaskbar;
 
-				if (hasPos || removeBorder || keepAbove)
+				if (hasPos || removeBorder || keepAbove || skipTaskbar)
 					Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.Position(form, form.Title,
 						hasPos ? location.X : int.MinValue, hasPos ? location.Y : int.MinValue,
-						size.Width, size.Height, removeBorder, keepAbove);
+						size.Width, size.Height, removeBorder, keepAbove, skipTaskbar);
 			}
 #endif
 #if WINDOWS

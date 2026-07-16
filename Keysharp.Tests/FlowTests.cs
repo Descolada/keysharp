@@ -53,6 +53,63 @@ namespace Keysharp.Tests
 				Sleep(1)
 				goto SomeLabel
 			", "7", true, false, 0)));
+			Assert.IsTrue(HasPassed(RunScript(@"
+				#import KS { A_ThreadId }
+				autoId := A_ThreadId
+				SetTimer((*) => (Exit(6, autoId), FileAppend(Exit(7, autoId) == autoId ? 'pass' : 'fail', '*')), -1)
+				Loop
+					Sleep(1)
+			", "8", true, false, 7)));
+			Assert.IsTrue(HasPassed(RunScript(@"
+				#import KS { A_ThreadId }
+				if (A_ThreadId & 0xFFFF) != 0
+					ExitApp(1)
+				autoId := A_ThreadId
+				SetTimer((*) => FileAppend(Exit(7, 0) == autoId ? 'pass' : 'fail', '*'), -1)
+				Loop
+					Sleep(1)
+			", "9", true, false, 7)));
+			Assert.IsTrue(HasPassed(RunScript(@"
+				#import KS { A_ThreadId }
+				try
+					Exit(9, A_ThreadId + (1 << 32))
+				catch ValueError
+					FileAppend('pass', '*')
+			", "10", true, false)));
+			Assert.IsTrue(HasPassed(RunScript(@"
+				#import KS { A_ThreadId }
+				FileAppend('pass', '*')
+				Exit(4, A_ThreadId)
+				FileAppend('fail', '*')
+			", "11", true, false, 4)));
+			Assert.IsTrue(HasPassed(RunScript(@"
+				FileAppend('pass', '*')
+				Exit(5, 0)
+				FileAppend('fail', '*')
+			", "12", true, false, 5)));
+			Assert.IsTrue(HasPassed(RunScript(@"
+				#import KS { A_ThreadId }
+				staleId := 0
+				SetTimer(CaptureId, -1)
+				while !staleId
+					Sleep(1)
+				SetTimer(CheckStaleId, -1)
+				Loop
+					Sleep(1)
+
+				CaptureId() {
+					global staleId := A_ThreadId
+				}
+
+				CheckStaleId() {
+					global staleId
+					try
+						Exit(9, staleId)
+					catch ValueError
+						FileAppend('pass', '*')
+					Exit(0, 0)
+				}
+			", "13", true, false, 0)));
         }
 
         // Regression for the double-teardown bug (ExitApp/Reload inside an OnExit handler). A nested ExitAppInternal

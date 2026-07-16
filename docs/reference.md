@@ -394,6 +394,18 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * In addition to the AHK module, a KS module has been added which contains extra variabes and methods added to Keysharp. Accessing them requires using the `import` statement.
 	+ These include all new classes, functions and variables mentioned here (eg `HashMap`, `Sinh` etc)
 	+ Note: class method/property additions are always included and do not need to be imported (eg `String` or `Buffer` extra methods)
+* `A_ThreadId` identifies the current Keysharp pseudo-thread and is available from the KS module:
+	```
+	#import KS { A_ThreadId }
+	```
+	+ The 64-bit value is laid out as a 48-bit script-wide creation sequence and a 16-bit zero-based pseudo-thread stack index. `A_ThreadId & 0xFFFF` retrieves the stack index; auto-execute is index 0 on its real thread.
+	+ IDs are nearly unique for the lifetime of a script, but are only valid while their pseudo-thread is active. An exact ID can only be targeted from its owning real thread.
+* `Exit(ExitCode?, ThreadId?)` extends `Exit()` with targeted pseudo-thread termination.
+	+ If `ThreadId` is omitted, the current pseudo-thread exits immediately, as before.
+	+ `ThreadId` may be an exact `A_ThreadId` value or a zero-based index in the current real thread's active pseudo-thread stack. Index 0 selects the oldest active pseudo-thread.
+	+ Targeting an underlying pseudo-thread marks it to exit when it next resumes and reaches a cooperative event/message check (`TryDoEvents`). It does not asynchronously abort managed code.
+	+ A later request made before the target exits replaces its pending exit code.
+	+ The function returns the targeted pseudo-thread's exact ID. An explicit `ThreadId` which does not match an active pseudo-thread on the current real thread throws `ValueError`. Targeting the current pseudo-thread exits immediately and therefore does not return.
 * A new class named `StringBuffer` which can be used for passing string memory to `DllCall()` which will be written to inside of the call.
 	+ There are two methods for creating a `StringBuffer`:
 		+ `StringBuffer(str := "") => StringBuffer`: Creates a `StringBuffer` with a string of `str` and a capacity of 256.

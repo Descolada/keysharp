@@ -99,12 +99,27 @@ namespace Keysharp.Builtins
 		/// The exit is achieved by throwing an exception which will be caught in the catch
 		/// clause that wraps all threads.
 		/// </summary>
-		/// <param name="exitCode">An integer that is returned to the caller.</param>
-		public static object Exit(object exitCode = null)
+		/// <param name="exitCode">The process exit code to apply when the targeted pseudo-thread exits. Defaults to zero.</param>
+		/// <param name="threadId">If omitted, exits the current pseudo-thread immediately. Otherwise, a pseudo-thread ID
+		/// returned by <c>KS.A_ThreadId</c>, or a zero-based index in the current real thread's pseudo-thread stack.
+		/// Index zero is the oldest active pseudo-thread. IDs belonging to another real thread cannot be targeted.</param>
+		/// <returns>The targeted pseudo-thread ID. Targeting the current
+		/// pseudo-thread exits immediately and therefore does not return. A later request made before termination replaces
+		/// the target's pending exit code.</returns>
+		/// <exception cref="ValueError">Thrown when an explicit <paramref name="threadId"/> does not match an active
+		/// pseudo-thread in the current real thread.</exception>
+		public static object Exit(object exitCode = null, object threadId = null)
 		{
-			A_ExitReason = exitCode.Al();
-			Environment.ExitCode = exitCode.Ai();
-			throw new UserRequestedExitException();
+			var code = exitCode.Ai();
+			var threads = Script.TheScript.Threads;
+			var hasExplicitTarget = !threadId.IsNullOrEmpty();
+			var target = hasExplicitTarget ? threadId.Al() : (long?)null;
+			var terminatedId = threads.RequestExit(target, code);
+
+			if (terminatedId == 0L && hasExplicitTarget)
+				return Errors.ValueErrorOccurred($"No active pseudo-thread matched ThreadId {target}.", threadId, 0L);
+
+			return terminatedId;
 		}
 
 		/// <summary>

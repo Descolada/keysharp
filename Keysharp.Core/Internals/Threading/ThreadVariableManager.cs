@@ -11,11 +11,16 @@ namespace Keysharp.Internals.Threading
 		/// So we create a SlimStack to be used as an object pool which we push and pop each time a thread starts and finishes.
 		/// </summary>
 		internal SlimStack<ThreadVariables> threadVars;
+		internal int PseudoThreadCount => Math.Max(0, threadVars.Index - 1);
 
 		internal ThreadVariableManager(int size)
 		{
 			threadVars = new (size, () => new ThreadVariables());
 		}
+
+		internal ThreadVariables TryGetPseudoThread(int index)
+			// #MaxThreads is capped at 255, so every valid index fits in the encoded 16-bit field.
+			=> (uint)index <= ushort.MaxValue ? threadVars.TryGet(index + 1) : null;
 
 		internal void PopThreadVariables(ThreadVariables threadVarsToPop, bool checkThread = true)
 		{
@@ -56,6 +61,22 @@ namespace Keysharp.Internals.Threading
 			{
 				tv.Init();
 				tv.threadId = Thread.CurrentThread.ManagedThreadId;
+
+				// The first entry is a permanent context holder, not a script pseudo-thread.
+				// Exclude it from both the creation sequence and the encoded stack position.
+				var pseudoThreadIndex = threadVars.Index - 2;
+
+				if (pseudoThreadIndex >= 0)
+				{
+					ulong sequence;
+
+					do
+						sequence = unchecked((ulong)Interlocked.Increment(ref script.pseudoThreadSequence)) & 0x0000FFFFFFFFFFFFUL;
+					while (sequence == 0u); // Keep every valid ID nonzero, including after sequence wraparound.
+
+					tv.pseudoThreadId = unchecked((long)((sequence << 16)
+						| (ushort)pseudoThreadIndex));
+				}
 				tv.priority = priority;
 
 				if (!skipUninterruptible)

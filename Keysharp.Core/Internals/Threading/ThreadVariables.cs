@@ -104,6 +104,8 @@ namespace Keysharp.Internals.Threading
 		internal long priority;
 		internal int lastPeekTick;
 		internal int threadId;
+		internal long pseudoThreadId;
+		internal int? requestedExitCode;
 		internal int lastError = 0;
 
 		// These describe the configuration defaults of the pseudo-thread,
@@ -162,6 +164,8 @@ namespace Keysharp.Internals.Threading
 			priority = 0L;
 			lastPeekTick = 0;
 			threadId = 0;
+			pseudoThreadId = 0L;
+			requestedExitCode = null;
 			lastError = 0;
 		}
 
@@ -186,6 +190,8 @@ namespace Keysharp.Internals.Threading
 			priority = (long)A_Priority;
 			lastPeekTick = Environment.TickCount;
 			threadId = 0;
+			pseudoThreadId = 0L;
+			requestedExitCode = null;
 			lastError = 0;
 			// Instead of cloning the instance, copy the data because
 			// allocating the memory for new instances is expensive

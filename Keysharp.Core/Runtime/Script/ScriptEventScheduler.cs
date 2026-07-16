@@ -147,6 +147,7 @@ namespace Keysharp.Runtime
 		private readonly bool isUiScheduler;
 		private readonly int ownerManagedThreadId;
 		private readonly Script script;
+		private readonly Action postedPump;
 
 		internal ScriptEventScheduler(Script owner, int ownerManagedThreadId, bool isUiScheduler)
 		{
@@ -154,7 +155,10 @@ namespace Keysharp.Runtime
 			this.ownerManagedThreadId = ownerManagedThreadId;
 			this.isUiScheduler = isUiScheduler;
 			if (isUiScheduler)
+			{
+				postedPump = PumpPosted;
 				owner.uiEventScheduler = this;
+			}
 		}
 
 		internal bool OwnsCurrentThread => Thread.CurrentThread.ManagedThreadId == ownerManagedThreadId;
@@ -349,7 +353,9 @@ internal bool HasBlockedQueuedWork
 			return result;
 		}
 
-		internal void PumpThreadQueuedEvents()
+		// Raw scheduler pump for infrastructure which has no interrupted script pseudo-thread to resume.
+		// Script safe points must use Keysharp.Internals.Flow.TryDoEvents so pending thread/app exits are observed.
+		internal void PumpThreadQueuedEventsCore()
 		{
 			if (!OwnsCurrentThread || IsDisposed)
 				return;
@@ -416,7 +422,7 @@ internal bool HasBlockedQueuedWork
 					continue;
 				}
 
-				PumpThreadQueuedEvents();
+				PumpThreadQueuedEventsCore();
 
 				if (script.Threads.ActivePseudoThreadCount > 0)
 					return;
@@ -468,10 +474,15 @@ internal bool HasBlockedQueuedWork
 			}
 
 			if (isUiScheduler)
-				Script.PostToUIThread(PumpThreadQueuedEvents); // wake the UI message loop from any thread
+				// This delegate can run from an idle native UI loop with no script exception boundary.
+				// Keep exit requests pending for the next genuine script safe point instead of throwing here.
+				Script.PostToUIThread(postedPump);
 			else
 				SignalWorkerPump();
 		}
+
+		private void PumpPosted()
+			=> Keysharp.Internals.Flow.TryDoEvents(this, propagateExit: false, yieldTick: false, pumpUi: false);
 
 		private LinkedList<ScriptQueueEntry> GetQueue(ScriptEventQueue queueType)
 			=> queueType == ScriptEventQueue.Interactive ? interactiveQueue : normalQueue;
@@ -851,18 +862,7 @@ internal bool HasBlockedQueuedWork
 		}
 
 		private void PumpDuringSynchronousWait(ScriptEventScheduler waitingScheduler)
-		{
-			if (script.IsOnMainThread)
-			{
-#if WINDOWS
-				Application.DoEvents();
-#else
-				Application.Instance?.RunIteration();
-#endif
-			}
-
-			waitingScheduler?.PumpThreadQueuedEvents();
-		}
+			=> Keysharp.Internals.Flow.TryDoEvents(waitingScheduler, propagateExit: true, yieldTick: false);
 
 		internal ScriptEventExecutionResult TryStartPseudoThread(long priority, bool skipUninterruptible, bool isCritical, bool allowEmergencyOverflow, out ThreadVariables threadVariables)
 		{

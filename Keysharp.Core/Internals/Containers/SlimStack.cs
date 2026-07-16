@@ -127,6 +127,19 @@ namespace Keysharp.Internals.Containers
 		}
 
 		/// <summary>
+		/// Gets an item by its zero-based index from the bottom of the stack.
+		/// </summary>
+		public T TryGet(int itemIndex)
+		{
+			var cnt = Volatile.Read(ref index);
+
+			if ((uint)itemIndex >= (uint)cnt)
+				return null;
+
+			return Volatile.Read(ref list[itemIndex]);
+		}
+
+		/// <summary>
 		/// Removes and returns the most recent element in the stack if it exists.
 		/// Any clearing/destruction of the object's internal state must be done by the caller after this function exits.
 		/// </summary>

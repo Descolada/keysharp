@@ -247,7 +247,7 @@ Status legend:
 | A_RegView | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets whether the registry is in 32 or 64 bit mode. |
 | A_ScreenDPI | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ScreenHeight | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
-| A_ScreenScale | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The screen's DPI scale factor normalized so 1.0 is 100% and 2.0 is a 200% display (unlike A_ScreenDPI, which reports the raw platform DPI: 96-based on Windows/Linux, 72-based on macOS). Multiply sizes/positions by this for DPI-aware layout. Keysharp KS module: `#import KS { A_ScreenScale }`. |
+| A_ScreenScale | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The screen's DPI scale factor normalized so 1.0 is 100% and 2.0 is a 200% display (unlike A_ScreenDPI, which reports the raw platform DPI: 96-based on Windows/Linux, 72-based on macOS). Multiply sizes/positions by this for DPI-aware layout. |
 | A_ScreenWidth | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ScriptDir | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The full path of the script being compiled and ran, without a trailing backslash. Evaluates to a constant string in the C# code output. |
 | A_ScriptFullPath | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The full path of the script being compiled and ran. Evaluates to a constant string in the C# code output. |
@@ -267,6 +267,7 @@ Status legend:
 | A_Temp | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ThisFunc | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The name of the function. If called outside of a function, empty string is returned. |
 | A_ThisHotkey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
+| A_ThreadId | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns a nearly unique 64-bit ID for the current pseudo-thread. The lower 16 bits are its zero-based stack index; auto-execute is index 0. Exact IDs are active-lifetime handles local to their owning real thread. |
 | A_TickCount | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The number of milliseconds since the system started. Note this is not limited to 49.7 days like AHK because it uses a long integer. |
 | A_TimeIdle | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_TimeIdleKeyboard | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
@@ -455,7 +456,7 @@ Status legend:
 | EnvGet() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns the value of the specified environment variable if it exists, else it returns an empty string. |
 | EnvSet() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Sets the specified environment variable to the specified value. Using a value of null deletes the variable. |
 | Error | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| Exit | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Exits the current thread/subroutine. |
+| Exit | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Exits the current pseudo-thread immediately when ThreadId is omitted. ThreadId may be an exact KS.A_ThreadId or a zero-based index in the current real thread's active pseudo-thread stack. An underlying target exits at its next cooperative event/message check. Later requests overwrite its pending exit code. Returns the exact targeted ID; an explicit target which does not match throws ValueError. |
 | ExitApp() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The ExitApp function terminates the script. |
 | Exp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes e raised to the nth power. |
 | Export | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | An Export declaration marks a function, class or variable for wildcard import, and optionally marks it as the default export. |
@@ -925,15 +926,18 @@ Status legend:
 | WinActive() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinActive function checks if the specified window is active and returns its unique ID (HWND). |
 | WinClose() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinClose function closes the specified window. |
 | WinEvent | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Keysharp-specific Ks class for cross-platform window-event subscriptions (modeled on Descolada's WinEvent library). Import with #import "Ks" { WinEvent }. Windows uses SetWinEventHook; Linux hooks GDK's X11 event loop on the UI thread (covers X11 and XWayland; native Wayland sources are not yet wired); macOS currently reports active-application changes only. |
-| WinEvent.Active() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Subscribes to active/foreground window changes; also fires when the active window's title changes (so late-matching criteria are caught). Callback receives (hook, hwnd, dwmsEventTime). || WinEvent.Count | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Remaining number of times the callback will fire (-1 = unlimited). || WinEvent.EventType | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The event kind this subscription listens for, e.g. "Active" or "Move". |
-| WinEvent.Exist() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to a matching window appearing — created, shown, or its title changed so it now matches. Fires once per matching window and respects DetectHiddenWindows (subsumes the reference library's Create). macOS requires AXObserver wiring (not yet implemented). |
+| WinEvent.Active() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Subscribes to active/foreground window changes; also fires when the active window's title changes (so late-matching criteria are caught). Callback receives (hook, hwnd, dwmsEventTime). |
+| WinEvent.Count | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Remaining number of times the callback will fire (-1 = unlimited). |
+| WinEvent.EventType | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The event kind this subscription listens for, e.g. "Active" or "Move". |
+| WinEvent.Exist() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to a matching window appearing (created, shown, or its title changed so it now matches); fires once per matching window and respects DetectHiddenWindows. Subsumes the reference library's Create. macOS requires AXObserver wiring (not yet implemented). |
 | WinEvent.IsActive | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Whether the subscription is still receiving events. |
 | WinEvent.IsPaused | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets whether a single hook (instance) or all hooks (static) are paused. |
 | WinEvent.Minimize() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to window minimize/iconify. |
 | WinEvent.Move() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to window move/resize. Every event is delivered as-is (not coalesced). |
-| WinEvent.NotExist() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to a matching window disappearing — destroyed, hidden/cloaked, or its title changed so it no longer matches (subsumes the reference library's Close). Tracks the set of matching top-level windows while they are alive (mirroring the reference library) so it fires reliably even though the window may be gone by the time the event arrives. |
+| WinEvent.NotExist() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to a matching window disappearing (destroyed, hidden/cloaked, or its title changed so it no longer matches). Subsumes the reference library's Close. Tracks the set of matching top-level windows while they are alive (mirroring the reference library) so it fires reliably even though the window may be gone by the time the event arrives. |
 | WinEvent.Pause() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Pauses (1), unpauses (0) or toggles (-1) a single hook (instance) or all hooks (static). A paused hook stays registered but does not fire. Returns the resulting paused state. |
-| WinEvent.Restore() | 🟢 Full | 🟠 Planned | 🟠 Planned | 🟠 Planned | Subscribes to window restore from minimized. Not yet emitted by the X11 backend. || WinEvent.Stop() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Cancels the subscription. Also runs on __Delete, but GC timing is unpredictable so call it (or let the owning thread tear down) explicitly. |
+| WinEvent.Restore() | 🟢 Full | 🟠 Planned | 🟠 Planned | 🟠 Planned | Subscribes to window restore from minimized. Not yet emitted by the X11 backend. |
+| WinEvent.Stop() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Cancels the subscription. Also runs on __Delete, but GC timing is unpredictable so call it (or let the owning thread tear down) explicitly. |
 | WinEvent.TitleChange() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to window title changes. |
 | WinExist() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinExist function checks if the specified window exists and returns the unique ID (HWND) of the first matching window. |
 | WinFromPoint() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns window handle located at screen coordinates. |

@@ -269,6 +269,7 @@ namespace Keysharp.Runtime
 		internal DateTime timeLastInputMouse;
 		internal DateTime timeLastInputPhysical = DateTime.UtcNow;
 		internal int totalExistingThreads;//Even though the thread stacks are on a per-real-thread basis, we keep a global count of threads. This may need to change in the future.
+		internal long pseudoThreadSequence;
 		internal int uninterruptibleTime = 17;
 		private static int instanceCount;
 		private AccessorData accessorData;

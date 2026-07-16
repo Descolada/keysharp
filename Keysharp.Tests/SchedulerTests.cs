@@ -6,6 +6,48 @@ namespace Keysharp.Tests
 	public class SchedulerTests : TestRunner
 	{
 		[Test, Category("Threading")]
+		public void PostedPumpSuppressesExitSignal()
+		{
+			var context = UseQueuedMainContext();
+			var scheduler = s.EventScheduler;
+			s.hasExited = true;
+
+			Assert.IsTrue(scheduler.EnqueueCallback(() => Assert.Fail("Exited script callback ran."), ScriptEventQueue.Normal, false));
+			Assert.DoesNotThrow(context.DrainAll);
+		}
+
+		[Test, Category("Threading")]
+		public void PostedPumpPreservesThreadExitSignal()
+		{
+			var context = UseQueuedMainContext();
+			var scheduler = s.EventScheduler;
+
+			Assert.Throws<Keysharp.Builtins.Flow.UserRequestedExitException>(() =>
+				scheduler.TryExecuteThreadLaunch(0, false, false, threadVariables =>
+				{
+					Assert.IsTrue(scheduler.EnqueueCallback(() => _ = Keysharp.Builtins.Flow.Exit(7), ScriptEventQueue.Normal, false));
+					Assert.DoesNotThrow(context.DrainAll);
+					Keysharp.Internals.Flow.TryDoEvents(scheduler, propagateExit: true, yieldTick: false, pumpUi: false);
+				}));
+
+			Assert.AreEqual(7, Environment.ExitCode);
+		}
+
+		[Test, Category("Threading")]
+		public void PseudoThreadSequenceWrapSkipsZero()
+		{
+			s.pseudoThreadSequence = 0x0000FFFFFFFFFFFE;
+			long first = 0L;
+			long second = 0L;
+
+			_ = s.EventScheduler.TryExecuteThreadLaunch(0, false, false, tv => first = tv.pseudoThreadId);
+			_ = s.EventScheduler.TryExecuteThreadLaunch(0, false, false, tv => second = tv.pseudoThreadId);
+
+			Assert.AreEqual(unchecked((long)0xFFFFFFFFFFFF0000UL), first);
+			Assert.AreEqual(0x0000000000010000L, second);
+		}
+
+		[Test, Category("Threading")]
 		public void InteractiveNested()
 		{
 			var context = UseQueuedMainContext();

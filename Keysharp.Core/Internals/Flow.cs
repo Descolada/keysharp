@@ -384,51 +384,56 @@ namespace Keysharp.Internals
 				ShowDialog(ex, keysharpDialog);
 		}
 
-		internal static void TryDoEvents(bool allowExit = true, bool yieldTick = true)
+		internal static void TryDoEvents(bool propagateExit = true, bool yieldTick = true)
+			=> TryDoEvents(null, propagateExit, yieldTick);
+
+		// A null scheduler resolves through Script.EventScheduler. Callers which are already executing inside
+		// a UI dispatch can suppress the nested native UI pump while retaining scheduler and exit handling.
+		internal static void TryDoEvents(ScriptEventScheduler scheduler, bool propagateExit = true, bool yieldTick = true, bool pumpUi = true)
 		{
 			var start = yieldTick ? Environment.TickCount : default;
 			var script = Script.TheScript;
+			ThreadVariables currentThread = null;
+			scheduler ??= script.EventScheduler;
 
 			try
 			{
-				PumpUiAndScheduler();
+				if (pumpUi && script.IsOnMainThread)
+				{
+#if WINDOWS
+					Application.DoEvents();
+#else
+					Application.Instance?.RunIteration();
+#endif
+				}
+
+				scheduler.PumpThreadQueuedEventsCore();
 			}
-			catch (Exception ex) when (!allowExit || !TryGetException<Keysharp.Builtins.Flow.UserRequestedExitException>(ex, out _))
+			catch (Exception ex) when (!propagateExit || !TryGetException<Keysharp.Builtins.Flow.UserRequestedExitException>(ex, out _))
 			{
 			}
 			finally
 			{
-				script.RecordMessageCheck();
+				currentThread = script.Threads.CurrentThread;
+				currentThread.lastPeekTick = Environment.TickCount;
+			}
+
+			if (propagateExit)
+			{
+				if (script.hasExited)
+					throw new Keysharp.Builtins.Flow.UserRequestedExitException();
+
+				script.Threads.ThrowIfExitRequested(currentThread);
 			}
 
 			if (yieldTick && start.Equals(Environment.TickCount))
 				System.Threading.Thread.Sleep(1);
-
-			if (script.hasExited)
-				throw new Keysharp.Builtins.Flow.UserRequestedExitException();
 		}
 
-		internal static void WaitWithMessagePump(Func<bool> keepWaiting, bool allowExit = true)
+		internal static void WaitWithMessagePump(Func<bool> keepWaiting, bool propagateExit = true)
 		{
 			while (keepWaiting())
-				TryDoEvents(allowExit);
-		}
-
-		private static void PumpUiAndScheduler()
-		{
-			var script = Script.TheScript;
-			var scheduler = script.EventScheduler;
-
-			if (script.IsOnMainThread)
-			{
-#if WINDOWS
-				Application.DoEvents();
-#else
-				Application.Instance?.RunIteration();
-#endif
-			}
-
-			scheduler.PumpThreadQueuedEvents();
+				TryDoEvents(propagateExit);
 		}
 	}
 }

@@ -21,9 +21,9 @@ namespace Keysharp.Tests
 		private void PumpSchedulers()
 		{
 			mainContext?.DrainAll();
-			s.EventScheduler.PumpThreadQueuedEvents();
+			Keysharp.Internals.Flow.TryDoEvents(s.EventScheduler, propagateExit: true, yieldTick: false, pumpUi: false);
 			mainContext?.DrainAll();
-			s.UIEventScheduler.PumpThreadQueuedEvents();
+			Keysharp.Internals.Flow.TryDoEvents(s.UIEventScheduler, propagateExit: true, yieldTick: false, pumpUi: false);
 			mainContext?.DrainAll();
 		}
 

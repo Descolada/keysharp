@@ -30,8 +30,13 @@ namespace Keysharp.Builtins
 #endif
 				var result = func();
 
-				if (Script.TheScript?.hasExited == true)
+				var script = Script.TheScript;
+
+				if (script?.hasExited == true)
 					throw new Flow.UserRequestedExitException();
+
+				if (script != null)
+					script.Threads.ThrowIfExitRequested(script.Threads.CurrentThread);
 
 				return result;
 #if OSX

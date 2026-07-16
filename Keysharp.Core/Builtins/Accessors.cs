@@ -1955,6 +1955,15 @@ namespace Keysharp.Builtins
 	public partial class Ks
 	{
 		/// <summary>
+		/// A nearly unique 64-bit identifier for the current pseudo-thread.<br/>
+		/// Bits 63-16 contain a script-wide creation sequence and bits 15-0 contain the zero-based index
+		/// in the owning real thread's pseudo-thread stack.<br/>
+		/// Import with <c>#import KS { A_ThreadId }</c>. An ID can only be passed to <see cref="Flow.Exit"/>
+		/// from its owning real thread.
+		/// </summary>
+		public static long A_ThreadId => Script.TheScript.Threads.CurrentThread.pseudoThreadId;
+
+		/// <summary>
 		/// The version of Keysharp.Builtins.dll
 		/// </summary>
 		public static string A_KsVersion

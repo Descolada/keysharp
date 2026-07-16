@@ -4808,7 +4808,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 			if (Thread.CurrentThread.ManagedThreadId == script.ManagedMainThreadID)
 			{
-				script.UIEventScheduler.PumpThreadQueuedEvents();
+				Keysharp.Internals.Flow.TryDoEvents(script.UIEventScheduler, propagateExit: true, yieldTick: false, pumpUi: false);
 				return;
 			}
 

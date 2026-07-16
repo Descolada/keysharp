@@ -1964,6 +1964,16 @@
                      "notes":  "The screen's DPI scale factor normalized so 1.0 is 100% and 2.0 is a 200% display (unlike A_ScreenDPI, which reports the raw platform DPI: 96-based on Windows/Linux, 72-based on macOS). Multiply sizes/positions by this for DPI-aware layout."
                  },
                  {
+                     "category":  "Keysharp Module (Ks)",
+                     "feature":  "A_ThreadId",
+                     "syntax":  "#import KS { A_ThreadId }",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Returns a nearly unique 64-bit ID for the current pseudo-thread. The lower 16 bits are its zero-based stack index; auto-execute is index 0. Exact IDs are active-lifetime handles local to their owning real thread."
+                 },
+                 {
                      "category":  "Environment/System",
                      "feature":  "A_Language",
                      "syntax":  "",
@@ -4787,12 +4797,12 @@
                  {
                      "category":  "Core Language",
                      "feature":  "Exit",
-                     "syntax":  "",
+                     "syntax":  "Exit(ExitCode?, ThreadId?)",
                      "windows":  "full",
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Exits the current thread/subroutine.",
+                     "notes":  "Exits the current pseudo-thread immediately when ThreadId is omitted. ThreadId may be an exact KS.A_ThreadId or a zero-based index in the current real thread's active pseudo-thread stack. An underlying target exits at its next cooperative event/message check. Later requests overwrite its pending exit code. Returns the exact targeted ID; an explicit target which does not match throws ValueError.",
                      "tested-by":  "ControlTests/control_send.ahk"
                  },
                  {

@@ -23,7 +23,7 @@ namespace Keysharp.Internals.Threading
 		private ThreadVariableManager ThreadVariableManagerForCurrentThread => tvm.Value;
 
 		internal ThreadVariables UnderlyingThread => ThreadVariableManagerForCurrentThread.threadVars.TryPeekSecond();
-		internal int ActivePseudoThreadCount => Math.Max(0, ThreadVariableManagerForCurrentThread.threadVars.Index - 1);
+		internal int ActivePseudoThreadCount => ThreadVariableManagerForCurrentThread.PseudoThreadCount;
 
 		public Threads()
 		{
@@ -130,6 +130,49 @@ namespace Keysharp.Internals.Threading
 		{
 			var script = Script.TheScript;
 			return Volatile.Read(ref script.totalExistingThreads) < script.MaxThreadsTotal;
+		}
+
+		internal long RequestExit(long? target, int exitCode)
+		{
+			var manager = ThreadVariableManagerForCurrentThread;
+			var currentThread = manager.threadVars.TryPeek();
+			ThreadVariables targetThread = currentThread;
+
+			if (target is long targetValue)
+			{
+				// A valid exact ID always has a nonzero creation sequence, so 0..65535 is unambiguously an index.
+				if ((ulong)targetValue <= ushort.MaxValue)
+					targetThread = manager.TryGetPseudoThread((int)targetValue);
+				else
+				{
+					var position = (ushort)unchecked((ulong)targetValue);
+					targetThread = manager.TryGetPseudoThread(position);
+
+					if (targetThread == null || targetThread.pseudoThreadId != targetValue)
+						return 0L;
+				}
+			}
+
+			if (targetThread == null)
+				return 0L;
+
+			// A later request wins until the target reaches an exit-enabled TryDoEvents safe point.
+			targetThread.requestedExitCode = exitCode;
+
+			if (ReferenceEquals(targetThread, currentThread))
+				ThrowIfExitRequested(currentThread);
+
+			return targetThread.pseudoThreadId;
+		}
+
+		internal void ThrowIfExitRequested(ThreadVariables tv)
+		{
+			if (tv.requestedExitCode is not int exitCode)
+				return;
+
+			Accessors.A_ExitReason = exitCode;
+			Environment.ExitCode = exitCode;
+			throw new Keysharp.Builtins.Flow.UserRequestedExitException();
 		}
 
 		internal bool IsInterruptible()

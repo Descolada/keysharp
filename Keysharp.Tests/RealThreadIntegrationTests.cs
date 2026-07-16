@@ -148,7 +148,7 @@ namespace Keysharp.Tests
 #else
 					Eto.Forms.Application.Instance?.RunIteration();
 #endif
-					script.EventScheduler.PumpThreadQueuedEvents();
+					Keysharp.Internals.Flow.TryDoEvents(script.EventScheduler, propagateExit: true, yieldTick: false, pumpUi: false);
 				}
 				catch
 				{
@@ -333,6 +333,77 @@ namespace Keysharp.Tests
 
 				Assert.AreEqual("ok", result);
 				Assert.IsTrue(uiRan.IsSet, "Main scheduler did not pump while waiting in Send.");
+			}
+			finally
+			{
+				ShutdownWorker(s, worker);
+			}
+		}
+
+		[Test, Category("Threading"), Category("UI")]
+		public void ForeignPseudoThreadIdIsRejected()
+		{
+			EnsureUiScheduler();
+			var ready = new ManualResetEventSlim(false);
+			long foreignThreadId = 0L;
+			Ks.RealThread worker = null;
+
+			try
+			{
+				worker = StartWorker(() =>
+				{
+					foreignThreadId = s.Threads.CurrentThread.pseudoThreadId;
+					_ = Env.OnClipboardChange(new FuncObj((Func<object, object>)(_ => 0L)));
+					ready.Set();
+				});
+
+				Assert.IsTrue(WaitWithUiPump(() => ready.IsSet), "Worker did not expose its pseudo-thread ID.");
+				_ = s.EventScheduler.TryExecuteThreadLaunch(0, false, false, threadVariables =>
+				{
+					var error = AssertScriptError(() => _ = Keysharp.Builtins.Flow.Exit(1, foreignThreadId));
+					Assert.That(error, Is.TypeOf<ValueError>());
+				});
+			}
+			finally
+			{
+				ShutdownWorker(s, worker);
+			}
+		}
+
+		[Test, Category("Threading"), Category("UI")]
+		public void SendObservesExitRequestedWhileWaiting()
+		{
+			EnsureUiScheduler();
+			var ready = new ManualResetEventSlim(false);
+			var exitRequested = new ManualResetEventSlim(false);
+			Ks.RealThread worker = null;
+
+			try
+			{
+				worker = StartWorker(() =>
+				{
+					_ = Env.OnClipboardChange(new FuncObj((Func<object, object>)(_ => 0L)));
+					ready.Set();
+				});
+
+				Assert.IsTrue(WaitWithUiPump(() => ready.IsSet), "Worker did not become ready.");
+				Assert.Throws<Keysharp.Builtins.Flow.UserRequestedExitException>(() =>
+					s.EventScheduler.TryExecuteThreadLaunch(0, false, false, tv =>
+					{
+						var targetId = tv.pseudoThreadId;
+						_ = worker.Send(new FuncObj((Func<object>)(() =>
+						{
+							s.UIEventScheduler.EnqueueCallback(() =>
+							{
+								try { _ = Keysharp.Builtins.Flow.Exit(8, targetId); }
+								finally { exitRequested.Set(); }
+							}, ScriptEventQueue.Normal, false);
+							Assert.IsTrue(exitRequested.Wait(1000), "Main scheduler did not process the exit request.");
+							return 0L;
+						})));
+					}));
+
+				Assert.AreEqual(8, Environment.ExitCode);
 			}
 			finally
 			{

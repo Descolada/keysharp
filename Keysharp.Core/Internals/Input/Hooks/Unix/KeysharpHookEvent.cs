@@ -110,6 +110,11 @@ namespace Keysharp.Internals.Input.Hooks
 		internal bool SuppressEvent { get; set; }
 		internal bool HasKeyboard { get; init; }
 		internal bool HasMouse => !HasKeyboard;
+		// Whether this event carries a real cursor position (X/Y). The macOS event tap always supplies one, but
+		// the Linux inputd daemon does not for button/wheel events (its evdev button reports have no coordinates,
+		// and it deliberately does not query the compositor from the hook thread). When false, A_EventInfo omits
+		// X/Y so a #HotIf predicate/callback resolves the location itself on the script thread (e.g. MouseGetPos).
+		internal bool HasPosition { get; init; } = true;
 	}
 
 	internal sealed class KeyboardHookEventArgs : HookEventArgs

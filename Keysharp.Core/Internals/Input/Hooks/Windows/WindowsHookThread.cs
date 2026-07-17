@@ -112,6 +112,9 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 		internal nint StructPtr { get; init; }
 		internal bool HasKeyboard { get; init; }
 		internal bool HasMouse => !HasKeyboard;
+		// Whether this event carries a real cursor position (X/Y). Windows mouse messages always do, so this
+		// stays true here; the Linux inputd path clears it for events whose coordinates the daemon can't supply.
+		internal bool HasPosition { get; init; } = true;
 	}
 
 	internal class KeyboardHookEventArgs : HookEventArgs

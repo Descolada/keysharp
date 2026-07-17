@@ -275,6 +275,14 @@ typedef struct ksi_mouse_hook_event {
     uint32_t reserved;
 } ksi_mouse_hook_event;
 
+/* Sentinel reported in x/y when a mouse hook event carries no cursor position. Button and wheel events have
+ * none: their evdev reports don't include coordinates, and the daemon does not query the compositor from the
+ * hook path (a relative mouse has no absolute position to give). Consumers must treat this as "position
+ * unknown" -- NOT a real point at INT32_MIN -- and resolve the cursor themselves if they need it. Move events
+ * still carry a position (absolute for an absolute pointer, relative deltas for a relative mouse). Value
+ * matches the C# KeyboardMouseSender.CoordUnspecified (== int.MinValue). */
+#define KSI_MOUSE_COORD_UNSPECIFIED INT32_MIN
+
 typedef struct ksi_keybdinput {
     uint16_t vk;
     uint16_t scan;

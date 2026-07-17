@@ -1967,12 +1967,15 @@ namespace Keysharp.Internals.Input.Hooks
 		{
 			int? mouseX = null, mouseY = null;
 
-			if (e is MouseHookEventArgs mouse)
+			// Only surface X/Y when the event actually carries a position. On Linux inputd, button/wheel events
+			// don't (HasPosition == false), so they leave A_EventInfo without X/Y rather than reporting a bogus
+			// (0,0) -- callers that need the location query it themselves off the hook thread.
+			if (e is MouseHookEventArgs mouse && mouse.HasPosition)
 			{
 				mouseX = mouse.Data.X;
 				mouseY = mouse.Data.Y;
 			}
-			else if (e is MouseWheelHookEventArgs wheel)
+			else if (e is MouseWheelHookEventArgs wheel && wheel.HasPosition)
 			{
 				mouseX = wheel.Data.X;
 				mouseY = wheel.Data.Y;

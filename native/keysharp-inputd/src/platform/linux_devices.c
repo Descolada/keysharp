@@ -1278,8 +1278,9 @@ static void dispatch_mouse_button_event(
 
     ksi_mouse_hook_event hook_event = {
         .message = message,
-        .x = 0,
-        .y = 0,
+        /* Button events carry no cursor position; report the sentinel, not a bogus (0,0). */
+        .x = KSI_MOUSE_COORD_UNSPECIFIED,
+        .y = KSI_MOUSE_COORD_UNSPECIFIED,
         .mouse_data = evdev_button_mouse_data((unsigned int)event->code),
         .flags = mouse_injected_flags(is_injected),
         .time_ms = event_time_ms(event),
@@ -1418,8 +1419,9 @@ static void dispatch_relative_event(
     if (event->code == REL_WHEEL || event->code == REL_HWHEEL) {
         ksi_mouse_hook_event hook_event = {
             .message = event->code == REL_WHEEL ? KSI_WM_MOUSEWHEEL : KSI_WM_MOUSEHWHEEL,
-            .x = 0,
-            .y = 0,
+            /* Wheel events carry no cursor position; report the sentinel, not a bogus (0,0). */
+            .x = KSI_MOUSE_COORD_UNSPECIFIED,
+            .y = KSI_MOUSE_COORD_UNSPECIFIED,
             .mouse_data = (uint32_t)((int32_t)event->value * 120) << 16,
             .flags = mouse_injected_flags(is_injected),
             .time_ms = event_time_ms(event),

@@ -244,17 +244,22 @@ class OCRSnip {
 
     static CancelPressed() => GetKeyState("Esc", "P") || GetKeyState("RButton", "P")
 
-    ; Called by the InputHook the instant the pointer moves. It does NOT touch the overlays — it only records
-    ; the newest position and flags it, so hundreds of move events during a fast flick collapse to a single
-    ; pending update. SelectRect's loop applies it (see SyncTracking) at most once per tick.
-    static OnMove(mx, my) {
-        this.curX := mx, this.curY := my
+    ; Called by the InputHook the instant the pointer moves — a change SIGNAL only; the reported x/y are
+    ; ignored. Mouse-hook coordinates aren't a reliable absolute position on Linux (the inputd daemon delivers
+    ; evdev motion, i.e. relative deltas for a normal mouse), so the true position is read from MouseGetPos in
+    ; SyncTracking instead. Coalescing via moveDirty still collapses hundreds of move events during a fast flick
+    ; into a single position read + overlay update on the next SelectRect tick.
+    static OnMove(*) {
         this.moveDirty := true
     }
 
     ; Applies the latest pointer position to the tracking overlays — cheap window moves for the guides and
     ; reticle, plus a resize of the selection box while dragging. Called once per SelectRect tick.
     static SyncTracking() {
+        ; Read the absolute cursor position here (script thread, CoordMode Mouse=Screen) rather than trusting the
+        ; InputHook's move coordinates, which are evdev-relative on Linux. Coalesced, so it's one query per tick.
+        MouseGetPos(&mx, &my)
+        this.curX := mx, this.curY := my
         if this.RefreshDisplayMetrics(this.curX, this.curY) {
 			local d := this.Desktop, thin := Max(1, Round(this.Scale))
             if IsObject(this.GuideV)
@@ -424,10 +429,11 @@ class OCRSnip {
             this.SelBars.Push(bar)
         }
 
-        ; Event-driven tracking: OnMouseMove repositions the overlays the instant the pointer moves, so the
-        ; crosshair keeps up with no Sleep/SetTimer polling (the previous poll is what made it lag).
+        ; Event-driven tracking: OnMouseMove flags a pending update the instant the pointer moves, so the
+        ; crosshair keeps up with no Sleep/SetTimer polling (the previous poll is what made it lag). The move's
+        ; coordinates are ignored (unreliable on Linux — see OnMove); SyncTracking reads the position itself.
         this.ih := InputHook("V")
-        this.ih.OnMouseMove := (h, x, y) => this.OnMove(x, y)
+        this.ih.OnMouseMove := (*) => this.OnMove()
         this.ih.Start()
     }
 

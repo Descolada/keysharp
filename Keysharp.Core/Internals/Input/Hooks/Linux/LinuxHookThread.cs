@@ -807,12 +807,17 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 					return ProcessInputdMouseWheelHook(ev, vertical: false, isInjected);
 			}
 
+			// The daemon's evdev button events carry no cursor position (it stamps x=y=0). We deliberately do NOT
+			// query the compositor from this hot hook-reader thread to synthesize one: on a relative mouse the daemon
+			// has no absolute position to give, so the only source would be a GetCursorPos round-trip on every click,
+			// inside the daemon's hook-decision deadline. Instead the click is reported WITHOUT a position (A_EventInfo
+			// omits X/Y via HasPosition=false below), and any #HotIf predicate or callback that needs the location
+			// resolves it itself on the script thread (e.g. MouseGetPos). The one exception is an active cursor clip,
+			// which must read and clamp the live position anyway -- that value is real, so we pass it through.
 			POINT clickPos = default;
-			var haveClickPos = !isInjected
-				&& (CursorClipActive || Script.TheScript.input != null)
-				&& GetCursorPos(out clickPos);
+			var haveClickPos = !isInjected && CursorClipActive && GetCursorPos(out clickPos);
 
-			if (!isInjected && CursorClipActive && haveClickPos)
+			if (haveClickPos)
 			{
 				int bx = clickPos.X, by = clickPos.Y;
 
@@ -842,10 +847,17 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			var args = new MouseHookEventArgs(
 				keyUp ? EventType.MouseReleased : EventType.MousePressed,
 				KeyCodes.VkToMouseButton(vk),
-				haveClickPos ? clickPos.X : ev.X,
-				haveClickPos ? clickPos.Y : ev.Y,
+				// Only a cursor-clip read gives a real position here; a plain click has none (see above). When there
+				// is none, report the CoordUnspecified (INT_MIN) sentinel -- InputHook OnMouseDown/OnMouseUp x/y
+				// params can't be "unset", so a distinctive sentinel keeps a real (0,0) click from being confused
+				// with a missing position (A_EventInfo omits X/Y outright via HasPosition below).
+				haveClickPos ? clickPos.X : KeyboardMouseSender.CoordUnspecified,
+				haveClickPos ? clickPos.Y : KeyboardMouseSender.CoordUnspecified,
 				isInjected ? EventMask.SimulatedEvent : EventMask.None,
-				ev.TimeMs);
+				ev.TimeMs)
+			{
+				HasPosition = haveClickPos
+			};
 			var result = LowLevelCommon(args, vk, 0, 0, keyUp, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, ev.DeviceId);
 			return result != 0;
 		}
@@ -860,10 +872,15 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			var args = new MouseWheelHookEventArgs(
 				delta,
 				vertical ? MouseWheelScrollDirection.Vertical : MouseWheelScrollDirection.Horizontal,
-				ev.X,
-				ev.Y,
+				// Wheel events carry no cursor position either: sentinel for the OnMouseWheel/OnMouse* x/y params,
+				// and HasPosition=false so A_EventInfo omits X/Y (rather than reporting a misleading (0,0)).
+				KeyboardMouseSender.CoordUnspecified,
+				KeyboardMouseSender.CoordUnspecified,
 				isInjected ? EventMask.SimulatedEvent : EventMask.None,
-				ev.TimeMs);
+				ev.TimeMs)
+			{
+				HasPosition = false
+			};
 			var result = LowLevelCommon(args, vk, sc, sc, keyUp: false, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, deviceId: ev.DeviceId);
 			return result != 0;
 		}

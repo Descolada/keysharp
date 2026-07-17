@@ -180,9 +180,9 @@ namespace Keysharp.Internals
 		bool SupportsImageOverlay { get; }
 
 		/// <summary>
-		/// Create or update a click-through image overlay. OWNERSHIP of <paramref name="image"/> transfers to the
-		/// service (the caller hands in a snapshot and must not touch it afterwards — this keeps the hot refresh
-		/// path at exactly one bitmap copy). A non-positive width/height uses the image's native size.
+		/// Create or update a click-through image overlay. The service borrows <paramref name="image"/> for this
+		/// synchronous call and copies the pixels it needs; it neither retains nor disposes the bitmap. A non-positive
+		/// width/height uses the image's native size.
 		/// <paramref name="clickThrough"/> true (the usual) makes the surface transparent to mouse input; false makes
 		/// it RECEIVE mouse input so an interactive overlay can be built (where the backing supports it).
 		/// </summary>

@@ -10,6 +10,30 @@ namespace Keysharp.Tests
 	{
 		private const string MsgBoxTitle = "this is a sample title";
 
+		[Test, Category("Gui")]
+		public void OverlayUpdateStagesImageGeometryAndScaleWhileHidden()
+		{
+			using var image = KeysharpImage.Create(null, 20, 12, "0xFF204060") as KeysharpImage;
+			var overlay = new Ks.KeysharpOverlay();
+			_ = overlay.__New(1L, 2L, 20L, 12L, 1.0);
+
+			try
+			{
+				_ = overlay.Update(image, 31L, 42L, 30L, 18L, 1.5);
+
+				Assert.AreEqual(31L, overlay.X);
+				Assert.AreEqual(42L, overlay.Y);
+				Assert.AreEqual(30L, overlay.W);
+				Assert.AreEqual(18L, overlay.H);
+				Assert.AreEqual(1.5, overlay.Scale);
+				Assert.AreEqual(false, overlay.Visible);
+			}
+			finally
+			{
+				_ = overlay.Destroy();
+			}
+		}
+
 #if WINDOWS
 		[Test, Category("Gui")]
 		[Apartment(ApartmentState.STA)]

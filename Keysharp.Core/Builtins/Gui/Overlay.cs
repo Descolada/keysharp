@@ -6,8 +6,9 @@ namespace Keysharp.Builtins
 		/// A screen overlay backed by a raster canvas — click-through and always-on-top by default. Draw onto it with
 		/// the same shape/text primitives as <see cref="KeysharpImage"/> (<c>DrawRect</c>, <c>FillRect</c>, <c>DrawLine</c>,
 		/// <c>DrawEllipse</c>, <c>FillEllipse</c>, <c>DrawText</c>, <c>Clear</c>) or stamp an existing image with
-		/// <see cref="DrawImage"/> / <see cref="SetImage"/>, then <see cref="Show"/> it on screen. Drawing while the
-		/// overlay is visible updates it live. The canvas is owned by the overlay; <see cref="Destroy"/> (or dropping
+		/// <see cref="DrawImage"/> / <see cref="SetImage"/>, then <see cref="Show"/> it on screen. Use <see cref="Update"/>
+		/// to replace a live overlay's image, position, logical size, and raster scale in one backing operation. Drawing
+		/// while the overlay is visible updates it live. The canvas is owned by the overlay; <see cref="Destroy"/> (or dropping
 		/// all references) frees it. This is the single cross-platform overlay primitive that <c>Highlight</c> and,
 		/// on Linux/macOS, <c>ToolTip</c> build on.
 		/// <para>By default each draw op auto-repaints (one upload per op). Wrap a burst of primitives in
@@ -29,7 +30,9 @@ namespace Keysharp.Builtins
 			private int y;
 			private int w;   // explicit width/height; 0 means "use the canvas size"
 			private int h;
-			private double scale = 1.0;   // content/DPI scale: physical size = logical (w,h) * scale; drawing scales to match
+			// Physical bitmap pixels per logical display/drawing unit. This is DPI/raster density, never application zoom;
+			// zoom belongs in the logical W/H so the visible size and authored coordinate space remain explicit.
+			private double rasterScale = 1.0;
 			private long opacity = 255;   // whole-overlay alpha multiplier applied at upload time
 			private bool visible;
 			private bool shown;
@@ -40,32 +43,36 @@ namespace Keysharp.Builtins
 				? overlayId
 				: overlayId = OverlayIdPrefix | ((uint)Interlocked.Increment(ref nextOverlayId) & IdMask);
 
-			// PHYSICAL canvas resolution (logical width/height * scale). The canvas is always a physical-resolution
-			// bitmap drawn through a matching transform, so a DPI-scaled overlay stays crisp. A 0 authored
-			// dimension means "use the canvas's own size" (SetImage).
-			private int CanvasW => w > 0 ? Math.Max(1, (int)Math.Round(w * scale)) : (int)(canvas?.Width ?? 0);
-			private int CanvasH => h > 0 ? Math.Max(1, (int)Math.Round(h * scale)) : (int)(canvas?.Height ?? 0);
+			private (int CanvasW, int CanvasH, int EffectiveW, int EffectiveH) CurrentGeometry
+				=> ResolveGeometry(w, h, rasterScale, (int)(canvas?.Width ?? 0), (int)(canvas?.Height ?? 0));
 
-			// On-screen size handed to the platform backing, in that platform's window coordinate units. Windows
-			// and Linux place overlays in PHYSICAL pixels, so the window matches the canvas resolution. macOS
-			// (Eto/Cocoa) works in LOGICAL points and renders HiDPI into the backing store itself, so the window
-			// is sized in points (canvas / scale) while the canvas stays a hi-res bitmap — otherwise a scale-2
-			// overlay is drawn as a doubled, upscaled panel instead of a crisp one at the intended size.
+			// Resolves authored logical dimensions into both the physical canvas size and the size expected by the
+			// platform backing. A 0 authored dimension uses the image's native canvas size (SetImage). Windows and
+			// Linux backings use physical pixels; Cocoa uses logical points and supplies its own HiDPI backing store.
+			// Keeping this pure lets Update resolve prospective geometry without first mutating the live overlay.
+			private static (int CanvasW, int CanvasH, int EffectiveW, int EffectiveH) ResolveGeometry(
+				int authoredW, int authoredH, double rasterScale, int imageW, int imageH)
+			{
+				var canvasW = authoredW > 0 ? Math.Max(1, (int)Math.Round(authoredW * rasterScale)) : imageW;
+				var canvasH = authoredH > 0 ? Math.Max(1, (int)Math.Round(authoredH * rasterScale)) : imageH;
 #if OSX
-			private int EffectiveW => Math.Max(1, (int)Math.Round(CanvasW / scale));
-			private int EffectiveH => Math.Max(1, (int)Math.Round(CanvasH / scale));
+				var effectiveW = Math.Max(1, (int)Math.Round(canvasW / rasterScale));
+				var effectiveH = Math.Max(1, (int)Math.Round(canvasH / rasterScale));
 #else
-			private int EffectiveW => CanvasW;
-			private int EffectiveH => CanvasH;
+				var effectiveW = canvasW;
+				var effectiveH = canvasH;
 #endif
+				return (canvasW, canvasH, effectiveW, effectiveH);
+			}
 
 			public KeysharpOverlay(params object[] args) : base(args) { }
 
 			/// <summary>Overlay(x?, y?, w?, h?, scale?) — stores the geometry; the canvas is created on the first
-			/// draw (or SetImage), and nothing is shown until Show. x/y and the on-screen size are in the OS's screen
-			/// coordinates (physical pixels on Windows/Linux, logical points on macOS, where Cocoa handles HiDPI); the
-			/// canvas is always a physical-resolution bitmap of w*scale x h*scale so it stays crisp. Pass
-			/// A_ScreenScale (from #import KS) to size an overlay like a DPI-scaled GUI. scale defaults to 1.</summary>
+			/// draw (or SetImage), and nothing is shown until Show. W/H are the logical display and drawing size; encode
+			/// application zoom in them. Scale is strictly raster/DPI density, producing a physical-resolution canvas of
+			/// round(w*scale) x round(h*scale) pixels. Windows/Linux display that physical backing size, while Cocoa keeps
+			/// W/H as logical points and supplies its HiDPI backing. Pass A_ScreenScale (from #import KS) for a DPI-scaled
+			/// canvas. Scale defaults to 1.</summary>
 			public override object __New(params object[] args)
 			{
 				if (args != null)
@@ -74,7 +81,7 @@ namespace Keysharp.Builtins
 					if (args.Length > 1 && args[1] != null) y = args[1].Ai();
 					if (args.Length > 2 && args[2] != null) w = args[2].Ai();
 					if (args.Length > 3 && args[3] != null) h = args[3].Ai();
-					if (args.Length > 4 && args[4] != null) scale = Math.Max(0.01, args[4].Ad(1.0));
+					if (args.Length > 4 && args[4] != null) rasterScale = Math.Max(0.01, args[4].Ad(1.0));
 				}
 
 				return DefaultObject;
@@ -85,7 +92,8 @@ namespace Keysharp.Builtins
 			public object X { get => (long)x; set { x = value.Ai(); MoveLive(); } }
 			public object Y { get => (long)y; set { y = value.Ai(); MoveLive(); } }
 
-			/// <summary>Overlay width in LOGICAL draw units (physical size = W * Scale). Changing it resizes the live
+			/// <summary>Overlay width in LOGICAL display/draw units. Application zoom belongs here, not in Scale. Changing
+			/// it resizes the live
 			/// surface; the existing canvas is KEPT and the backing STRETCHES it to the new size (a display-time scale,
 			/// not a bitmap rebuild), so a solid-fill or tile overlay can grow every frame cheaply without discarding
 			/// its content. Draw ops keep targeting the canvas at its authored resolution — to draw crisply at a larger
@@ -97,12 +105,13 @@ namespace Keysharp.Builtins
 					if (w > 0)
 						return (long)w;
 
-					return canvas != null ? (long)Math.Round(canvas.Width / scale) : 0L;
+					return canvas != null ? (long)Math.Round(canvas.Width / rasterScale) : 0L;
 				}
 				set { w = value.Ai(); MoveLive(); }
 			}
 
-			/// <summary>Overlay height in LOGICAL draw units (physical size = H * Scale). Changing it stretches the live
+			/// <summary>Overlay height in LOGICAL display/draw units. Application zoom belongs here, not in Scale. Changing
+			/// it stretches the live
 			/// surface to the new size (the canvas is kept, not rebuilt) — see <see cref="W"/>.</summary>
 			public object H
 			{
@@ -111,28 +120,29 @@ namespace Keysharp.Builtins
 					if (h > 0)
 						return (long)h;
 
-					return canvas != null ? (long)Math.Round(canvas.Height / scale) : 0L;
+					return canvas != null ? (long)Math.Round(canvas.Height / rasterScale) : 0L;
 				}
 				set { h = value.Ai(); MoveLive(); }
 			}
 
-			/// <summary>Content/DPI scale. The on-screen size is the logical width/height times this factor, and
-			/// drawing is scaled to match so it stays crisp; 1 = draw in physical pixels. Set it before drawing —
-			/// changing it discards the current canvas (a scale change redefines the canvas resolution). For an
+			/// <summary>Raster/DPI density in physical bitmap pixels per logical W/H unit; 1 = draw in physical pixels.
+			/// It is not application zoom: change W/H to resize or zoom the content. Drawing is scaled to this density so
+			/// it stays crisp. Set it before drawing — changing it discards the current canvas because it redefines the
+			/// backing resolution. For an
 			/// authored-size overlay the canvas is rebuilt blank at the new resolution and repainted immediately; a
 			/// SetImage-based overlay (no authored size) has no size to rebuild from, so its stale surface is taken
 			/// down and a new SetImage is required to redisplay it.</summary>
 			public object Scale
 			{
-				get => scale;
+				get => rasterScale;
 				set
 				{
 					var s = Math.Max(0.01, value.Ad(1.0));
 
-					if (s == scale)
+					if (s == rasterScale)
 						return;
 
-					scale = s;
+					rasterScale = s;
 					canvas?.Dispose();
 					canvas = null;
 
@@ -294,42 +304,61 @@ namespace Keysharp.Builtins
 			/// or a bitmap handle). Later changes to that source do not affect this overlay.</summary>
 			public object SetImage(object source)
 			{
-				var loaded = source as KeysharpImage;
-				var ownsLoaded = false;
-
-				if (loaded == null)
-				{
-					var result = KeysharpImage.FromBitmap(null, source);
-
-					if (result is not KeysharpImage li)
-					{
-						// Load failed. Raise the error (throws in the normal throwing mode); otherwise keep the old
-						// canvas and return this so a fluent chain stays intact rather than handing back an error object.
-						_ = Errors.ValueErrorOccurred("Overlay.SetImage could not load the source image.");
-						return this;
-					}
-
-					loaded = li;
-					ownsLoaded = true;
-				}
-
-				var copy = loaded.Copy() as KeysharpImage;
-
-				if (ownsLoaded)
-					_ = loaded.Dispose();
-
-				if (copy == null)
-				{
-					_ = Errors.ValueErrorOccurred("Overlay.SetImage requires a valid Image.");
+				if (!TryCopyImage(source, rasterScale, nameof(SetImage), out var copy))
 					return this;
-				}
 
-				copy.drawScale = scale;   // Copy() doesn't propagate it; draws after SetImage must keep scaling
-				copy.mutable = true;      // subsequent draws on this canvas mutate it in place
 				canvas?.Dispose();
 				canvas = copy;
 
 				MaybeRefresh();
+				return this;
+			}
+
+			/// <summary>Atomically replaces the image and any supplied geometry. The complete replacement is prepared
+			/// off-screen and, when visible, handed to the platform in one upload; no blank canvas, intermediate move, or
+			/// intermediate resize is published. Omitted geometry keeps its current value. A failed upload preserves both
+			/// the previous on-screen frame and this overlay's previous state. Like <see cref="SetImage"/>, the source is
+			/// copied and remains owned by the caller. NewScale is raster/DPI density only; encode application zoom in
+			/// NewW/NewH. Update does not change visibility: call <see cref="Show"/> separately when staging an image into
+			/// a hidden overlay.</summary>
+			public object Update(object source, object newX = null, object newY = null, object newW = null,
+							 object newH = null, object newScale = null)
+			{
+				var nextX = newX != null ? newX.Ai() : x;
+				var nextY = newY != null ? newY.Ai() : y;
+				var nextW = newW != null ? newW.Ai() : w;
+				var nextH = newH != null ? newH.Ai() : h;
+				var nextRasterScale = newScale != null ? Math.Max(0.01, newScale.Ad(1.0)) : rasterScale;
+
+				// Do every fallible image operation before touching the live model. The old canvas remains owned by
+				// this overlay and displayed by the backing until the final upload succeeds.
+				if (!TryCopyImage(source, nextRasterScale, nameof(Update), out var replacement))
+					return this;
+
+				var nextGeometry = ResolveGeometry(
+					nextW, nextH, nextRasterScale, (int)replacement.Width, (int)replacement.Height);
+
+				var uploadNow = visible && suspendCount == 0;
+
+				if (uploadNow && !TryUpload(
+						replacement, nextX, nextY, nextGeometry.EffectiveW, nextGeometry.EffectiveH))
+				{
+					replacement.Dispose();
+					return this;
+				}
+
+				var previous = canvas;
+				canvas = replacement;
+				x = nextX;
+				y = nextY;
+				w = nextW;
+				h = nextH;
+				rasterScale = nextRasterScale;
+				previous?.Dispose();
+
+				if (uploadNow)
+					shown = true;
+
 				return this;
 			}
 
@@ -443,9 +472,11 @@ namespace Keysharp.Builtins
 
 				// Create the canvas at PHYSICAL resolution (logical size * scale) and tell it to scale drawing to
 				// match, so DPI-scaled overlays render crisp rather than upscaling a small bitmap.
-				if (KeysharpImage.Create(null, (long)CanvasW, (long)CanvasH) is KeysharpImage created)
+				var geometry = CurrentGeometry;
+
+				if (KeysharpImage.Create(null, (long)geometry.CanvasW, (long)geometry.CanvasH) is KeysharpImage created)
 				{
-					created.drawScale = scale;
+					created.drawScale = rasterScale;
 					created.mutable = true;   // a live draw surface: shapes mutate it in place, no per-op working copy
 					canvas = created;
 					return true;
@@ -453,6 +484,44 @@ namespace Keysharp.Builtins
 
 				error = Errors.ValueErrorOccurred("Could not create the overlay canvas.");
 				return false;
+			}
+
+			// Loads (where needed) and copies a caller-owned image without changing live overlay state. Stamp the
+			// overlay's raster density onto the replacement so later draw operations use its logical W/H coordinate space.
+			private bool TryCopyImage(object source, double rasterScale, string operation, out KeysharpImage copy)
+			{
+				copy = null;
+				var loaded = source as KeysharpImage;
+				var ownsLoaded = false;
+
+				if (loaded == null)
+				{
+					var result = KeysharpImage.FromBitmap(null, source);
+
+					if (result is not KeysharpImage li)
+					{
+						_ = Errors.ValueErrorOccurred($"Overlay.{operation} could not load the source image.");
+						return false;
+					}
+
+					loaded = li;
+					ownsLoaded = true;
+				}
+
+				copy = loaded.Copy() as KeysharpImage;
+
+				if (ownsLoaded)
+					_ = loaded.Dispose();
+
+				if (copy == null)
+				{
+					_ = Errors.ValueErrorOccurred($"Overlay.{operation} requires a valid Image.");
+					return false;
+				}
+
+				copy.drawScale = rasterScale;
+				copy.mutable = true;
+				return true;
 			}
 
 			// Repaints the live surface after a mutation, but ONLY when actually visible and not inside a
@@ -468,7 +537,9 @@ namespace Keysharp.Builtins
 				if (!shown || suspendCount > 0)
 					return;
 
-				if (!Platform.Overlay.TryMoveImageOverlay(OverlayId, x, y, EffectiveW, EffectiveH))
+				var geometry = CurrentGeometry;
+
+				if (!Platform.Overlay.TryMoveImageOverlay(OverlayId, x, y, geometry.EffectiveW, geometry.EffectiveH))
 					Refresh();
 			}
 
@@ -477,13 +548,23 @@ namespace Keysharp.Builtins
 				if (!visible || canvas == null)
 					return;
 
+				var geometry = CurrentGeometry;
+
+				if (TryUpload(canvas, x, y, geometry.EffectiveW, geometry.EffectiveH))
+					shown = true;
+			}
+
+			// Uploads one already-prepared canvas at one final geometry. This is the only platform call made by
+			// Update; the backing copies synchronously and never retains or disposes the canvas bitmap.
+			private bool TryUpload(KeysharpImage source, int targetX, int targetY, int targetW, int targetH)
+			{
 				// Hand the canvas's own bitmap to the backing WITHOUT copying it — the backing borrows it and
 				// makes the single display copy itself (it never keeps or disposes what it is handed). Only an
 				// opacity pass needs a temporary, which we own and dispose here.
-				var bmp = canvas.PeekBitmap();
+				var bmp = source.PeekBitmap();
 
 				if (bmp == null)
-					return;
+					return false;
 
 				// ApplyOpacity mutates in place, so to preserve the live canvas we fade a throwaway clone; at full
 				// opacity we borrow the canvas bitmap directly (zero-copy). toShow is disposed below iff it's the clone.
@@ -491,12 +572,8 @@ namespace Keysharp.Builtins
 
 				try
 				{
-					// Only ever PROMOTE shown to true on a successful show. A false return while we are already shown
-					// is a TRANSIENT refresh failure — OverlayBase deliberately keeps the last good frame up and
-					// returns false in that case — so leave shown == true rather than flipping Visible to false under
-					// a still-live surface. shown is cleared only by a confirmed Hide, a Scale change, or Destroy.
-					if (Platform.Overlay.TryShowImageOverlay(OverlayId, x, y, EffectiveW, EffectiveH, toShow, clickThrough))
-						shown = true;
+					return Platform.Overlay.TryShowImageOverlay(OverlayId, targetX, targetY, targetW, targetH,
+															toShow, clickThrough);
 				}
 				finally
 				{

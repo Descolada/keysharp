@@ -291,8 +291,7 @@ class InputHUD {
         local z := this.Geometry(kb)     ; snapshot the zoom ONCE; the bitmap, on-screen size and position all use z
         local img := Image.Create(kb.w, kb.h, , this.DPI * z)
         this.DrawKeyboard(img)
-        this.ApplyGeom(kb, z)            ; size + position the overlay with the SAME z the bitmap used — one clean repaint
-        kb.ov.SetImage(img)
+        this.UpdateOverlay(kb, img, z)    ; image + final geometry reach the platform in one transaction
         img.Dispose()
         this.DropBase(kb)                ; this crisp frame supersedes any zoom-drag preview base; free it
     }
@@ -309,8 +308,7 @@ class InputHUD {
             this.DrawKeyboard(kb.zoomImg)
         }
         local z := this.Geometry(kb)
-        this.ApplyGeom(kb, z)
-        kb.ov.SetImage(kb.zoomImg)
+        this.UpdateOverlay(kb, kb.zoomImg, z)
     }
 
     ; Paints the whole keyboard into `img` in LOGICAL coordinates (so it works at any bitmap scale). No geometry/upload.
@@ -382,8 +380,7 @@ class InputHUD {
         local z := this.Geometry(ms)
         local img := Image.Create(ms.w, ms.h, , this.DPI * z)
         this.DrawMouse(img)
-        this.ApplyGeom(ms, z)
-        ms.ov.SetImage(img)
+        this.UpdateOverlay(ms, img, z)
         img.Dispose()
         this.DropBase(ms)                ; this crisp frame supersedes any zoom-drag preview base; free it
     }
@@ -396,8 +393,7 @@ class InputHUD {
             this.DrawMouse(ms.zoomImg)
         }
         local z := this.Geometry(ms)
-        this.ApplyGeom(ms, z)
-        ms.ov.SetImage(ms.zoomImg)
+        this.UpdateOverlay(ms, ms.zoomImg, z)
     }
 
     ; Paints the whole mouse HUD into `img` in LOGICAL coordinates. No geometry/upload.
@@ -643,25 +639,20 @@ class InputHUD {
     ; (a huge, blurry, off-centre frame). All geometry is computed here, on the render's own (main) thread.
     static Geometry(o) {
         local z := o.zoom
-        o.pw := Round(o.w * this.Geo * z)
-        o.ph := Round(o.h * this.Geo * z)
+        ; Round the logical display size first, exactly as UpdateOverlay does, then convert it to screen units. This
+        ; avoids a one-pixel mismatch from Round(w * Geo * z) vs Round(Round(w * z) * Geo) at fractional DPI.
+        o.pw := Round(Round(o.w * z) * this.Geo)
+        o.ph := Round(Round(o.h * z) * this.Geo)
         o.x := Round(o.cx - o.pw / 2)
         o.y := Round(o.cy - o.ph / 2)
         return z
     }
 
-    ; Pushes the geometry onto the overlay using the SAME z the bitmap was rendered at, as a SILENT size change so
-    ; the SetImage that follows is the only repaint: on Windows/Linux the on-screen size rides Overlay.Scale (= DPI*z)
-    ; — changing Scale just re-defines the canvas, it doesn't repaint — while macOS carries the zoom in the logical
-    ; W/H (Cocoa renders the HiDPI backing itself). Position is set here too so size and position land together.
-    static ApplyGeom(o, z) {
-#if OSX
-        o.ov.W := Round(o.w * z)
-        o.ov.H := Round(o.h * z)
-#else
-        o.ov.Scale := this.DPI * z
-#endif
-        o.ov.Move(o.x, o.y)
+    ; Commits the prepared image, centre-derived position and matching logical display size as ONE backing update.
+    ; The old frame stays visible until this succeeds, so no transparent Scale frame or separately moved frame can
+    ; reach the compositor. Zoom lives entirely in W/H; Scale remains the fixed DPI/raster density on every platform.
+    static UpdateOverlay(o, img, z) {
+        o.ov.Update(img, o.x, o.y, Round(o.w * z), Round(o.h * z), this.DPI)
     }
 
     static ClampZoom(z) => Min(this.ZoomMax, Max(this.ZoomMin, z))
@@ -708,18 +699,17 @@ class InputHUD {
     }
 
     ; Ctrl+Alt+Shift+R — restore the default layout after a stray drag/zoom. Reset each HUD's zoom to 1 and refresh
-    ; its pw/ph at 1x FIRST (Place lays the pair out from pw/ph), then re-place and push the geometry so the on-screen
-    ; scale/position update immediately instead of only on the next input tick.
+    ; its pw/ph at 1x FIRST (Place lays the pair out from pw/ph), then re-place and atomically repaint both overlays.
     static Reset(*) {
         this.kb.zoom := 1
         this.ms.zoom := 1
         this.Geometry(this.kb)
         this.Geometry(this.ms)
         this.Place()
-        this.ApplyGeom(this.kb, 1)
-        this.ApplyGeom(this.ms, 1)
-        this.kbDirty := true
-        this.msDirty := true
+        this.kbDirty := false
+        this.msDirty := false
+        this.RenderKeyboard()
+        this.RenderMouse()
         this.SavePlacement()             ; persist the reset layout so next run starts clean too
     }
 
@@ -758,7 +748,6 @@ class InputHUD {
             if this.OnScreen(cx, cy) {
                 o.cx := cx, o.cy := cy, o.zoom := zoom
                 this.Geometry(o)
-                this.ApplyGeom(o, zoom)
             }
         }
     }

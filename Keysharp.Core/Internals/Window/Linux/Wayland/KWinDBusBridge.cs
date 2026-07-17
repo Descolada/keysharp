@@ -606,18 +606,36 @@ function readRect(rect) {
     height: Math.round(rect.height || 0)
   };
 }
+function sortByStackingOrder(list) {
+  // Plasma 5's workspace.clientList() is NOT returned in stacking order, but every client carries a
+  // numeric stackingOrder (higher = closer to the top).  Sort ascending so the result honours the
+  // bottom-to-top contract callers expect from workspace.stackingOrder.  Returns a plain Array.
+  try {
+    var arr = [];
+    for (var i = 0; i < list.length; ++i) arr.push(list[i]);
+    arr.sort(function(a, b) {
+      var sa = (a && typeof a.stackingOrder === "number") ? a.stackingOrder : 0;
+      var sb = (b && typeof b.stackingOrder === "number") ? b.stackingOrder : 0;
+      return sa - sb;
+    });
+    return arr;
+  } catch (e) { return list; }
+}
 function windowListCompat() {
+  // Plasma 6 exposes workspace.stackingOrder already sorted bottom-to-top; use it verbatim.
   try {
     if (workspace.stackingOrder && workspace.stackingOrder.length !== undefined) return workspace.stackingOrder;
   } catch (e) {}
+  // Plasma 5 has neither workspace.stackingOrder nor windowAt(); windowList()/clientList() exist but
+  // return windows in an arbitrary (unstacked) order, so sort them into stacking order ourselves.
   try {
-    if (typeof workspace.windowList === "function") return workspace.windowList();
+    if (typeof workspace.windowList === "function") return sortByStackingOrder(workspace.windowList());
   } catch (e) {}
   try {
-    if (typeof workspace.clientList === "function") return workspace.clientList();
+    if (typeof workspace.clientList === "function") return sortByStackingOrder(workspace.clientList());
   } catch (e) {}
   try {
-    if (workspace.clientList && workspace.clientList.length !== undefined) return workspace.clientList;
+    if (workspace.clientList && workspace.clientList.length !== undefined) return sortByStackingOrder(workspace.clientList);
   } catch (e) {}
   return [];
 }
@@ -799,9 +817,10 @@ function windowAtPoint(px, py, ownPid) {
     }
   } catch (e) {}
 
-  // Compatibility path for KWin versions without workspace.windowAt().  stackingOrder is
-  // bottom-to-top, so scan it backwards and take the first eligible hit.  The old active-window/
-  // smallest-area heuristic was not a z-order operation and selected obscured windows.
+  // Compatibility path for KWin versions without workspace.windowAt() (notably Plasma 5, where
+  // windowAt() does not exist).  windowListCompat() returns windows sorted bottom-to-top, so scan
+  // it backwards and take the first eligible hit.  The old active-window/smallest-area heuristic
+  // was not a z-order operation and selected obscured windows.
   try {
     var order = windowListCompat();
     for (var i = order.length - 1; i >= 0; --i) {

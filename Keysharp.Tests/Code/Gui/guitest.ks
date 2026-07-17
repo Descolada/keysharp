@@ -3407,54 +3407,57 @@ RunOverlayTest() {
 
 	sw := A_ScreenWidth
 	sh := A_ScreenHeight
-	; Overlays draw in LOGICAL units (like a GUI): author sizes/text at 96-DPI sizes and pass a DPI scale so
-	; they render crisp at the display's real pixel density. Positions stay in physical screen pixels, so the
-	; corner layout uses the scaled (physical) sizes.
-	scale := A_ScreenDPI / 96
+	; Screen geometry stays in the platform's native coordinate space. The KS scale converts deliberately authored
+	; UI sizes into that space; backing pixels are selected by the overlay renderer.
+	monitor := MonitorFromPoint(sw // 2, sh // 2)
+	ui := MonitorGetScale(monitor)
 	mrg := 24
 	bw := 150
 	bh := 110
-	mrgP := Round(mrg * scale)
-	bwP := Round(bw * scale)
-	bhP := Round(bh * scale)
+	mrgP := Round(mrg * ui)
+	bwP := Round(bw * ui)
+	bhP := Round(bh * ui)
+	font10 := "Sans " Round(10 * ui)
+	font13 := "Sans " Round(13 * ui)
+	font16 := "Sans " Round(16 * ui)
+	font26 := "Sans " Round(26 * ui)
 
-	tl := Overlay(mrgP, mrgP, bw, bh, scale)
-	tl.FillRect(0, 0, bw, bh, "0x2A5CC8")
-	tl.DrawRect(0, 0, bw - 1, bh - 1, "0xFFFFFF", 2)
-	tl.DrawText("Top-Left", 12, 44, "0xFFFFFF", "Sans 13")
+	tl := Overlay(mrgP, mrgP, bwP, bhP)
+	tl.FillRect(0, 0, bwP, bhP, "0x2A5CC8")
+	tl.DrawRect(0, 0, bwP - 1, bhP - 1, "0xFFFFFF", Round(2 * ui))
+	tl.DrawText("Top-Left", 12 * ui, 44 * ui, "0xFFFFFF", font13)
 	tl.Show()
 
-	tr := Overlay(sw - mrgP - bwP, mrgP, bw, bh, scale)
-	tr.DrawRect(0, 0, bw - 1, bh - 1, "0xFF3030", 4)
-	tr.FillEllipse(bw // 2 - 30, bh // 2 - 30, 60, 60, "0xFFCC00")
-	tr.MeasureText("TR", "Sans 16", &trw, &trh)
-	tr.DrawText("TR", (bw - trw) / 2, (bh - trh) / 2, "0x000000", "Sans 16")
+	tr := Overlay(sw - mrgP - bwP, mrgP, bwP, bhP)
+	tr.DrawRect(0, 0, bwP - 1, bhP - 1, "0xFF3030", Round(4 * ui))
+	tr.FillEllipse(bwP // 2 - 30 * ui, bhP // 2 - 30 * ui, 60 * ui, 60 * ui, "0xFFCC00")
+	tr.MeasureText("TR", font16, &trw, &trh)
+	tr.DrawText("TR", (bwP - trw) / 2, (bhP - trh) / 2, "0x000000", font16)
 	tr.Show()
 
-	bl := Overlay(mrgP, sh - mrgP - bhP, bw, bh, scale)
-	bl.DrawEllipse(2, 2, bw - 4, bh - 4, "0x30E070", 3)
-	bl.DrawLine(6, 6, bw - 6, bh - 6, "0x30E070", 2)
-	bl.DrawText("BL", 14, 46, "0x30E070", "Sans 13")
+	bl := Overlay(mrgP, sh - mrgP - bhP, bwP, bhP)
+	bl.DrawEllipse(2 * ui, 2 * ui, bwP - 4 * ui, bhP - 4 * ui, "0x30E070", 3 * ui)
+	bl.DrawLine(6 * ui, 6 * ui, bwP - 6 * ui, bhP - 6 * ui, "0x30E070", 2 * ui)
+	bl.DrawText("BL", 14 * ui, 46 * ui, "0x30E070", font13)
 	bl.Show()
 
-	br := Overlay(sw - mrgP - bwP, sh - mrgP - bhP, bw, bh, scale)
-	br.FillEllipse(0, 0, bw, bh, "0xC030C0")
-	br.MeasureText("BR", "Sans 26", &brw, &brh)
-	br.DrawText("BR", (bw - brw) / 2, (bh - brh) / 2, "0xFFFFFF", "Sans 26")
+	br := Overlay(sw - mrgP - bwP, sh - mrgP - bhP, bwP, bhP)
+	br.FillEllipse(0, 0, bwP, bhP, "0xC030C0")
+	br.MeasureText("BR", font26, &brw, &brh)
+	br.DrawText("BR", (bwP - brw) / 2, (bhP - brh) / 2, "0xFFFFFF", font26)
 	br.Show()
 
 	bannerW := 260
 	bannerH := 40
-	bannerWP := Round(bannerW * scale)
-	bannerHP := Round(bannerH * scale)
-	banner := Overlay(sw // 2 - bannerWP // 2, sh // 2 - bannerHP // 2, bannerW, bannerH, scale)
-	banner.FillRect(0, 0, bannerW, bannerH, "0x101418")
-	banner.DrawRect(0, 0, bannerW - 1, bannerH - 1, "0x30E070", 1)
-	banner.DrawText("Overlay test — auto-stops", 12, 12, "0x30E070", "Sans 10")
+	bannerWP := Round(bannerW * ui)
+	bannerHP := Round(bannerH * ui)
+	banner := Overlay(sw // 2 - bannerWP // 2, sh // 2 - bannerHP // 2, bannerWP, bannerHP)
+	banner.FillRect(0, 0, bannerWP, bannerHP, "0x101418")
+	banner.DrawRect(0, 0, bannerWP - 1, bannerHP - 1, "0x30E070", Max(1, Round(ui)))
+	banner.DrawText("Overlay test — auto-stops", 12 * ui, 12 * ui, "0x30E070", font10)
 	banner.Show()
 
-	; Highlight annotates a real screen region, so it is always physical pixels — scale its size here to match.
-	frame := Highlight(sw // 2 - Round(120 * scale), sh // 2 - Round(100 * scale), Round(240 * scale), Round(200 * scale), "Cyan", Round(3 * scale))
+	frame := Highlight(sw // 2 - Round(120 * ui), sh // 2 - Round(100 * ui), Round(240 * ui), Round(200 * ui), "Cyan", 3)
 	frame.Show()
 
 	cx := sw // 2 - bwP // 2
@@ -3480,7 +3483,7 @@ RunOverlayTest() {
 		bl.Move(Round(homeBLx + (cx - homeBLx) * t), Round(homeBLy + (cy - homeBLy) * t))
 		br.Move(Round(homeBRx + (cx - homeBRx) * t), Round(homeBRy + (cy - homeBRy) * t))
 		MouseGetPos(&mx, &my)
-		banner.Move(mx + Round(16 * scale), my + Round(16 * scale))
+		banner.Move(mx + Round(16 * ui), my + Round(16 * ui))
 		Sleep(30)
 	}
 

@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using Keysharp.Internals;
+using Keysharp.Internals.Images;
 #if OSX
 using AppKit = MonoMac.AppKit;
 #endif
@@ -11,22 +13,147 @@ namespace Keysharp.Tests
 		private const string MsgBoxTitle = "this is a sample title";
 
 		[Test, Category("Gui")]
-		public void OverlayUpdateStagesImageGeometryAndScaleWhileHidden()
+		public void DisplayTopologySelectsLargestIntersectionThenNearestDisplay()
+		{
+			DisplayInfo[] displays =
+			[
+				new("primary", new ScreenRect(0, 0, 1920, 1080), new ScreenRect(0, 0, 1920, 1040), 1.0, true),
+				new("left", new ScreenRect(-2560, 0, 2560, 1440), new ScreenRect(-2560, 0, 2560, 1400), 1.5, false),
+				new("above", new ScreenRect(0, -1200, 1600, 1200), new ScreenRect(0, -1200, 1600, 1160), 2.0, false)
+			];
+
+			Assert.IsTrue(DisplayTopology.TryFind(displays, new ScreenRect(-300, 100, 400, 300), out var spanning));
+			Assert.AreEqual("left", spanning.Name, "largest visible intersection should own a spanning overlay");
+
+			Assert.IsTrue(DisplayTopology.TryFind(displays, new ScreenRect(100, -100, 0, 0), out var point));
+			Assert.AreEqual("above", point.Name, "zero-size point lookup should honor negative monitor origins");
+
+			Assert.IsTrue(DisplayTopology.TryFind(displays, new ScreenRect(4000, 100, 20, 20), out var nearest));
+			Assert.AreEqual("primary", nearest.Name, "off-desktop placement should use the nearest display deterministically");
+
+			DisplayInfo[] unequalDisplays =
+			[
+				new("large", new ScreenRect(0, 0, 4000, 1000), new ScreenRect(0, 0, 4000, 1000), 1, true),
+				new("small", new ScreenRect(4200, 0, 100, 1000), new ScreenRect(4200, 0, 100, 1000), 1, false)
+			];
+			Assert.IsTrue(DisplayTopology.TryFind(unequalDisplays, new ScreenRect(4050, 500, 0, 0), out var edgeNearest));
+			Assert.AreEqual("large", edgeNearest.Name, "nearest lookup must compare display edges, not centres");
+		}
+
+		[Test, Category("Gui")]
+		public void DisplayTopologyHandlesExtremeInputWithoutOverflow()
+		{
+			DisplayInfo[] displays =
+			[
+				new("left", new ScreenRect(int.MinValue, -10, 100, 20), new ScreenRect(int.MinValue, -10, 100, 20), 1, false),
+				new("right", new ScreenRect(int.MaxValue - 99, -10, 100, 20), new ScreenRect(int.MaxValue - 99, -10, 100, 20), 1, true)
+			];
+
+			Assert.IsTrue(DisplayTopology.TryFind(displays, new ScreenRect(int.MinValue, 0, int.MaxValue, 1), out var selected));
+			Assert.AreEqual("left", selected.Name);
+			Assert.AreEqual((long)int.MaxValue + 1, new ScreenRect(int.MaxValue, 0, 1, 1).Right);
+		}
+
+		[Test, Category("Gui")]
+		public void ScreenCaptureMapsWindowsMixedUiScalingOneToOne()
+		{
+			// PMv2 Windows exposes both monitors in physical desktop pixels. A 1920-wide 100% display followed
+			// by a 2560-wide 150% display is therefore one 4480-pixel-wide capture; UI scale is not applied here.
+			var desktop = new ScreenRect(0, 0, 4480, 1440);
+			var pixels = new PixelSize(4480, 1440);
+
+			Assert.AreEqual(new Point(2920, 700), desktop.PixelToScreen(new Point(2920, 700), pixels));
+			Assert.AreEqual(new Point(2920, 700), desktop.ScreenToPixel(2920, 700, pixels));
+		}
+
+		[Test, Category("Gui")]
+		public void ScreenCaptureMapsDenseRasterPixelsToNativeScreenUnits()
+		{
+			var twice = new ScreenRect(10, 20, 2, 1);
+			var fractional = new ScreenRect(10, 20, 2, 2);
+			var fiveForFour = new ScreenRect(10, 20, 4, 1);
+			var fractionalSeam = new ScreenRect(0, 0, 6, 1);
+			var roundedCanvasSeam = new ScreenRect(0, 0, 5, 1);
+			// A 1920-point non-Retina display beside a 1440-point Retina display is flattened to a
+			// 6720-pixel 2x canvas. X=4840 is 500 logical points into the second display.
+			var mixedMacDesktop = new ScreenRect(0, 0, 3360, 1080);
+
+			Assert.AreEqual(new Point(11, 20), twice.PixelToScreen(new Point(3, 1), new PixelSize(4, 2)));
+			Assert.AreEqual(new Point(11, 21), fractional.PixelToScreen(new Point(1, 1), new PixelSize(3, 3)));
+			Assert.AreEqual(new Point(11, 21), fractional.PixelToScreen(new Point(2, 2), new PixelSize(3, 3)));
+			Assert.AreEqual(new Point(11, 21), fractional.PixelToScreen(
+				fractional.ScreenToPixel(11, 21, new PixelSize(3, 3)), new PixelSize(3, 3)));
+			Assert.AreEqual(new Point(13, 20), fiveForFour.PixelToScreen(
+				fiveForFour.ScreenToPixel(13, 20, new PixelSize(5, 1)), new PixelSize(5, 1)));
+			Assert.AreEqual(new Point(3, 0), fractionalSeam.PixelToScreen(new Point(4, 0), new PixelSize(9, 1)));
+			Assert.AreEqual(new Point(2, 0), roundedCanvasSeam.PixelToScreen(new Point(4, 0), new PixelSize(8, 1)));
+			Assert.AreEqual(new Point(3, 0), roundedCanvasSeam.PixelToScreen(new Point(5, 0), new PixelSize(8, 1)));
+			Assert.AreEqual(new Point(2420, 300), mixedMacDesktop.PixelToScreen(
+				new Point(4840, 600), new PixelSize(6720, 2160)));
+		}
+
+		[Test, Category("Gui")]
+		public void OverlayUpdateStagesNativeScreenGeometryWhileHidden()
 		{
 			using var image = KeysharpImage.Create(null, 20, 12, "0xFF204060") as KeysharpImage;
 			var overlay = new Ks.KeysharpOverlay();
-			_ = overlay.__New(1L, 2L, 20L, 12L, 1.0);
+			_ = overlay.__New(1L, 2L, 20L, 12L);
 
 			try
 			{
-				_ = overlay.Update(image, 31L, 42L, 30L, 18L, 1.5);
+				_ = overlay.Update(image, 31L, 42L, 30L, 18L);
 
 				Assert.AreEqual(31L, overlay.X);
 				Assert.AreEqual(42L, overlay.Y);
 				Assert.AreEqual(30L, overlay.W);
 				Assert.AreEqual(18L, overlay.H);
-				Assert.AreEqual(1.5, overlay.Scale);
 				Assert.AreEqual(false, overlay.Visible);
+			}
+			finally
+			{
+				_ = overlay.Destroy();
+			}
+		}
+
+		[Test, Category("Gui")]
+		public void OverlayRedrawStagesTargetSizedCanvasAndGeometryTogether()
+		{
+			var overlay = new Ks.KeysharpOverlay();
+			_ = overlay.__New(1L, 2L, 10L, 10L);
+
+			try
+			{
+				var callback = new FuncObj((Func<object, object>)(target =>
+				{
+					_ = ((Ks.KeysharpOverlay)target).Clear("0xFF204060");
+					return 0L;
+				}));
+				_ = overlay.Redraw(callback, 31L, 42L, 30L, 18L);
+
+				Assert.AreEqual(31L, overlay.X);
+				Assert.AreEqual(42L, overlay.Y);
+				Assert.AreEqual(30L, overlay.W);
+				Assert.AreEqual(18L, overlay.H);
+				Assert.AreEqual(false, overlay.Visible);
+			}
+			finally
+			{
+				_ = overlay.Destroy();
+			}
+		}
+
+		[Test, Category("Gui")]
+		public void OverlayDerivesUnspecifiedDisplaySizeFromImagePixels()
+		{
+			using var image = KeysharpImage.Create(null, 20, 12, "0xFF204060", 2.0) as KeysharpImage;
+			var overlay = new Ks.KeysharpOverlay();
+			_ = overlay.__New(1L, 2L);
+
+			try
+			{
+				_ = overlay.SetImage(image);
+				Assert.AreEqual(40L, overlay.W);
+				Assert.AreEqual(24L, overlay.H);
 			}
 			finally
 			{

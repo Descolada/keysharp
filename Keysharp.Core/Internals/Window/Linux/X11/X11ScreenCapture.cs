@@ -36,6 +36,76 @@ namespace Keysharp.Internals.Window.Linux.X11
 		private const int OffGreenMask = 64;
 		private const int OffBlueMask = 72;
 
+		/// <summary>Captures a rectangle in X11 root-window coordinates. Areas outside the virtual root remain
+		/// transparent, matching the cross-display capture contract used by the other platform services.</summary>
+		internal static Bitmap TryCaptureRegion(int x, int y, int width, int height)
+		{
+			if (width <= 0 || height <= 0 || !Platform.Desktop.IsX11Available)
+				return null;
+
+			var display = XDisplay.Default?.Handle ?? 0;
+
+			if (display == 0)
+				return null;
+
+			lock (X11Server.xLibLock)
+			{
+				var oldHandler = X11Server.BeginErrorTrap();
+
+				try
+				{
+					var root = Xlib.XDefaultRootWindow(display);
+					var attributes = new XWindowAttributes();
+
+					if (root == 0 || Xlib.XGetWindowAttributes(display, root, ref attributes) == 0
+							|| X11Server.ErrorTrapped)
+						return null;
+
+					var left = Math.Max(0L, x);
+					var top = Math.Max(0L, y);
+					var right = Math.Min((long)attributes.width, (long)x + width);
+					var bottom = Math.Min((long)attributes.height, (long)y + height);
+
+					if (right <= left || bottom <= top)
+						return null;
+
+					var capturedWidth = (int)(right - left);
+					var capturedHeight = (int)(bottom - top);
+					X11Server.ClearErrorTrap();
+					var ximage = Xlib.XGetImage(display, root, (int)left, (int)top,
+						(uint)capturedWidth, (uint)capturedHeight, Xlib.AllPlanes, Xlib.ZPixmap);
+					_ = Xlib.XSync(display, false);
+
+					if (ximage == 0 || X11Server.ErrorTrapped)
+						return null;
+
+					Bitmap captured;
+
+					try { captured = BuildBitmapFromXImage(ximage); }
+					finally { _ = Xlib.XDestroyImage(ximage); }
+
+					if (captured == null || capturedWidth == width && capturedHeight == height && left == x && top == y)
+						return captured;
+
+					try
+					{
+						var result = new Bitmap(width, height, PixelFormat.Format32bppRgba);
+						using var graphics = ImageHelper.MakeGraphics(result);
+						graphics.Clear();
+						graphics.DrawImage(captured, new RectangleF(left - x, top - y, capturedWidth, capturedHeight));
+						return result;
+					}
+					finally { captured.Dispose(); }
+				}
+				catch { return null; }
+				finally
+				{
+					_ = Xlib.XSync(display, false);
+					X11Server.EndErrorTrap(oldHandler);
+				}
+			}
+		}
+
 		/// <summary>
 		/// Captures the full contents of the X11 window <paramref name="xid"/> (its client area), trying
 		/// the occlusion-independent XComposite pixmap first and falling back to a direct window grab.

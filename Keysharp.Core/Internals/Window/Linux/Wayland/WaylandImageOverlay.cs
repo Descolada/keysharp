@@ -1,4 +1,6 @@
 #if LINUX
+using System.Buffers;
+
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	/// <summary>
@@ -16,170 +18,265 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const int ConfigureTimeoutMs = 1000;
 
 		private readonly WaylandLayerShellClient client;
+		private readonly object stateSync = new();
 		private WaylandLayerSurface surface;
-		// A small pool of SHM buffers (double-buffering). We must never overwrite or dispose a buffer the
-		// compositor may still be scanning out (wl_buffer.release not yet received, i.e. Released == false):
-		// doing so tears/garbles the surface. Each Show picks a Released buffer (or allocates a fresh one) and
-		// leaves the just-attached in-flight buffer alone until the compositor releases it. Wrong-size buffers
-		// are reaped once released; all are freed on teardown (the compositor releases them implicitly then).
+		// Bounded triple buffering: in-flight buffers remain untouched until wl_buffer.release. If all three
+		// are busy, the new frame is dropped and the last complete frame remains mapped.
 		private readonly List<WaylandShmBuffer> bufferPool = new();
 		private nint emptyRegion;
-		private int width;
-		private int height;
 		private int marginLeft;
 		private int marginTop;
+		private WaylandShmBuffer preparedBuffer;
+		private int preparedMarginLeft, preparedMarginTop;
+		private uint outputName;
 		private bool disposed;
+		private bool connectionInvalidated;
 
 		internal nint Handle => surface?.Surface ?? 0;
+		internal bool IsAvailable => !disposed && !connectionInvalidated && client.IsAvailable;
 
 		internal WaylandImageOverlay(WaylandLayerShellClient client)
 		{
 			this.client = client ?? throw new ArgumentNullException(nameof(client));
+
+			if (!client.Register(this))
+				throw new IOException("The Wayland layer-shell connection is unavailable.");
 		}
 
 		// Returns true iff the overlay is now shown. False on a genuine layer-shell failure (surface could not be
 		// created, or never configured within the timeout) so the caller can fall back to a visible Eto window
 		// instead of recording a phantom "shown" overlay with nothing on screen.
-		internal bool Show(Bitmap image, int x, int y, int w, int h)
+		internal bool Show(Bitmap image, Rectangle sourcePixels, ScreenRect bounds,
+			WaylandLayerShellClient.OutputTarget output, bool clickThrough)
 		{
-			if (disposed)
+			lock (stateSync)
+				return PrepareCore(image, sourcePixels, bounds, output, clickThrough) && CommitPreparedCore();
+		}
+
+		internal bool Prepare(Bitmap image, Rectangle sourcePixels, ScreenRect bounds,
+			WaylandLayerShellClient.OutputTarget output, bool clickThrough)
+		{
+			lock (stateSync)
+				return PrepareCore(image, sourcePixels, bounds, output, clickThrough);
+		}
+
+		internal bool CommitPrepared()
+		{
+			lock (stateSync)
+				return CommitPreparedCore();
+		}
+
+		private bool PrepareCore(Bitmap image, Rectangle sourcePixels, ScreenRect bounds,
+			WaylandLayerShellClient.OutputTarget output, bool clickThrough)
+		{
+			if (disposed || connectionInvalidated || !client.IsAvailable)
 				return false;
+
+			if (surface?.IsClosed == true)
+				TeardownSurface();
 
 			if (image == null)
 			{
-				Hide();
+				HideCore();
 				return false;
 			}
 
-			if (w <= 0) w = image.Width;
-			if (h <= 0) h = image.Height;
+			if (bounds.Width <= 0) bounds = bounds with { Width = image.Width };
+			if (bounds.Height <= 0) bounds = bounds with { Height = image.Height };
 
-			if (w < 1 || h < 1)
+			if (!bounds.HasArea || !client.IsOutputCurrent(output))
 			{
-				Hide();
+				HideCore();
 				return false;
 			}
 
-			EnsureSurface();
+			// A layer surface is permanently assigned to the wl_output passed at construction. Crossing a monitor
+			// therefore requires a fresh surface; keeping global margins on the old output is what previously made an
+			// overlay disappear or jump on mixed monitor layouts.
+			if (surface != null && output.RegistryName != outputName)
+				TeardownSurface();
+
+			EnsureSurface(output);
 
 			if (surface == null)
 				return false;
 
-			var sizeChanged = w != width || h != height;
-			var positionChanged = x != marginLeft || y != marginTop;
+			var localX = bounds.X - output.Bounds.X;
+			var localY = bounds.Y - output.Bounds.Y;
+			var w = bounds.Width;
+			var h = bounds.Height;
 
-			if (sizeChanged)
-			{
-				width = w;
-				height = h;
-				surface.SetSize((uint)width, (uint)height);
-			}
+			// Prepare the complete replacement raster before touching pending surface geometry. Allocation or copy
+			// failure therefore leaves the previous live frame and rectangle unchanged.
+			var useViewport = client.Viewporter != 0;
+			var bufferScale = Math.Max(1, output.IntegerScale);
+			if (!TryResolvePixelLength(w, useViewport ? output.BufferScale : bufferScale, out var pixelWidth)
+				|| !TryResolvePixelLength(h, useViewport ? output.BufferScale : bufferScale, out var pixelHeight))
+				return false;
 
-			if (positionChanged || sizeChanged)
-			{
-				marginLeft = x;
-				marginTop = y;
-				surface.SetMargin(y, 0, 0, x);
-			}
+			var target = AcquireBuffer(pixelWidth, pixelHeight);
 
-			if (!surface.IsConfigured)
+			if (target == null)
+				return false;
+
+			CopyImageToBuffer(image, sourcePixels, target, pixelWidth, pixelHeight);
+			var initiallyConfigured = surface.IsConfigured;
+			surface.SetSize((uint)w, (uint)h);
+			surface.SetMargin(localY, 0, 0, localX);
+			surface.SetInputRegion(ResolveInputRegion(clickThrough, emptyRegion));
+			_ = surface.ConfigureBufferMapping(w, h, bufferScale);
+
+			if (!initiallyConfigured)
 			{
-				surface.Commit();
+				// Layer-shell requires one initial null-buffer commit and configure acknowledgement. Every later
+				// resize combines geometry, viewport and replacement pixels in the single final commit below.
+				if (!surface.Commit())
+				{
+					HideCore();
+					return false;
+				}
 
 				if (!surface.WaitForConfigure(ConfigureTimeoutMs))
 				{
 					// The compositor never acked the initial configure — a real layer-shell failure. Tear the
 					// surface down and report failure so the backing falls back to Eto rather than silently showing
 					// nothing.
-					Hide();
+					HideCore();
 					return false;
 				}
 			}
-			else if (sizeChanged || positionChanged)
-			{
-				surface.Commit();
-				_ = surface.WaitForConfigure(ConfigureTimeoutMs);
-			}
 
-			// Double-buffer: acquire a buffer the compositor is NOT still scanning out (or allocate a fresh one),
-			// never overwriting/disposing the in-flight one. This is what avoids tearing on a same-size update.
-			var target = AcquireBuffer(width, height);
-			CopyImageToBuffer(image, target, width, height);
-			surface.AttachBuffer(target);   // marks `target` in-flight until the compositor releases it
-			surface.Commit();
+			preparedBuffer = target;
+			preparedMarginLeft = localX;
+			preparedMarginTop = localY;
 			return true;
 		}
 
-		// Picks a buffer of the requested size that the compositor has released (safe to overwrite), allocating a
-		// fresh one when none is free. Reaps released buffers of a stale size; leaves still-in-flight buffers alone
-		// (they are reaped on a later Show once released, or at teardown). Wayland proxy create/destroy must run
-		// under the shared lock — and reading Released under it is consistent, since the release callback that sets
-		// it also runs under that lock on the dispatcher thread.
+		private bool CommitPreparedCore()
+		{
+			var target = preparedBuffer;
+
+			if (target == null || surface == null || !client.IsAvailable)
+				return false;
+
+			preparedBuffer = null;
+			if (!surface.AttachBuffer(target) || !surface.Commit())
+				return false;
+
+			marginLeft = preparedMarginLeft;
+			marginTop = preparedMarginTop;
+			return true;
+		}
+
+		private static bool TryResolvePixelLength(int logicalLength, double scale, out int pixels)
+		{
+			var value = Math.Round(logicalLength * scale);
+			if (!double.IsFinite(value) || value < 1 || value > int.MaxValue)
+			{
+				pixels = 0;
+				return false;
+			}
+
+			pixels = (int)value;
+			return true;
+		}
+
+		// Reuse released buffers, reap stale sizes, and drop a frame once the bounded pool is full.
 		private WaylandShmBuffer AcquireBuffer(int w, int h)
 		{
 			lock (WaylandLayerShellClient.Sync)
 			{
-				WaylandShmBuffer chosen = null;
-
 				for (var i = bufferPool.Count - 1; i >= 0; i--)
 				{
 					var b = bufferPool[i];
 
-					if (b.Width == w && b.Height == h)
+					if ((b.Width != w || b.Height != h) && b.Released)
 					{
-						if (chosen == null && b.Released)
-							chosen = b;   // reuse the first released same-size buffer
-					}
-					else if (b.Released)
-					{
-						// Wrong size AND no longer in use by the compositor: safe to free.
+						// A released buffer of the wrong size can never satisfy this frame.
 						b.Dispose();
 						bufferPool.RemoveAt(i);
 					}
-					// else: wrong size but still in-flight — leave it; a later Show reaps it once released.
 				}
 
-				if (chosen == null)
+				Span<WaylandBufferState> states = stackalloc WaylandBufferState[bufferPool.Count];
+
+				for (var i = 0; i < bufferPool.Count; i++)
+					states[i] = new WaylandBufferState(bufferPool[i].Width, bufferPool[i].Height,
+						bufferPool[i].Released);
+
+				var reusable = WaylandBufferPoolPolicy.FindReusable(states, w, h);
+
+				if (reusable >= 0)
+					return bufferPool[reusable];
+
+				if (WaylandBufferPoolPolicy.CanAllocate(bufferPool.Count))
 				{
-					chosen = WaylandShmBuffer.Create(client.Shm, w, h);
+					var chosen = WaylandShmBuffer.Create(client.Shm, w, h);
 					bufferPool.Add(chosen);
+					return chosen;
 				}
 
-				return chosen;
+				return null;
 			}
 		}
 
-		// Repositions the already-shown surface without re-uploading pixels: only the layer margin changes, so a
-		// same-size move (e.g. a mouse-following highlight) costs a commit, not another SHM blit.
-		internal void Reposition(int x, int y)
+		internal static nint ResolveInputRegion(bool clickThrough, nint emptyRegion)
+			=> clickThrough ? emptyRegion : 0;
+
+		// Same-output reposition: one margin commit, no topology lookup, roundtrip, or pixel upload.
+		internal bool Reposition(ScreenRect bounds, WaylandLayerShellClient.OutputTarget output)
 		{
-			if (disposed || surface == null || !surface.IsConfigured)
-				return;
-
-			if (x == marginLeft && y == marginTop)
-				return;
-
-			marginLeft = x;
-			marginTop = y;
-			surface.SetMargin(y, 0, 0, x);
-			surface.Commit();
-			_ = surface.WaitForConfigure(ConfigureTimeoutMs);
+			lock (stateSync)
+				return RepositionCore(bounds, output);
 		}
 
-		internal void Hide()
+		private bool RepositionCore(ScreenRect bounds, WaylandLayerShellClient.OutputTarget output)
 		{
-			TeardownSurface();
-			width = height = 0;
+			if (disposed || connectionInvalidated || !client.IsAvailable || surface == null || !surface.IsConfigured || surface.IsClosed)
+				return false;
+
+			lock (WaylandLayerShellClient.Sync)
+			{
+				if (!client.IsOutputCurrent(output) || output.RegistryName != outputName)
+					return false;
+
+				var x = bounds.X - output.Bounds.X;
+				var y = bounds.Y - output.Bounds.Y;
+
+				if (x == marginLeft && y == marginTop)
+					return true;
+
+				surface.SetMargin(y, 0, 0, x);
+
+				if (!surface.Commit() || !client.IsAvailable)
+					return false;
+
+				marginLeft = x;
+				marginTop = y;
+				return true;
+			}
 		}
 
-		private void EnsureSurface()
+		private void HideCore()
 		{
-			if (surface != null || client == null || !client.IsAvailable)
+			TeardownSurface(connectionInvalidated);
+		}
+
+		private void EnsureSurface(WaylandLayerShellClient.OutputTarget output)
+		{
+			if (surface != null || !client.IsAvailable)
 				return;
 
 			try
 			{
-				surface = new WaylandLayerSurface(client, WaylandNative.LayerOverlay, LayerNamespace);
+				lock (WaylandLayerShellClient.Sync)
+				{
+					if (!client.IsOutputCurrent(output))
+						return;
+
+					surface = new WaylandLayerSurface(client, output.Proxy, WaylandNative.LayerOverlay, LayerNamespace);
+				}
+				outputName = output.RegistryName;
 				surface.SetAnchor(WaylandNative.AnchorTop | WaylandNative.AnchorLeft);
 				surface.SetExclusiveZone(-1);
 				surface.SetKeyboardInteractivity(WaylandNative.KeyboardInteractivityNone);
@@ -198,82 +295,76 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private static unsafe void CopyImageToBuffer(Bitmap image, WaylandShmBuffer target, int width, int height)
+		private static unsafe void CopyImageToBuffer(Bitmap image, Rectangle sourcePixels,
+			WaylandShmBuffer target, int width, int height)
 		{
 			if (image == null || target == null || target.Data == 0)
 				return;
 
-			// Read `image` in place (the backing owns it; Lock() is read-only) — only an actual
-			// resize produces a new bitmap, so the common same-size blit copies nothing.
-			var src = image;
+			var source = Rectangle.Intersect(sourcePixels, new Rectangle(0, 0, image.Width, image.Height));
+
+			if (source.Width <= 0 || source.Height <= 0)
+				return;
+
+			var src32 = ImageHelper.EnsureOpaque32Bpp(image);
+			int[] sourceXs = null;
 
 			try
 			{
-				if (src.Width != width || src.Height != height)
+				sourceXs = ArrayPool<int>.Shared.Rent(width);
+				using var data = src32.Lock();
+				var srcBase = (byte*)data.Data;
+				var srcStride = data.ScanWidth;
+				var srcBpp = data.BytesPerPixel;
+				var dstBase = (uint*)target.Data;
+				var dstStride = target.Stride / 4;
+
+				for (var x = 0; x < width; x++)
+					sourceXs[x] = source.X + SampleIndex(x, width, source.Width);
+
+				// Probe the backend channel order once. Known layouts avoid virtual translation per pixel;
+				// an unfamiliar or premultiplied layout takes the exact fallback below.
+				const int marker = unchecked((int)0x80102030);
+				var translated = (uint)data.TranslateDataToArgb(marker);
+				var identity = translated == 0x80102030u;
+				var rbSwap = translated == 0x80302010u;
+
+				for (var y = 0; y < height; y++)
 				{
-					var resized = ImageHelper.ResizeBitmap(src, width, height, exactPixels: true);
+					var sourceY = source.Y + SampleIndex(y, height, source.Height);
+					var srcRow = srcBase + (long)sourceY * srcStride;
+					var dstRow = dstBase + y * dstStride;
 
-					if (!ReferenceEquals(resized, src))
-						src = resized;
-				}
-
-				var src32 = ImageHelper.EnsureOpaque32Bpp(src);
-
-				try
-				{
-					using var data = src32.Lock();
-					var srcBase = (byte*)data.Data;
-					var srcStride = data.ScanWidth;
-					var srcBpp = data.BytesPerPixel;
-					var dstBase = (uint*)target.Data;
-					var dstStride = target.Stride / 4;
-
-					// Resolve the backend's fixed channel order ONCE instead of a virtual TranslateDataToArgb call
-					// per pixel (~2M/frame at 1080p). Probe the transform with a deliberately TRANSLUCENT distinct-
-					// byte marker: GTK — the only Linux Eto backend — stores non-premultiplied RGBA, so a little-
-					// endian 4-byte read is 0xAABBGGRR and needs R<->B swapped to reach straight 0xAARRGGBB (rbSwap);
-					// a layout already storing straight 0xAARRGGBB is the identity case. The translucent marker means
-					// any premultiplication in the stored layout perturbs the probe and drops us to the safe per-
-					// pixel fallback (so we never mis-colour translucent pixels). The chosen mode is loop-invariant,
-					// so the branch predicts perfectly and the hot path is pure arithmetic + Premultiply, no dispatch.
-					const int marker = unchecked((int)0x80102030);          // A=80 R=10 G=20 B=30 as 0xAARRGGBB
-					var translated = (uint)data.TranslateDataToArgb(marker);
-					var identity = translated == 0x80102030u;               // stored layout already straight 0xAARRGGBB
-					var rbSwap = translated == 0x80302010u;                 // GTK: non-premultiplied RGBA, swap R<->B
-
-					for (var y = 0; y < height; y++)
+					for (var x = 0; x < width; x++)
 					{
-						var srcRow = srcBase + (long)y * srcStride;
-						var dstRow = dstBase + y * dstStride;
+						var raw = (uint)*(int*)(srcRow + sourceXs[x] * srcBpp);
+						uint argb;
 
-						for (var x = 0; x < width; x++)
-						{
-							var raw = (uint)*(int*)(srcRow + x * srcBpp);
-							uint argb;
+						if (rbSwap)
+							argb = (raw & 0xFF00FF00u) | ((raw >> 16) & 0xFFu) | ((raw & 0xFFu) << 16);
+						else if (identity)
+							argb = raw;
+						else
+							argb = (uint)data.TranslateDataToArgb((int)raw);
 
-							if (rbSwap)
-								argb = (raw & 0xFF00FF00u) | ((raw >> 16) & 0xFFu) | ((raw & 0xFFu) << 16);
-							else if (identity)
-								argb = raw;
-							else
-								argb = (uint)data.TranslateDataToArgb((int)raw);   // unexpected layout: exact fallback
-
-							dstRow[x] = Premultiply(argb);
-						}
+						dstRow[x] = Premultiply(argb);
 					}
-				}
-				finally
-				{
-					if (!ReferenceEquals(src32, src))
-						src32.Dispose();
 				}
 			}
 			finally
 			{
-				if (!ReferenceEquals(src, image))
-					src.Dispose();
+				if (sourceXs != null)
+					ArrayPool<int>.Shared.Return(sourceXs);
+
+				if (!ReferenceEquals(src32, image))
+					src32.Dispose();
 			}
 		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		internal static int SampleIndex(int targetIndex, int targetLength, int sourceLength)
+			=> (int)Math.Min(sourceLength - 1L,
+				((2L * targetIndex + 1) * sourceLength) / (2L * targetLength));
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		private static uint Premultiply(uint argb)
@@ -296,35 +387,73 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			return (a << 24) | (r << 16) | (g << 8) | b;
 		}
 
-		private void TeardownSurface()
+		private void TeardownSurface(bool abandon = false, bool forceLocal = false)
 		{
+			preparedBuffer = null;
+			if (abandon)
+				surface?.Abandon();
+			else
+				surface?.Dispose();
+			surface = null;
+
 			lock (WaylandLayerShellClient.Sync)
 			{
-				// The surface is being destroyed, so the compositor releases every attached buffer implicitly —
-				// it is safe to free the whole pool here, in-flight buffers included.
+				// Released buffers are freed now. In-flight buffers retire themselves and keep their mapping alive
+				// until wl_buffer.release, avoiding a compositor read from unmapped SHM after surface destruction.
 				foreach (var b in bufferPool)
-					b.Dispose();
+				{
+					if (abandon)
+						b.Abandon();
+					else
+					{
+						b.Dispose();
+						// Dispose defers an in-flight buffer to wl_buffer.release. Connection invalidation stops the
+						// dispatcher immediately afterward, so force its local mapping/handle cleanup then.
+						if (forceLocal) b.Abandon();
+					}
+				}
 
 				bufferPool.Clear();
 
-				if (emptyRegion != 0)
+				if (emptyRegion != 0 && !abandon)
 				{
 					WaylandNative.RegionDestroy(emptyRegion);
-					emptyRegion = 0;
 				}
-			}
 
-			surface?.Dispose();
-			surface = null;
+				emptyRegion = 0;
+			}
+			marginLeft = marginTop = int.MinValue;
+			outputName = 0;
 		}
 
 		public void Dispose()
 		{
-			if (disposed)
-				return;
+			lock (stateSync)
+			{
+				if (disposed)
+					return;
 
-			disposed = true;
-			TeardownSurface();
+				disposed = true;
+				TeardownSurface(connectionInvalidated || !client.IsAvailable);
+			}
+
+			client.Unregister(this);
+		}
+
+		/// <summary>Called by the owning connection before wl_display_disconnect. Removes every raw proxy pointer
+		/// and listener handle, and force-releases local SHM resources when release events can no longer arrive.</summary>
+		internal void InvalidateConnection(bool connectionLost)
+		{
+			lock (stateSync)
+			{
+				if (connectionInvalidated)
+					return;
+
+				connectionInvalidated = true;
+				TeardownSurface(connectionLost, forceLocal: true);
+			}
+
+			client.Unregister(this);
 		}
 	}
 }

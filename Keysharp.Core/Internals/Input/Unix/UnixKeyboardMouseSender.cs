@@ -363,16 +363,10 @@ namespace Keysharp.Internals.Input.Unix
 				return;
 
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
-#if DPI
-			double scale = Ks.A_ScreenScale;
-#else
-			double scale = 1.0;
-#endif
-
-			DispatchEventArray(lht, st, extraInfo, scale);
+			DispatchEventArray(lht, st, extraInfo);
 		}
 
-		protected void ReplayEventArrayEvents(List<ArrayEvent> events, long extraInfo, double scale)
+		protected void ReplayEventArrayEvents(List<ArrayEvent> events, long extraInfo)
 		{
 			var ms = DateTime.UtcNow;
 			var textBatch = new StringBuilder();
@@ -414,14 +408,14 @@ namespace Keysharp.Internals.Input.Unix
 						break;
 
 					case ArrayEventType.MouseMoveRel:
-						sim.SimulateMouseMovementRelative(ClampShort(ev.X * scale), ClampShort(ev.Y * scale));
+						sim.SimulateMouseMovementRelative(ClampShort(ev.X), ClampShort(ev.Y));
 						break;
 
 					case ArrayEventType.MouseMoveAbs:
 					{
 						int mx = ev.X, my = ev.Y;
 						EnsureCoords(ref mx, ref my);
-						sim.SimulateMouseMovement(ClampShort(mx * scale), ClampShort(my * scale));
+						sim.SimulateMouseMovement(ClampShort(mx), ClampShort(my));
 						break;
 					}
 
@@ -435,7 +429,7 @@ namespace Keysharp.Internals.Input.Unix
 						else
 						{
 							EnsureCoords(ref mx, ref my);
-							sim.SimulateMousePress(ClampShort(mx * scale), ClampShort(my * scale), ev.Button);
+							sim.SimulateMousePress(ClampShort(mx), ClampShort(my), ev.Button);
 						}
 						break;
 					}
@@ -450,7 +444,7 @@ namespace Keysharp.Internals.Input.Unix
 						else
 						{
 							EnsureCoords(ref mx, ref my);
-							sim.SimulateMouseRelease(ClampShort(mx * scale), ClampShort(my * scale), ev.Button);
+							sim.SimulateMouseRelease(ClampShort(mx), ClampShort(my), ev.Button);
 						}
 						break;
 					}
@@ -679,19 +673,14 @@ namespace Keysharp.Internals.Input.Unix
 
 			void EmitMove(bool rel, int mx, int my)
 			{
-#if DPI
-				double scale = Ks.A_ScreenScale;
-#else
-				double scale = 1.0;
-#endif
 				if (rel)
 				{
-					sim.SimulateMouseMovementRelative(ClampShort(mx * scale), ClampShort(my * scale));
+					sim.SimulateMouseMovementRelative(ClampShort(mx), ClampShort(my));
 				}
 				else
 				{
 					EnsureCoords(ref mx, ref my);
-					sim.SimulateMouseMovement(ClampShort(mx * scale), ClampShort(my * scale));
+					sim.SimulateMouseMovement(ClampShort(mx), ClampShort(my));
 				}
 			}
 
@@ -711,27 +700,13 @@ namespace Keysharp.Internals.Input.Unix
 						if (noCoords)
 							sim.SimulateMousePress(button);
 						else
-						{
-#if DPI
-							double scale = Ks.A_ScreenScale;
-#else
-							double scale = 1.0;
-#endif
-							sim.SimulateMousePress(ClampShort(mx * scale), ClampShort(my * scale), button);
-						}
+							sim.SimulateMousePress(ClampShort(mx), ClampShort(my), button);
 						break;
 					case KeyEventTypes.KeyUp:
 						if (noCoords)
 							sim.SimulateMouseRelease(button);
 						else
-						{
-#if DPI
-							double scale = Ks.A_ScreenScale;
-#else
-							double scale = 1.0;
-#endif
-							sim.SimulateMouseRelease(ClampShort(mx * scale), ClampShort(my * scale), button);
-						}
+							sim.SimulateMouseRelease(ClampShort(mx), ClampShort(my), button);
 						break;
 					case KeyEventTypes.KeyDownAndUp:
 						if (noCoords)
@@ -741,13 +716,8 @@ namespace Keysharp.Internals.Input.Unix
 						}
 						else
 						{
-#if DPI
-							double scale = Ks.A_ScreenScale;
-#else
-							double scale = 1.0;
-#endif
-							sim.SimulateMousePress(ClampShort(mx * scale), ClampShort(my * scale), button);
-							sim.SimulateMouseRelease(ClampShort(mx * scale), ClampShort(my * scale), button);
+							sim.SimulateMousePress(ClampShort(mx), ClampShort(my), button);
+							sim.SimulateMouseRelease(ClampShort(mx), ClampShort(my), button);
 						}
 						break;
 				}
@@ -828,22 +798,16 @@ namespace Keysharp.Internals.Input.Unix
 			else if (speed > MaxMouseSpeed)
 				speed = MaxMouseSpeed;
 
-#if DPI
-			double scale = Ks.A_ScreenScale;
-#else
-			double scale = 1.0;
-#endif
-
 			if (speed == 0)
 			{
-				sim.SimulateMouseMovement(ClampShort(x * scale), ClampShort(y * scale));
+				sim.SimulateMouseMovement(ClampShort(x), ClampShort(y));
 				DoMouseDelay();
 				return;
 			}
 
 			if (!GetCursorPos(out POINT cursorPos))
 			{
-				sim.SimulateMouseMovement(ClampShort(x * scale), ClampShort(y * scale));
+				sim.SimulateMouseMovement(ClampShort(x), ClampShort(y));
 				DoMouseDelay();
 				return;
 			}
@@ -871,7 +835,7 @@ namespace Keysharp.Internals.Input.Unix
 			{
 				Step(ref cx, x);
 				Step(ref cy, y);
-				sim.SimulateMouseMovement(ClampShort(cx * scale), ClampShort(cy * scale));
+				sim.SimulateMouseMovement(ClampShort(cx), ClampShort(cy));
 				DoMouseDelay();
 			}
 		}
@@ -1051,8 +1015,8 @@ namespace Keysharp.Internals.Input.Unix
 		}
 
 		// Dispatch the recorded event array to the platform backend.
-		protected virtual void DispatchEventArray(UnixHookThread lht, InputArrayState state, long extraInfo, double scale)
-			=> WithSendScope(lht, () => ReplayEventArrayEvents(state.Events, extraInfo, scale));
+		protected virtual void DispatchEventArray(UnixHookThread lht, InputArrayState state, long extraInfo)
+			=> WithSendScope(lht, () => ReplayEventArrayEvents(state.Events, extraInfo));
 
 		// Dispatch a single keyboard event to the platform backend.
 		protected virtual void DispatchKeybdEvent(UnixHookThread lht, KeyEventTypes eventType, uint vk, long extraInfo, bool autoRepeat)

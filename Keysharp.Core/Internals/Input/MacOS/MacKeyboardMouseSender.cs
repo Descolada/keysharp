@@ -170,10 +170,10 @@ namespace Keysharp.Internals.Input.MacOS
 			return true;
 		}
 
-		protected override void DispatchEventArray(Keysharp.Internals.Input.Hooks.Unix.UnixHookThread lht, InputArrayState state, long extraInfo, double scale)
-			=> WithSendScope(lht, () => ReplayMacEventArray(state, extraInfo, scale));
+		protected override void DispatchEventArray(Keysharp.Internals.Input.Hooks.Unix.UnixHookThread lht, InputArrayState state, long extraInfo)
+			=> WithSendScope(lht, () => ReplayMacEventArray(state, extraInfo));
 
-		private void ReplayMacEventArray(InputArrayState state, long extraInfo, double scale)
+		private void ReplayMacEventArray(InputArrayState state, long extraInfo)
 		{
 			var events = state.Events;
 			var modifiersLR = state.InitialModifiers;
@@ -226,21 +226,19 @@ namespace Keysharp.Internals.Input.MacOS
 							keyboardState.SetModifiers(modifiersLR = modifiersAfterUp);
 						break;
 					case ArrayEventType.MouseMoveRel:
-						_ = mouseStream.MoveRelative(ScaleCoordinate(ev.X, scale), ScaleCoordinate(ev.Y, scale), extraInfo);
+						_ = mouseStream.MoveRelative(ev.X, ev.Y, extraInfo);
 						break;
 					case ArrayEventType.MouseMoveAbs:
 					{
 						int mx = ev.X, my = ev.Y;
 						EnsureCoords(ref mx, ref my);
-						mouseStream.MoveAbsolute(ScaleCoordinate(mx, scale), ScaleCoordinate(my, scale), extraInfo);
+						mouseStream.MoveAbsolute(mx, my, extraInfo);
 						break;
 					}
 					case ArrayEventType.MousePress:
 					case ArrayEventType.MouseRelease:
 					{
-						var mx = ScaleOptionalCoord(ev.X, scale);
-						var my = ScaleOptionalCoord(ev.Y, scale);
-						mouseStream.Button(ev.Button, ev.Type == ArrayEventType.MousePress, mx, my, extraInfo);
+						mouseStream.Button(ev.Button, ev.Type == ArrayEventType.MousePress, ev.X, ev.Y, extraInfo);
 						break;
 					}
 					case ArrayEventType.MouseWheelV:
@@ -452,12 +450,6 @@ namespace Keysharp.Internals.Input.MacOS
 			if (type != KeyEventTypes.KeyDown)
 				mouseStream.Button(button, false, x, y, extraInfo);
 		}
-
-		private static int ScaleOptionalCoord(int value, double scale)
-			=> value == CoordUnspecified ? CoordUnspecified : ScaleCoordinate(value, scale);
-
-		private static int ScaleCoordinate(int value, double scale)
-			=> (int)Math.Clamp((long)(value * scale), int.MinValue, int.MaxValue);
 
 		private void EmitMacTextWithControls(string text, long extraInfo)
 		{

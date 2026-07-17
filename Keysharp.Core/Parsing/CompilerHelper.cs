@@ -581,6 +581,8 @@ using String = Keysharp.Builtins.String
 				    <asmv3:application xmlns:asmv3=""urn:schemas-microsoft-com:asm.v3"">
 				        <asmv3:windowsSettings xmlns=""http://schemas.microsoft.com/SMI/2005/WindowsSettings"">
 				            <!-- Extra info: https://learn.microsoft.com/en-us/windows/win32/sbscs/application-manifests -->
+				            <dpiAware>true/pm</dpiAware>
+				            <dpiAwareness xmlns=""http://schemas.microsoft.com/SMI/2016/WindowsSettings"">PerMonitorV2,PerMonitor</dpiAwareness>
 				            <disableWindowFiltering xmlns=""http://schemas.microsoft.com/SMI/2011/WindowsSettings"">true</disableWindowFiltering>
 				            <longPathAware xmlns=""http://schemas.microsoft.com/SMI/2016/WindowsSettings"">true</longPathAware>
 				        </asmv3:windowsSettings>

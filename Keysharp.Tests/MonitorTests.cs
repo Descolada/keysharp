@@ -16,10 +16,8 @@ namespace Keysharp.Tests
 			SkipIfGuiHeadless();
 			VarRef l = new(null), t = new(null), r = new(null), b = new(null);
 			var monget = Builtins.Monitor.MonitorGet(null, l, t, r, b);
-			Assert.IsTrue(l.__Value.Ai() >= 0);
-			Assert.IsTrue(r.__Value.Ai() >= 0);
-			Assert.IsTrue(t.__Value.Ai() >= 0);
-			Assert.IsTrue(b.__Value.Ai() >= 0);
+			Assert.IsTrue(r.__Value.Ai() > l.__Value.Ai());
+			Assert.IsTrue(b.__Value.Ai() > t.__Value.Ai());
 			Assert.IsTrue(monget.Ai() > 0);
 			Assert.IsTrue(TestScript("monitor-monitorget", true));
 		}
@@ -57,15 +55,27 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Monitor")]
+		public void MonitorGetScaleAndPointSelection()
+		{
+			SkipIfGuiHeadless();
+			var primary = Builtins.Monitor.MonitorGetPrimary();
+			VarRef l = new(null), t = new(null), r = new(null), b = new(null);
+			_ = Builtins.Monitor.MonitorGet(primary, l, t, r, b);
+			var x = (l.__Value.Ai() + r.__Value.Ai()) / 2;
+			var y = (t.__Value.Ai() + b.__Value.Ai()) / 2;
+
+			Assert.AreEqual(primary, Ks.MonitorFromPoint(x, y));
+			Assert.Greater(Ks.MonitorGetScale(primary), 0);
+		}
+
+		[Test, Category("Monitor")]
 		public void MonitorGetWorkArea()
 		{
 			SkipIfGuiHeadless();
 			VarRef l = new(null), t = new(null), r = new(null), b = new(null);
 			var monget = Builtins.Monitor.MonitorGetWorkArea(null, l, t, r, b);
-			Assert.IsTrue(l.__Value.Ai() >= 0);
-			Assert.IsTrue(r.__Value.Ai() >= 0);
-			Assert.IsTrue(t.__Value.Ai() >= 0);
-			Assert.IsTrue(b.__Value.Ai() >= 0);
+			Assert.IsTrue(r.__Value.Ai() > l.__Value.Ai());
+			Assert.IsTrue(b.__Value.Ai() > t.__Value.Ai());
 			Assert.IsTrue(monget.Ai() > 0);
 			Assert.IsTrue(TestScript("monitor-monitorgetworkarea", true));
 		}

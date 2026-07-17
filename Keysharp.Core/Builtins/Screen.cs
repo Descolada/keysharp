@@ -1,3 +1,5 @@
+using Keysharp.Internals;
+
 namespace Keysharp.Builtins
 {
 	/// <summary>
@@ -146,61 +148,47 @@ namespace Keysharp.Builtins
 			if (bmp == null)
 				return Errors.ValueErrorOccurred($"Loading icon or bitmap from {filename} failed.");
 
-			Point? location;
-			Bitmap source = null;
-			// Captured inside the try block before source is disposed, so the scale
-			// is available when converting physical offsets to logical coordinates.
-			double captureScaleX = 1.0, captureScaleY = 1.0;
-
+			using (bmp)
 			try
 			{
 				int _px1 = _x1, _py1 = _y1;
 				CoordToScreen(ref _x1, ref _y1, CoordMode.Pixel);
 				_x2 += _x1 - _px1; _y2 += _y1 - _py1;
 
-				var start = new Point(_x1, _y1);
-				//Ensure we're not trying to search outside of the screen bounds,
-				//because X11 will throw an exception if we do.
-				var maxX = Math.Min(Ks.A_TotalScreenWidth.Ai(), _x2) - start.X;
-				var maxY = Math.Min(Ks.A_TotalScreenHeight.Ai(), _y2) - start.Y;
-				source = GuiHelper.GetScreen(_x1, _y1, maxX, maxY);
+				var boundsFailure = ResolveSearchBounds(_x1, _y1, _x2, _y2, out var searchBounds);
 
-				if (source == null)
+				if (boundsFailure != SearchBoundsFailure.None)
+					return Errors.ErrorOccurred(boundsFailure == SearchBoundsFailure.OutsideDesktop
+						? "The ImageSearch rectangle does not intersect the virtual desktop."
+						: "The ImageSearch rectangle is too large to capture as one bitmap.");
+
+				using var capture = GuiHelper.GetScreen(searchBounds.X, searchBounds.Y,
+					searchBounds.Width, searchBounds.Height);
+
+				if (capture == null)
 					return Errors.ErrorOccurred("Screen capture failed while searching for an image.");
 
-				// On HiDPI compositors (GNOME Wayland) GetScreen returns the physical-pixel
-				// bitmap so the needle (also physical from screenshot tools) matches exactly.
-				// Record the scale here while source is still alive; apply it below.
-				if (source != null && maxX > 0) captureScaleX = (double)source.Width / maxX;
-				if (source != null && maxY > 0) captureScaleY = (double)source.Height / maxY;
+				if (new ImageFinder(capture) { Variation = variation }.Find(bmp, trans, direction) is { } match)
+				{
+					var location = searchBounds.PixelToScreen(match, new PixelSize(capture.Width, capture.Height));
+					int foundX = location.X, foundY = location.Y;
+					ScreenToCoord(ref foundX, ref foundY, CoordMode.Pixel);
+					if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)foundX);
+					if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)foundY);
+					return 1L;
+				}
 
-				var searchImg = new ImageFinder(source) { Variation = variation };
-
-				location = searchImg.Find(bmp, trans, direction);
+				if (outX != null) Script.SetPropertyValue(outX, "__Value", "");
+				if (outY != null) Script.SetPropertyValue(outY, "__Value", "");
+				return 0L;
+			}
+			catch (KeysharpException)
+			{
+				throw;
 			}
 			catch (Exception ex)
 			{
 				return Errors.OSErrorOccurred(ex, "Error searching the screen for an image.");
-			}
-			finally
-			{
-				source?.Dispose();
-				bmp?.Dispose();
-			}
-
-			if (location.HasValue)
-			{
-				int x = (int)Math.Round(location.Value.X / captureScaleX) + _x1, y = (int)Math.Round(location.Value.Y / captureScaleY) + _y1;
-				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
-				if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)x);
-				if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)y);
-				return 1L;
-			}
-			else
-			{
-				if (outX != null) Script.SetPropertyValue(outX, "__Value", "");
-				if (outY != null) Script.SetPropertyValue(outY, "__Value", "");
-				return 0L;
 			}
 		}
 
@@ -224,15 +212,20 @@ namespace Keysharp.Builtins
 			{
 				CoordToScreen(ref _x, ref _y, CoordMode.Pixel);
 
-				using (var bmp = GuiHelper.GetScreen(_x, _y, 1, 1))
-				{
-					if (bmp == null)
-						return (string)Errors.ErrorOccurred($"Screen capture failed at {_x},{_y}.", DefaultErrorString);
+				var bounds = new ScreenRect(_x, _y, 1, 1);
+				using var capture = GuiHelper.GetScreen(_x, _y, 1, 1);
 
-					pixel = bmp.GetPixel(0, 0).ToArgb() & 0xffffff;
-				}
+				if (capture == null)
+					return (string)Errors.ErrorOccurred($"Screen capture failed at {_x},{_y}.", DefaultErrorString);
+
+				var sample = bounds.ScreenToPixel(_x, _y, new PixelSize(capture.Width, capture.Height));
+				pixel = capture.GetPixel(sample.X, sample.Y).ToArgb() & 0xffffff;
 
 				return $"0x{pixel:X6}";
+			}
+			catch (KeysharpException)
+			{
+				throw;
 			}
 			catch (Exception ex)
 			{
@@ -285,49 +278,73 @@ namespace Keysharp.Builtins
 			x2 = x2temp;
 			y1 = y1temp;
 			y2 = y2temp;
-			Bitmap source = null;
-			ImageFinder finder = null;
 			var needle = Color.FromArgb((int)((uint)colorID | 0xFF000000));
-			Point? location;
-			double captureScaleX = 1.0, captureScaleY = 1.0;
 
 			try
 			{
-				var logW = x2 - x1;
-				var logH = y2 - y1;
-				source = GuiHelper.GetScreen(x1, y1, logW, logH);
+				var boundsFailure = ResolveSearchBounds(x1, y1, x2, y2, out var bounds);
 
-				if (source == null)
+				if (boundsFailure != SearchBoundsFailure.None)
+					return (long)Errors.ErrorOccurred(boundsFailure == SearchBoundsFailure.OutsideDesktop
+						? "The PixelSearch rectangle does not intersect the virtual desktop."
+						: "The PixelSearch rectangle is too large to capture as one bitmap.", DefaultErrorLong);
+
+				using var capture = GuiHelper.GetScreen(bounds.X, bounds.Y, bounds.Width, bounds.Height);
+
+				if (capture == null)
 					return (long)Errors.ErrorOccurred("Screen capture failed while searching for a pixel color.", DefaultErrorLong);
 
-				if (source != null && logW > 0) captureScaleX = (double)source.Width / logW;
-				if (source != null && logH > 0) captureScaleY = (double)source.Height / logH;
-				finder = new ImageFinder(source) { Variation = (byte)variation };
-				location = finder.Find(needle, ltr, ttb);
+				if (new ImageFinder(capture) { Variation = (byte)variation }.Find(needle, ltr, ttb) is { } match)
+				{
+					var location = bounds.PixelToScreen(match, new PixelSize(capture.Width, capture.Height));
+					int foundX = location.X, foundY = location.Y;
+					ScreenToCoord(ref foundX, ref foundY, CoordMode.Pixel);
+					if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)foundX);
+					if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)foundY);
+					return 1L;
+				}
+
+				if (outX != null) Script.SetPropertyValue(outX, "__Value", 0L);
+				if (outY != null) Script.SetPropertyValue(outY, "__Value", 0L);
+				return 0L;
+			}
+			catch (KeysharpException)
+			{
+				throw;
 			}
 			catch (Exception ex)
 			{
 				return (long)Errors.OSErrorOccurred(ex, "Error searching a region of the screen for a pixel color.", DefaultErrorLong);
 			}
-			finally
+		}
+
+		private enum SearchBoundsFailure { None, OutsideDesktop, TooLarge }
+
+		private static SearchBoundsFailure ResolveSearchBounds(int x1, int y1, int x2, int y2,
+			out ScreenRect bounds)
+		{
+			var (virtualLeft, virtualTop, virtualWidth, virtualHeight) = Monitor.GetVirtualScreenBounds();
+			var left = Math.Max((long)x1, virtualLeft);
+			var top = Math.Max((long)y1, virtualTop);
+			var right = Math.Min((long)x2 + 1, virtualLeft + virtualWidth);
+			var bottom = Math.Min((long)y2 + 1, virtualTop + virtualHeight);
+			var width = right - left;
+			var height = bottom - top;
+
+			if (width <= 0 || height <= 0)
 			{
-				source?.Dispose();
+				bounds = default;
+				return SearchBoundsFailure.OutsideDesktop;
 			}
 
-			if (location.HasValue)
+			if (width > int.MaxValue || height > int.MaxValue)
 			{
-				int x = (int)Math.Round(location.Value.X / captureScaleX) + x1, y = (int)Math.Round(location.Value.Y / captureScaleY) + y1;
-				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
-				if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)x);
-				if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)y);
-				return 1L;
+				bounds = default;
+				return SearchBoundsFailure.TooLarge;
 			}
-			else
-			{
-				if (outX != null) Script.SetPropertyValue(outX, "__Value", 0L);
-				if (outY != null) Script.SetPropertyValue(outY, "__Value", 0L);
-				return 0L;
-			}
+
+			bounds = new ScreenRect((int)left, (int)top, (int)width, (int)height);
+			return SearchBoundsFailure.None;
 		}
 
 		[GeneratedRegex(@"\*Dir([0-9]*)", RegexOptions.IgnoreCase)]

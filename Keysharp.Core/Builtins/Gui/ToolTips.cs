@@ -1,3 +1,5 @@
+using Keysharp.Internals;
+
 namespace Keysharp.Builtins
 {
 	internal class ToolTipData
@@ -21,10 +23,11 @@ namespace Keysharp.Builtins
 		/// </summary>
 		internal readonly Ks.KeysharpOverlay[] overlayTooltips = new Ks.KeysharpOverlay[MaxToolTips];
 		/// <summary>
-		/// Per-slot last shown (text, x, y): unchanged calls return early and position-only changes move the
-		/// live overlay instead of re-rendering — the classic timer-loop ToolTip idiom repeats identical calls.
+		/// Per-slot last shown text, position, display scale and target pixel size: unchanged calls return early and
+		/// position-only changes on an equivalent target move the live overlay instead of re-rendering.
 		/// </summary>
-		internal readonly (string text, int x, int y)?[] overlayTooltipStates = new (string, int, int)?[MaxToolTips];
+		internal readonly (string text, int x, int y, double displayScale, int pixelW, int pixelH)?[] overlayTooltipStates
+			= new (string, int, int, double, int, int)?[MaxToolTips];
 #endif
 	}
 
@@ -211,39 +214,45 @@ namespace Keysharp.Builtins
 			}
 
 			ResolveTooltipPos(xArg, yArg, out var sx, out var sy);
+			_ = DisplayTopology.TryFind(Platform.Screen.GetDisplays(), new ScreenRect(sx, sy, 0, 0), out var display);
+			var displayScale = ScaleFactor.Normalize(display.SizeScale);
+			var geometry = GetTooltipGeometry(text, sx, sy, displayScale);
 
 			// Dedupe (matches the Windows branch): identical call = no-op; same text at a new position
-			// = byte-free Move instead of re-render + re-upload.
-			if (data.overlayTooltipStates[id] is { } last && overlays[id] is { } live && last.text == text)
+			// on a display with the same scale and canvas density = byte-free Move instead of re-render + re-upload.
+			if (data.overlayTooltipStates[id] is { } last && overlays[id] is { } live && last.text == text
+					&& Math.Abs(last.displayScale - displayScale) < 0.001
+					&& last.pixelW == geometry.Pixels.Width && last.pixelH == geometry.Pixels.Height)
 			{
 				if (last.x == sx && last.y == sy)
 					return live.Hwnd;
 
 				_ = live.Visible is true ? live.Move(sx, sy) : live.Show(sx, sy);
-				data.overlayTooltipStates[id] = (text, sx, sy);
+				data.overlayTooltipStates[id] = (text, sx, sy, displayScale, geometry.Pixels.Width, geometry.Pixels.Height);
 				return live.Hwnd;
 			}
 
-			// Build the bitmap at the screen's DPI scale and match the overlay's scale to it, so it is a
-			// physical-resolution image rather than a 1x one Cocoa/Retina then upscales into a blurry panel.
-			var scale = Ks.A_ScreenScale;
-
-			using var img = BuildTooltipImage(text, scale);
+			// Scale the authored tooltip size for the target display; placement remains in native screen units.
+			using var img = BuildTooltipImage(text, geometry);
 
 			if (img == null)
 				return 0L;
 
 			var overlay = overlays[id] ??= new Ks.KeysharpOverlay();
-			overlay.Scale = scale;
-			_ = overlay.SetImage(img);
-			_ = overlay.Show(sx, sy);
-			data.overlayTooltipStates[id] = (text, sx, sy);
+			_ = overlay.Update(img, sx, sy, geometry.ScreenW, geometry.ScreenH);
+
+			if (overlay.Visible is not true)
+				_ = overlay.Show();
+
+			data.overlayTooltipStates[id] = (text, sx, sy, displayScale, geometry.Pixels.Width, geometry.Pixels.Height);
 			return overlay.Hwnd;
 		}
 
 		// Renders tooltip text to a bitmap: black text on the classic light-yellow background with a 1px black
 		// border, sized to the text plus padding. Returned as an Image the Overlay copies onto its canvas.
-		private static Ks.KeysharpImage BuildTooltipImage(string text, double scale)
+		private readonly record struct TooltipGeometry(int DrawW, int DrawH, int ScreenW, int ScreenH, PixelSize Pixels);
+
+		private static TooltipGeometry GetTooltipGeometry(string text, int x, int y, double displayScale)
 		{
 			const int pad = 6;
 
@@ -254,14 +263,29 @@ namespace Keysharp.Builtins
 			var (tw, th) = Ks.KeysharpImage.MeasureTextCore(text ?? "", "");
 			var w = Math.Max(1, (int)Math.Ceiling(tw) + pad * 2);
 			var h = Math.Max(1, (int)Math.Ceiling(th) + pad * 2);
+			var screenW = Math.Max(1, (int)Math.Round(w * displayScale));
+			var screenH = Math.Max(1, (int)Math.Round(h * displayScale));
+			var pixels = Platform.Overlay.GetCanvasSize(new ScreenRect(x, y, screenW, screenH));
+			return new TooltipGeometry(w, h, screenW, screenH, pixels);
+		}
 
-			// Create at the DPI scale: a physical-resolution bitmap drawn through a matching drawScale, so the
-			// logical coordinates below stay crisp on HiDPI instead of being upscaled from a 1x bitmap.
-			if (Ks.KeysharpImage.Create(null, (long)w, (long)h, null, scale) is not Ks.KeysharpImage img)
+		private static Ks.KeysharpImage BuildTooltipImage(string text, TooltipGeometry geometry)
+		{
+			const int pad = 6;
+
+			// Create at the target pixel scale: a full-resolution bitmap drawn through matching axis transforms, so the
+			// draw coordinates below stay crisp instead of being upscaled from a 1x bitmap.
+			if (!geometry.Pixels.HasArea || Ks.KeysharpImage.Create(null,
+					(long)geometry.Pixels.Width, (long)geometry.Pixels.Height) is not Ks.KeysharpImage img)
 				return null;
 
-			_ = img.FillRect(0L, 0L, (long)w, (long)h, 0xFFFFE1L);       // light-yellow background
-			_ = img.DrawRect(0L, 0L, (long)w, (long)h, 0x000000L, 1L);   // black border — full w,h so it covers every edge
+			var sx = (double)geometry.Pixels.Width / geometry.DrawW;
+			var sy = (double)geometry.Pixels.Height / geometry.DrawH;
+			img.drawScaleX = ScaleFactor.Normalize(sx);
+			img.drawScaleY = ScaleFactor.Normalize(sy);
+
+			_ = img.FillRect(0L, 0L, (long)geometry.DrawW, (long)geometry.DrawH, 0xFFFFE1L);
+			_ = img.DrawRect(0L, 0L, (long)geometry.DrawW, (long)geometry.DrawH, 0x000000L, 1L);
 			_ = img.DrawText(text, (long)pad, (long)pad, 0x000000L);     // black text
 			return img;
 		}

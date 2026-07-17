@@ -3,6 +3,7 @@ using Eto.GtkSharp;
 using Keysharp.Internals.Window.Linux.Proxies;
 using Keysharp.Internals.Window.Linux.X11;
 #endif
+using Keysharp.Internals;
 namespace Keysharp.Builtins
 {
 	public static class GuiHelper
@@ -162,42 +163,14 @@ namespace Keysharp.Builtins
 		{
 			// Keep capture permission enforcement centralized for any direct screen grabs.
 			_ = Script.TheScript?.Permissions?.EnsureScreenCapture(operation: "screen capture");
-			Bitmap bmp;
+
 			try {
-#if WINDOWS
-				var format = Forms.Screen.PrimaryScreen.BitsPerPixel switch
-				{
-					8 or 16 => PixelFormat.Format16bppRgb565,
-					24 => PixelFormat.Format24bppRgb,
-					32 => PixelFormat.Format32bppArgb,
-					_ => PixelFormat.Format32bppArgb,
-				};
-
-				bmp = new Bitmap(w, h, format);
-
-				using (var g = Graphics.FromImage(bmp))
-				{
-					g.CopyFromScreen(x, y, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
-				}
-#else
-#if LINUX
-				// Compositor-native capture (KWin/GNOME/wlroots) else the Eto root grab — the compositor flavor
-				// is resolved once inside Platform.Screen, so there's no IsWaylandSession/backend test here.
-				_ = Platform.Screen.TryCaptureRegion(x, y, w, h, out bmp, out _, out _);
-#else
-				// On Retina displays this is a physical-pixel-sized bitmap (our Eto fork sizes
-				// the capture in pixels, not points); callers map coordinates back to logical
-				// units via the capture scale.
-				bmp = Eto.Forms.Screen.PrimaryScreen.GetImage(new RectangleF(x, y, w, h)) as Bitmap;
-#endif
-#endif
+				return Platform.Screen.TryCaptureRegion(new ScreenRect(x, y, w, h), out var bmp) ? bmp : null;
 			}
 			catch
 			{
 				return null;
 			}
-
-			return bmp;
 		}
 
 		/// <summary>
@@ -214,12 +187,12 @@ namespace Keysharp.Builtins
 		/// Wayland backend (false = client area only); ignored elsewhere, which capture a fixed extent.</param>
 		/// <returns>The captured bitmap (the whole window including the title bar, except a client-area-only
 		/// KWin capture when <paramref name="includeDecoration"/> is false) and its
-		/// physical-pixels-per-logical-unit scale, or (null, 1) when no true window capture is possible
+		/// image-pixels-per-native-screen-unit scale for each axis, or (null, 1:1) when no true window capture is possible
 		/// (the caller then falls back to a screen-rectangle grab).</returns>
-		internal static (Bitmap bmp, double scale) CaptureWindowContent(nint handle, int mode, bool includeDecoration)
+		internal static (Bitmap bmp, PixelScale pixelScale) CaptureWindowContent(nint handle, int mode, bool includeDecoration)
 		{
 			if (handle == 0)
-				return (null, 1.0);
+				return (null, PixelScale.One);
 
 			_ = Script.TheScript?.Permissions?.EnsureScreenCapture(operation: "window capture");
 
@@ -227,36 +200,36 @@ namespace Keysharp.Builtins
 			{
 #if WINDOWS
 				// Windows captures in device pixels (no Retina-style doubling), so scale 1.
-				return (CaptureWindowWin(handle, mode), 1.0);
+				return (CaptureWindowWin(handle, mode), PixelScale.One);
 #elif OSX
 				var bmp = Keysharp.Internals.Window.MacOS.MacNativeWindows.TryCaptureWindow(unchecked((uint)handle.ToInt64()));
 
 				if (bmp == null)
-					return (null, 1.0);
+					return (null, PixelScale.One);
 
 				// The window-server image is physical pixels; the window's logical (point) width comes
 				// from its bounds, so their ratio is the HiDPI scale.
-				double scale = 1.0;
+				var pixelScale = PixelScale.One;
 
-				if (Keysharp.Internals.Window.MacOS.MacNativeWindows.TryGetWindowInfo(handle, out var info) && info.Bounds.Width > 0)
-					scale = (double)bmp.Width / info.Bounds.Width;
+				if (Keysharp.Internals.Window.MacOS.MacNativeWindows.TryGetWindowInfo(handle, out var info))
+					pixelScale = PixelScale.From(bmp, ScreenRect.FromRectangle(info.Bounds));
 
-				return (bmp, scale);
+				return (bmp, pixelScale);
 #elif LINUX
 				// Per-compositor window capture, resolved once inside Platform.Screen: X11 (incl. Cinnamon) uses
 				// XGetImage + XComposite so occluded windows still capture; GNOME images the window actor's buffer
 				// via the Keysharp Shell extension; KWin uses ScreenShot2; wlroots/unknown return false so the
 				// caller falls back to a rectangle grab of the window's on-screen bounds.
-				return Platform.Screen.TryCaptureWindow(handle, includeDecoration, out var wbmp, out var wscale)
-					? (wbmp, wscale)
-					: (null, 1.0);
+				return Platform.Screen.TryCaptureWindow(handle, includeDecoration, out var wbmp, out var pixelScale)
+					? (wbmp, pixelScale)
+					: (null, PixelScale.One);
 #else
-				return (null, 1.0);
+				return (null, PixelScale.One);
 #endif
 			}
 			catch
 			{
-				return (null, 1.0);
+				return (null, PixelScale.One);
 			}
 		}
 

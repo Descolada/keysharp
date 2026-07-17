@@ -19,41 +19,79 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private readonly ManualResetEventSlim configuredEvent = new(false);
 		private nint surface;
 		private nint layerSurface;
+		private nint viewport;
 		private uint pendingSerial;
 		private bool ackPending;
 		private bool disposed;
 
-		internal int ConfiguredWidth { get; private set; }
-		internal int ConfiguredHeight { get; private set; }
 		internal bool IsConfigured { get; private set; }
 		internal bool IsClosed { get; private set; }
 		internal nint Surface => surface;
 
-		internal event Action Configured;
-		internal event Action Closed;
-
-		internal WaylandLayerSurface(WaylandLayerShellClient client, uint layer, string ns)
+		internal WaylandLayerSurface(WaylandLayerShellClient client, nint output, uint layer, string ns)
 		{
 			this.client = client ?? throw new ArgumentNullException(nameof(client));
 			selfHandle = GCHandle.Alloc(this);
 
-			lock (WaylandLayerShellClient.Sync)
+			try
 			{
-				surface = WaylandNative.CompositorCreateSurface(client.Compositor);
-
-				if (surface == 0)
-					throw new IOException("wl_compositor.create_surface returned null.");
-
-				layerSurface = WaylandNative.LayerShellGetLayerSurface(client.LayerShell, surface, 0, layer, ns ?? "keysharp");
-
-				if (layerSurface == 0)
+				lock (WaylandLayerShellClient.Sync)
 				{
-					WaylandNative.SurfaceDestroy(surface);
-					surface = 0;
-					throw new IOException("zwlr_layer_shell_v1.get_layer_surface returned null.");
+					surface = WaylandNative.CompositorCreateSurface(client.Compositor);
+
+					if (surface == 0)
+						throw new IOException("wl_compositor.create_surface returned null.");
+
+					layerSurface = WaylandNative.LayerShellGetLayerSurface(client.LayerShell, surface, output, layer, ns ?? "keysharp");
+
+					if (layerSurface == 0)
+						throw new IOException("zwlr_layer_shell_v1.get_layer_surface returned null.");
+
+					if (WaylandNative.ProxyAddListener(layerSurface, LayerSurfaceListener.Pointer,
+							GCHandle.ToIntPtr(selfHandle)) != 0)
+						throw new IOException("zwlr_layer_surface_v1 listener setup failed.");
+
+					if (client.Viewporter != 0)
+						viewport = WaylandNative.ViewporterGetViewport(client.Viewporter, surface);
+				}
+			}
+			catch
+			{
+				lock (WaylandLayerShellClient.Sync)
+				{
+					if (viewport != 0) { WaylandNative.ViewportDestroy(viewport); viewport = 0; }
+					if (layerSurface != 0) { WaylandNative.LayerSurfaceDestroy(layerSurface); layerSurface = 0; }
+					if (surface != 0) { WaylandNative.SurfaceDestroy(surface); surface = 0; }
 				}
 
-				_ = WaylandNative.ProxyAddListener(layerSurface, LayerSurfaceListener.Pointer, GCHandle.ToIntPtr(selfHandle));
+				if (selfHandle.IsAllocated)
+					selfHandle.Free();
+
+				throw;
+			}
+		}
+
+		/// <summary>
+		/// Maps a raster buffer to the requested logical surface size. Viewporter handles arbitrary fractional
+		/// density; without it, an exact integer output scale uses wl_surface.set_buffer_scale, and fractional
+		/// displays fall back to a 1x logical buffer so geometry remains correct.
+		/// </summary>
+		internal bool ConfigureBufferMapping(int logicalWidth, int logicalHeight, int integerScale)
+		{
+			lock (WaylandLayerShellClient.Sync)
+			{
+				if (surface == 0)
+					return false;
+
+				if (viewport != 0)
+				{
+					WaylandNative.SurfaceSetBufferScale(surface, 1);
+					WaylandNative.ViewportSetDestination(viewport, logicalWidth, logicalHeight);
+					return true;
+				}
+
+				WaylandNative.SurfaceSetBufferScale(surface, Math.Max(1, integerScale));
+				return false;
 			}
 		}
 
@@ -84,6 +122,15 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
+		internal void SetInputRegion(nint region)
+		{
+			lock (WaylandLayerShellClient.Sync)
+			{
+				if (surface != 0)
+					WaylandNative.SurfaceSetInputRegion(surface, region);
+			}
+		}
+
 		internal void SetExclusiveZone(int zone)
 		{
 			lock (WaylandLayerShellClient.Sync)
@@ -102,41 +149,30 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		/// <summary>
-		/// Replaces this surface's input region. Pass <c>null</c> to use libwayland's default
-		/// (the buffer area receives all input); pass an empty region to make the surface input-
-		/// transparent so clicks pass straight through to whatever is underneath. Tooltips want
-		/// transparency; cursor monitors want default (full) input.
-		/// </summary>
-		internal void SetInputRegion(nint region)
-		{
-			lock (WaylandLayerShellClient.Sync)
-			{
-				if (surface != 0)
-					WaylandNative.SurfaceSetInputRegion(surface, region);
-			}
-		}
-
-		internal void AttachBuffer(WaylandShmBuffer buffer)
+		internal bool AttachBuffer(WaylandShmBuffer buffer)
 		{
 			if (buffer == null)
-				return;
+				return false;
 
 			lock (WaylandLayerShellClient.Sync)
 			{
-				if (surface == 0)
-					return;
+				if (surface == 0 || buffer.Buffer == 0 || !client.IsAvailable)
+					return false;
 
 				WaylandNative.SurfaceAttach(surface, buffer.Buffer, 0, 0);
-				WaylandNative.SurfaceDamage(surface, 0, 0, buffer.Width, buffer.Height);
+				WaylandNative.SurfaceDamageBuffer(surface, 0, 0, buffer.Width, buffer.Height);
 				buffer.MarkInFlight();
+				return true;
 			}
 		}
 
-		internal void Commit()
+		internal bool Commit()
 		{
 			lock (WaylandLayerShellClient.Sync)
 			{
+				if (surface == 0 || !client.IsAvailable)
+					return false;
+
 				// ack_configure MUST come before the wl_surface.commit that attaches a buffer
 				// in response to it — the layer-shell spec is explicit that committing without
 				// the ack causes the buffer to be ignored silently.
@@ -146,59 +182,42 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					ackPending = false;
 				}
 
-				if (surface != 0)
-					WaylandNative.SurfaceCommit(surface);
+				WaylandNative.SurfaceCommit(surface);
 
-				if (client.Display != 0)
-					_ = WaylandNative.DisplayFlush(client.Display);
+				if (!client.TryFlush())
+				{
+					return false;
+				}
+
+				return true;
 			}
 		}
 
-		/// <summary>
-		/// Blocks until a configure event is processed (or until the timeout elapses, or the
-		/// surface is closed). Returns true on configure, false on timeout/close. Always does a
-		/// roundtrip so that subsequent calls — e.g. after we change set_size/set_margin and
-		/// commit to trigger a fresh configure cycle — see the new configure rather than the
-		/// stale "already configured once" flag. Must NOT be called while holding
-		/// <see cref="WaylandLayerShellClient.Sync"/>; the dispatcher needs the lock to fire
-		/// the configure callback.
-		/// </summary>
+		/// <summary>Waits for the initial configure event delivered by the connection dispatcher. Later
+		/// margin/size commits are asynchronous and do not use this initialization barrier.</summary>
 		internal bool WaitForConfigure(int timeoutMs = 1000)
 		{
-			// Drain any pending configure events first. After a roundtrip every event the
-			// compositor sent before the sync reply has been dispatched, so IsConfigured /
-			// ackPending reflect the latest state.
-			lock (WaylandLayerShellClient.Sync)
-				client.Roundtrip();
-
-			if (IsConfigured)
+			if (client.IsAvailable && IsConfigured && !IsClosed)
 				return true;
 
-			return configuredEvent.Wait(timeoutMs) && IsConfigured;
+			return configuredEvent.Wait(timeoutMs) && client.IsAvailable && IsConfigured && !IsClosed;
 		}
 
 		// --- listener callback ---
 
-		private void OnConfigure(uint serial, uint width, uint height)
+		private void OnConfigure(uint serial)
 		{
 			pendingSerial = serial;
 			ackPending = true;
-			ConfiguredWidth = (int)width;
-			ConfiguredHeight = (int)height;
 			IsConfigured = true;
 			configuredEvent.Set();
-
-			try { Configured?.Invoke(); }
-			catch { }
 		}
 
 		private void OnClosed()
 		{
 			IsClosed = true;
+			IsConfigured = false;
 			configuredEvent.Set();
-
-			try { Closed?.Invoke(); }
-			catch { }
 		}
 
 		public void Dispose()
@@ -208,10 +227,15 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			disposed = true;
 			configuredEvent.Set();
-			configuredEvent.Dispose();
 
 			lock (WaylandLayerShellClient.Sync)
 			{
+				if (viewport != 0)
+				{
+					WaylandNative.ViewportDestroy(viewport);
+					viewport = 0;
+				}
+
 				if (layerSurface != 0)
 				{
 					WaylandNative.LayerSurfaceDestroy(layerSurface);
@@ -230,6 +254,25 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			if (selfHandle.IsAllocated)
 				selfHandle.Free();
+
+			configuredEvent.Dispose();
+		}
+
+		/// <summary>Drops managed ownership without issuing requests through a failed connection. The owning
+		/// wl_display will free the protocol objects during disconnect; no callbacks can run after its dispatcher stops.</summary>
+		internal void Abandon()
+		{
+			if (disposed)
+				return;
+
+			disposed = true;
+			configuredEvent.Set();
+			viewport = layerSurface = surface = 0;
+
+			if (selfHandle.IsAllocated)
+				selfHandle.Free();
+
+			configuredEvent.Dispose();
 		}
 
 		private static WaylandLayerSurface Self(nint data) => (WaylandLayerSurface)GCHandle.FromIntPtr(data).Target;
@@ -249,7 +292,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 
 			private static void Configure(nint data, nint layerSurface, uint serial, uint width, uint height)
-				=> Self(data).OnConfigure(serial, width, height);
+				=> Self(data).OnConfigure(serial);
 
 			private static void ClosedEvent(nint data, nint layerSurface)
 				=> Self(data).OnClosed();

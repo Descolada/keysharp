@@ -805,7 +805,7 @@ class OCR {
         return result
     }
 
-    ; Normalizes word coordinates (physical image pixels -> logical units + screen offset), then
+	; Normalizes word coordinates (image pixels -> native screen units + screen offset), then
     ; computes line/result bounding rects from the final word coordinates. sx/sy are the image's per-axis
     ; ScaleX/ScaleY; this divide assumes those axes still align with the image, which holds for OCR's own
     ; `scale` Option (always a single isotropic factor). A manual anisotropic Image.Scale(sx, sy) followed

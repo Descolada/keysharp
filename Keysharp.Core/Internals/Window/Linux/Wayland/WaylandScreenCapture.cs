@@ -6,9 +6,9 @@ using Eto.Drawing;
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	/// <summary>
-	/// Single-shot screen capture via zwlr_screencopy_unstable_v1. Opens a fresh
-	/// Wayland connection per call, probes the registry for the screencopy
-	/// manager / wl_shm / wl_outputs, picks the output whose logical geometry
+	/// Screen capture via zwlr_screencopy_unstable_v1. A serialized session keeps its Wayland connection,
+	/// registry, wl_shm and output topology across successful captures, then reconnects after a failed capture.
+	/// It picks the output whose logical geometry
 	/// contains the requested rect, copies one frame into a memfd-backed SHM
 	/// buffer, and converts the result into an Eto <see cref="Bitmap"/>.
 	///
@@ -17,16 +17,19 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	/// path they used before.
 	///
 	/// Targets protocol version 3 (sway, hyprland, Wayfire, labwc, river, KWin
-	/// with wlroots-protocols enabled), but accepts whatever version the
-	/// compositor advertises down to 1; unused events (damage, linux_dmabuf,
-	/// buffer_done) are ignored.
+	/// with wlroots-protocols enabled), but accepts whatever version the compositor advertises down to 1. Version 3
+	/// waits for buffer_done before selecting the advertised SHM format, as required by the protocol.
 	/// </summary>
 	internal static class WaylandScreenCapture
 	{
+		private static readonly object sync = new();
+		private static Session current;
+
 		private const string ScreencopyManagerName = "zwlr_screencopy_manager_v1";
 		private const string ScreencopyFrameName = "zwlr_screencopy_frame_v1";
 		private const string ShmName = "wl_shm";
 		private const string OutputName = "wl_output";
+		private const string XdgOutputManagerName = "zxdg_output_manager_v1";
 
 		private const uint ScreencopyCaptureOutputRegionOpcode = 1;
 		private const uint ScreencopyFrameCopyOpcode = 0;
@@ -42,19 +45,32 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (w <= 0 || h <= 0)
 				return null;
 
-			using var session = Session.TryOpen();
-			return session?.Capture(x, y, w, h);
+			lock (sync)
+				return RunWithReusableSession(ref current, Session.TryOpen, session => session.Capture(x, y, w, h));
 		}
 
-		private sealed class OutputInfo
+		internal static TResult RunWithReusableSession<TSession, TResult>(ref TSession session,
+			Func<TSession> open, Func<TSession, TResult> operation)
+			where TSession : class, IDisposable
+			where TResult : class
 		{
-			internal nint Proxy;
-			internal uint Name;
-			internal int X;
-			internal int Y;
-			internal int Width;
-			internal int Height;
-			internal bool Done;
+			session ??= open();
+			TResult result = null;
+
+			try
+			{
+				if (session != null)
+					result = operation(session);
+			}
+			catch { }
+
+			if (result == null)
+			{
+				session?.Dispose();
+				session = null;
+			}
+
+			return result;
 		}
 
 		private sealed class FrameState
@@ -64,6 +80,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			internal int Height;
 			internal int Stride;
 			internal bool BufferInfoReady;
+			internal bool BufferDone;
 			internal bool Ready;
 			internal bool Failed;
 			internal uint Flags;
@@ -73,11 +90,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		{
 			private readonly nint display;
 			private readonly GCHandle selfHandle;
-			private readonly List<GCHandle> outputHandles = [];
-			private readonly Dictionary<uint, OutputInfo> outputsByName = [];
-			private readonly Dictionary<nint, OutputInfo> outputsByProxy = [];
+			private readonly Dictionary<uint, WaylandOutput> outputsByName = [];
 			private nint registry;
 			private nint shm;
+			private nint xdgOutputManager;
 			private nint screencopyManager;
 			private uint screencopyManagerVersion;
 
@@ -124,13 +140,50 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			internal Bitmap Capture(int x, int y, int w, int h)
 			{
-				var output = SelectOutput(x, y);
+				var captured = new List<(ScreenRect Bounds, Bitmap Pixels)>();
 
-				if (output == null)
-					return null;
+				try
+				{
+					foreach (var output in outputsByName.Values)
+					{
+						var outputBounds = output.Bounds;
 
-				var localX = x - output.X;
-				var localY = y - output.Y;
+						if (!output.Done || !outputBounds.HasArea)
+							continue;
+
+						var left = Math.Max(x, outputBounds.X);
+						var top = Math.Max(y, outputBounds.Y);
+						var right = Math.Min((long)x + w, outputBounds.Right);
+						var bottom = Math.Min((long)y + h, outputBounds.Bottom);
+
+						if (right <= left || bottom <= top)
+							continue;
+
+						var segmentWidth = (int)(right - left);
+						var segmentHeight = (int)(bottom - top);
+						var image = CaptureOutput(output, left - outputBounds.X, top - outputBounds.Y,
+							segmentWidth, segmentHeight);
+
+						if (image == null)
+							return null;
+
+						captured.Add((new ScreenRect(left, top, segmentWidth, segmentHeight), image));
+					}
+
+					if (captured.Count == 0)
+						return null;
+
+					return ScreenCaptureComposer.Compose(new ScreenRect(x, y, w, h), captured);
+				}
+				finally
+				{
+					foreach (var capture in captured)
+						capture.Pixels.Dispose();
+				}
+			}
+
+			private Bitmap CaptureOutput(WaylandOutput output, int localX, int localY, int w, int h)
+			{
 
 				var frame = WaylandNative.MarshalCaptureOutputRegion(
 					screencopyManager,
@@ -154,14 +207,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					if (WaylandNative.ProxyAddListener(frame, FrameListener.Pointer, GCHandle.ToIntPtr(stateHandle)) != 0)
 						return null;
 
-					// Pump events until the buffer description arrives or the compositor
-					// gives up. wl_display_dispatch blocks for at least one event each call,
-					// so a small cap is enough to fail fast on misbehaving compositors.
-					for (var i = 0; i < 50 && !state.BufferInfoReady && !state.Failed; i++)
-						if (WaylandNative.DisplayDispatch(display) < 0)
-							return null;
+					var needsBufferDone = screencopyManagerVersion >= 3;
 
-					if (!state.BufferInfoReady || state.Failed)
+					if (!DispatchUntil(() => state.Failed
+							|| state.BufferInfoReady && (!needsBufferDone || state.BufferDone), 1500)
+							|| state.Failed || !state.BufferInfoReady || needsBufferDone && !state.BufferDone)
 						return null;
 
 					if (state.Format != WaylandNative.WlShmFormatArgb8888 && state.Format != WaylandNative.WlShmFormatXrgb8888)
@@ -175,11 +225,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					WaylandNative.MarshalObjectRequest(frame, ScreencopyFrameCopyOpcode, 0, WaylandNative.ProxyGetVersion(frame), 0, buffer.Buffer);
 					_ = WaylandNative.DisplayFlush(display);
 
-					for (var i = 0; i < 200 && !state.Ready && !state.Failed; i++)
-						if (WaylandNative.DisplayDispatch(display) < 0)
-							return null;
-
-					if (!state.Ready)
+					if (!DispatchUntil(() => state.Ready || state.Failed, 3000) || !state.Ready || state.Failed)
 						return null;
 
 					return BuildBitmap(buffer.Data, state.Stride, state.Width, state.Height, state.Format, (state.Flags & 1) != 0);
@@ -191,26 +237,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					if (stateHandle.IsAllocated)
 						stateHandle.Free();
 				}
-			}
-
-			private OutputInfo SelectOutput(int x, int y)
-			{
-				OutputInfo best = null;
-
-				foreach (var info in outputsByName.Values)
-				{
-					if (!info.Done || info.Width <= 0 || info.Height <= 0)
-						continue;
-
-					if (x >= info.X && x < info.X + info.Width && y >= info.Y && y < info.Y + info.Height)
-						return info;
-
-					// Remember any finished output as a fallback for rects that lie outside
-					// every known monitor (e.g. negative coords on a single-output setup).
-					best ??= info;
-				}
-
-				return best;
 			}
 
 			private static unsafe Bitmap BuildBitmap(nint src, int srcStride, int width, int height, uint format, bool flipY)
@@ -258,18 +284,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			public void Dispose()
 			{
-				foreach (var handle in outputHandles)
-					if (handle.IsAllocated)
-						handle.Free();
-
-				outputHandles.Clear();
-
 				foreach (var output in outputsByName.Values)
-					if (output.Proxy != 0)
-						WaylandNative.ProxyDestroy(output.Proxy);
+					WaylandOutputBinding.Release(output);
 
 				outputsByName.Clear();
-				outputsByProxy.Clear();
+
+				if (xdgOutputManager != 0)
+				{
+					WaylandNative.XdgOutputManagerDestroy(xdgOutputManager);
+					xdgOutputManager = 0;
+				}
 
 				if (screencopyManager != 0)
 				{
@@ -316,22 +340,86 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (outputsByName.ContainsKey(name))
 					return;
 
-				var proxy = WaylandNative.RegistryBind(registry, name, WaylandNative.OutputInterface, OutputName, Math.Min(version, 4u));
+				var output = WaylandOutputBinding.Bind(registry, name, version, xdgOutputManager);
 
-				if (proxy == 0)
+				if (output != null)
+					outputsByName.Add(name, output);
+			}
+
+			private void RemoveOutput(uint name)
+			{
+				if (!outputsByName.Remove(name, out var output))
 					return;
 
-				var info = new OutputInfo { Proxy = proxy, Name = name };
-				outputsByName[name] = info;
-				outputsByProxy[proxy] = info;
+				WaylandOutputBinding.Release(output);
+			}
 
-				var data = GCHandle.Alloc(info);
-				outputHandles.Add(data);
-				_ = WaylandNative.ProxyAddListener(proxy, OutputListener.Pointer, GCHandle.ToIntPtr(data));
+			/// <summary>Dispatches this private display connection with a real deadline. wl_display_dispatch can block
+			/// forever when a compositor stops responding; prepare_read + poll keeps capture failure bounded.</summary>
+			private bool DispatchUntil(Func<bool> completed, int timeoutMs)
+			{
+				var deadline = Environment.TickCount64 + Math.Max(1, timeoutMs);
+				var poll = new WaylandNative.PollFd[1];
+
+				while (!completed())
+				{
+					if (WaylandNative.DisplayDispatchPending(display) < 0)
+						return false;
+
+					if (completed())
+						return true;
+
+					while (WaylandNative.DisplayPrepareRead(display) != 0)
+					{
+						if (WaylandNative.DisplayDispatchPending(display) < 0)
+							return false;
+
+						if (completed())
+							return true;
+					}
+
+					_ = WaylandNative.DisplayFlush(display);
+					var remaining = deadline - Environment.TickCount64;
+
+					if (remaining <= 0)
+					{
+						WaylandNative.DisplayCancelRead(display);
+						return false;
+					}
+
+					poll[0] = new WaylandNative.PollFd
+					{
+						FileDescriptor = WaylandNative.DisplayGetFd(display),
+						Events = WaylandNative.POLLIN
+					};
+					var ready = WaylandNative.Poll(poll, 1, (int)Math.Min(int.MaxValue, remaining));
+
+					if (ready <= 0 || (poll[0].ReturnedEvents & WaylandNative.POLLIN) == 0)
+					{
+						WaylandNative.DisplayCancelRead(display);
+						return false;
+					}
+
+					if (WaylandNative.DisplayReadEvents(display) < 0)
+						return false;
+				}
+
+				return true;
+			}
+
+			private void BindXdgOutputManager(uint name, uint version)
+			{
+				if (xdgOutputManager != 0)
+					return;
+
+				xdgOutputManager = WaylandNative.RegistryBind(registry, name,
+					WaylandNative.Interfaces.XdgOutputManager, Math.Min(version, 3u));
+
+				foreach (var output in outputsByName.Values)
+					WaylandOutputBinding.BindXdgOutput(output, xdgOutputManager);
 			}
 
 			private static Session Self(nint data) => (Session)GCHandle.FromIntPtr(data).Target;
-			private static OutputInfo Output(nint data) => (OutputInfo)GCHandle.FromIntPtr(data).Target;
 			private static FrameState Frame(nint data) => (FrameState)GCHandle.FromIntPtr(data).Target;
 			private static string Utf8(nint value) => Marshal.PtrToStringUTF8(value) ?? string.Empty;
 
@@ -339,7 +427,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			{
 				private static readonly GlobalHandler onGlobal = Global;
 				private static readonly GlobalRemoveHandler onGlobalRemove = GlobalRemove;
-				internal static readonly nint Pointer = ListenerBlock.Create(onGlobal, onGlobalRemove);
+				internal static readonly nint Pointer = WaylandListenerTable.Allocate(onGlobal, onGlobalRemove);
 
 				private static void Global(nint data, nint registry, uint name, nint protocolInterface, uint version)
 				{
@@ -350,56 +438,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 						case ScreencopyManagerName: session.BindManager(name, version); break;
 						case ShmName: session.BindShm(name, version); break;
 						case OutputName: session.BindOutput(name, version); break;
+						case XdgOutputManagerName: session.BindXdgOutputManager(name, version); break;
 					}
 				}
 
-				private static void GlobalRemove(nint data, nint registry, uint name) { }
+				private static void GlobalRemove(nint data, nint registry, uint name) => Self(data).RemoveOutput(name);
 
 				[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 				private delegate void GlobalHandler(nint data, nint registry, uint name, nint protocolInterface, uint version);
 				[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 				private delegate void GlobalRemoveHandler(nint data, nint registry, uint name);
-			}
-
-			private static class OutputListener
-			{
-				// Six wl_output events through v2; later versions (v3 name, v4 description) sit on the
-				// end and we leave their slots unhandled because we don't need them.
-				private static readonly GeometryHandler onGeometry = (data, _, gx, gy, _, _, _, _, _, _) =>
-				{
-					var output = Output(data);
-					output.X = gx;
-					output.Y = gy;
-				};
-
-				private static readonly ModeHandler onMode = (data, _, flags, mw, mh, _) =>
-				{
-					var output = Output(data);
-
-					if ((flags & 1) != 0 && mw > 0 && mh > 0)
-					{
-						output.Width = mw;
-						output.Height = mh;
-					}
-				};
-
-				private static readonly VoidHandler onDone = (data, _) => Output(data).Done = true;
-				private static readonly ScaleHandler onScale = (data, _, _) => { };
-				private static readonly StringHandler onName = (data, _, _) => { };
-				private static readonly StringHandler onDescription = (data, _, _) => { };
-
-				internal static readonly nint Pointer = ListenerBlock.Create(onGeometry, onMode, onDone, onScale, onName, onDescription);
-
-				[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-				private delegate void GeometryHandler(nint data, nint output, int x, int y, int physicalWidth, int physicalHeight, int subpixel, nint make, nint model, int transform);
-				[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-				private delegate void ModeHandler(nint data, nint output, uint flags, int width, int height, int refresh);
-				[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-				private delegate void VoidHandler(nint data, nint output);
-				[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-				private delegate void ScaleHandler(nint data, nint output, int factor);
-				[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-				private delegate void StringHandler(nint data, nint output, nint value);
 			}
 
 			private static class FrameListener
@@ -419,9 +467,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				private static readonly VoidHandler onFailed = (data, _) => Frame(data).Failed = true;
 				private static readonly DamageHandler onDamage = (data, _, _, _, _, _) => { };
 				private static readonly DmabufHandler onDmabuf = (data, _, _, _, _) => { };
-				private static readonly VoidHandler onBufferDone = (data, _) => { };
+				private static readonly VoidHandler onBufferDone = (data, _) => Frame(data).BufferDone = true;
 
-				internal static readonly nint Pointer = ListenerBlock.Create(onBuffer, onFlags, onReady, onFailed, onDamage, onDmabuf, onBufferDone);
+				internal static readonly nint Pointer = WaylandListenerTable.Allocate(onBuffer, onFlags, onReady, onFailed, onDamage, onDmabuf, onBufferDone);
 
 				[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 				private delegate void BufferHandler(nint data, nint frame, uint format, uint width, uint height, uint stride);
@@ -437,18 +485,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				private delegate void DmabufHandler(nint data, nint frame, uint format, uint width, uint height);
 			}
 
-			private static class ListenerBlock
-			{
-				internal static nint Create(params Delegate[] delegates)
-				{
-					var block = Marshal.AllocHGlobal(delegates.Length * IntPtr.Size);
-
-					for (var i = 0; i < delegates.Length; i++)
-						Marshal.WriteIntPtr(block, i * IntPtr.Size, Marshal.GetFunctionPointerForDelegate(delegates[i]));
-
-					return block;
-				}
-			}
 		}
 
 		// Local resource wrapper for the single-shot SHM buffer used during capture. Distinct from
@@ -465,12 +501,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			internal static ShmFrameBuffer Create(nint shm, int width, int height, int stride, uint format)
 			{
-				if (shm == 0 || width <= 0 || height <= 0 || stride < width * 4)
+				if (shm == 0 || width <= 0 || height <= 0 || stride < (long)width * 4)
 					return null;
 
 				var size = (long)stride * height;
 
-				if (size <= 0)
+				if (size <= 0 || size > int.MaxValue)
 					return null;
 
 				var fb = new ShmFrameBuffer();

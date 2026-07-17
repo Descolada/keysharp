@@ -1961,7 +1961,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "The screen's DPI scale factor normalized so 1.0 is 100% and 2.0 is a 200% display (unlike A_ScreenDPI, which reports the raw platform DPI: 96-based on Windows/Linux, 72-based on macOS). Multiply sizes/positions by this for DPI-aware layout."
+                     "notes":  "The primary monitor's authored-size scale in native screen units. 1.0 is 100%; Windows and X11 can return a larger value, while macOS and Wayland return 1.0 because their native coordinate spaces already account for UI scaling. Apply it to deliberately scalable dimensions, never absolute positions; use MonitorGetScale for mixed-monitor layouts."
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
@@ -7558,20 +7558,30 @@
                      "feature":  "MonitorGet()",
                      "syntax":  "x := MonitorGet(1)",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "Checks if the specified monitor exists and optionally retrieves its bounding coordinates. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been.",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Returns the selected monitor index and writes its native screen-coordinate bounds to the supplied output variables.",
                      "tested-by":  "monitor-monitorget.ahk"
                  },
                  {
+	                 "category":  "Keysharp Module (Ks)",
+	                 "feature":  "MonitorFromPoint()",
+	                 "syntax":  "#import KS { MonitorFromPoint }",
+	                 "windows":  "full",
+	                 "linux_x11":  "full",
+	                 "linux_wayland":  "full",
+	                 "macos":  "full",
+	                 "notes":  "Returns the monitor containing a native screen point, or the nearest monitor when the point lies in a gap."
+	             },
+	             {
                      "category":  "Windowing/GUI",
                      "feature":  "MonitorGetCount()",
                      "syntax":  "x := MonitorGetCount()",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Returns the total number of monitors.",
                      "tested-by":  "monitor-monitorgetcount.ahk"
                  },
@@ -7598,14 +7608,24 @@
                      "tested-by":  "monitor-monitorgetprimary.ahk"
                  },
                  {
+	                 "category":  "Keysharp Module (Ks)",
+	                 "feature":  "MonitorGetScale()",
+	                 "syntax":  "#import KS { MonitorGetScale }",
+	                 "windows":  "full",
+	                 "linux_x11":  "full",
+	                 "linux_wayland":  "full",
+	                 "macos":  "full",
+	                 "notes":  "Returns the monitor's authored-size scale in native screen units; 1.0 is 100%. It scales dimensions, never absolute positions."
+	             },
+	             {
                      "category":  "Windowing/GUI",
                      "feature":  "MonitorGetWorkArea()",
                      "syntax":  "x := MonitorGetWorkArea()",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "Checks if the specified monitor exists and optionally retrieves the bounding coordinates of its working area. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been.",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Returns the selected monitor index and writes its native screen-coordinate work area to the supplied output variables.",
                      "tested-by":  "monitor-monitorgetworkarea.ahk"
                  },
                  {

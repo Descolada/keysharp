@@ -5,8 +5,6 @@ namespace Keysharp.Internals
 
 	internal enum ZOrder { Top, Bottom }
 
-	internal enum OverlayKind { Eto, LayerSurface, Compositor }
-
 	/// <summary>The currently-live keyboard/mouse injection transport. Kept as a typed value (not a bool)
 	/// so additional transports/state can be added without churning consumers.</summary>
 	internal enum InputTransport { None, Inputd, Mac, Windows }
@@ -155,12 +153,17 @@ namespace Keysharp.Internals
 	/// <summary>Monitors, work area, screen/window capture.</summary>
 	internal interface IScreen
 	{
-		/// <summary>Usable work area. <paramref name="excludesPanels"/> reports whether panels/struts were
-		/// actually subtracted (Keyview derives a titlebar-margin decision from this).</summary>
-		bool TryGetWorkArea(int monitorIndex, out Rectangle area, out bool excludesPanels);
-		bool TryGetPrimaryBounds(out Rectangle bounds);
-		bool TryCaptureRegion(int x, int y, int width, int height, out Bitmap bmp, out double scaleX, out double scaleY);
-		bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out double scale);
+		/// <summary>
+		/// A fresh snapshot of every display in native screen space. Callers must not cache it across monitor
+		/// hotplug, topology, primary-display, or scale changes.
+		/// </summary>
+		IReadOnlyList<DisplayInfo> GetDisplays();
+
+		/// <summary>Captures one rectangle expressed in native screen coordinates as one linearly-mapped bitmap.
+		/// A backend may compose or resample display captures internally, but the final bitmap must cover the
+		/// complete requested rectangle with one uniform pixel-to-screen transform.</summary>
+		bool TryCaptureRegion(ScreenRect bounds, out Bitmap bmp);
+		bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out PixelScale pixelScale);
 		bool RequiresAuthorization { get; }
 
 		/// <summary>Gate a capture against the compositor's authorization (KWin/GNOME keysharp-helper
@@ -174,23 +177,23 @@ namespace Keysharp.Internals
 	/// (Eto / wlr layer-shell / compositor extension) is decided lazily-with-retry on the first Show, per overlay.</summary>
 	internal interface IOverlay
 	{
-		OverlayKind PreferredKind { get; }
-
-		/// <summary>Whether this platform service can display caller-supplied image overlays.</summary>
-		bool SupportsImageOverlay { get; }
+		/// <summary>Returns the pixel canvas the renderer prefers for one native screen rectangle. This is a
+		/// render-target query, not monitor geometry: Windows normally returns the native size, while Cocoa and
+		/// Wayland may return a denser backing size.</summary>
+		PixelSize GetCanvasSize(ScreenRect bounds);
 
 		/// <summary>
 		/// Create or update a click-through image overlay. The service borrows <paramref name="image"/> for this
-		/// synchronous call and copies the pixels it needs; it neither retains nor disposes the bitmap. A non-positive
-		/// width/height uses the image's native size.
+		/// synchronous call and copies the pixels it needs; it neither retains nor disposes the bitmap. Non-positive
+		/// bounds use the image's native raster size as native screen units.
 		/// <paramref name="clickThrough"/> true (the usual) makes the surface transparent to mouse input; false makes
 		/// it RECEIVE mouse input so an interactive overlay can be built (where the backing supports it).
 		/// </summary>
-		bool TryShowImageOverlay(uint id, int x, int y, int width, int height, Bitmap image, bool clickThrough);
+		bool TryShowImageOverlay(uint id, ScreenRect bounds, Bitmap image, bool clickThrough);
 
 		/// <summary>Move/resize an existing image overlay, reusing its last pixels (repositions in place where the
 		/// backing can, else re-applies the stored image at the new geometry).</summary>
-		bool TryMoveImageOverlay(uint id, int x, int y, int width, int height);
+		bool TryMoveImageOverlay(uint id, ScreenRect bounds);
 
 		/// <summary>Hide and free one image overlay. Idempotent. Confirm-gated: returns false if the withdraw
 		/// could not be confirmed, so the caller keeps the id and retries rather than orphaning the surface.</summary>

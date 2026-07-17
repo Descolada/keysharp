@@ -1,0 +1,135 @@
+#if LINUX
+using System.Runtime.InteropServices;
+using Keysharp.Internals;
+using Keysharp.Internals.Images;
+using Keysharp.Internals.Window.Linux.Wayland;
+
+namespace Keysharp.Tests
+{
+	[TestFixture]
+	public class WaylandInfrastructureTests
+	{
+		[Test]
+		public void WholeOverlayMoveWithinOutputUsesCachedTarget()
+		{
+			var output = new WaylandLayerShellClient.OutputTarget(4, new nint(9),
+				new ScreenRect(-100, 0, 200, 100), 1.25, 1);
+			var current = new WaylandLayerShellClient.OutputSegment(output,
+				new ScreenRect(-80, 10, 20, 20), 0, 0);
+
+			Assert.That(LayerImageBacking.TryResolveSameOutputMove(current, 20, 20,
+				new ScreenRect(60, 30, 20, 20), out var moved), Is.True);
+			Assert.That(moved.Output, Is.EqualTo(output));
+			Assert.That(moved.Bounds, Is.EqualTo(new ScreenRect(60, 30, 20, 20)));
+			Assert.That(LayerImageBacking.TryResolveSameOutputMove(current, 20, 20,
+				new ScreenRect(90, 30, 20, 20), out _), Is.False,
+				"crossing an output edge must take the topology/repaint path");
+		}
+
+		[Test]
+		public void OutputGeometryUsesLogicalMetadataAndTransformFallback()
+		{
+			var output = new WaylandOutput
+			{
+				GeometryX = -1080,
+				GeometryY = 0,
+				Transform = 1,
+				ModeWidth = 1920,
+				ModeHeight = 1080,
+				IntegerScale = 2
+			};
+
+			Assert.That(output.Bounds, Is.EqualTo(new ScreenRect(-1080, 0, 540, 960)));
+			output.LogicalX = -900;
+			output.LogicalY = 20;
+			output.LogicalWidth = 720;
+			output.LogicalHeight = 1280;
+			output.HasLogicalPosition = output.HasLogicalSize = true;
+			Assert.That(output.Bounds, Is.EqualTo(new ScreenRect(-900, 20, 720, 1280)));
+		}
+
+		[Test]
+		public void PassiveCompositorBackingRejectsInteractiveMode()
+		{
+			using var bitmap = ImageHelper.NewArgbCanvas(1, 1);
+			using var backing = new CompositorImageBacking(42);
+			Assert.That(backing.Show(bitmap, new ScreenRect(0, 0, 1, 1), clickThrough: false), Is.False);
+			Assert.That(WaylandImageOverlay.ResolveInputRegion(clickThrough: true, new nint(17)), Is.EqualTo(new nint(17)));
+			Assert.That(WaylandImageOverlay.ResolveInputRegion(clickThrough: false, new nint(17)), Is.EqualTo(nint.Zero));
+		}
+
+		[Test]
+		public void ShmBufferPoolDropsFramesAtItsHardLimit()
+		{
+			WaylandBufferState[] buffers =
+			[
+				new(100, 100, false),
+				new(100, 100, true),
+				new(200, 100, true)
+			];
+
+			Assert.That(WaylandBufferPoolPolicy.FindReusable(buffers, 100, 100), Is.EqualTo(1));
+			Assert.That(WaylandBufferPoolPolicy.FindReusable(buffers, 300, 100), Is.EqualTo(-1));
+			Assert.That(WaylandBufferPoolPolicy.CanAllocate(2), Is.True);
+			Assert.That(WaylandBufferPoolPolicy.CanAllocate(WaylandBufferPoolPolicy.Capacity), Is.False,
+				"three in-flight, wrong-sized buffers must drop the new frame instead of growing the pool");
+		}
+
+		[Test]
+		public void NearestSamplingUsesIntegerPixelCenters()
+		{
+			Assert.That(Enumerable.Range(0, 5).Select(x => WaylandImageOverlay.SampleIndex(x, 5, 3)),
+				Is.EqualTo(new[] { 0, 0, 1, 2, 2 }));
+			Assert.That(Enumerable.Range(0, 3).Select(x => WaylandImageOverlay.SampleIndex(x, 3, 5)),
+				Is.EqualTo(new[] { 0, 2, 4 }));
+		}
+
+		[Test]
+		public void OutputAbandonClearsHotplugIdentityAndListenerHandle()
+		{
+			var output = new WaylandOutput { RegistryName = 7 };
+			output.Handle = GCHandle.Alloc(output);
+			WaylandOutputBinding.Abandon(output);
+
+			Assert.That(output.Proxy, Is.EqualTo(nint.Zero));
+			Assert.That(output.XdgProxy, Is.EqualTo(nint.Zero));
+			Assert.That(output.Handle.IsAllocated, Is.False);
+		}
+
+		[Test]
+		public void LayerShellRetryBackoffIsBounded()
+		{
+			Assert.That(WaylandRetryPolicy.DelayMilliseconds(1), Is.EqualTo(200));
+			Assert.That(WaylandRetryPolicy.DelayMilliseconds(4), Is.EqualTo(1600));
+			Assert.That(WaylandRetryPolicy.DelayMilliseconds(8), Is.EqualTo(5000));
+			Assert.That(WaylandRetryPolicy.DelayMilliseconds(100), Is.EqualTo(5000));
+		}
+
+		[Test]
+		public void ScreencopySessionIsReusedAndReopenedAfterFailure()
+		{
+			FakeSession current = null;
+			var opens = 0;
+			FakeSession Open() { opens++; return new FakeSession(); }
+
+			Assert.That(WaylandScreenCapture.RunWithReusableSession(ref current, Open, _ => new object()), Is.Not.Null);
+			var first = current;
+			Assert.That(WaylandScreenCapture.RunWithReusableSession(ref current, Open, _ => new object()), Is.Not.Null);
+			Assert.That(current, Is.SameAs(first));
+			Assert.That(opens, Is.EqualTo(1));
+
+			Assert.That(WaylandScreenCapture.RunWithReusableSession(ref current, Open, _ => (object)null), Is.Null);
+			Assert.That(first.Disposed, Is.True);
+			Assert.That(current, Is.Null);
+			Assert.That(WaylandScreenCapture.RunWithReusableSession(ref current, Open, _ => new object()), Is.Not.Null);
+			Assert.That(opens, Is.EqualTo(2));
+		}
+
+		private sealed class FakeSession : IDisposable
+		{
+			internal bool Disposed;
+			public void Dispose() => Disposed = true;
+		}
+	}
+}
+#endif

@@ -1,7 +1,6 @@
 #Requires AutoHotkey v2.0
 #Requires capability InputMonitoring   ; the passive keyboard/mouse hook; prompted at startup by this directive
 #SingleInstance Force
-#import KS { A_ScreenScale }     ; A_ScreenScale is a Keysharp addition (per-platform DPI scale factor), so it lives in the KS module
 #include Shell.ks
 
 /*
@@ -32,8 +31,8 @@
     to drag a HUD still register), telling physical from injected input via A_EventInfo.IsInjected, lock-key
     toggle state polled with GetKeyState(key, "T") and surfaced as green LEDs, Overlay canvases drawn with
     Image primitives (FillRoundRect/FillEllipse/DrawText) and updated live via SetImage, live repositioning
-    through Overlay.Move and live rescaling via Overlay.Scale (Win/Linux) or logical W/H (macOS) — re-rendered at
-    DPI*zoom to stay crisp and centre-anchored so it scales in place — and HotIf-scoped hotkeys so the drag/zoom
+    through atomic Overlay.Update calls — re-rendered at the current display's backing density times zoom to stay
+    crisp and centre-anchored — and HotIf-scoped hotkeys so the drag/zoom
     only capture the click while the cursor is over a HUD (so normal clicks pass straight through).
 
     Note: amber (injected) only lights for keys the hook can observe — on Linux that means the sender used
@@ -79,12 +78,9 @@ class InputHUD {
     static LedFont  := "Arial 8 bold"
 
     ; ---- state -------------------------------------------------------------
-    static DPI := 1                      ; canvas render scale (A_ScreenScale): each overlay bitmap is drawn at physical resolution
-    static Geo := 1                      ; on-screen geometry scale: DPI where the OS places in physical px (Win/Linux), 1 where it
-                                         ; places in logical points and handles HiDPI itself (macOS) — mirrors the GUI's DpiScale
     static ih := ""
-    static kb := ""                      ; {ov, cx, cy (fixed centre = zoom anchor), x, y (derived top-left), w, h (logical render size), pw, ph (physical on-screen size), zoom, zoomImg (cached zoom-drag preview bitmap), keys[]}
-    static ms := ""                      ; {ov, cx, cy (fixed centre = zoom anchor), x, y (derived top-left), w, h (logical render size), pw, ph (physical on-screen size), zoom, zoomImg (cached zoom-drag preview bitmap)}
+    static kb := ""                      ; each HUD carries its target display's ui/raster/density metadata
+    static ms := ""
     static down := Map()                 ; vk -> "phys" | "synth"  (pressed keys, keyed by origin)
     static mdown := Map()                ; "left"/"right"/"middle"/"x1"/"x2" -> "phys" | "synth"
     static wheelFlash := 0               ; -1 up, +1 down, 0 none
@@ -95,6 +91,7 @@ class InputHUD {
     static leds := []                    ; pre-laid-out status-strip LEDs (built alongside the keyboard)
     static togPoll := true               ; a lock key fired -> refresh toggle state on the next tick
     static togTick := 0                  ; slow-poll counter (catches lock changes made by other apps)
+    static scaleTick := 0                ; slower display-scale poll (handles live DPI changes without per-frame queries)
     static kbDirty := true               ; a render is pending (rendered on the main-thread tick)
     static msDirty := true
     ; Zoom (right-drag over a HUD): each HUD carries its own on-screen scale factor. Horizontal drag distance
@@ -119,18 +116,10 @@ class InputHUD {
     }
 
     static Setup() {
-        ; The layout below is authored in LOGICAL units. Each overlay's canvas is built at physical resolution
-        ; (Image.Create's scale arg = DPI) so it stays crisp, but the overlay's on-screen size and all screen
-        ; geometry (placement, drag hit-testing) use pw/ph scaled by Geo, matching the coordinate system the OS
-        ; reports: physical pixels on Windows/Linux (Geo = DPI), logical points on macOS (Geo = 1, since Cocoa
-        ; handles HiDPI itself — the overlay is still drawn from the physical-resolution canvas).
-        this.DPI := A_ScreenScale
-#if OSX
-        this.Geo := 1
-#else
-        this.Geo := this.DPI
-#endif
-        this.ms := {ov: Overlay(0, 0, 118, 188, this.DPI), cx: 0, cy: 0, x: 0, y: 0, w: 118, h: 188, pw: Round(118 * this.Geo), ph: Round(188 * this.Geo), zoom: 1, zoomImg: ""}
+        ; Layout is authored in conventional UI units. Each HUD independently tracks native-units-per-UI-unit
+        ; (`ui`) and backing-pixels-per-native-unit (`raster`) for the display containing its centre.
+		this.ms := {ov: Overlay(), cx: 0, cy: 0, x: 0, y: 0, w: 118, h: 188, pw: 118, ph: 188,
+					scale: 1, zoom: 1, zoomImg: ""}
         this.BuildKeyboard()
         this.RefreshToggles()            ; seed the lock LEDs so the first paint already shows the real state
         this.Place()
@@ -171,8 +160,16 @@ class InputHUD {
             if this.RefreshToggles()
                 this.kbDirty := true
         }
+        this.scaleTick += 1
+        if (this.scaleTick >= 30) {
+            this.scaleTick := 0
+            if this.RefreshDisplayMetrics(this.kb)
+                this.kbDirty := true
+            if this.RefreshDisplayMetrics(this.ms)
+                this.msDirty := true
+        }
         ; A HUD that is actively being zoom-dragged (zoomWhich) paints via the cheap upscale preview — reusing a
-        ; cached, unzoomed render instead of re-running every primitive at DPI*zoom (which is O(zoom^2) pixels and is
+		; cached, unzoomed render instead of re-running every primitive at density*zoom (which is O(zoom^2) pixels and is
         ; what made a large zoom crawl). ZoomHud re-flags the HUD dirty when it settles, so the very next tick draws
         ; it crisp again. Every other repaint (key/mouse state changes) takes the full-quality path.
         if this.kbDirty {
@@ -232,7 +229,8 @@ class InputHUD {
             this.dispVk[k.vk] := true
         }
         local lw := Round(maxR + this.Pad), lh := Round(maxB + this.Pad)
-        this.kb := {ov: Overlay(0, 0, lw, lh, this.DPI), cx: 0, cy: 0, x: 0, y: 0, w: lw, h: lh, pw: Round(lw * this.Geo), ph: Round(lh * this.Geo), keys: keys, zoom: 1, zoomImg: ""}
+		this.kb := {ov: Overlay(), cx: 0, cy: 0, x: 0, y: 0, w: lw, h: lh, pw: lw, ph: lh,
+					scale: 1, keys: keys, zoom: 1, zoomImg: ""}
         this.BuildLeds(lw, navX)         ; status-light strip in the empty top-right corner, above the nav cluster
     }
 
@@ -283,32 +281,32 @@ class InputHUD {
         return {vk: vk, label: label, tog: tog, px: px, py: py, pw: pw, tx: px + (pw - tw) / 2, ty: py + (this.U - th) / 2}
     }
 
-    ; Full-quality keyboard render: draw the fixed logical layout into a fresh DPI*zoom bitmap so it stays crisp at
+	; Full-quality keyboard render: draw the fixed authored layout into a fresh density*zoom bitmap so it stays crisp at
     ; any zoom, then size/position the overlay with the SAME z and upload it. Used for every repaint EXCEPT the live
     ; frames of a zoom-drag, which take the cheaper RenderKbPreview path and are re-sharpened here once they settle.
     static RenderKeyboard() {
         local kb := this.kb
         local z := this.Geometry(kb)     ; snapshot the zoom ONCE; the bitmap, on-screen size and position all use z
-        local img := Image.Create(kb.w, kb.h, , this.DPI * z)
+		local img := Image.Create(kb.w, kb.h, , kb.scale * z)
         this.DrawKeyboard(img)
-        this.UpdateOverlay(kb, img, z)    ; image + final geometry reach the platform in one transaction
+		this.UpdateOverlay(kb, img)    ; image + final geometry reach the platform in one transaction
         img.Dispose()
         this.DropBase(kb)                ; this crisp frame supersedes any zoom-drag preview base; free it
     }
 
     ; Cheap live zoom-drag frame: reuse a cached, UNZOOMED (DPI-scale) render of the board and let the overlay upscale
-    ; it to the on-screen size, rather than re-running every key's primitives at DPI*zoom every frame. Rendering the
+	; it to the on-screen size, rather than re-running every key's primitives at density*zoom every frame. Rendering the
     ; primitives is ~half the per-frame cost and grows with zoom^2, so skipping it keeps a zoom-drag responsive even at
     ; large scales (the base is a bit soft while dragging; RenderKeyboard re-sharpens the instant the drag settles).
     ; The base is drawn once per drag (capturing the current key/toggle state); each live frame only re-uploads it.
     static RenderKbPreview() {
         local kb := this.kb
         if (kb.zoomImg = "") {
-            kb.zoomImg := Image.Create(kb.w, kb.h, , this.DPI)
+			kb.zoomImg := Image.Create(kb.w, kb.h, , kb.scale)
             this.DrawKeyboard(kb.zoomImg)
         }
         local z := this.Geometry(kb)
-        this.UpdateOverlay(kb, kb.zoomImg, z)
+		this.UpdateOverlay(kb, kb.zoomImg)
     }
 
     ; Paints the whole keyboard into `img` in LOGICAL coordinates (so it works at any bitmap scale). No geometry/upload.
@@ -373,14 +371,14 @@ class InputHUD {
         return changed
     }
 
-    ; Full-quality mouse render (crisp DPI*zoom bitmap). Like the keyboard, the live frames of a zoom-drag take the
+	; Full-quality mouse render (crisp density*zoom bitmap). Like the keyboard, the live frames of a zoom-drag take the
     ; cheaper RenderMsPreview path instead, and this re-sharpens the mouse the instant that drag settles.
     static RenderMouse() {
         local ms := this.ms
         local z := this.Geometry(ms)
-        local img := Image.Create(ms.w, ms.h, , this.DPI * z)
+		local img := Image.Create(ms.w, ms.h, , ms.scale * z)
         this.DrawMouse(img)
-        this.UpdateOverlay(ms, img, z)
+		this.UpdateOverlay(ms, img)
         img.Dispose()
         this.DropBase(ms)                ; this crisp frame supersedes any zoom-drag preview base; free it
     }
@@ -389,11 +387,11 @@ class InputHUD {
     static RenderMsPreview() {
         local ms := this.ms
         if (ms.zoomImg = "") {
-            ms.zoomImg := Image.Create(ms.w, ms.h, , this.DPI)
+			ms.zoomImg := Image.Create(ms.w, ms.h, , ms.scale)
             this.DrawMouse(ms.zoomImg)
         }
         local z := this.Geometry(ms)
-        this.UpdateOverlay(ms, ms.zoomImg, z)
+		this.UpdateOverlay(ms, ms.zoomImg)
     }
 
     ; Paints the whole mouse HUD into `img` in LOGICAL coordinates. No geometry/upload.
@@ -572,8 +570,14 @@ class InputHUD {
             while GetKeyState("LButton", "P") {
                 MouseGetPos(&mx, &my)
                 o.cx := mx - offX, o.cy := my - offY     ; move the centre; x/y follow (size is unchanged mid-drag)
-                o.x := Round(o.cx - o.pw / 2), o.y := Round(o.cy - o.ph / 2)
-                o.ov.Move(o.x, o.y)
+                if this.RefreshDisplayMetrics(o) {
+                    if (which = "kb")
+                        this.kbDirty := true
+                    else
+                        this.msDirty := true
+                } else
+                    this.Geometry(o)
+                o.ov.Move(o.x, o.y, o.pw, o.ph)
                 Sleep 8
             }
             this.SaveHud(which, o)                       ; remember where the user parked this HUD for next run
@@ -608,7 +612,7 @@ class InputHUD {
                 ; so the HUD tracks the cursor and STOPS exactly where you stop. (The old per-tick easing lagged the
                 ; cursor, so after you stopped the panel kept drifting toward its centre-anchored target for a further
                 ; ~10-30px before settling — the smoothing was fighting the render lag rather than hiding it.)
-                local next := this.ClampZoom(startZoom * (2 ** ((mx - startX) / this.ZoomSens)))
+				local next := this.ClampZoom(startZoom * (2 ** ((mx - startX) / (this.ZoomSens * o.scale))))
                 if (next != o.zoom) {
                     o.zoom := next               ; the ONLY shared write; the tick derives x/y/pw/ph from it
                     if (which = "kb")
@@ -639,20 +643,32 @@ class InputHUD {
     ; (a huge, blurry, off-centre frame). All geometry is computed here, on the render's own (main) thread.
     static Geometry(o) {
         local z := o.zoom
-        ; Round the logical display size first, exactly as UpdateOverlay does, then convert it to screen units. This
-        ; avoids a one-pixel mismatch from Round(w * Geo * z) vs Round(Round(w * z) * Geo) at fractional DPI.
-        o.pw := Round(Round(o.w * z) * this.Geo)
-        o.ph := Round(Round(o.h * z) * this.Geo)
+        ; Zoom is encoded in the authored W/H, then monitor scale converts that size to native screen units.
+		o.pw := Round(Round(o.w * z) * o.scale)
+		o.ph := Round(Round(o.h * z) * o.scale)
         o.x := Round(o.cx - o.pw / 2)
         o.y := Round(o.cy - o.ph / 2)
         return z
     }
 
-    ; Commits the prepared image, centre-derived position and matching logical display size as ONE backing update.
+    ; Commits the prepared image, centre-derived position and matching native display size as ONE backing update.
     ; The old frame stays visible until this succeeds, so no transparent Scale frame or separately moved frame can
-    ; reach the compositor. Zoom lives entirely in W/H; Scale remains the fixed DPI/raster density on every platform.
-    static UpdateOverlay(o, img, z) {
-        o.ov.Update(img, o.x, o.y, Round(o.w * z), Round(o.h * z), this.DPI)
+	; reach the compositor. Zoom lives entirely in W/H; the renderer selects backing density automatically.
+	static UpdateOverlay(o, img) {
+		o.ov.Update(img, o.x, o.y, o.pw, o.ph)
+	}
+
+	; Refresh one HUD's monitor scale. Backing density is renderer-owned and never enters the script's geometry.
+	static RefreshDisplayMetrics(o, x := "", y := "") {
+		local px := x = "" ? o.cx : x, py := y = "" ? o.cy : y
+		local monitor := MonitorFromPoint(px, py)
+		local scale := MonitorGetScale(monitor)
+		if (Abs(scale - o.scale) < 0.001)
+			return false
+		o.scale := scale
+		this.DropBase(o)
+        this.Geometry(o)
+        return true
     }
 
     static ClampZoom(z) => Min(this.ZoomMax, Max(this.ZoomMin, z))
@@ -747,6 +763,7 @@ class InputHUD {
             local cx := sx + 0, cy := sy + 0, zoom := this.ClampZoom(sz + 0)
             if this.OnScreen(cx, cy) {
                 o.cx := cx, o.cy := cy, o.zoom := zoom
+                this.RefreshDisplayMetrics(o)
                 this.Geometry(o)
             }
         }
@@ -766,11 +783,15 @@ class InputHUD {
     ; ======================================================================
     static Place() {
         MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
-        ; Lay the two HUDs out in the OS's screen-coordinate units (see Geo): their on-screen sizes are pw/ph,
-        ; and the inter-panel gap and edge margins scale by Geo too so the spacing keeps up with the DPI.
+        local centreX := (l + r) // 2, centreY := (t + b) // 2
+        this.RefreshDisplayMetrics(this.kb, centreX, centreY)
+        this.RefreshDisplayMetrics(this.ms, centreX, centreY)
+        ; Lay the two HUDs out in native screen units. Their on-screen sizes are pw/ph, and spacing uses the
+        ; primary display's native-units-per-authored-unit scale.
         ; Anchored to the bottom-LEFT (keyboard first, mouse to its right) so the pair clears the Shell's
         ; cheat-sheet card, which sits at the bottom-right.
-        local gap := Round(20 * this.Geo), margin := Round(40 * this.Geo)
+		local scale := this.kb.scale
+		local gap := Round(20 * scale), margin := Round(40 * scale)
         local kbX := l + margin, kbY := b - this.kb.ph - margin
         local msX := kbX + this.kb.pw + gap, msY := b - this.ms.ph - margin
         ; The zoom anchor is each HUD's CENTRE (cx/cy); x/y/pw/ph are then derived from it by Geometry.

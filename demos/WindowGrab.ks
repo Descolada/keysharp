@@ -1,7 +1,6 @@
 #Requires AutoHotkey v2.0
 #Requires capability InputMonitoring   ; the mouse hook; moving/fading foreign windows uses X11/compositor, not a gated capability (macOS asks for Accessibility on first use)
 #SingleInstance Force
-#import KS { A_ScreenScale }     ; A_ScreenScale is a Keysharp addition (per-platform DPI scale factor), so it lives in the KS module
 #include Shell.ks
 
 /*
@@ -99,15 +98,8 @@ class WindowGrab {
         start := this.GetAlpha(id)
         dragged := false
         lastAlpha := ""                            ; skip re-applying an unchanged opacity every tick
-        ; On Windows/Linux the drag distance is in PHYSICAL screen pixels, so on a 200% display the same hand
-        ; movement covers twice as many pixels and the fade would run twice as fast — divide by the DPI scale so
-        ; a given *perceived* drag maps to the same opacity change at any scaling. macOS already reports the
-        ; cursor in logical points (perceived units), so there it stays 1.
-#if OSX
-        scale := 1
-#else
-        scale := A_ScreenScale
-#endif
+        ; Convert the native cursor distance into authored UI units using the display where the drag began.
+		scale := MonitorGetScale(MonitorFromPoint(sx, sy))
 
         while GetKeyState("RButton", "P") {
             if GetKeyState("Escape", "P") {          ; Esc aborts the fade: restore the opacity we started with

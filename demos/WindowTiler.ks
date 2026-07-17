@@ -1,7 +1,7 @@
 #Requires AutoHotkey v2.0
 #Requires capability InputMonitoring   ; the CapsLock-chord keyboard hook (macOS asks for Accessibility on first window move)
 #SingleInstance Force
-#import KS { Highlight, A_ScreenScale }   ; A_ScreenScale (per-platform DPI scale factor) is used by the included Shell
+#import KS { Highlight }
 #include Shell.ks
 
 /*

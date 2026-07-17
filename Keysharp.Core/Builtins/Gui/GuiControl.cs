@@ -275,7 +275,7 @@ namespace Keysharp.Builtins
 									   [Optional()][DefaultParameterValue(null)] object outWidth,
 									   [Optional()][DefaultParameterValue(null)] object outHeight)
 			{
-				GetClientPos(_control, DpiScaling, outX, outY, outWidth, outHeight);
+				GetClientPos(_control, ((Gui)Gui).DpiScale, outX, outY, outWidth, outHeight);
 				return DefaultObject;
 			}
 
@@ -307,7 +307,7 @@ namespace Keysharp.Builtins
 								 [Optional()][DefaultParameterValue(null)] object outWidth,
 								 [Optional()][DefaultParameterValue(null)] object outHeight)
 			{
-				GetPos(_control, DpiScaling, outX, outY, outWidth, outHeight);
+				GetPos(_control, ((Gui)Gui).DpiScale, outX, outY, outWidth, outHeight);
 				return DefaultObject;
 			}
 
@@ -362,11 +362,11 @@ namespace Keysharp.Builtins
 				return DefaultObject;
 			}
 
-			internal static void GetClientPos(Forms.Control control, bool scaling, [ByRef] object outX, [ByRef] object outY, [ByRef] object outWidth, [ByRef] object outHeight) => GetPosHelper(control, scaling, true, outX, outY, outWidth, outHeight);
+			internal static void GetClientPos(Forms.Control control, double scale, [ByRef] object outX, [ByRef] object outY, [ByRef] object outWidth, [ByRef] object outHeight) => GetPosHelper(control, scale, true, outX, outY, outWidth, outHeight);
 
-			internal static void GetPos(Forms.Control control, bool scaling, [ByRef] object outX, [ByRef] object outY, [ByRef] object outWidth, [ByRef] object outHeight) => GetPosHelper(control, scaling, false, outX, outY, outWidth, outHeight);
+			internal static void GetPos(Forms.Control control, double scale, [ByRef] object outX, [ByRef] object outY, [ByRef] object outWidth, [ByRef] object outHeight) => GetPosHelper(control, scale, false, outX, outY, outWidth, outHeight);
 
-			internal static void GetPosHelper(Forms.Control control, bool scaling, bool client, [ByRef] object outX, [ByRef] object outY, [ByRef] object outWidth, [ByRef] object outHeight)
+			internal static void GetPosHelper(Forms.Control control, double scale, bool client, [ByRef] object outX, [ByRef] object outY, [ByRef] object outWidth, [ByRef] object outHeight)
 			{
 				Rectangle rect;
 				if (client)
@@ -385,7 +385,7 @@ namespace Keysharp.Builtins
 					}
 				}
 
-				if (!scaling)
+				if (Math.Abs(scale - 1.0) < 0.0001)
 				{
 					if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)rect.X);
 					if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)rect.Y);
@@ -394,11 +394,16 @@ namespace Keysharp.Builtins
 				}
 				else
 				{
-					var scale = 1.0 / Ks.A_ScreenScale;
-					if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)Math.Ceiling(rect.X * scale));
-					if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)Math.Ceiling(rect.Y * scale));
-					if (outWidth != null) Script.SetPropertyValue(outWidth, "__Value", (long)Math.Ceiling(rect.Width * scale));
-					if (outHeight != null) Script.SetPropertyValue(outHeight, "__Value", (long)Math.Ceiling(rect.Height * scale));
+					var inverse = 1.0 / scale;
+					// Screen positions stay in the platform's native virtual-desktop space. Only control-local authored
+					// positions and GUI sizes use the window's per-monitor scale.
+					var localPosition = !client && control?.Parent != null;
+					if (outX != null) Script.SetPropertyValue(outX, "__Value", localPosition
+						? (long)Math.Ceiling(rect.X * inverse) : (long)rect.X);
+					if (outY != null) Script.SetPropertyValue(outY, "__Value", localPosition
+						? (long)Math.Ceiling(rect.Y * inverse) : (long)rect.Y);
+					if (outWidth != null) Script.SetPropertyValue(outWidth, "__Value", (long)Math.Ceiling(rect.Width * inverse));
+					if (outHeight != null) Script.SetPropertyValue(outHeight, "__Value", (long)Math.Ceiling(rect.Height * inverse));
 				}
 			}
 

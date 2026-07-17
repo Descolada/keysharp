@@ -644,13 +644,25 @@ namespace Keysharp.Internals
 
 		public override Rectangle GetBounds(nint h)
 		{
-			if (TryOwnControl(h, out _)) return base.GetBounds(h);
+			if (TryOwnControl(h, out var control))
+			{
+				var bounds = base.GetBounds(h);
+				return control is Form
+					? X11DisplayTopology.FromToolkitBounds(ScreenRect.FromRectangle(bounds)).ToRectangle()
+					: bounds;
+			}
 			return X11Bounds(h);
 		}
 
 		public override Rectangle GetClientBounds(nint h)
 		{
-			if (TryOwnControl(h, out _)) return base.GetClientBounds(h);
+			if (TryOwnControl(h, out _))
+			{
+				var bounds = base.GetClientBounds(h);
+				// GetClientScreenRect is absolute for both forms and child controls, so every result crosses the
+				// toolkit/root boundary. (GetBounds for a child is parent-local and deliberately remains a GUI unit.)
+				return X11DisplayTopology.FromToolkitBounds(ScreenRect.FromRectangle(bounds)).ToRectangle();
+			}
 			return X11ClientBounds(h);
 		}
 
@@ -966,8 +978,20 @@ namespace Keysharp.Internals
 
 		public override bool TryMoveResize(nint h, Rectangle bounds, bool setPos, bool setSize)
 		{
-			if (base.TryMoveResize(h, bounds, setPos, setSize))
-				return true;
+			if (TryOwnControl(h, out var control))
+			{
+				if (control is not Form)
+					return base.TryMoveResize(h, bounds, setPos, setSize);
+
+				var current = GetBounds(h);
+				var requested = new ScreenRect(
+					setPos && bounds.X != WindowInfoBase.Unchanged ? bounds.X : current.X,
+					setPos && bounds.Y != WindowInfoBase.Unchanged ? bounds.Y : current.Y,
+					setSize && bounds.Width != WindowInfoBase.Unchanged ? bounds.Width : current.Width,
+					setSize && bounds.Height != WindowInfoBase.Unchanged ? bounds.Height : current.Height);
+				var toolkit = X11DisplayTopology.ToToolkitBounds(requested).ToRectangle();
+				return base.TryMoveResize(h, toolkit, setPos, setSize);
+			}
 
 			X11SetBounds(h, bounds);
 			return true;
@@ -1208,13 +1232,9 @@ namespace Keysharp.Internals
 
 			var xwindow = X11(h);
 			var attr = xwindow.Attributes;
-			var pt = X11ClientToScreen(h);
-#if DPI
-			var scale = 1.0 / Ks.A_ScreenScale;
-			return new Rectangle(pt.X, pt.Y, (int)(scale * attr.width), (int)(scale * attr.height));
-#else
-			return new Rectangle(pt.X, pt.Y, attr.width, attr.height);
-#endif
+			_ = Xlib.XTranslateCoordinates(xwindow.XDisplay.Handle, xwindow.ID, xwindow.XDisplay.Root.ID,
+				0, 0, out var x, out var y, out _);
+			return new Rectangle(x, y, attr.width, attr.height);
 		}
 
 		private static bool X11Enabled(nint h)
@@ -1242,21 +1262,13 @@ namespace Keysharp.Internals
 			var xwindow = X11(h);
 			var attr = xwindow.Attributes;
 
-			if (Control.FromHandle(h) is Control ctrl)
-				return ctrl.Bounds;
-
 			Xlib.XTranslateCoordinates(xwindow.XDisplay.Handle, xwindow.ID, xwindow.XDisplay.Root.ID, 0, 0, out var x, out var y, out _);
 			var frame = X11FrameExtents(h);
 			x -= frame.Left;
 			y -= frame.Top;
 			var outerW = attr.width + attr.border_width + frame.Left + frame.Width;
 			var outerH = attr.height + attr.border_width + frame.Top + frame.Height;
-#if DPI
-			var scale = 1.0 / Ks.A_ScreenScale;
-			return new Rectangle((int)(scale * x), (int)(scale * y), (int)(scale * outerW), (int)(scale * outerH));
-#else
 			return new Rectangle(x, y, outerW, outerH);
-#endif
 		}
 
 		private static void X11SetBounds(nint h, Rectangle value)
@@ -1284,32 +1296,18 @@ namespace Keysharp.Internals
 				if (height == WindowInfoBase.Unchanged) height = cur.Height;
 			}
 
-#if DPI
-			var scale = Ks.A_ScreenScale;
-#else
-			var scale = 1.0;
-#endif
-			int sx = (int)(scale * x), sy = (int)(scale * y);
-			int sw = (int)(scale * w), sh = (int)(scale * height);
-
-			if (Control.FromHandle(h) is Control ctrl)
-			{
-				if (setSize)
-					ctrl.Size = new Size(w, height);
-
-				if (setPos)
-				{
-					if (ctrl is Eto.Forms.Window window)
-						window.Location = new Point(x, y);
-					else if (ctrl.Parent is PixelLayout pixel)
-						PixelLayout.SetLocation(ctrl, new Point(x, y));
-					else
-						_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, sx, sy);
-				}
-
-				_ = Xlib.XFlush(xwindow.XDisplay.Handle);
-				return;
-			}
+			// Both the public X11 contract and Xlib use root-window pixels. Resolve a complete rectangle only so a
+			// size-only change preserves the current native position and a position-only change preserves its size.
+			var current = X11Bounds(h);
+			var native = new ScreenRect(
+				x == WindowInfoBase.Unchanged ? current.X : x,
+				y == WindowInfoBase.Unchanged ? current.Y : y,
+				w == WindowInfoBase.Unchanged ? current.Width : w,
+				height == WindowInfoBase.Unchanged ? current.Height : height);
+			var sx = native.X;
+			var sy = native.Y;
+			var sw = native.Width;
+			var sh = native.Height;
 
 			var frame = X11FrameExtents(h);
 			int clientW = sw - frame.Left - frame.Width;
@@ -1738,22 +1736,9 @@ namespace Keysharp.Internals
 			if (!X11Specified(h))
 				return new POINT(0, 0);
 
-			if (Control.FromHandle(h) is Control ctrl)
-			{
-				var sp = ctrl.PointToScreen(Point.Empty);
-				return new POINT(Convert.ToInt32(sp.X), Convert.ToInt32(sp.Y));
-			}
-
 			var xwindow = X11(h);
 			_ = Xlib.XTranslateCoordinates(xwindow.XDisplay.Handle, xwindow.ID, xwindow.XDisplay.Root.ID, 0, 0, out var x, out var y, out _);
-
-			var pt = new POINT(x, y);
-#if DPI
-			var scale = 1.0 / Ks.A_ScreenScale;
-			pt.X = (int)(scale * pt.X);
-			pt.Y = (int)(scale * pt.Y);
-#endif
-			return pt;
+			return new POINT(x, y);
 		}
 
 		private static bool X11Kill(nint h)
@@ -1822,7 +1807,19 @@ namespace Keysharp.Internals
 
 		private static void X11SendMouseEvent(nint h, XEventName evName, EventMasks evMask, Buttons button, Point? location = null)
 		{
-			var click = location ?? new Point(X11Bounds(h).Width / 2, X11Bounds(h).Height / 2);
+			var attr = X11(h).Attributes;
+			Point click;
+
+			if (location is Point logicalClick)
+			{
+				var client = X11ClientBounds(h);
+				var scaleX = client.Width > 0 ? (double)attr.width / client.Width : 1.0;
+				var scaleY = client.Height > 0 ? (double)attr.height / client.Height : 1.0;
+				click = new Point((int)Math.Round(logicalClick.X * scaleX), (int)Math.Round(logicalClick.Y * scaleY));
+			}
+			else
+				click = new Point(attr.width / 2, attr.height / 2);
+
 			var ev = new XEvent();
 			ev.ButtonEvent = new XButtonEvent();
 			ev.ButtonEvent.type = evName;
@@ -1931,15 +1928,6 @@ namespace Keysharp.Internals
 
 		public override bool TryGetAt(int x, int y, out nint child)
 		{
-#if DPI
-			var scale = Ks.A_ScreenScale;
-
-			if (scale > 0)
-			{
-				x = (int)(x * scale);
-				y = (int)(y * scale);
-			}
-#endif
 			var found = FindWindowAtPointRecursive((nint)Display.Root.ID, x, y);
 			child = found;
 			return found != 0;

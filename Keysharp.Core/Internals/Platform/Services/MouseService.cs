@@ -152,7 +152,7 @@ namespace Keysharp.Internals
 			return false;
 		}
 
-		// Moves the pointer to an absolute X11 root coordinate (XWarpPointer). Used by the inputd cursor-clip
+		// Moves the pointer in Keysharp's native X11 root-pixel coordinates (XWarpPointer). Used by inputd cursor-clip
 		// correction; lives here so the X11 move path is owned by the resolved Mouse service. False if no X display.
 		private static bool TryX11Warp(int x, int y)
 		{

@@ -1,5 +1,5 @@
 #Requires AutoHotkey v2.0
-#import KS { A_ScreenScale, WinFromPoint } ; KS additions used for DPI-aware layout and event-point window hit-testing.
+#import KS { WinFromPoint, MonitorFromPoint, MonitorGetScale }
                                            ; Import here so this shared layer is self-contained; duplicate imports from
                                            ; an including demo are harmless because KS imports are script-global.
 
@@ -170,17 +170,6 @@ class Shell {
         local footer := "Don't show this card on startup"
         local closeHint := "✕ click to close"
 
-        ; Everything below is authored in LOGICAL units. The canvas is a physical-resolution bitmap (Image.Create's
-        ; scale arg = dpi) so it stays crisp, but the overlay's on-screen size and all screen geometry (placement,
-        ; click / checkbox hit-test) use `geo`, matching the OS coordinate system: physical px on Windows/Linux
-        ; (geo = dpi), logical points on macOS (geo = 1, Cocoa handles HiDPI itself).
-        local dpi := A_ScreenScale
-#if OSX
-        local geo := 1
-#else
-        local geo := dpi
-#endif
-
         ; Measure so the card fits its content exactly.
         local m := Image.Create(1, 1)
         local tw := 0, th := 0
@@ -205,7 +194,20 @@ class Shell {
         local titleH := 34, hintH := 24
         local h := pad + titleH + lines.Length * rowH + hintH
 
-        local img := Image.Create(w, h, , dpi)
+        ; Pick the display that will own the card before rasterizing it. `ui` converts the authored 96-DPI layout
+        ; into the platform's native screen units; `raster` converts those native units into backing pixels.
+        MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
+        if !this.posLoaded {
+            this.posLoaded := true
+            this.LoadCardPos(title)
+        }
+        local useSaved := this.posX != "" && this.OnScreenRect(this.posX, this.posY, 1, 1)
+        local targetX := useSaved ? this.posX : (l + r) // 2
+        local targetY := useSaved ? this.posY : (t + b) // 2
+		local monitor := MonitorFromPoint(targetX, targetY)
+		local scale := MonitorGetScale(monitor)
+
+		local img := Image.Create(w, h, , scale)
         img.FillRoundRect(0, 0, w, h, 12, "0xF01C1F28")
         img.DrawRoundRect(1, 1, w - 2, h - 2, 12, "0xFF3C4353", 1.5)
         img.DrawText(title, pad, pad, "0xFF5EC8FF", titleFont)
@@ -230,35 +232,29 @@ class Shell {
             img.FillRoundRect(pad + 4, cbY + 4, cbSize - 8, cbSize - 8, 2, "0xFF5EC8FF")
         img.DrawText(footer, pad + cbSize + 8, cbY - 1, "0xFF9AA4B4", hintFont)
 
-        if !IsObject(this.ov)
-            this.ov := Overlay(0, 0, , , dpi)   ; scale = dpi: physical-resolution canvas, shown crisp at its logical size
-        local pw := Round(w * geo), ph := Round(h * geo)
-        this.ov.SetImage(img)
-        img.Dispose()
+		if !IsObject(this.ov)
+			this.ov := Overlay()
+		local pw := Round(w * scale), ph := Round(h * scale)
 
-        local margin := Round(this.Margin * geo)
-        MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
+		local margin := Round(this.Margin * scale)
         local rx := r - pw - margin, ry := b - ph - margin   ; default: bottom-right corner
         ; If the user has moved the card (this run or a previous one) and that spot is still on some monitor,
         ; honour it; otherwise fall back to the default corner (handles a changed monitor layout, like the HUDs).
-        if !this.posLoaded {
-            this.posLoaded := true
-            this.LoadCardPos(title)
-        }
-        if (this.posX != "" && this.OnScreenRect(this.posX, this.posY, pw, ph))
-            rx := this.posX, ry := this.posY
-        this.rect := {x: rx, y: ry, w: pw, h: ph}
-        this.ov.Move(this.rect.x, this.rect.y)
+		if (useSaved && this.OnScreenRect(this.posX, this.posY, pw, ph))
+			rx := this.posX, ry := this.posY
+		this.rect := {x: rx, y: ry, w: pw, h: ph}
+		this.ov.Update(img, this.rect.x, this.rect.y, this.rect.w, this.rect.h)
+		img.Dispose()
         ; Screen rects of the two clickable regions (in the OS coordinate system): the ✕ close button and the
         ; "don't show" checkbox+label. A click anywhere ELSE on the card starts a move (see OnClick/DragCard).
-        this.closeRect := {x: this.rect.x + Round((w - pad - closeW) * geo),
-                           y: this.rect.y + Round((pad - 2) * geo),
-                           w: Round((closeW + pad) * geo),
-                           h: Round(22 * geo)}
-        this.checkRect := {x: this.rect.x + Round(pad * geo),
-                           y: this.rect.y + Round((cbY - 3) * geo),
-                           w: Round((cbSize + 8 + footerW) * geo),
-                           h: Round((cbSize + 6) * geo)}
+		this.closeRect := {x: this.rect.x + Round((w - pad - closeW) * scale),
+		                   y: this.rect.y + Round((pad - 2) * scale),
+		                   w: Round((closeW + pad) * scale),
+		                   h: Round(22 * scale)}
+		this.checkRect := {x: this.rect.x + Round(pad * scale),
+		                   y: this.rect.y + Round((cbY - 3) * scale),
+		                   w: Round((cbSize + 8 + footerW) * scale),
+		                   h: Round((cbSize + 6) * scale)}
     }
 
     ; Left-click handling while the cursor is over the card: the ✕ closes it, the checkbox toggles the

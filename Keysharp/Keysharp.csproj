@@ -2,6 +2,7 @@
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
 		<TargetFramework>net10.0-windows</TargetFramework>
 		<UseWindowsForms>true</UseWindowsForms>
+		<ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
 		<OutputType>WinExe</OutputType>
 		<UseWindowsForms>true</UseWindowsForms>
 		<Platforms>x64</Platforms>

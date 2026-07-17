@@ -820,7 +820,7 @@ namespace Keysharp.Builtins
 				var _y = (y is null ? long.MinValue : y.ToLong());
 				var w = (width is null ? long.MinValue : width.ToLong());
 				var h = (height is null ? long.MinValue : height.ToLong());
-				var scale = !DpiScaling ? 1.0 : Ks.A_ScreenScale;
+				var scale = ((Gui)Gui).DpiScale;
 				var hasScrollBars = _control is KeysharpTextBox || _control is KeysharpRichEdit;//Reflections.SafeHasProperty(_control, "ScrollBars") || Reflections.SafeHasProperty(_control, "HorizontalScrollbar") || Reflections.SafeHasProperty(_control, "Scrollable")
 				Point offset = Parent == null || Parent.GetControl() is Form ? Point.Empty : Parent.GetControl().GetLocationRelativeToForm();
 

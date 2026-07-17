@@ -32,13 +32,7 @@ namespace Keysharp.Internals
 		{
 			if (!IsSpecified(h) || !WindowsAPI.GetWindowRect(h, out var rect))
 				return Rectangle.Empty;
-
-#if DPI
-			var scale = 1.0 / Ks.A_ScreenScale;
-			return new Rectangle((int)(scale * rect.Left), (int)(scale * rect.Top), (int)(scale * (rect.Right - rect.Left)), (int)(scale * (rect.Bottom - rect.Top)));
-#else
 			return new Rectangle(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top);
-#endif
 		}
 
 		public override Rectangle GetClientBounds(nint h)
@@ -48,12 +42,7 @@ namespace Keysharp.Internals
 
 			// GetClientRect is client-relative. Report screen-relative bounds to match the other platforms.
 			var pt = ClientToScreen(h);
-#if DPI
-			var scale = 1.0 / Ks.A_ScreenScale;
-			return new Rectangle(pt.X, pt.Y, (int)(scale * (rect.Right - rect.Left)), (int)(scale * (rect.Bottom - rect.Top)));
-#else
 			return new Rectangle(pt.X, pt.Y, rect.Right - rect.Left, rect.Bottom - rect.Top);
-#endif
 		}
 
 		public override long GetStyle(nint h)
@@ -92,11 +81,6 @@ namespace Keysharp.Internals
 		{
 			var pt = new POINT();
 			_ = WindowsAPI.ClientToScreen(h, ref pt);
-#if DPI
-			var scale = 1.0 / Ks.A_ScreenScale;
-			pt.X = (int)(scale * pt.X);
-			pt.Y = (int)(scale * pt.Y);
-#endif
 			return pt;
 		}
 
@@ -502,11 +486,6 @@ namespace Keysharp.Internals
 			if (!setPos && !setSize)
 				return;
 
-#if DPI
-			var scale = Ks.A_ScreenScale;
-#else
-			var scale = 1.0;
-#endif
 			int curX = 0, curY = 0, curW = 0, curH = 0;
 
 			if ((setPos && (value.X == Unchanged || value.Y == Unchanged))
@@ -521,10 +500,10 @@ namespace Keysharp.Internals
 				curH = rect.Bottom - rect.Top;
 			}
 
-			var x = value.X == Unchanged ? curX : (int)(scale * value.X);
-			var y = value.Y == Unchanged ? curY : (int)(scale * value.Y);
-			var w = value.Width == Unchanged ? curW : (int)(scale * value.Width);
-			var height = value.Height == Unchanged ? curH : (int)(scale * value.Height);
+			var x = value.X == Unchanged ? curX : value.X;
+			var y = value.Y == Unchanged ? curY : value.Y;
+			var w = value.Width == Unchanged ? curW : value.Width;
+			var height = value.Height == Unchanged ? curH : value.Height;
 			var flags = (uint)(WindowsAPI.SWP_NOZORDER | WindowsAPI.SWP_NOACTIVATE
 							   | (setPos ? 0 : WindowsAPI.SWP_NOMOVE)
 							   | (setSize ? 0 : WindowsAPI.SWP_NOSIZE));

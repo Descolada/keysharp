@@ -509,6 +509,12 @@ namespace Keysharp.Internals.Os.Windows
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool PeekMessage(out Msg message, nint handle, uint filterMin, uint filterMax, uint flags);
 
+		[LibraryImport(user32, EntryPoint = "MonitorFromRect")]
+		internal static partial nint MonitorFromRect(ref RECT rect, uint flags);
+
+		[LibraryImport("shcore.dll", EntryPoint = "GetDpiForMonitor")]
+		internal static partial int GetDpiForMonitor(nint monitor, int dpiType, out uint dpiX, out uint dpiY);
+
 		[LibraryImport(user32, EntryPoint = "OpenClipboard")]
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool OpenClipboard(nint hWndNewOwner);

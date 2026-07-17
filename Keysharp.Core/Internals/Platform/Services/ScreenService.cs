@@ -5,6 +5,67 @@ using X11Cap = Keysharp.Internals.Window.Linux.X11.X11ScreenCapture;
 
 namespace Keysharp.Internals
 {
+#if !WINDOWS
+	/// <summary>Captures each intersected Eto display independently, then composites the backing-pixel images
+	/// into one bitmap. Screen positions and requested extents remain in the platform's native screen units.</summary>
+	internal static class EtoScreenCapture
+	{
+		internal static bool TryCapture(int x, int y, int width, int height, out Bitmap bmp)
+		{
+			bmp = null;
+
+			if (width <= 0 || height <= 0)
+				return false;
+
+			var captures = new List<(ScreenRect Bounds, Bitmap Pixels)>();
+
+			try
+			{
+				foreach (var screen in Forms.Screen.Screens ?? [])
+				{
+					if (screen == null)
+						continue;
+
+					var bounds = ScreenRect.FromRectangle(screen.Bounds);
+					var left = Math.Max((long)x, bounds.X);
+					var top = Math.Max((long)y, bounds.Y);
+					var right = Math.Min((long)x + width, (long)bounds.X + bounds.Width);
+					var bottom = Math.Min((long)y + height, (long)bounds.Y + bounds.Height);
+
+					if (right <= left || bottom <= top)
+						continue;
+
+					var segmentWidth = (int)(right - left);
+					var segmentHeight = (int)(bottom - top);
+#if OSX
+					// Cocoa's capture handler accepts the same global point space exposed by Screen.Bounds.
+					var captureRect = new RectangleF(left, top, segmentWidth, segmentHeight);
+#else
+					// GDK's per-monitor handler adds its monitor origin before reading the root window.
+					var captureRect = new RectangleF(left - bounds.X, top - bounds.Y, segmentWidth, segmentHeight);
+#endif
+					if (screen.GetImage(captureRect) is not Bitmap image || image.Width <= 0 || image.Height <= 0)
+						return false;
+
+					captures.Add((new ScreenRect((int)left, (int)top, segmentWidth, segmentHeight), image));
+				}
+
+				if (captures.Count == 0)
+					return false;
+
+				bmp = ScreenCaptureComposer.Compose(new ScreenRect(x, y, width, height), captures);
+				return bmp != null;
+			}
+			finally
+			{
+				foreach (var capture in captures)
+					capture.Pixels.Dispose();
+			}
+		}
+
+	}
+#endif
+
 #if LINUX
 	/// <summary>
 	/// Resolves the one Linux <see cref="IScreen"/> for this session — the only place the compositor flavor is
@@ -24,7 +85,7 @@ namespace Keysharp.Internals
 				Wl.WaylandBackend.KWinBackend kwin => new KWinScreen(kwin),
 				Wl.WaylandBackend.GnomeBackend gnome => new GnomeScreen(gnome),
 				Wl.CinnamonBackend cinnamon => new CinnamonScreen(cinnamon),
-				null => new X11Screen(),                      // Wayland session but no usable backend → X11/Eto
+				null => new EtoScreen(),                      // Wayland without a compositor helper: GDK topology/capture
 				var other => new WlrootsScreen(other),        // sway/Hyprland/wlroots: tries zwlr, else Eto
 			};
 		}
@@ -34,27 +95,42 @@ namespace Keysharp.Internals
 	/// rectangle-grabs), no work-area override (caller uses Eto's per-screen WorkingArea), no authorization.</summary>
 	internal class EtoScreen : IScreen
 	{
-		public virtual bool TryGetWorkArea(int monitorIndex, out Rectangle area, out bool excludesPanels)
+		public virtual IReadOnlyList<DisplayInfo> GetDisplays()
 		{
-			area = Rectangle.Empty;
-			excludesPanels = false;
-			return false;
+			var screens = Forms.Screen.Screens?.ToArray() ?? [];
+			var result = new List<DisplayInfo>(screens.Length);
+			var anyPrimary = screens.Any(s => s?.IsPrimary == true);
+
+			for (var i = 0; i < screens.Length; i++)
+			{
+				var screen = screens[i];
+
+				if (screen == null)
+					continue;
+
+				var bounds = ScreenRect.FromRectangle(screen.Bounds);
+				ScreenRect workArea;
+
+				try { workArea = ScreenRect.FromRectangle(screen.WorkingArea); }
+				catch { workArea = bounds; }
+
+				var primary = screen.IsPrimary || !anyPrimary && bounds.X == 0 && bounds.Y == 0;
+				// Wayland screen coordinates already include the compositor's UI scaling. Under X11 the fallback
+				// toolkit topology may still expose a separate monitor scale; the X11-native topology normally overrides it.
+				var scale = IsWaylandSession ? 1.0 : ScaleFactor.Normalize(screen.DPI / 96.0);
+				result.Add(new DisplayInfo(screen.ID ?? $"display-{i + 1}", bounds, workArea, scale, primary));
+			}
+
+			return result;
 		}
 
-		public bool TryGetPrimaryBounds(out Rectangle bounds) { bounds = Rectangle.Empty; return false; }
+		public virtual bool TryCaptureRegion(ScreenRect bounds, out Bitmap bmp)
+			=> EtoScreenCapture.TryCapture(bounds.X, bounds.Y, bounds.Width, bounds.Height, out bmp);
 
-		public virtual bool TryCaptureRegion(int x, int y, int width, int height, out Bitmap bmp, out double scaleX, out double scaleY)
-		{
-			scaleX = scaleY = 1;
-			// On a HiDPI display Eto's fork sizes the grab in physical pixels; callers map back via the scale.
-			bmp = Eto.Forms.Screen.PrimaryScreen.GetImage(new RectangleF(x, y, width, height)) as Bitmap;
-			return bmp != null;
-		}
-
-		public virtual bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out double scale)
+		public virtual bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out PixelScale pixelScale)
 		{
 			bmp = null;
-			scale = 1;
+			pixelScale = PixelScale.One;
 			return false;   // no occlusion-independent window capture here → caller falls back to a rectangle grab
 		}
 
@@ -64,29 +140,36 @@ namespace Keysharp.Internals
 			=> new (Os.PermissionStatus.NotApplicable);
 	}
 
-	/// <summary>X11 (including KDE/GNOME/Cinnamon under X11): region grabs use Eto; window capture uses
+	/// <summary>X11 (including KDE/GNOME/Cinnamon under X11): public coordinates are native root-window pixels.
+	/// Region/window capture and foreign-window geometry therefore cross into Xlib without rescaling. Window capture uses
 	/// <c>XGetImage</c> + XComposite redirection, so occluded windows still capture.</summary>
 	internal sealed class X11Screen : EtoScreen
 	{
+		public override IReadOnlyList<DisplayInfo> GetDisplays()
+		{
+			var displays = X11DisplayTopology.GetDisplays();
+			return displays.Count > 0 ? displays : base.GetDisplays();
+		}
+
 		// X11 lets any client grab the screen without asking, so routing capture through keysharp-helper is
 		// consent/awareness only — a determined script could call XGetImage directly and bypass it. It still
 		// lets the user see and refuse Keysharp-driven capture, and unifies the prompt with the Wayland paths.
 		// The consent is resolved once (cached) and degrades to "allow" when no privileged helper is installed.
-		public override bool TryCaptureRegion(int x, int y, int width, int height, out Bitmap bmp, out double scaleX, out double scaleY)
+		public override bool TryCaptureRegion(ScreenRect bounds, out Bitmap bmp)
 		{
 			if (!Wl.HelperClient.EnsureCaptureConsent())
 			{
 				bmp = null;
-				scaleX = scaleY = 1;
 				return false;
 			}
 
-			return base.TryCaptureRegion(x, y, width, height, out bmp, out scaleX, out scaleY);
+			bmp = X11ScreenCapture.TryCaptureRegion(bounds.X, bounds.Y, bounds.Width, bounds.Height);
+			return bmp != null;
 		}
 
-		public override bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out double scale)
+		public override bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out PixelScale pixelScale)
 		{
-			scale = 1;
+			pixelScale = PixelScale.One;
 
 			if (!Wl.HelperClient.EnsureCaptureConsent())
 			{
@@ -96,6 +179,10 @@ namespace Keysharp.Internals
 
 			// X11 images the client window, so decorations are never included (the flag is moot here).
 			bmp = X11Cap.TryCaptureWindow(h.ToInt64());
+
+			if (bmp != null)
+				pixelScale = PixelScale.From(bmp, Platform.Window.GetClientBounds(h));
+
 			return bmp != null;
 		}
 
@@ -115,19 +202,41 @@ namespace Keysharp.Internals
 
 		protected WaylandScreen(Wl.IWaylandBackend backend) => this.backend = backend;
 
-		public override bool TryGetWorkArea(int monitorIndex, out Rectangle area, out bool excludesPanels)
+		public override IReadOnlyList<DisplayInfo> GetDisplays()
 		{
+			var native = Wl.WaylandLayerShellClient.Current?.GetDisplays();
+			var toolkit = base.GetDisplays().ToArray();
+			var displays = native is { Count: > 0 } ? native.ToArray() : toolkit;
+
+			// xdg-output supplies exact global geometry but not reserved panels/docks. Merge every GDK monitor's
+			// per-output working area into the native snapshot before applying a compositor-specific override. This
+			// preserves multi-monitor work areas instead of updating only whichever monitor owned one global rectangle.
+			if (native is { Count: > 0 })
+				for (var i = 0; i < displays.Length; i++)
+					if (DisplayTopology.TryFind(toolkit, displays[i].Bounds, out var match))
+					{
+						var overlap = displays[i].Bounds.Intersect(match.Bounds);
+
+						if (overlap.HasArea)
+							displays[i] = displays[i] with { WorkArea = match.WorkArea };
+					}
+
 			if (backend != null && backend.TryGetWorkArea(out var wa) && wa.Width > 0 && wa.Height > 0)
 			{
-				area = wa;
-				excludesPanels = true;   // the compositor work area already excludes panels/struts
-				return true;
+				var workArea = ScreenRect.FromRectangle(wa);
+
+				if (DisplayTopology.TryFind(displays, workArea, out var owner))
+					for (var i = 0; i < displays.Length; i++)
+						if (displays[i].Equals(owner))
+						{
+							displays[i] = displays[i] with { WorkArea = workArea };
+							break;
+						}
 			}
 
-			area = Rectangle.Empty;
-			excludesPanels = false;
-			return false;
+			return displays;
 		}
+
 	}
 
 	/// <summary>KWin Wayland via the keysharp-helper: region grabs through the ScreenShot2 interface,
@@ -138,18 +247,18 @@ namespace Keysharp.Internals
 
 		internal KWinScreen(Wl.WaylandBackend.KWinBackend backend) : base(backend) => kwin = backend;
 
-		public override bool TryCaptureRegion(int x, int y, int width, int height, out Bitmap bmp, out double scaleX, out double scaleY)
+		public override bool TryCaptureRegion(ScreenRect bounds, out Bitmap bmp)
 		{
-			bmp = Wl.HelperClient.Capture(x, y, width, height);
+			bmp = Wl.HelperClient.Capture(bounds.X, bounds.Y, bounds.Width, bounds.Height);
 
-			if (bmp != null) { scaleX = scaleY = 1; return true; }
+			if (bmp != null) return true;
 
-			return base.TryCaptureRegion(x, y, width, height, out bmp, out scaleX, out scaleY);
+			return base.TryCaptureRegion(bounds, out bmp);
 		}
 
-		public override bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out double scale)
+		public override bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out PixelScale pixelScale)
 		{
-			scale = 1;
+			pixelScale = PixelScale.One;
 
 			// org.kde.KWin.ScreenShot2.CaptureWindow re-renders off-screen → occlusion-independent. Windows
 			// without a real internalId (the "windowId:" fallback) miss here → caller rectangle-grabs.
@@ -177,18 +286,18 @@ namespace Keysharp.Internals
 
 		internal GnomeScreen(Wl.WaylandBackend.GnomeBackend backend) : base(backend) => gnome = backend;
 
-		public override bool TryCaptureRegion(int x, int y, int width, int height, out Bitmap bmp, out double scaleX, out double scaleY)
+		public override bool TryCaptureRegion(ScreenRect bounds, out Bitmap bmp)
 		{
-			bmp = Wl.HelperClient.CaptureGnome(x, y, width, height);
+			bmp = Wl.HelperClient.CaptureGnome(bounds.X, bounds.Y, bounds.Width, bounds.Height);
 
-			if (bmp != null) { scaleX = scaleY = 1; return true; }
+			if (bmp != null) return true;
 
-			return base.TryCaptureRegion(x, y, width, height, out bmp, out scaleX, out scaleY);
+			return base.TryCaptureRegion(bounds, out bmp);
 		}
 
-		public override bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out double scale)
+		public override bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out PixelScale pixelScale)
 		{
-			scale = 1;
+			pixelScale = PixelScale.One;
 
 			// The extension matches by raw stable_sequence, so strip the marker first (TryGetWindowSeq does that);
 			// the actor image is clipped to the frame rect (includes decorations), so includeDecoration is ignored.
@@ -200,12 +309,10 @@ namespace Keysharp.Internals
 					return false;
 
 				// The actor buffer is DEVICE pixels while the frame bounds are logical, and the extension
-				// clips the image to the frame — so the size ratio IS the buffer scale (mirroring the
-				// Cinnamon/macOS/Windows branches). Max of the two axes guards fractional-scaling rounding.
+				// clips the image to the frame, so each bitmap-to-frame ratio is its axis scale.
 				var bounds = Platform.Window.GetBounds(h);
 
-				if (bounds.Width > 0 && bounds.Height > 0)
-					scale = Math.Max((double)bmp.Width / bounds.Width, (double)bmp.Height / bounds.Height);
+				pixelScale = PixelScale.From(bmp, bounds);
 
 				return true;
 			}
@@ -231,19 +338,19 @@ namespace Keysharp.Internals
 
 		internal CinnamonScreen(Wl.CinnamonBackend backend) : base(backend) => cinnamon = backend;
 
-		public override bool TryCaptureRegion(int x, int y, int width, int height, out Bitmap bmp, out double scaleX, out double scaleY)
+		public override bool TryCaptureRegion(ScreenRect bounds, out Bitmap bmp)
 		{
-			bmp = Wl.HelperClient.CaptureCinnamon(x, y, width, height);
+			bmp = Wl.HelperClient.CaptureCinnamon(bounds.X, bounds.Y, bounds.Width, bounds.Height);
 
-			if (bmp != null) { scaleX = scaleY = 1; return true; }
+			if (bmp != null) return true;
 
-			return base.TryCaptureRegion(x, y, width, height, out bmp, out scaleX, out scaleY);
+			return base.TryCaptureRegion(bounds, out bmp);
 		}
 
-		public override bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out double scale)
+		public override bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out PixelScale pixelScale)
 		{
 			bmp = null;
-			scale = 1;
+			pixelScale = PixelScale.One;
 
 			// Preferred: the extension images the window actor's own buffer, clipped to the frame rect —
 			// occluded windows capture correctly, and the size ratio to the logical frame IS the device
@@ -255,8 +362,7 @@ namespace Keysharp.Internals
 			{
 				bmp = actorBmp;
 
-				if (bounds.Width > 0 && bounds.Height > 0)
-					scale = Math.Max((double)bmp.Width / bounds.Width, (double)bmp.Height / bounds.Height);
+				pixelScale = PixelScale.From(bmp, bounds);
 
 				return true;
 			}
@@ -272,12 +378,8 @@ namespace Keysharp.Internals
 				return false;
 
 			// CaptureArea returns DEVICE pixels: on a HiDPI monitor the bitmap is larger than the logical bounds.
-			// Report the real capture scale (mirroring the macOS/Windows branches) so a consumer such as OCR can
-			// divide it back out; otherwise word coordinates drift on scaled monitors. Use the larger of the two
-			// axis ratios to stay safe under fractional scaling where X/Y round differently.
-			var sx = bounds.Width > 0 ? (double)bmp.Width / bounds.Width : 1.0;
-			var sy = bounds.Height > 0 ? (double)bmp.Height / bounds.Height : 1.0;
-			scale = Math.Max(sx, sy);
+			// Report both capture-axis scales so fractional rounding cannot skew mapped OCR coordinates.
+			pixelScale = PixelScale.From(bmp, bounds);
 			return true;
 		}
 
@@ -296,20 +398,19 @@ namespace Keysharp.Internals
 		// wlroots screencopy is a direct client protocol (no consent), so — like X11 — gating through
 		// keysharp-helper is consent/awareness only. Window capture inherits the rectangle-grab fallback,
 		// which routes back through this (gated) region path, so no separate window gate is needed.
-		public override bool TryCaptureRegion(int x, int y, int width, int height, out Bitmap bmp, out double scaleX, out double scaleY)
+		public override bool TryCaptureRegion(ScreenRect bounds, out Bitmap bmp)
 		{
 			if (!Wl.HelperClient.EnsureCaptureConsent())
 			{
 				bmp = null;
-				scaleX = scaleY = 1;
 				return false;
 			}
 
-			bmp = Wl.WaylandScreenCapture.TryCapture(x, y, width, height);
+			bmp = Wl.WaylandScreenCapture.TryCapture(bounds.X, bounds.Y, bounds.Width, bounds.Height);
 
-			if (bmp != null) { scaleX = scaleY = 1; return true; }
+			if (bmp != null) return true;
 
-			return base.TryCaptureRegion(x, y, width, height, out bmp, out scaleX, out scaleY);
+			return base.TryCaptureRegion(bounds, out bmp);
 		}
 
 		public override bool RequiresAuthorization => true;
@@ -322,20 +423,104 @@ namespace Keysharp.Internals
 #elif WINDOWS
 	internal sealed class WindowsScreen : IScreen
 	{
-		public bool TryGetWorkArea(int monitorIndex, out Rectangle area, out bool excludesPanels) { area = Rectangle.Empty; excludesPanels = false; return false; }
-		public bool TryGetPrimaryBounds(out Rectangle bounds) { bounds = Rectangle.Empty; return false; }
-		public bool TryCaptureRegion(int x, int y, int width, int height, out Bitmap bmp, out double scaleX, out double scaleY) { bmp = null; scaleX = scaleY = 1; return false; }
-		public bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out double scale) { bmp = null; scale = 1; return false; }
+		public IReadOnlyList<DisplayInfo> GetDisplays()
+		{
+			var screens = Forms.Screen.AllScreens;
+			var result = new DisplayInfo[screens.Length];
+
+			for (var i = 0; i < screens.Length; i++)
+			{
+				var screen = screens[i];
+				var bounds = ScreenRect.FromRectangle(screen.Bounds);
+				result[i] = new DisplayInfo(screen.DeviceName ?? $"display-{i + 1}", bounds,
+					ScreenRect.FromRectangle(screen.WorkingArea), GetScale(bounds), screen.Primary);
+			}
+
+			return result;
+		}
+
+		private static double GetScale(ScreenRect bounds)
+		{
+			var rect = new RECT
+			{
+				Left = bounds.X,
+				Top = bounds.Y,
+				Right = (int)Math.Clamp(bounds.Right, int.MinValue, int.MaxValue),
+				Bottom = (int)Math.Clamp(bounds.Bottom, int.MinValue, int.MaxValue)
+			};
+			var monitor = WindowsAPI.MonitorFromRect(ref rect, 2); // MONITOR_DEFAULTTONEAREST
+
+			if (monitor != 0 && WindowsAPI.GetDpiForMonitor(monitor, 0, out var dpiX, out _) == 0 && dpiX > 0)
+				return dpiX / 96.0;
+
+			return 1.0;
+		}
+
+		public bool TryCaptureRegion(ScreenRect bounds, out Bitmap bmp)
+		{
+			bmp = null;
+			// A PMv2-aware process sees the whole Win32 virtual desktop in physical pixels. Monitor UI scaling
+			// therefore never changes the 1:1 relationship between this rectangle and CopyFromScreen's bitmap.
+
+			if (!bounds.HasArea)
+				return false;
+
+			var format = Forms.Screen.PrimaryScreen.BitsPerPixel switch
+			{
+				8 or 16 => PixelFormat.Format16bppRgb565,
+				24 => PixelFormat.Format24bppRgb,
+				32 => PixelFormat.Format32bppArgb,
+				_ => PixelFormat.Format32bppArgb,
+			};
+
+			var result = new Bitmap(bounds.Width, bounds.Height, format);
+
+			try
+			{
+				using var graphics = Graphics.FromImage(result);
+				graphics.CopyFromScreen(bounds.X, bounds.Y, 0, 0, new Size(bounds.Width, bounds.Height), CopyPixelOperation.SourceCopy);
+				bmp = result;
+				return true;
+			}
+			catch
+			{
+				result.Dispose();
+				return false;
+			}
+		}
+		public bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out PixelScale pixelScale) { bmp = null; pixelScale = PixelScale.One; return false; }
 		public bool RequiresAuthorization => false;
 		public Os.PermissionResult RequestCaptureAuthorization(string operation, bool prompt) => new (Os.PermissionStatus.NotApplicable);
 	}
 #elif OSX
 	internal sealed class MacScreen : IScreen
 	{
-		public bool TryGetWorkArea(int monitorIndex, out Rectangle area, out bool excludesPanels) { area = Rectangle.Empty; excludesPanels = false; return false; }
-		public bool TryGetPrimaryBounds(out Rectangle bounds) { bounds = Rectangle.Empty; return false; }
-		public bool TryCaptureRegion(int x, int y, int width, int height, out Bitmap bmp, out double scaleX, out double scaleY) { bmp = null; scaleX = scaleY = 1; return false; }
-		public bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out double scale) { bmp = null; scale = 1; return false; }
+		public IReadOnlyList<DisplayInfo> GetDisplays()
+		{
+			var screens = Forms.Screen.Screens?.ToArray() ?? [];
+			var result = new List<DisplayInfo>(screens.Length);
+
+			for (var i = 0; i < screens.Length; i++)
+			{
+				var screen = screens[i];
+
+				if (screen == null)
+					continue;
+
+				var bounds = ScreenRect.FromRectangle(screen.Bounds);
+				ScreenRect workArea;
+				try { workArea = ScreenRect.FromRectangle(screen.WorkingArea); }
+				catch { workArea = bounds; }
+				result.Add(new DisplayInfo(screen.ID ?? $"display-{i + 1}", bounds, workArea,
+					1.0, screen.IsPrimary));
+			}
+
+			return result;
+		}
+
+		public bool TryCaptureRegion(ScreenRect bounds, out Bitmap bmp)
+			=> EtoScreenCapture.TryCapture(bounds.X, bounds.Y, bounds.Width, bounds.Height, out bmp);
+		public bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out PixelScale pixelScale) { bmp = null; pixelScale = PixelScale.One; return false; }
 		public bool RequiresAuthorization => true;   // macOS Screen Recording permission (handled in MacPermissionManager)
 		public Os.PermissionResult RequestCaptureAuthorization(string operation, bool prompt) => new (Os.PermissionStatus.NotApplicable);
 	}

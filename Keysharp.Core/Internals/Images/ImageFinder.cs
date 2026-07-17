@@ -199,7 +199,7 @@ namespace Keysharp.Internals.Images
 		/// <see cref="PrimaryIsCol"/> chooses the dominant axis (false = row-major corners,
 		/// true = column-major edges); <see cref="RowDesc"/>/<see cref="ColDesc"/> flip each axis so
 		/// the smallest ranking key is the match nearest the requested start corner/edge. Direction
-		/// 5 sets <see cref="CenterSeek"/> instead, ranking by distance to the region center.
+		/// 9 sets <see cref="CenterSeek"/> instead, ranking by distance to the region center.
 		/// </summary>
 		private readonly record struct ScanRank(bool PrimaryIsCol, bool RowDesc, bool ColDesc, bool CenterSeek);
 
@@ -300,7 +300,7 @@ namespace Keysharp.Internals.Images
 		/// When <paramref name="earlyExit"/> is set (the default top-left direction) it returns the
 		/// first verified match — the legacy behaviour. Otherwise it visits every match and keeps the
 		/// one with the smallest ranking key from <paramref name="rank"/>, which encodes the numpad
-		/// direction's start corner/edge (or, for direction 5, distance to the region center).
+		/// direction's start corner/edge (or, for direction 9, distance to the region center).
 		/// Returns the chosen match's top-left corner, or null if none is found.
 		/// </summary>
 		private static unsafe Point? SearchForNeedle(
@@ -319,7 +319,7 @@ namespace Keysharp.Internals.Images
 			// Best match when ranking (non-default directions); bestKey tracks the smallest key.
 			int bestX = -1, bestY = -1;
 			var bestKey = long.MaxValue;
-			// Needle-center offset, used by the center-out (direction 5) ranking.
+			// Needle-center offset, used by the center-out (direction 9) ranking.
 			var seekCx = srcW / 2;
 			var seekCy = srcH / 2;
 

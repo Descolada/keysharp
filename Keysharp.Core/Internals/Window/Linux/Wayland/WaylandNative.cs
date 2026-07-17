@@ -23,11 +23,20 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_dispatch_pending")]
 		internal static partial int DisplayDispatchPending(nint display);
 
-		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_flush")]
+		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_flush", SetLastError = true)]
 		internal static partial int DisplayFlush(nint display);
 
 		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_get_fd")]
 		internal static partial int DisplayGetFd(nint display);
+
+		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_prepare_read")]
+		internal static partial int DisplayPrepareRead(nint display);
+
+		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_cancel_read")]
+		internal static partial void DisplayCancelRead(nint display);
+
+		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_read_events")]
+		internal static partial int DisplayReadEvents(nint display);
 
 		[LibraryImport(ClientLibrary, EntryPoint = "wl_proxy_add_listener")]
 		internal static partial int ProxyAddListener(nint proxy, nint implementation, nint data);
@@ -42,6 +51,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		// so these overloads use [DllImport] with explicit fixed argument lists instead.
 		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
 		internal static extern nint MarshalConstructor(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, nint newId);
+
+		// signature "no" (new_id + object): xdg-output-manager.get_xdg_output / viewporter.get_viewport
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern nint MarshalConstructorObject(nint proxy, uint opcode, nint protocolInterface, uint version,
+			uint flags, nint newId, nint obj);
 
 		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
 		internal static extern nint MarshalRegistryBind(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags,
@@ -68,6 +82,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		// signature "uu" (2 uints): set_size
 		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
 		internal static extern void MarshalUu(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, uint a, uint b);
+
+		// signature "ii" (2 signed ints): wp_viewport.set_destination
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern void Marshal2I(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, int a, int b);
 
 		// signature "iiii" (4 signed ints): damage, set_margin, region.add, region.subtract
 		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
@@ -120,6 +138,19 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		[DllImport("libc", EntryPoint = "close", SetLastError = true)]
 		internal static extern int Close(int fd);
 
+		internal const short POLLIN = 0x0001;
+
+		[StructLayout(LayoutKind.Sequential)]
+		internal struct PollFd
+		{
+			internal int FileDescriptor;
+			internal short Events;
+			internal short ReturnedEvents;
+		}
+
+		[DllImport("libc", EntryPoint = "poll", SetLastError = true)]
+		internal static extern int Poll([In, Out] PollFd[] fds, nuint count, int timeoutMs);
+
 		// Stable wl_display and wl_registry opcodes (Wayland core protocol).
 		private const uint WlDisplayGetRegistryOpcode = 1; // sync=0, get_registry=1
 		private const uint WlRegistryBindOpcode = 0;
@@ -136,9 +167,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const uint WlSurfaceSetOpaqueRegionOpcode = 4;
 		private const uint WlSurfaceSetInputRegionOpcode = 5;
 		private const uint WlSurfaceCommitOpcode = 6;
+		private const uint WlSurfaceSetBufferScaleOpcode = 8; // v3+
+		private const uint WlSurfaceDamageBufferOpcode = 9; // v4+
 
 		// wl_buffer / wl_region opcodes
 		private const uint WlBufferDestroyOpcode = 0;
+		private const uint WlOutputReleaseOpcode = 0; // v3+
 		private const uint WlRegionDestroyOpcode = 0;
 		private const uint WlRegionAddOpcode = 1;
 		private const uint WlRegionSubtractOpcode = 2;
@@ -252,6 +286,20 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static void SurfaceDamage(nint surface, int x, int y, int width, int height)
 			=> Marshal4I(surface, WlSurfaceDamageOpcode, 0, ProxyGetVersion(surface), 0, x, y, width, height);
 
+		internal static void SurfaceDamageBuffer(nint surface, int x, int y, int width, int height)
+		{
+			if (ProxyGetVersion(surface) >= 4)
+				Marshal4I(surface, WlSurfaceDamageBufferOpcode, 0, ProxyGetVersion(surface), 0, x, y, width, height);
+			else
+				SurfaceDamage(surface, x, y, width, height);
+		}
+
+		internal static void SurfaceSetBufferScale(nint surface, int scale)
+		{
+			if (ProxyGetVersion(surface) >= 3)
+				MarshalI(surface, WlSurfaceSetBufferScaleOpcode, 0, ProxyGetVersion(surface), 0, Math.Max(1, scale));
+		}
+
 		internal static nint SurfaceFrame(nint surface)
 			=> MarshalConstructor(surface, WlSurfaceFrameOpcode, CallbackInterface, ProxyGetVersion(surface), 0, 0);
 
@@ -271,6 +319,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal static void BufferDestroy(nint buffer)
 			=> MarshalRequest(buffer, WlBufferDestroyOpcode, 0, ProxyGetVersion(buffer), DestroyFlag);
+
+		internal static void OutputRelease(nint output)
+		{
+			if (ProxyGetVersion(output) >= 3)
+				MarshalRequest(output, WlOutputReleaseOpcode, 0, ProxyGetVersion(output), DestroyFlag);
+			else
+				ProxyDestroy(output);
+		}
 
 		// ----- wl_region helpers -----
 
@@ -374,6 +430,29 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal static void LayerSurfaceDestroy(nint surface)
 			=> MarshalRequest(surface, WlrLayerSurfaceDestroyOpcode, 0, ProxyGetVersion(surface), DestroyFlag);
+
+		// ----- xdg-output / viewporter helpers -----
+
+		internal static nint XdgOutputManagerGetOutput(nint manager, nint output)
+			=> MarshalConstructorObject(manager, 1, Interfaces.XdgOutput.Pointer, ProxyGetVersion(manager), 0, 0, output);
+
+		internal static void XdgOutputManagerDestroy(nint manager)
+			=> MarshalRequest(manager, 0, 0, ProxyGetVersion(manager), DestroyFlag);
+
+		internal static void XdgOutputDestroy(nint output)
+			=> MarshalRequest(output, 0, 0, ProxyGetVersion(output), DestroyFlag);
+
+		internal static nint ViewporterGetViewport(nint manager, nint surface)
+			=> MarshalConstructorObject(manager, 1, Interfaces.WpViewport.Pointer, ProxyGetVersion(manager), 0, 0, surface);
+
+		internal static void ViewporterDestroy(nint manager)
+			=> MarshalRequest(manager, 0, 0, ProxyGetVersion(manager), DestroyFlag);
+
+		internal static void ViewportDestroy(nint viewport)
+			=> MarshalRequest(viewport, 0, 0, ProxyGetVersion(viewport), DestroyFlag);
+
+		internal static void ViewportSetDestination(nint viewport, int width, int height)
+			=> Marshal2I(viewport, 2, 0, ProxyGetVersion(viewport), 0, width, height);
 
 		private static nint libraryHandle;
 
@@ -492,6 +571,20 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		// the pointer to wl_proxy_marshal_flags via ProtocolInterface.Pointer.
 		internal static class Interfaces
 		{
+			internal static readonly ProtocolInterface XdgOutput = new("zxdg_output_v1", 3,
+				[("destroy", "", [])],
+				[("logical_position", "ii", []), ("logical_size", "ii", []), ("done", "", []),
+				 ("name", "2s", []), ("description", "2s", [])]);
+
+			internal static readonly ProtocolInterface XdgOutputManager = new("zxdg_output_manager_v1", 3,
+				[("destroy", "", []), ("get_xdg_output", "no", [XdgOutput.Pointer, OutputInterface])], []);
+
+			internal static readonly ProtocolInterface WpViewport = new("wp_viewport", 1,
+				[("destroy", "", []), ("set_source", "ffff", []), ("set_destination", "ii", [])], []);
+
+			internal static readonly ProtocolInterface WpViewporter = new("wp_viewporter", 1,
+				[("destroy", "", []), ("get_viewport", "no", [WpViewport.Pointer, SurfaceInterface])], []);
+
 			internal static readonly ProtocolInterface WlrLayerSurface = new(WlrLayerSurfaceName, 4,
 				[
 					("set_size", "uu", []),

@@ -5,34 +5,35 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	/// <summary>
 	/// One ARGB8888 buffer backed by a memfd-backed wl_shm_pool. Lifecycle:
-	///   1. Create() — allocates the memfd, mmaps it, and creates wl_shm_pool + wl_buffer proxies.
+	///   1. Create() allocates the memfd, maps it, and creates wl_shm_pool and wl_buffer proxies.
 	///   2. Caller writes pixels into Data.
-	///   3. Surface attaches Buffer, damages, commits — compositor reads from the same mapping.
-	///   4. Dispose() — destroys both proxies, unmaps, closes the fd.
+	///   3. Surface attaches Buffer, damages, and commits; the compositor reads from the same mapping.
+	///   4. Dispose() destroys both proxies, unmaps, and closes the fd after compositor release.
 	///
 	/// Buffers must not be disposed while the compositor still owns them. Callers should keep the
 	/// buffer alive until either (a) a newer buffer has been attached AND the compositor has
-	/// released this one (via the wl_buffer.release event), or (b) the surface is being destroyed
-	/// and the compositor will release everything implicitly.
+	/// released this one (via the wl_buffer.release event). Destroying a surface does not make it safe to unmap an
+	/// in-flight buffer immediately; Dispose therefore retires it and lets the release callback finish cleanup.
 	/// </summary>
 	internal sealed class WaylandShmBuffer : IDisposable
 	{
 		internal int Width { get; }
 		internal int Height { get; }
 		internal int Stride { get; }
-		internal uint Format { get; }
 		internal nint Buffer { get; private set; }
 		internal nint Data { get; private set; }
-		internal nuint MapLength { get; }
+		private nuint MapLength { get; }
 
 		private int fd;
 		private nint pool;
 		private GCHandle listenerHandle;
 		private volatile bool released = true;
+		private bool disposePending;
+		private bool disposed;
 		internal bool Released => released;
 
 		private WaylandShmBuffer(int fd, nint mapping, nuint mapLength, nint pool, nint buffer,
-			int width, int height, int stride, uint format)
+			int width, int height, int stride)
 		{
 			this.fd = fd;
 			Data = mapping;
@@ -42,14 +43,19 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			Width = width;
 			Height = height;
 			Stride = stride;
-			Format = format;
 			listenerHandle = GCHandle.Alloc(this);
-			_ = WaylandNative.ProxyAddListener(buffer, ReleaseListener.Pointer, GCHandle.ToIntPtr(listenerHandle));
+			if (WaylandNative.ProxyAddListener(buffer, ReleaseListener.Pointer, GCHandle.ToIntPtr(listenerHandle)) != 0)
+			{
+				listenerHandle.Free();
+				WaylandNative.BufferDestroy(buffer);
+				Buffer = 0;
+				throw new IOException("wl_buffer listener setup failed.");
+			}
 		}
 
 		/// <summary>
 		/// Allocates a new ARGB8888 buffer of the requested pixel size. The compositor must already
-		/// have advertised wl_shm.format for ARGB8888 (every compositor does — it's mandatory).
+		/// have advertised wl_shm.format for ARGB8888, which the protocol requires.
 		/// </summary>
 		internal static WaylandShmBuffer Create(nint shm, int width, int height, uint format = WaylandNative.WlShmFormatArgb8888)
 		{
@@ -59,8 +65,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (width <= 0 || height <= 0)
 				throw new ArgumentOutOfRangeException(nameof(width), "Width and height must be positive.");
 
-			var stride = width * 4;
+			var strideValue = (long)width * 4;
+
+			if (strideValue > int.MaxValue)
+				throw new ArgumentOutOfRangeException(nameof(width), "The SHM row stride exceeds the Wayland protocol limit.");
+
+			var stride = (int)strideValue;
 			var size = (long)stride * height;
+
+			if (size <= 0 || size > int.MaxValue)
+				throw new ArgumentOutOfRangeException(nameof(height), "The SHM buffer exceeds the Wayland protocol limit.");
 
 			var fd = WaylandNative.MemfdCreate("keysharp-wl-shm", WaylandNative.MFD_CLOEXEC);
 
@@ -92,7 +106,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 						if (buffer == 0)
 							throw new IOException("wl_shm_pool.create_buffer returned null.");
 
-						return new WaylandShmBuffer(fd, mapping, (nuint)size, pool, buffer, width, height, stride, format);
+						return new WaylandShmBuffer(fd, mapping, (nuint)size, pool, buffer, width, height, stride);
 					}
 					catch
 					{
@@ -113,62 +127,60 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		/// <summary>
-		/// Fills the entire buffer with a single premultiplied ARGB8888 colour. Useful for clearing
-		/// before re-rendering or for solid backgrounds.
-		/// </summary>
-		internal unsafe void Fill(uint argb)
-		{
-			if (Data == 0)
-				return;
-
-			var ptr = (uint*)Data;
-			var count = (Stride * Height) / 4;
-
-			for (var i = 0; i < count; i++)
-				ptr[i] = argb;
-		}
-
-		/// <summary>
-		/// Copies a managed pixel array (ARGB8888, row-major, stride equal to width*4) into the
-		/// underlying SHM region. The source array must be exactly Width * Height pixels.
-		/// </summary>
-		internal void CopyFrom(ReadOnlySpan<uint> pixels)
-		{
-			if (Data == 0)
-				return;
-
-			if (pixels.Length != Width * Height)
-				throw new ArgumentException($"Pixel buffer length {pixels.Length} does not match {Width}x{Height} = {Width * Height}.", nameof(pixels));
-
-			unsafe
-			{
-				fixed (uint* src = pixels)
-				{
-					System.Buffer.MemoryCopy(src, (void*)Data, (long)MapLength, (long)(Width * Height * 4));
-				}
-			}
-		}
-
 		// Listener glue for the wl_buffer.release event. The compositor sends this exactly when the
 		// buffer is no longer in use and the client may safely reuse or destroy it.
-		internal void MarkReleased() => released = true;
+		private void MarkReleased()
+		{
+			released = true;
+
+			if (disposePending)
+				DisposeReleased();
+		}
 
 		internal void MarkInFlight() => released = false;
 
 		public void Dispose()
 		{
-			if (Buffer != 0)
+			if (disposed)
+				return;
+
+			if (!released)
 			{
-				WaylandNative.BufferDestroy(Buffer);
-				Buffer = 0;
+				disposePending = true;
+				return;
 			}
 
-			if (pool != 0)
+			DisposeReleased();
+		}
+
+		/// <summary>Force-releases local resources after the display dispatcher has stopped. Protocol objects are
+		/// deliberately not destroyed; wl_display_disconnect owns them and no release callback can still arrive.</summary>
+		internal void Abandon() => DisposeCore(destroyProxies: false);
+
+		private void DisposeReleased()
+		{
+			DisposeCore(destroyProxies: true);
+		}
+
+		private void DisposeCore(bool destroyProxies)
+		{
+			if (disposed)
+				return;
+
+			disposed = true;
+			disposePending = false;
+
+			if (Buffer != 0 && destroyProxies)
+			{
+				WaylandNative.BufferDestroy(Buffer);
+			}
+			Buffer = 0;
+
+			if (pool != 0 && destroyProxies)
 			{
 				WaylandNative.ShmPoolDestroy(pool);
-				pool = 0;
 			}
+			pool = 0;
 
 			if (Data != 0)
 			{
@@ -189,14 +201,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static class ReleaseListener
 		{
 			private static readonly ReleaseHandler onRelease = Release;
-			internal static readonly nint Pointer = Build();
-
-			private static nint Build()
-			{
-				var block = Marshal.AllocHGlobal(IntPtr.Size);
-				Marshal.WriteIntPtr(block, 0, Marshal.GetFunctionPointerForDelegate(onRelease));
-				return block;
-			}
+			internal static readonly nint Pointer = WaylandListenerTable.Allocate(onRelease);
 
 			private static void Release(nint data, nint buffer)
 			{

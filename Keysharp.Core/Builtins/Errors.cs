@@ -1313,13 +1313,12 @@ namespace Keysharp.Builtins
 			if (!allowContinue)
 				errorText += $"{Environment.NewLine}{exitMessage ?? "The current thread will exit."}";
 
-			var scale = Ks.A_ScreenScale;
 			this.AutoScaleMode = AutoScaleMode.Dpi;
 			this.AutoScaleDimensions = new SizeF(96F, 96F);
 			this.Text = A_ScriptName ?? "Keysharp";
 			this.StartPosition = FormStartPosition.CenterScreen;
-			this.Size = new Size((int)(550 * scale), (int)(300 * scale));
-			this.MinimumSize = new Size((int)(400 * scale), (int)(200 * scale));
+			this.Size = new Size(550, 300);
+			this.MinimumSize = new Size(400, 200);
 			this.ShowIcon = false;
 			this.KeyPreview = true;
 			var mainPanel = new TableLayoutPanel
@@ -1361,7 +1360,7 @@ namespace Keysharp.Builtins
 			{
 				Dock = DockStyle.Bottom,
 				ColumnCount = 2,
-				Height = (int)(40 * scale),
+				Height = 40,
 			};
 			table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));      // Left column (Exit)
 			table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F)); // Right column (fills remaining space)
@@ -1589,7 +1588,6 @@ namespace Keysharp.Builtins
 			if (!allowContinue)
 				errorText += $"{Environment.NewLine}{exitMessage ?? "The current thread will exit."}";
 
-			var scale = Ks.A_ScreenScale;
 			Title = A_ScriptName ?? "Keysharp";
 			Resizable = true;
 			Topmost = true;
@@ -1701,7 +1699,7 @@ namespace Keysharp.Builtins
 				}
 			};
 
-			ClientSize = GetAutomaticClientSize(contentText, richText.Font, buttonsRow.GetPreferredSize(), contentPadding, contentSpacing, scale);
+			ClientSize = GetAutomaticClientSize(contentText, richText.Font, buttonsRow.GetPreferredSize(), contentPadding, contentSpacing);
 			DefaultButton = defaultButton;
 		}
 
@@ -1725,13 +1723,13 @@ namespace Keysharp.Builtins
 			return new Eto.Drawing.Size(width + 24, height + 12);
 		}
 
-		private static Eto.Drawing.Size GetAutomaticClientSize(string text, Eto.Drawing.Font font, Eto.Drawing.SizeF buttonsSize, int padding, int spacing, double scale)
+		private static Eto.Drawing.Size GetAutomaticClientSize(string text, Eto.Drawing.Font font, Eto.Drawing.SizeF buttonsSize, int padding, int spacing)
 		{
 			const int textControlMargin = 10;
 			var textSize = font.MeasureString(text);
 			var width = (int)Math.Ceiling(Math.Max(textSize.Width + textControlMargin, buttonsSize.Width)) + 2 * padding;
 			var height = (int)Math.Ceiling(textSize.Height + font.LineHeight + buttonsSize.Height + textControlMargin) + 2 * padding + spacing;
-			return new Eto.Drawing.Size(Math.Min(width, (int)(550 * scale)), Math.Min(height, (int)(300 * scale)));
+			return new Eto.Drawing.Size(Math.Min(width, 550), Math.Min(height, 300));
 		}
 
 		private void ApplyFormatting(Eto.Forms.RichTextArea box)

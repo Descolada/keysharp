@@ -19,7 +19,7 @@ namespace Keysharp.Tests
 			internal SendModes CurrentMode => sendMode;
 			internal void SetMode(SendModes mode) => sendMode = mode;
 
-			protected override void DispatchEventArray(UnixHookThread lht, InputArrayState state, long extraInfo, double scale)
+			protected override void DispatchEventArray(UnixHookThread lht, InputArrayState state, long extraInfo)
 			{
 				DispatchCount++;
 

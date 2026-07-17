@@ -34,10 +34,10 @@ namespace Keysharp.Builtins
 			// it. Owned by this instance.
 			private Bitmap cached;
 
-			// Physical pixels per logical unit at capture time (1.0 for files and non-HiDPI captures).
+			// Image pixels per native screen unit at capture time (1.0 for files and one-pixel-per-unit captures).
 			// All Image coordinates (Width/Height, Get/SetPixel, Search) are in the image's own pixels,
 			// which on a Retina/HiDPI screen or window capture are physical pixels. Scripts that need to
-			// map back to logical screen coordinates do so explicitly via the ScaleX/ScaleY properties;
+			// map back to native screen coordinates do so explicitly via the ScaleX/ScaleY properties;
 			// the class never silently rescales.
 			private double scaleX = 1.0, scaleY = 1.0;
 
@@ -47,10 +47,10 @@ namespace Keysharp.Builtins
 			private int originX, originY;
 
 			// Multiplier applied to every draw op's coordinates and font sizes (1.0 = draw in physical pixels).
-			// A DPI-scaled Overlay sets this so the caller can author shapes/text in logical units while the
-			// canvas is a physical-resolution bitmap: drawing through a matching scale transform keeps the result
+			// A target-density Overlay sets this so the caller can draw in local screen units while the
+			// canvas has an independently chosen pixel size. A matching transform keeps the result
 			// crisp instead of upscaling a small bitmap. Never touched for a normal Image (stays 1.0).
-			internal double drawScale = 1.0;
+			internal double drawScaleX = 1.0, drawScaleY = 1.0;
 
 			private bool disposed;
 
@@ -59,14 +59,14 @@ namespace Keysharp.Builtins
 
 			public KeysharpImage(params object[] args) : base(args) { }
 
-			// Graphics for a user-facing draw op, honoring drawScale. Shapes/transforms that operate on whole
+			// Graphics for a user-facing draw op, honoring the canvas-to-draw-unit scales. Shapes/transforms that operate on whole
 			// bitmaps (Create, Clear, Scale/Rotate/Flip) use ImageHelper.MakeGraphics directly and are unscaled.
 			private Graphics DrawG(Bitmap b, bool highQuality = true)
 			{
 				var g = ImageHelper.MakeGraphics(b, highQuality);
 
-				if (drawScale != 1.0)
-					g.ScaleTransform((float)drawScale, (float)drawScale);
+				if (drawScaleX != 1.0 || drawScaleY != 1.0)
+					g.ScaleTransform((float)drawScaleX, (float)drawScaleY);
 
 				return g;
 			}
@@ -157,7 +157,7 @@ namespace Keysharp.Builtins
 				// The window's screen-absolute frame rectangle. Its top-left is the on-screen origin recorded on
 				// the Image so OCR (and any other consumer) can map image coordinates back to the screen.
 				var bounds = w.Bounds;
-				var (bmp, scale) = GuiHelper.CaptureWindowContent(w.Handle, mode, includeDeco);
+				var (bmp, pixelScale) = GuiHelper.CaptureWindowContent(w.Handle, mode, includeDeco);
 
 				if (bmp != null)
 				{
@@ -167,8 +167,8 @@ namespace Keysharp.Builtins
 					// How far the capture extends beyond the window frame per side, in physical pixels, assuming a
 					// SYMMETRIC margin (KWin's include-decoration buffer and the GNOME window actor both pad the frame
 					// symmetrically with the drop shadow). >0 means decorations/shadow were captured around the frame.
-					double shadowXpx = (bmp.Width - bounds.Width * scale) / 2.0;
-					double shadowYpx = (bmp.Height - bounds.Height * scale) / 2.0;
+					double shadowXpx = (bmp.Width - bounds.Width * pixelScale.X) / 2.0;
+					double shadowYpx = (bmp.Height - bounds.Height * pixelScale.Y) / 2.0;
 					bool capturedBeyondFrame = shadowXpx > 0.5 || shadowYpx > 0.5;
 
 					// Decorations are in the captured pixels when we asked for them (and the backend honored it) or
@@ -184,8 +184,8 @@ namespace Keysharp.Builtins
 						// The captured image IS the buffer, so its size vs the frame gives the margin directly.
 						if (capturedBeyondFrame)
 						{
-							ox = bounds.X - (int)Math.Round(shadowXpx / scale);
-							oy = bounds.Y - (int)Math.Round(shadowYpx / scale);
+							ox = bounds.X - (int)Math.Round(shadowXpx / pixelScale.X);
+							oy = bounds.Y - (int)Math.Round(shadowYpx / pixelScale.Y);
 						}
 					}
 #if LINUX
@@ -198,8 +198,8 @@ namespace Keysharp.Builtins
 						// insets from the capture: the client image is smaller than the frame by the borders, so
 						// side = (frameW - capW)/2 and titleTop = (frameH - capH) - side.
 						var clientPt = w.ClientToScreen();
-						double capW = scale != 0 ? bmp.Width / scale : bmp.Width;
-						double capH = scale != 0 ? bmp.Height / scale : bmp.Height;
+						double capW = pixelScale.X != 0 ? bmp.Width / pixelScale.X : bmp.Width;
+						double capH = pixelScale.Y != 0 ? bmp.Height / pixelScale.Y : bmp.Height;
 						bool clientUnreliable = clientPt.X == bounds.X && clientPt.Y == bounds.Y && capH < bounds.Height - 1;
 
 						if (clientUnreliable)
@@ -214,7 +214,7 @@ namespace Keysharp.Builtins
 						}
 					}
 #endif
-					return Wrap(bmp, scale, scale, originX: ox, originY: oy);
+					return Wrap(bmp, pixelScale.X, pixelScale.Y, originX: ox, originY: oy);
 				}
 
 				// No platform window capture: grab the window's on-screen rectangle. That grab is frame-aligned
@@ -312,25 +312,35 @@ namespace Keysharp.Builtins
 			/// Creates a new ARGB canvas. Omit <paramref name="background"/> or pass "" for a fully
 			/// transparent image; otherwise pass a color name, 0xRRGGBB, or 0xAARRGGBB value.
 			///
-			/// <para><paramref name="scale"/> (default 1) makes a DPI-scaled canvas: the returned image is a
+			/// <para><paramref name="scale"/> (default 1) is an explicit rasterization convenience: the returned image is a
 			/// PHYSICAL-resolution bitmap of <c>round(width*scale) x round(height*scale)</c> pixels, but every
 			/// draw op and font is multiplied by <paramref name="scale"/>, so the caller authors shapes/text in
 			/// LOGICAL units (the width/height passed here) and gets a crisp, physically-larger result rather than
-			/// an upscaled small bitmap. Pass <c>A_ScreenScale</c> (from <c>#import KS</c>) to size an off-screen canvas for a DPI-scaled
-			/// Overlay (which shows the canvas at its own pixel size). MeasureText stays in logical units, so a
+			/// an upscaled small bitmap. It is not a display/backing scale: Overlay selects its own backing pixels, and
+			/// callers should use Overlay.Redraw when target-aware vector/text rendering is required. MeasureText stays in logical units, so a
 			/// layout measured at scale 1 composes unchanged with a scaled draw canvas.</para>
 			/// </summary>
 			[Static] public static object Create(object @this, object width, object height, object background = null, object scale = null)
 			{
 				var w = width.Ai();
 				var h = height.Ai();
-				var s = Math.Max(0.01, scale.Ad(1.0));
+				var s = scale.Ad(1.0);
 
 				if (w <= 0 || h <= 0)
 					return Errors.ValueErrorOccurred("Image.Create width and height must be positive.");
 
-				var pw = Math.Max(1, (int)Math.Round(w * s));
-				var ph = Math.Max(1, (int)Math.Round(h * s));
+				if (!double.IsFinite(s) || s <= 0)
+					return Errors.ValueErrorOccurred("Image.Create scale must be a finite positive number.");
+
+				var pwValue = Math.Round(w * s);
+				var phValue = Math.Round(h * s);
+
+				if (!double.IsFinite(pwValue) || !double.IsFinite(phValue)
+						|| pwValue < 1 || phValue < 1 || pwValue > int.MaxValue || phValue > int.MaxValue)
+					return Errors.ValueErrorOccurred("Image.Create scaled dimensions exceed the supported bitmap range.");
+
+				var pw = (int)pwValue;
+				var ph = (int)phValue;
 				var bmp = ImageHelper.NewArgbCanvas(pw, ph);
 				var bg = ParseColorArg(background, 0, allowTransparentEmpty: true);
 
@@ -342,10 +352,10 @@ namespace Keysharp.Builtins
 
 				var wrapped = Wrap(bmp);
 
-				// A scaled canvas draws logical coordinates through a matching transform (see drawScale/DrawG),
+				// A scaled canvas draws logical coordinates through a matching transform (see DrawG),
 				// keeping text and shapes crisp at the physical resolution instead of upscaling a small bitmap.
 				if (s != 1.0 && wrapped is KeysharpImage ki)
-					ki.drawScale = s;
+					ki.drawScaleX = ki.drawScaleY = s;
 
 				return wrapped;
 			}
@@ -413,9 +423,9 @@ namespace Keysharp.Builtins
 					var nh = Math.Max(1, (int)Math.Round(b.Height * sy));
 					return ImageHelper.ResizeBitmap(b, nw, nh, exactPixels: true);
 				}, false));
-				// Scaling multiplies the pixels-per-logical-unit density: after Scale(2) there are twice as
-				// many image pixels per logical unit. Folding the factor into scaleX/scaleY keeps the
-				// image->logical mapping (e.g. OCR dividing word coordinates by ScaleX) correct, so callers
+				// Scaling multiplies the pixels-per-screen-unit density: after Scale(2) there are twice as
+				// many image pixels per native screen unit. Folding the factor into scaleX/scaleY keeps the
+				// image-to-screen mapping (e.g. OCR dividing word coordinates by ScaleX) correct, so callers
 				// can upscale for accuracy without their coordinates drifting.
 				scaleX *= sx;
 				scaleY *= sy;
@@ -468,7 +478,7 @@ namespace Keysharp.Builtins
 
 				pending.Add((b => ImageHelper.CropBitmap(b, cx, cy, cw, ch), false));
 				// Cropping moves the image's top-left to (cx, cy) in image pixels, so its on-screen origin
-				// shifts by that offset converted to logical units. Keeping originX/originY in step lets a
+				// shifts by that offset converted to native screen units. Keeping originX/originY in step lets a
 				// consumer such as OCR map coordinates from the cropped image back to the original screen
 				// position. (CropBitmap clamps a negative start to 0, so clamp here to match.)
 				originX += (int)Math.Round(Math.Max(0, cx) / scaleX);
@@ -480,7 +490,7 @@ namespace Keysharp.Builtins
 			/// <summary>Queues an absolute resize to <paramref name="width"/> x <paramref name="height"/> pixels.
 			/// A negative value keeps the aspect ratio from the other dimension (e.g. <c>Resize(-1, 30)</c> derives
 			/// the width from the current 2:1 ratio); zero, or both dimensions negative, is a ValueError. Like
-			/// <see cref="Scale"/> this folds into ScaleX/ScaleY so the image->logical mapping (OCR) stays correct.
+			/// <see cref="Scale"/> this folds into ScaleX/ScaleY so the image-to-screen mapping (OCR) stays correct.
 			/// The current dimensions are resolved once at queue time, so the target is a fixed pixel size regardless
 			/// of any later transforms in the chain.</summary>
 			public object Resize(object width, object height)
@@ -506,8 +516,8 @@ namespace Keysharp.Builtins
 				if (nh < 0) nh = Math.Max(1, (int)Math.Round(curH * (nw / (double)curW)));
 
 				pending.Add((b => ImageHelper.ResizeBitmap(b, nw, nh, exactPixels: true), false));
-				// Absolute resize changes the pixels-per-logical-unit density by nw/curW (nh/curH); fold it into
-				// scaleX/scaleY exactly as Scale does so consumers (OCR) recover logical units after the resize.
+				// Absolute resize changes the pixels-per-screen-unit density by nw/curW (nh/curH); fold it into
+				// scaleX/scaleY exactly as Scale does so consumers (OCR) recover native units after the resize.
 				scaleX *= (double)nw / curW;
 				scaleY *= (double)nh / curH;
 				Invalidate();
@@ -911,10 +921,11 @@ namespace Keysharp.Builtins
 				if (src == null)
 					return Errors.ValueErrorOccurred("There is no image to copy.");
 
-				// drawScale is carried over so a copy of a DPI-scaled Create() canvas keeps drawing logical
+				// The draw-unit scales are carried over so a copy of a scaled Create() canvas keeps drawing logical
 				// coordinates at the right physical scale. `mutable` is deliberately NOT copied: a copy is an
 				// independent lazy image, not another live drawing surface aliasing the same pixels.
-				var copy = new KeysharpImage { baseBitmap = new Bitmap(src), scaleX = scaleX, scaleY = scaleY, originX = originX, originY = originY, drawScale = drawScale };
+				var copy = new KeysharpImage { baseBitmap = new Bitmap(src), scaleX = scaleX, scaleY = scaleY,
+					originX = originX, originY = originY, drawScaleX = drawScaleX, drawScaleY = drawScaleY };
 				copy.SyncGcPressure();
 				return copy;
 			}
@@ -1065,12 +1076,12 @@ namespace Keysharp.Builtins
 			/// <summary>The current height in pixels (after queued transforms).</summary>
 			public long Height { get { ThrowIfDisposed(); return Materialize()?.Height ?? 0L; } }
 
-			/// <summary>Physical pixels per logical unit along X at capture time (1.0 for files and
-			/// non-HiDPI captures; ~2.0 for a Retina screen/window capture). Multiply a logical screen
-			/// width by this to get image pixels, or divide an image X coordinate by it to get logical.</summary>
+			/// <summary>Image pixels per native screen unit along X at capture time (1.0 for files and
+			/// one-pixel-per-unit captures; ~2.0 for a Retina point-space capture). Multiply a native screen
+			/// width by this to get image pixels, or divide an image X coordinate by it to get native units.</summary>
 			public double ScaleX { get { ThrowIfDisposed(); return scaleX; } }
 
-			/// <summary>Physical pixels per logical unit along Y. See <see cref="ScaleX"/>.</summary>
+			/// <summary>Image pixels per native screen unit along Y. See <see cref="ScaleX"/>.</summary>
 			public double ScaleY { get { ThrowIfDisposed(); return scaleY; } }
 
 			/// <summary>Screen-absolute X coordinate of this image's top-left at capture time (0 for file/bitmap

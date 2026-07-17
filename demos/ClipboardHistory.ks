@@ -1,7 +1,6 @@
 #Requires AutoHotkey v2.0
 #Requires capability InputMonitoring, InputInjection   ; the hotkey keyboard hook + Send (paste); macOS asks for Accessibility on first paste-back
 #SingleInstance Force
-#import KS { A_ScreenScale }     ; A_ScreenScale is a Keysharp addition (per-platform DPI scale factor), so it lives in the KS module
 #include Shell.ks
 
 /*
@@ -178,18 +177,11 @@ class ClipboardHistory {
         local n := this.items.Length
         local pad := 16, rowH := 30, titleH := 34, footH := 22, w := 640
         local h := pad + titleH + n * rowH + footH + pad
-        ; Everything below is authored in LOGICAL units: the canvas is a physical-resolution bitmap (Image.Create's
-        ; scale arg = dpi) so it stays crisp, and it's centred by its on-screen size (w/h scaled by geo). geo
-        ; matches the OS coordinate system — physical px on Windows/Linux (geo = dpi), logical points on macOS
-        ; (geo = 1, Cocoa handles HiDPI itself). See Shell/InputHUD for the same pattern.
-        local dpi := A_ScreenScale
-#if OSX
-        local geo := 1
-#else
-        local geo := dpi
-#endif
+        MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
+		local monitor := MonitorGetPrimary()
+		local scale := MonitorGetScale(monitor)
 
-        local img := Image.Create(w, h, , dpi)
+		local img := Image.Create(w, h, , scale)
         img.FillRoundRect(0, 0, w, h, 12, "0xF01C1F28")
         img.DrawRoundRect(1, 1, w - 2, h - 2, 12, "0xFF3C4353", 1.5)
         img.DrawText("Clipboard History", pad, pad, "0xFF5EC8FF", "Arial 12 bold")
@@ -207,15 +199,14 @@ class ClipboardHistory {
         }
         img.DrawText("Newest first  ·  showing " n " of " this.clips.Length, pad, y + 2, "0xFF6E7A8C", "Arial 9")
 
-        if !IsObject(this.picker)
-            this.picker := Overlay(0, 0, , , dpi)   ; scale = dpi: physical-resolution canvas, shown crisp at its logical size
-        local pw := Round(w * geo), ph := Round(h * geo)
-        this.picker.SetImage(img)
-        img.Dispose()
+		if !IsObject(this.picker)
+			this.picker := Overlay()
+		local pw := Round(w * scale), ph := Round(h * scale)
+		this.picker.Update(img, (l + r) // 2 - pw // 2, (t + b) // 2 - ph // 2, pw, ph)
+		img.Dispose()
 
-        MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
-        this.picker.X := (l + r) // 2 - pw // 2, this.picker.Y := (t + b) // 2 - ph // 2
-        this.picker.Show()
+		if !this.picker.Visible
+			this.picker.Show()
     }
 
     ; A single-line, length-capped preview of a clip.

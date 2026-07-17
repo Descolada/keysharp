@@ -1975,18 +1975,11 @@ namespace Keysharp.Builtins
 			}
 		}
 		/// <summary>
-		/// The screen's DPI scale factor, normalized so 1.0 is the platform's native (100%) density and, e.g.,
-		/// 2.0 is a 200% display — the value to multiply sizes/positions by for DPI-aware layout. Unlike the
-		/// standard <see cref="Accessors.A_ScreenDPI"/> (which reports the raw, platform-specific DPI: 96-based on
-		/// Windows/Linux but 72-based on macOS, so a 2x Retina display reads 144), this is consistent across
-		/// platforms. macOS normalizes against its 72-DPI base; Windows and Linux against 96. Keysharp-specific,
-		/// so scripts reach it via the KS module: <c>#import KS { A_ScreenScale }</c>.
+		/// The primary screen's authored-size scale: 1.0 is 100%, 1.5 is 150%, and so on. It is not a
+		/// screen-coordinate conversion and must not be applied to absolute positions. Mixed-monitor code should use
+		/// <see cref="MonitorGetScale"/> for the target monitor. Keysharp-specific, so scripts reach it through KS.
 		/// </summary>
-#if OSX
-		public static double A_ScreenScale => Accessors.A_ScreenDPI / 72.0;
-#else
-		public static double A_ScreenScale => Accessors.A_ScreenDPI / 96.0;
-#endif
+		public static double A_ScreenScale => MonitorGetScale();
 		/// <summary>
 		/// Whether timers are allowed to operate in the current thread. Default: true.
 		/// </summary>

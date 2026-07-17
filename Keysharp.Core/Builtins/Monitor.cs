@@ -1,102 +1,88 @@
+using Keysharp.Internals;
+
 namespace Keysharp.Builtins
 {
-	/// <summary>
-	/// Public interface for monitor-related functions.
-	/// </summary>
+	/// <summary>Public interface for monitor-related functions.</summary>
 	public static class Monitor
 	{
+		// Platform.Screen is the only monitor-topology source. It returns a fresh snapshot because monitor
+		// identity, bounds, work areas and scale can all change while a script is running.
+		private static DisplayInfo[] AllDisplays => Platform.Screen.GetDisplays().ToArray();
 
-#if WINDOWS
-		private static Forms.Screen[] AllScreens => Forms.Screen.AllScreens;
-#else
-		private static Forms.Screen[] AllScreens => Forms.Screen.Screens?.ToArray() ?? [];
-#endif
-
-		private static Forms.Screen ResolvePrimaryScreen(Forms.Screen[] allScreens)
+		private static DisplayInfo ResolvePrimaryDisplay(DisplayInfo[] displays)
 		{
-#if WINDOWS
-			return allScreens.FirstOrDefault(s => s?.Primary == true)
-				   ?? Forms.Screen.PrimaryScreen
-				   ?? allScreens.FirstOrDefault()
-				   ?? throw new InvalidOperationException("No monitors are available.");
-#else
-			// On Wayland, IsPrimary is unreliable (GDK returns false for all monitors).
-			// GDK also enumerates monitors in window-placement order, so FirstOrDefault()
-			// picks whichever monitor the application window happens to be on — not the
-			// compositor's primary. The primary is conventionally placed at logical
-			// origin (0, 0) by GNOME and other compositors, so use that as the fallback.
-			return allScreens.FirstOrDefault(s => s?.IsPrimary == true)
-				   ?? allScreens.FirstOrDefault(s => s != null && (int)s.Bounds.Left == 0 && (int)s.Bounds.Top == 0)
-				   ?? allScreens.FirstOrDefault()
-				   ?? throw new InvalidOperationException("No monitors are available.");
-#endif
+			if (displays.Length == 0)
+				throw new InvalidOperationException("No monitors are available.");
+
+			foreach (var display in displays)
+				if (display.IsPrimary)
+					return display;
+
+			// GDK/Wayland does not always expose a designated primary output. Compositors conventionally put it
+			// at the logical origin; the first output is the final deterministic fallback.
+			foreach (var display in displays)
+				if (display.Bounds.X == 0 && display.Bounds.Y == 0)
+					return display;
+
+			return displays[0];
 		}
 
-		private static (Forms.Screen Screen, long MonitorIndex) ResolveScreen(object n)
+		internal static (DisplayInfo Display, long MonitorIndex) ResolveDisplay(object n)
 		{
 			var monitorIndex = n.Al(-1L);
-			var allScreens = AllScreens;
+			var displays = AllDisplays;
 
-			if (monitorIndex > 0 && monitorIndex <= allScreens.Length)
-				return (allScreens[monitorIndex - 1], monitorIndex);
+			if (monitorIndex > 0 && monitorIndex <= displays.Length)
+				return (displays[monitorIndex - 1], monitorIndex);
 
-			return (ResolvePrimaryScreen(allScreens), 1L);
+			var primary = ResolvePrimaryDisplay(displays);
+
+			for (var i = 0; i < displays.Length; i++)
+				if (displays[i].Equals(primary))
+					return (primary, i + 1L);
+
+			return (primary, 1L);
+		}
+
+		internal static (DisplayInfo Display, long MonitorIndex) ResolveDisplayForPoint(int x, int y)
+		{
+			var displays = AllDisplays;
+
+			if (!DisplayTopology.TryFind(displays, new ScreenRect(x, y, 0, 0), out var selected))
+				throw new InvalidOperationException("No monitors are available.");
+
+			for (var i = 0; i < displays.Length; i++)
+				if (displays[i].Equals(selected))
+					return (selected, i + 1L);
+
+			return (selected, 1L);
 		}
 
 		internal static (long Width, long Height) GetPrimaryScreenSize()
 		{
-			var (screen, _) = ResolveScreen(null);
-			return ((long)screen.Bounds.Width, (long)screen.Bounds.Height);
+			var (display, _) = ResolveDisplay(null);
+			return (display.Bounds.Width, display.Bounds.Height);
 		}
 
-		/// <summary>
-		/// Returns the bounding rectangle of monitor <paramref name="n"/> (the primary monitor when
-		/// <paramref name="n"/> is null/out of range), in screen coordinates.
-		/// </summary>
+		/// <summary>Returns one display's bounds in native screen coordinates.</summary>
 		internal static (long Left, long Top, long Width, long Height) GetMonitorBounds(object n)
 		{
-			var (screen, _) = ResolveScreen(n);
-			var b = screen.Bounds;
-			return ((long)b.Left, (long)b.Top, (long)b.Width, (long)b.Height);
+			var (display, _) = ResolveDisplay(n);
+			var bounds = display.Bounds;
+			return (bounds.X, bounds.Y, bounds.Width, bounds.Height);
 		}
 
 		internal static (long Width, long Height) GetPrimaryWorkAreaSize()
 		{
 			var wa = GetPrimaryWorkArea();
-			return ((long)wa.Width, (long)wa.Height);
+			return (wa.Width, wa.Height);
 		}
 
-		/// <summary>The working area (monitor minus panels/docks) of the primary monitor.</summary>
-		internal static RectangleF GetPrimaryWorkArea()
+		/// <summary>The primary display's working area in native screen coordinates.</summary>
+		internal static Rectangle GetPrimaryWorkArea()
 		{
-			var (screen, _) = ResolveScreen(null);
-			return WorkingAreaFor(screen);
-		}
-
-		/// <summary>
-		/// The working area of <paramref name="screen"/>. Eto's WorkingArea already excludes panels/struts
-		/// on Windows/macOS/X11, but on Wayland a client cannot compute it (gdk returns the full monitor),
-		/// so when the compositor backend can report the work area, substitute it — for the monitor whose
-		/// bounds contain it. The backend reports only the primary/active monitor, so other monitors keep
-		/// Eto's value.
-		/// </summary>
-		private static RectangleF WorkingAreaFor(Forms.Screen screen)
-		{
-#if LINUX
-			try
-			{
-				if (Platform.Screen.TryGetWorkArea(0, out var wa, out _) && wa.Width > 0 && wa.Height > 0
-					&& screen.Bounds.Contains(wa.X, wa.Y))
-					return new RectangleF(wa.X, wa.Y, wa.Width, wa.Height);
-			}
-			catch
-			{
-			}
-#endif
-			// Eto's WorkingArea can throw on a backend-less monitor (e.g. Gdk on Wayland in a console
-			// context); fall back to the full bounds so callers get a value rather than nothing.
-			try { return screen.WorkingArea; }
-			catch { return screen.Bounds; }
+			var (display, _) = ResolveDisplay(null);
+			return display.WorkArea.ToRectangle();
 		}
 
 		internal static (long Width, long Height) GetVirtualScreenSize()
@@ -106,115 +92,85 @@ namespace Keysharp.Builtins
 		}
 
 		/// <summary>
-		/// Returns the bounding rectangle of the whole virtual desktop (the union of all monitors),
-		/// including its origin. The origin can be negative when a monitor sits left of / above the
-		/// primary, so callers that map a screen coordinate into a normalized range must offset by it.
+		/// Returns the union of all displays, including its possibly-negative origin, in native screen coordinates.
 		/// </summary>
 		internal static (long Left, long Top, long Width, long Height) GetVirtualScreenBounds()
 		{
-			var allScreens = AllScreens;
+			var displays = AllDisplays;
 
-			if (allScreens.Length == 0)
+			if (displays.Length == 0)
 				return (0L, 0L, 0L, 0L);
 
-			var left = allScreens.Min(s => s.Bounds.Left);
-			var top = allScreens.Min(s => s.Bounds.Top);
-			var right = allScreens.Max(s => s.Bounds.Right);
-			var bottom = allScreens.Max(s => s.Bounds.Bottom);
-			return ((long)left, (long)top, (long)(right - left), (long)(bottom - top));
+			var left = displays.Min(s => s.Bounds.X);
+			var top = displays.Min(s => s.Bounds.Y);
+			var right = displays.Max(s => s.Bounds.Right);
+			var bottom = displays.Max(s => s.Bounds.Bottom);
+			return (left, top, right - left, bottom - top);
 		}
 
-		/// <summary>
-		/// Checks if the specified monitor exists and optionally retrieves its bounding coordinates.
-		/// </summary>
-		/// <param name="n">If omitted, the primary monitor will be used. Otherwise, specify the monitor number, between 1 and the number returned by <see cref="MonitorGetCount"/>.</param>
-		/// <param name="left">The left bounding coordinate of the specified monitor.</param>
-		/// <param name="top">The top bounding coordinate of the specified monitor.</param>
-		/// <param name="right">The right bounding coordinate of the specified monitor.</param>
-		/// <param name="bottom">The bottom bounding coordinate of the specified monitor.</param>
-		/// <returns>The monitor number which is the same as n unless n was omitted.</returns>
-		public static object MonitorGet(object n = null, [ByRef] object left = null, [ByRef] object top = null, [ByRef] object right = null, [ByRef] object bottom = null)
+		/// <summary>Gets one monitor's native screen-coordinate bounds.</summary>
+		public static object MonitorGet(object n = null, [ByRef] object left = null, [ByRef] object top = null,
+			[ByRef] object right = null, [ByRef] object bottom = null)
 		{
-			var (screen, monitorIndex) = ResolveScreen(n);
+			var (display, monitorIndex) = ResolveDisplay(n);
+			var bounds = display.Bounds;
 
-			if (left != null) Script.SetPropertyValue(left, "__Value", (long)screen.Bounds.Left);
-			if (top != null) Script.SetPropertyValue(top, "__Value", (long)screen.Bounds.Top);
-			if (right != null) Script.SetPropertyValue(right, "__Value", (long)screen.Bounds.Right);
-			if (bottom != null) Script.SetPropertyValue(bottom, "__Value", (long)screen.Bounds.Bottom);
+			if (left != null) Script.SetPropertyValue(left, "__Value", (long)bounds.X);
+			if (top != null) Script.SetPropertyValue(top, "__Value", (long)bounds.Y);
+			if (right != null) Script.SetPropertyValue(right, "__Value", (long)bounds.Right);
+			if (bottom != null) Script.SetPropertyValue(bottom, "__Value", (long)bounds.Bottom);
 			return monitorIndex;
 		}
 
-		/// <summary>
-		/// Returns the total number of monitors.
-		/// </summary>
-		/// <returns>The total number of monitors.</returns>
-		public static long MonitorGetCount() => AllScreens.Length;
+		/// <summary>Returns the current number of displays.</summary>
+		public static long MonitorGetCount() => AllDisplays.Length;
 
-		/// <summary>
-		/// Returns the operating system's name of the specified monitor.
-		/// </summary>
-		/// <param name="n">If omitted, the primary monitor will be used. Otherwise, specify the monitor number, between 1 and the number returned by <see cref="MonitorGetCount"/>.</param>
-		/// <returns>A string</returns>
+		/// <summary>Returns the platform's stable name for one display snapshot.</summary>
 		public static string MonitorGetName(object n = null)
 		{
-			var (screen, _) = ResolveScreen(n);
-#if WINDOWS
-			return screen.DeviceName ?? "";
-#elif LINUX
-			if (screen.Handler is Eto.GtkSharp.Forms.ScreenHandler { Control: Gdk.Monitor monitor })
-				return string.Join(" ", new[] { monitor.Manufacturer, monitor.Model }.Where(s => !string.IsNullOrEmpty(s)));
-
-			return screen.ID ?? "";
-#else
-			return screen.ID ?? "";
-#endif
+			var (display, _) = ResolveDisplay(n);
+			return display.Name ?? "";
 		}
 
-		/// <summary>
-		/// Returns the number of the primary monitor.
-		/// </summary>
-		/// <returns>The number of the primary monitor. In a single-monitor system, this will be always 1.</returns>
+		/// <summary>Returns the current primary monitor index.</summary>
 		public static long MonitorGetPrimary()
 		{
-			var allScreens = AllScreens;
-			var primaryScreen = ResolvePrimaryScreen(allScreens);
+			var displays = AllDisplays;
+			var primary = ResolvePrimaryDisplay(displays);
 
-			for (var i = 0; i < allScreens.Length; i++)
-			{
-				if (ReferenceEquals(allScreens[i], primaryScreen))
+			for (var i = 0; i < displays.Length; i++)
+				if (displays[i].Equals(primary))
 					return i + 1L;
-
-#if WINDOWS
-				if (allScreens[i]?.Primary == true)
-					return i + 1L;
-#else
-				if (allScreens[i]?.IsPrimary == true)
-					return i + 1L;
-#endif
-			}
 
 			return 1L;
 		}
 
-		/// <summary>
-		/// Checks if the specified monitor exists and optionally retrieves the bounding coordinates of its working area.
-		/// </summary>
-		/// <param name="n">If omitted, the primary monitor will be used. Otherwise, specify the monitor number, between 1 and the number returned by <see cref="MonitorGetCount"/>.</param>
-		/// <param name="left">The left bounding coordinate of the work area of the specified monitor.</param>
-		/// <param name="top">The top bounding coordinate of the work area of the specified monitor.</param>
-		/// <param name="right">The right bounding coordinate of the work area of the specified monitor.</param>
-		/// <param name="bottom">The bottom bounding coordinate of the work area of the specified monitor.</param>
-		/// <returns>The monitor number which is the same as n unless n was omitted.</returns>
-		public static object MonitorGetWorkArea(object n = null, [ByRef] object left = null, [ByRef] object top = null, [ByRef] object right = null, [ByRef] object bottom = null)
+		/// <summary>Gets one monitor's work-area bounds in native screen coordinates.</summary>
+		public static object MonitorGetWorkArea(object n = null, [ByRef] object left = null, [ByRef] object top = null,
+			[ByRef] object right = null, [ByRef] object bottom = null)
 		{
-			var (screen, monitorIndex) = ResolveScreen(n);
-			var wa = WorkingAreaFor(screen);
+			var (display, monitorIndex) = ResolveDisplay(n);
+			var workArea = display.WorkArea;
 
-			if (left != null) Script.SetPropertyValue(left, "__Value", (long)wa.Left);
-			if (top != null) Script.SetPropertyValue(top, "__Value", (long)wa.Top);
-			if (right != null) Script.SetPropertyValue(right, "__Value", (long)wa.Right);
-			if (bottom != null) Script.SetPropertyValue(bottom, "__Value", (long)wa.Bottom);
+			if (left != null) Script.SetPropertyValue(left, "__Value", (long)workArea.X);
+			if (top != null) Script.SetPropertyValue(top, "__Value", (long)workArea.Y);
+			if (right != null) Script.SetPropertyValue(right, "__Value", (long)workArea.Right);
+			if (bottom != null) Script.SetPropertyValue(bottom, "__Value", (long)workArea.Bottom);
 			return monitorIndex;
 		}
+	}
+
+	/// <summary>Keysharp monitor extensions which are not part of the AutoHotkey v2 global function set.</summary>
+	public partial class Ks
+	{
+		/// <summary>Returns the monitor containing a native virtual-desktop point, or the nearest monitor when the
+		/// point lies in a gap between displays. Import from the KS module.</summary>
+		public static long MonitorFromPoint(object x, object y)
+			=> Monitor.ResolveDisplayForPoint(x.Ai(), y.Ai()).MonitorIndex;
+
+		/// <summary>Returns one monitor's authored-size scale. 1.0 is 100%, 1.5 is 150%. The value maps
+		/// deliberately authored UI sizes into native screen units and must never be applied to absolute positions.</summary>
+		public static double MonitorGetScale(object n = null)
+			=> ScaleFactor.Normalize(Monitor.ResolveDisplay(n).Display.SizeScale);
 	}
 }

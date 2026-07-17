@@ -34,12 +34,13 @@ namespace Keysharp.Builtins
 #else
 		internal bool dpiscaling = false;
 #endif
-#if OSX
-		// Eto on macOS uses logical points and handles HiDPI internally via BackingScaleFactor.
-		// Applying a DPIScale multiplier here would double-scale controls on Retina displays.
-		internal double DpiScale => 1.0;
+#if WINDOWS
+		// WinForms updates DeviceDpi when a PMv2 window crosses monitors. Never derive a GUI's layout from the
+		// primary monitor: mixed-DPI windows must use the DPI of their own current native surface.
+		internal double DpiScale => !dpiscaling ? 1.0 : Math.Max(0.01, (form?.DeviceDpi ?? 96) / 96.0);
 #else
-		internal double DpiScale => !dpiscaling ? 1.0 : Ks.A_ScreenScale;
+		// Eto/GTK and Cocoa expose their native logical widget units and manage backing scale themselves.
+		internal double DpiScale => 1.0;
 #endif
 		internal MenuBar menuBar;
 		bool marginsInit = false;
@@ -598,7 +599,7 @@ namespace Keysharp.Builtins
 		void EnsureDefaultMargins()
 		{
 			if (marginsInit) return;
-			float dpi = DpiScale != 1.0 ? (float)A_ScreenDPI : 96f;
+			float dpi = (float)(DpiScale * 96.0);
 			float dpiinv = 96F / dpi;
 			float fh = form.Font.GetHeight(dpi) * dpiinv;
 			int mx = (int)Math.Ceiling(fh * 1.25f);
@@ -2436,7 +2437,7 @@ namespace Keysharp.Builtins
 								   [Optional()][DefaultParameterValue(null)] object outWidth,
 								   [Optional()][DefaultParameterValue(null)] object outHeight)
 		{
-			Gui.Control.GetClientPos(form, DpiScale != 1.0, outX, outY, outWidth, outHeight);
+			Gui.Control.GetClientPos(form, DpiScale, outX, outY, outWidth, outHeight);
 			return DefaultObject;
 		}
 
@@ -2444,7 +2445,7 @@ namespace Keysharp.Builtins
 
 		public object GetPos([Optional()][DefaultParameterValue(null)] object outX, [Optional()][DefaultParameterValue(null)] object outY, [Optional()][DefaultParameterValue(null)] object outWidth, [Optional()][DefaultParameterValue(null)] object outHeight)
 		{
-			Gui.Control.GetPos(form, DpiScale != 1.0, outX, outY, outWidth, outHeight);
+			Gui.Control.GetPos(form, DpiScale, outX, outY, outWidth, outHeight);
 			return DefaultObject;
 		}
 
@@ -2876,6 +2877,21 @@ namespace Keysharp.Builtins
 			var firstShow = !showCalled && !form.BeenShown;
 
 			var formSize = form.GetSize();
+#if LINUX
+			// Public X11 coordinates are root pixels, while Eto/GTK positions its own forms in toolkit units. Convert
+			// both operands used by centring/explicit placement into the public space, then convert only at SetLocation.
+			if (!IsWaylandSession)
+			{
+				var nativeScreen = Keysharp.Internals.Window.Linux.X11.X11DisplayTopology.FromToolkitBounds(
+					new Keysharp.Internals.ScreenRect((int)Math.Round(screen.X), (int)Math.Round(screen.Y),
+						(int)Math.Round(screen.Width), (int)Math.Round(screen.Height)));
+				screen = nativeScreen.ToRectangle();
+				var nativeForm = Keysharp.Internals.Window.Linux.X11.X11DisplayTopology.FromToolkitBounds(
+					new Keysharp.Internals.ScreenRect(location.X, location.Y, Math.Max(1, formSize.Width), Math.Max(1, formSize.Height)));
+				location = new Point(nativeForm.X, nativeForm.Y);
+				formSize = new Size(nativeForm.Width, nativeForm.Height);
+			}
+#endif
 			int centerX = (((int)screen.Width - formSize.Width) / 2) + (int)screen.X;
 			int centerY = (((int)screen.Height - formSize.Height) / 2) + (int)screen.Y;
 
@@ -2900,7 +2916,18 @@ namespace Keysharp.Builtins
 			form.StartPosition = FormStartPosition.Manual;
 
 			if (firstShow || requestedLocation.X != int.MinValue || requestedLocation.Y != int.MinValue)
-				form.SetLocation(location);
+			{
+#if LINUX
+				if (!IsWaylandSession)
+				{
+					var toolkit = Keysharp.Internals.Window.Linux.X11.X11DisplayTopology.ToToolkitBounds(
+						new Keysharp.Internals.ScreenRect(location.X, location.Y, Math.Max(1, formSize.Width), Math.Max(1, formSize.Height)));
+					form.SetLocation(new Point(toolkit.X, toolkit.Y));
+				}
+				else
+#endif
+					form.SetLocation(location);
+			}
 
 #if !WINDOWS
 			// Give menu-less GUIs the standard editing shortcuts on macOS (no-op on Linux), unless -AppMenu

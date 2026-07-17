@@ -247,7 +247,7 @@ Status legend:
 | A_RegView | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets whether the registry is in 32 or 64 bit mode. |
 | A_ScreenDPI | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ScreenHeight | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
-| A_ScreenScale | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The screen's DPI scale factor normalized so 1.0 is 100% and 2.0 is a 200% display (unlike A_ScreenDPI, which reports the raw platform DPI: 96-based on Windows/Linux, 72-based on macOS). Multiply sizes/positions by this for DPI-aware layout. |
+| A_ScreenScale | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The primary monitor's authored-size scale in native screen units. Windows and X11 can return more than 1.0; macOS and Wayland return 1.0 because their native coordinates already account for UI scaling. Apply it to scalable dimensions, never absolute positions; prefer MonitorGetScale for mixed-monitor layouts. |
 | A_ScreenWidth | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ScriptDir | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The full path of the script being compiled and ran, without a trailing backslash. Evaluates to a constant string in the C# code output. |
 | A_ScriptFullPath | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The full path of the script being compiled and ran. Evaluates to a constant string in the C# code output. |
@@ -718,11 +718,13 @@ Status legend:
 | MethodError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | Min() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the smaller of two numbers. If either is not numeric, the empty string is returned. The smaller value of an array is computed if one is passed in. |
 | Mod() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the remainder when the first number is divided by the second number. Throws an exception if the second number is 0. |
-| MonitorGet() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Checks if the specified monitor exists and optionally retrieves its bounding coordinates. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been. |
-| MonitorGetCount() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns the total number of monitors. |
+| MonitorGet() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the selected monitor index and writes its native screen-coordinate bounds to the supplied output variables. |
+| MonitorFromPoint() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | KS extension. Returns the monitor containing a native screen point, or the nearest monitor when the point lies in a gap. |
+| MonitorGetCount() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the total number of monitors. |
 | MonitorGetName() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the operating system's name of the specified monitor. |
 | MonitorGetPrimary() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the number of the primary monitor. |
-| MonitorGetWorkArea() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Checks if the specified monitor exists and optionally retrieves the bounding coordinates of its working area. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been. |
+| MonitorGetScale() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | KS extension. Returns the monitor's authored-size scale in native screen units; 1.0 is 100%. It scales dimensions, never absolute positions. |
+| MonitorGetWorkArea() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the selected monitor index and writes its native screen-coordinate work area to the supplied output variables. |
 | MouseClick() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The MouseClick function clicks or holds down a mouse button, or turns the mouse wheel. |
 | MouseClickDrag() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The MouseClickDrag function clicks and holds the specified mouse button, moves the mouse to the destination coordinates, then releases the button. |
 | MouseGetPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The MouseGetPos function retrieves the current position of the mouse cursor, and optionally which window and control it is hovering over. |

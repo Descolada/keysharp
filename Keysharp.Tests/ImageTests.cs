@@ -1000,13 +1000,15 @@ namespace Keysharp.Tests
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
 
-			// A DPI-scaled Create() canvas draws logical coordinates through drawScale; Copy() must carry it over
+			// A scaled Create() canvas draws logical coordinates through its axis scales; Copy() must carry them over
 			// so the copy renders at the same physical scale (previously dropped, which is why Overlay.SetImage
 			// had to re-set it by hand).
 			var img = KeysharpImage.Create(null, 10, 10, null, 2) as KeysharpImage;
-			Assert.AreEqual(2.0, img.drawScale);
+			Assert.AreEqual(2.0, img.drawScaleX);
+			Assert.AreEqual(2.0, img.drawScaleY);
 			var copy = img.Copy() as KeysharpImage;
-			Assert.AreEqual(2.0, copy.drawScale);
+			Assert.AreEqual(2.0, copy.drawScaleX);
+			Assert.AreEqual(2.0, copy.drawScaleY);
 		}
 	}
 }

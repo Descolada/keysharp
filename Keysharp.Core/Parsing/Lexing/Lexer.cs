@@ -607,13 +607,21 @@ namespace Keysharp.Parsing.Lexing
 		// the legacy permissive behavior in that case.
 		private static bool IsRemapTargetKeyName(System.ReadOnlySpan<char> keyName)
 		{
+			// AltTab, ShiftAltTab, AltTabMenu, AltTabAndMenu and AltTabMenuDismiss aren't real keys but are valid
+			// remap targets — `x::AltTab` registers a hotkey with that special hook action (handled in the remap
+			// lowering), so accept them here instead of lexing the line as a `AltTab()` function-call body.
+			if (Keysharp.Internals.Input.Keyboard.HotkeyDefinition.ConvertAltTab(keyName.ToString(), false) != 0)
+				return true;
+
 			var ht = Keysharp.Runtime.Script.TheScript?.HookThread;
 			if (ht == null)
 				return true;
 			uint vk = 0, sc = 0;
 			var source = Keysharp.Internals.Input.Keyboard.KeySource.None;
 			uint? mods = null;
-			return ht.TextToVKandSC(keyName, ref vk, ref sc, ref source, ref mods, layout: null, allowVkScPair: false);
+			// Allow the combined vk+sc pair form (e.g. `vk42sc030`): it's a valid remap target and the pattern
+			// (`vk<hex>sc<hex>`) can't be mistaken for an ordinary function name, so accepting it is safe.
+			return ht.TextToVKandSC(keyName, ref vk, ref sc, ref source, ref mods, layout: null, allowVkScPair: true);
 		}
 
 		// Splits a validated remap line `source::target` into its source/target key text, honoring backtick escapes

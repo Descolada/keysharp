@@ -126,9 +126,18 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const string DBusObjectPath  = "/org/freedesktop/DBus";
 		private const int    TimeoutMs    = 2000;
 		private const int    ImageOverlayTimeoutMs = 10_000;
-		private const int    ExtensionOwnerCheckTimeoutMs = 250;
+		// The owner probe (NameHasOwner) answers INSTANTLY whether present (fast true) or genuinely absent
+		// (fast false) — a timeout here only ever means a slow/cold bus, never a real absence. The old 250ms
+		// budget lost that race on a warm (fast) process start: a HUD shows its overlays during startup before
+		// the lazily-established session-bus connection is warm, the first probe timed out, and (see below) the
+		// miss latched "extension absent" for 5s — routing that whole run's overlays to the Eto fallback with no
+		// error. A cold connection's first round-trip deserves the same budget as the connect itself.
+		private const int    ExtensionOwnerCheckTimeoutMs = 2000;
 		private const int    ExtensionMissingCacheMs = 5000;
 		private const int    ExtensionPresentCacheMs = 1000;
+		// After an AMBIGUOUS probe timeout (not a definitive not-owned) with no prior positive, re-check soon
+		// instead of latching "absent" for the full missing-cache window — the extension is expected on GNOME.
+		private const int    ExtensionProbeTimeoutRetryMs = 250;
 
 		// Backoff before retrying owner registration after a miss (extension still loading / absent).
 		private const long RegisterRetryBackoffMs = 5000;
@@ -583,11 +592,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// cannot freeze hotkey/timer/UI processing on the calling thread.
 				if (!task.WaitWithoutInterruption(ExtensionOwnerCheckTimeoutMs))
 				{
-					// A probe TIMEOUT is ambiguous (the bus is momentarily slow), not a definitive "absent". If we
-					// recently saw the extension present, keep that answer and re-check soon rather than declaring
-					// it gone for 5s — otherwise a single slow probe under load would route overlays to the Eto
-					// fallback and tear down the proxy. Only fall back to "absent" when we have no recent positive.
-					extensionOwnerCacheUntil = now + (extensionOwnerCached ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
+					// A probe TIMEOUT is ambiguous (the bus is momentarily slow / the connection is cold at
+					// startup), not a definitive "absent". If we recently saw the extension present, keep that
+					// answer; otherwise return "unknown" (false) but re-probe within a frame or two rather than
+					// latching "absent" for the full 5s missing-cache window. A genuinely absent name answers
+					// FALSE instantly (never times out), so a timeout is never real absence — locking overlays to
+					// the Eto fallback for 5s on a cold-start probe is exactly what routed a whole run to Eto.
+					extensionOwnerCacheUntil = now + (extensionOwnerCached ? ExtensionPresentCacheMs : ExtensionProbeTimeoutRetryMs);
 
 					if (!extensionOwnerCached)
 						proxy = null;

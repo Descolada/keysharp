@@ -14,16 +14,16 @@
           each lit green while that lock is on. Toggle is drawn independently of the press colour, so a key
           reports BOTH whether it is held down (blue/amber) and whether its lock is on (green) at the same time.
         - The layout adapts to the OS: Win/Super/Alt/Menu on Windows & Linux, Command/Option/Control on macOS.
-        - Both HUDs are separately draggable AND zoomable: left-drag either one to reposition it, or right-drag
-          it to scale it — drag right to enlarge, left to shrink. Only clicks that land ON a HUD are captured;
-          clicks anywhere else pass straight through the click-through overlays.
+        - Both HUDs are separately draggable AND zoomable: Ctrl+drag either one to reposition it, or
+          Ctrl+right-drag it to scale it — drag right to enlarge, left to shrink. Only clicks that land ON a
+          HUD are captured; clicks anywhere else pass straight through the click-through overlays.
         - Non-intrusive: it never swallows your input — everything you press still reaches your apps.
 
-        Left-drag a HUD    ...  move it
-        Right-drag a HUD   ...  zoom it (right = bigger, left = smaller)
-        Ctrl+Alt+Shift+H   ...  show / hide the HUDs
-        Ctrl+Alt+Shift+R   ...  reset position & zoom
-        Ctrl+Alt+Shift+Q   ...  quit
+        Ctrl+drag a HUD        ...  move it
+        Ctrl+Right-drag a HUD  ...  zoom it (right = bigger, left = smaller)
+        Ctrl+Alt+Shift+H       ...  show / hide the HUDs
+        Ctrl+Alt+Shift+0       ...  reset position & zoom
+        Ctrl+Alt+Shift+Q       ...  quit
 
     Demonstrates cross-platform Keysharp: a single InputHook ("V H") capturing BOTH keyboard and mouse
     (OnKeyDown/OnKeyUp + OnMouseDown/OnMouseUp, KeyOpt("{All}","N") to notify-without-suppressing; the "H"
@@ -94,7 +94,7 @@ class InputHUD {
     static scaleTick := 0                ; slower display-scale poll (handles live DPI changes without per-frame queries)
     static kbDirty := true               ; a render is pending (rendered on the main-thread tick)
     static msDirty := true
-    ; Zoom (right-drag over a HUD): each HUD carries its own on-screen scale factor. Horizontal drag distance
+    ; Zoom (Ctrl+right-drag over a HUD): each HUD carries its own on-screen scale factor. Horizontal drag distance
     ; maps to the scale — drag right to enlarge, left to shrink — clamped to [ZoomMin, ZoomMax].
     static ZoomMin  := 0.5
     static ZoomMax  := 3.0
@@ -134,13 +134,13 @@ class InputHUD {
         SetTimer(() => this.Tick(), 16)  ; the ONLY place overlays are redrawn — always the main/UI thread
         Hotkey("^!+q", (*) => ExitApp())
         Hotkey("^!+h", (*) => this.ToggleHud())      ; step the HUDs aside for a slide (a restart re-prompts InputMonitoring)
-        Hotkey("^!+r", (*) => this.Reset())          ; undo a stray drag/zoom back to the tidy default layout
+        Hotkey("^!+0", (*) => this.Reset())          ; undo a stray drag/zoom back to the tidy default layout (was ^!+r — GNOME's screen-recorder hotkey already claims Ctrl+Alt+Shift+R)
         Shell.Show("Input HUD", [
             ["Blue vs amber", "Blue = physical; amber = script-injected (Send / remap)"],
-            ["Left-drag a HUD", "Move it"],
-            ["Right-drag a HUD", "Zoom it (right = bigger, left = smaller)"],
+            ["Ctrl+drag a HUD", "Move it"],
+            ["Ctrl+Right-drag a HUD", "Zoom it (right = bigger, left = smaller)"],
             ["Ctrl+Alt+Shift+H", "Show / hide the HUDs"],
-            ["Ctrl+Alt+Shift+R", "Reset position & zoom"],
+            ["Ctrl+Alt+Shift+0", "Reset position & zoom"],
             ["Ctrl+Alt+Shift+Q", "Quit"] ])
         Shell.SetTrayMenu([                          ; tray: toggle each HUD independently (both start on)
             ["Keyboard HUD", (*) => this.ToggleBoard("kb"), this.kbOn],
@@ -519,18 +519,19 @@ class InputHUD {
     }
 
     ; ======================================================================
-    ; Dragging & zooming — plain Left/Right-button hotkeys scoped (via HotIf) to "cursor is over a HUD", so a
-    ; press is captured ONLY over a HUD; clicks anywhere else pass through the click-through overlays untouched.
-    ; Left-drag moves a HUD; right-drag scales it (right = enlarge, left = shrink). No modifier is needed
-    ; (unlike WindowGrab's Super+drag): a plain button and a Super+button are mutually-exclusive hotkey
-    ; variants, so InputHUD and WindowGrab can run together without their drag gestures colliding.
+    ; Dragging & zooming — Ctrl+Left/Right-button hotkeys scoped (via HotIf) to "cursor is over a HUD", so a
+    ; press is captured ONLY over a HUD; clicks anywhere else, or a plain (non-Ctrl) click even over a HUD,
+    ; pass through the click-through overlays untouched. Ctrl+drag moves a HUD; Ctrl+right-drag scales it
+    ; (right = enlarge, left = shrink). Requiring Ctrl (rather than a bare button, unlike WindowGrab's
+    ; Super+drag) keeps a plain click on whatever's under a HUD working normally, and avoids Ctrl+Alt+Shift
+    ; hotkey/GNOME chords that already use a held Ctrl for something else.
     ; ======================================================================
     static SetupDrag() {
         ; The `!Shell.Blocked(x, y)` guard yields the click to our tray menu (or any own-process popup) when it's
         ; drawn on top of a HUD — the click-through overlay would otherwise let this hook swallow it (z-order).
         HotIf((*) => this.CanDrag())
-        Hotkey("LButton", (*) => this.DragHud())
-        Hotkey("RButton", (*) => this.ZoomHud())
+        Hotkey("^LButton", (*) => this.DragHud())
+        Hotkey("^RButton", (*) => this.ZoomHud())
         HotIf()
     }
 
@@ -586,7 +587,7 @@ class InputHUD {
         }
     }
 
-    ; Right-drag over a HUD scales it: the horizontal distance from where the drag began sets the zoom factor
+    ; Ctrl+Right-drag over a HUD scales it: the horizontal distance from where the drag began sets the zoom factor
     ; (right = enlarge, left = shrink); the HUD scales around its fixed centre (cx/cy). Like DragHud this runs as a
     ; hotkey pseudo-thread and loops while RButton is held; it writes ONLY o.zoom and flips the dirty flag, so the
     ; main-thread tick derives all geometry and redraws the bitmap (this thread never draws or resizes).
@@ -714,7 +715,7 @@ class InputHUD {
             this.SavePlacement()
     }
 
-    ; Ctrl+Alt+Shift+R — restore the default layout after a stray drag/zoom. Reset each HUD's zoom to 1 and refresh
+    ; Ctrl+Alt+Shift+0 — restore the default layout after a stray drag/zoom. Reset each HUD's zoom to 1 and refresh
     ; its pw/ph at 1x FIRST (Place lays the pair out from pw/ph), then re-place and atomically repaint both overlays.
     static Reset(*) {
         this.kb.zoom := 1

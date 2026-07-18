@@ -10,7 +10,7 @@
 
     It shows a title and a list of shortcuts as keycap-style pills in the bottom-right corner and stays put
     (the shortcuts are easy to forget, so it does NOT auto-close). Close it with the ✕ button in its top-right
-    corner; drag anywhere else on the card to reposition it (the spot is remembered per-demo). Once closed,
+    corner; Ctrl+drag anywhere else on the card to reposition it (the spot is remembered per-demo). Once closed,
     Ctrl+Alt+Shift+S — or the tray icon's "Show shortcuts" item — brings it back. A "Don't show this card on
     startup" checkbox on the card persists that choice per-demo to demos/Settings.ini, so a demo you already
     know stops greeting you, while the reopen chord / tray item still summon it on demand.
@@ -152,9 +152,12 @@ class Shell {
             return
         this.registered := true
         ; A plain left-click, but only while the cursor is over the card (HotIf), so every other click passes
-        ; straight through the click-through overlay. Over the checkbox it toggles the setting; elsewhere it dismisses.
+        ; straight through the click-through overlay: over the ✕ it closes the card, over the checkbox it
+        ; toggles the setting. Ctrl+left-click-drag anywhere on the card moves it instead — a separate hotkey,
+        ; since AHK matches an exact modifier set, so a plain click still reaches close/checkbox as normal.
         HotIf((*) => Shell.CanClick())
         Hotkey("LButton", (*) => Shell.OnClick())
+        Hotkey("^LButton", (*) => Shell.DragCard())
         HotIf()
         Hotkey(this.ReopenHotkey, (*) => Shell.Reshow())   ; global: reopen after the card is dismissed
         Hotkey(this.MainWindowHotkey, (*) => KeyHistory()) ; global: open Keysharp's main window
@@ -248,7 +251,7 @@ class Shell {
 		this.ov.Update(img, this.rect.x, this.rect.y, this.rect.w, this.rect.h)
 		img.Dispose()
         ; Screen rects of the two clickable regions (in the OS coordinate system): the ✕ close button and the
-        ; "don't show" checkbox+label. A click anywhere ELSE on the card starts a move (see OnClick/DragCard).
+        ; "don't show" checkbox+label. Ctrl+drag anywhere ELSE on the card moves it (see OnClick/DragCard).
 		this.closeRect := {x: this.rect.x + Round((w - pad - closeW) * scale),
 		                   y: this.rect.y + Round((pad - 2) * scale),
 		                   w: Round((closeW + pad) * scale),
@@ -260,7 +263,8 @@ class Shell {
     }
 
     ; Left-click handling while the cursor is over the card: the ✕ closes it, the checkbox toggles the
-    ; startup preference, and a click-drag anywhere else moves the card (it no longer dismisses on a body click).
+    ; startup preference. A plain click elsewhere on the card does nothing — Ctrl+drag (a separate hotkey,
+    ; see RegisterOnce) moves it instead, so an accidental click never nudges the card off its spot.
     static OnClick() {
         if this.InRect(this.closeRect)
             this.Hide()
@@ -269,12 +273,11 @@ class Shell {
             this.Render()                        ; redraw so the checkbox reflects the new state
             this.ov.Show()                       ; stay up — the user is interacting with the card
             this.shown := true
-        } else
-            this.DragCard()
+        }
     }
 
-    ; Drag the card to reposition it (like the InputHUD HUDs). Follows the cursor while the button is held,
-    ; then remembers the spot (persisted per-demo). A plain click that doesn't move it does nothing.
+    ; Ctrl+drag the card to reposition it (like the InputHUD HUDs). Follows the cursor while the button is
+    ; held, then remembers the spot (persisted per-demo). A press that doesn't move it does nothing.
     static DragCard() {
         if this.dragging
             return

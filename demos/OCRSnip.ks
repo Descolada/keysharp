@@ -20,7 +20,8 @@
     box in one motion, so you never arm-then-reach-for-the-mouse. Ctrl+Shift+O still arms hands-free for when
     you want the crosshair to follow the cursor before you commit. On macOS the modifier is Cmd+Shift (Ctrl+
     click is a system secondary-click there). Ctrl+Shift + LButton is chosen so it never collides with
-    WindowGrab's Super+drag or InputHUD's bare drag when all the demos run together.
+    WindowGrab's Super+drag or InputHUD's Ctrl+drag when all the demos run together (AHK hotkeys match an
+    exact modifier set by default, so plain Ctrl+drag and Ctrl+Shift+drag are distinct triggers).
 
     The selected text is copied to the clipboard. Recognized words are boxed with
     transparent rounded overlays so the source screen remains clickable.

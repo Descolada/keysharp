@@ -84,7 +84,11 @@ namespace Keysharp.Internals
 					// the catch path (that would double-free the bitmap the form now holds).
 					adopted = true;
 					PaintOwned(snap, bounds, windowBounds);
-					form.Location = new Point(windowBounds.X, windowBounds.Y);
+					// One atomic geometry set: Eto's Window.Bounds resolves to a single gdk_window_move_resize on
+					// GTK (and setFrame on macOS), so a live resize+move (an InputHUD zoom frame) is one request and
+					// never flashes an intermediate new-size/old-position frame the way separate Size+Location did.
+					form.Bounds = new Rectangle(windowBounds.X, windowBounds.Y,
+						Math.Max(1, windowBounds.Width), Math.Max(1, windowBounds.Height));
 
 					if (!form.Visible)
 						form.Show();
@@ -175,12 +179,13 @@ namespace Keysharp.Internals
 			displayed = snapshot;
 #endif
 
-			form.Size = size;
 #if LINUX
-			// The Drawable holds no image of its own -- it reads `displayed` in its Paint handler. Resize it to the
-			// window, then Invalidate. This immediate Invalidate is also what repaints a SAME-SIZE content change
-			// (a Highlight recolour, an opacity re-push, a same-size tooltip text swap) -- cases where SizeChanged in
-			// EnsureForm never fires -- so it is NOT redundant with that handler; the two cover different cases.
+			// The outer window's geometry (position AND size) is applied atomically by the caller via form.Bounds so
+			// a live resize does not jitter; here we size only the inner Drawable. The Drawable holds no image of its
+			// own -- it reads `displayed` in its Paint handler. Resize it to the window, then Invalidate. This
+			// immediate Invalidate is also what repaints a SAME-SIZE content change (a Highlight recolour, an opacity
+			// re-push, a same-size tooltip text swap) -- cases where SizeChanged in EnsureForm never fires -- so it is
+			// NOT redundant with that handler; the two cover different cases.
 			paintW = size.Width;
 			paintH = size.Height;
 			imageSurface.Size = size;

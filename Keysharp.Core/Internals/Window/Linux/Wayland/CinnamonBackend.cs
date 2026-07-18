@@ -37,6 +37,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		Task<bool> RaiseWindowAsync(ulong handle);
 		Task<bool> LowerWindowAsync(ulong handle);
 		Task<bool> MoveResizeWindowAsync(ulong handle, int x, int y, int width, int height);
+		Task<bool> MoveResizeWindowByXidAsync(ulong xid, int x, int y, int width, int height);
 		Task<bool> SetWindowStateAsync(ulong handle, int state);
 		Task<bool> SetWindowAboveAsync(ulong handle, bool above);
 		Task<bool> SetWindowDecoratedAsync(ulong handle, bool decorated);
@@ -213,7 +214,15 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal static bool SendMoveResize(ulong seq, int x, int y, int width, int height)
 			=> RunExtensionBool(p => p.MoveResizeWindowAsync(seq, x, y, width, height))
-			   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){const f=w.get_frame_rect();w.move_resize_frame(false," + x + "===-2147483648?f.x:" + x + "," + y + "===-2147483648?f.y:" + y + "," + width + ">0?" + width + ":f.width," + height + ">0?" + height + ":f.height);}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+			   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){if(w.maximized_horizontally||w.maximized_vertically)w.unmaximize(3);const f=w.get_frame_rect();w.move_resize_frame(true," + x + "===-2147483648?f.x:" + x + "," + y + "===-2147483648?f.y:" + y + "," + width + ">0?" + width + ":f.width," + height + ">0?" + height + ":f.height);}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+
+		// Move/resize by X11 window id (X11 sessions). Tries the extension method, then an org.Cinnamon.Eval
+		// fallback that finds the window by get_xwindow() — so this works even against an installed extension
+		// that predates MoveResizeWindowByXid. user_op = true is what lets it reach off-screen (see the
+		// extension comment). Position sentinel int.MinValue = unchanged; size <= 0 = unchanged.
+		internal static bool SendMoveResizeByXid(ulong xid, int x, int y, int width, int height)
+			=> RunExtensionBool(p => p.MoveResizeWindowByXidAsync(xid, x, y, width, height))
+			   || RunOk("(function(){try{" + JsHelpers + "let w=null;for(const a of global.get_window_actors()){const m=a.get_meta_window();if(m&&typeof m.get_xwindow==='function'&&Number(m.get_xwindow())===" + xid + "){w=m;break;}}if(w){if(w.maximized_horizontally||w.maximized_vertically)w.unmaximize(3);const f=w.get_frame_rect();w.move_resize_frame(true," + x + "===-2147483648?f.x:" + x + "," + y + "===-2147483648?f.y:" + y + "," + width + ">0?" + width + ":f.width," + height + ">0?" + height + ":f.height);}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
 
 		internal static bool SendSetWindowState(ulong seq, int state)
 			=> RunExtensionBool(p => p.SetWindowStateAsync(seq, state))

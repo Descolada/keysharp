@@ -49,6 +49,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// </summary>
 		Task<bool> MoveResizeWindowAsync(ulong handle, int x, int y, int width, int height);
 
+		/// <summary>As MoveResizeWindow but the window is identified by its X11 window id (get_xwindow),
+		/// for X11 sessions where the caller has an XID rather than a stable_sequence. False = no such window.</summary>
+		Task<bool> MoveResizeWindowByXidAsync(ulong xid, int x, int y, int width, int height);
+
 		/// <summary>state: 0 = normal, 1 = minimized, 2 = maximized. False = no such window.</summary>
 		Task<bool> SetWindowStateAsync(ulong handle, int state);
 
@@ -225,6 +229,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal static bool SendMoveResize(ulong handle, int x, int y, int width, int height)
 			=> Run(p => p.MoveResizeWindowAsync(handle, x, y, width, height));
+
+		// Move/resize by X11 window id (X11 sessions). GNOME Shell disables Eval, so this relies on the
+		// extension method; a window is unreachable (returns false → caller falls back to XMoveWindow) until
+		// an extension carrying MoveResizeWindowByXid is installed and the shell reloaded.
+		internal static bool SendMoveResizeByXid(ulong xid, int x, int y, int width, int height)
+			=> Run(p => p.MoveResizeWindowByXidAsync(xid, x, y, width, height));
 
 		internal static bool SendSetWindowState(ulong handle, int state)
 			=> Run(p => p.SetWindowStateAsync(handle, state));

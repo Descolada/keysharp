@@ -162,6 +162,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
+		// Move/resize a KWin-managed window identified by its X11 window id, for X11 sessions where the
+		// caller (X11Window) has an XID rather than a KWin uuid. Position axes use int.MinValue for
+		// "unchanged"; size axes use <= 0. Returns false if KWin isn't reachable or the id isn't found,
+		// so the caller falls back to XMoveWindow.
+		internal static bool SendMoveResizeByXid(ulong xid, int x, int y, int width, int height)
+			=> RunCommandOperation("moveResizeByXid", new { xid, x, y, width, height }, "move_resize_by_xid");
+
 		private static async Task<string> RunJsonOperationAsync(string operation, object args = null, string requestPrefix = null)
 		{
 			if (!await EnsureConnectedAsync().ConfigureAwait(false))
@@ -691,6 +698,17 @@ function isMaximized(w) {
   } catch (e) {}
   return false;
 }
+// A maximized (or edge-tiled) window ignores a frameGeometry assignment until it is restored, so clear the
+// maximize state first — the compositor equivalent of dragging the titlebar to un-maximize before moving.
+// Handles the KWin 6 `maximized` bool and the KWin 5 `maximizeMode` (0=Restore) so a partial tile is cleared too.
+function clearMaximize(w) {
+  try {
+    var maxed = false;
+    if (typeof w.maximized !== "undefined") maxed = !!w.maximized;
+    if (!maxed && typeof w.maximizeMode !== "undefined") maxed = Number(w.maximizeMode) !== 0;
+    if (maxed && typeof w.setMaximize === "function") w.setMaximize(false, false);
+  } catch (e) {}
+}
 function opacityToAlpha(value) {
   var opacity = Number(value);
   if (!isFinite(opacity)) opacity = 1;
@@ -888,6 +906,7 @@ var keysharpOps = {
   moveResize: function(args) {
     var w = findWindow(argString(args, "id"));
     if (!w) return { ok: false };
+    clearMaximize(w);
     var g = safeRead(w, "frameGeometry", safeRead(w, "geometry", null));
     if (!g) return { ok: false };
     var setPosition = argBool(args, "setPosition", false);
@@ -898,6 +917,34 @@ var keysharpOps = {
     var nh = setSize ? Math.round(argNumber(args, "height", g.height || 0)) : Math.round(g.height || 0);
     if (nw <= 0) nw = Math.round(g.width || 0);
     if (nh <= 0) nh = Math.round(g.height || 0);
+    w.frameGeometry = { x: nx, y: ny, width: nw, height: nh };
+    return { ok: true };
+  },
+  moveResizeByXid: function(args) {
+    // X11-session move: the caller has an X11 window id (not a KWin uuid), so match on the client's
+    // X11 windowId. Setting frameGeometry from a script is not clamped on screen the way an external
+    // XMoveWindow ConfigureRequest is, so this reaches off-screen placement Xlib cannot. Position
+    // uses the -2147483648 (INT32_MIN) "unchanged" sentinel; size uses <= 0.
+    var xid = Math.round(argNumber(args, "xid", 0));
+    if (!xid) return { ok: false };
+    var order = windowListCompat();
+    var w = null;
+    for (var i = 0; i < order.length; ++i) {
+      var wid = safeRead(order[i], "windowId", 0);
+      if (wid && Math.round(wid) === xid) { w = order[i]; break; }
+    }
+    if (!w) return { ok: false };
+    clearMaximize(w);
+    var g = safeRead(w, "frameGeometry", safeRead(w, "geometry", null));
+    if (!g) return { ok: false };
+    var ax = Math.round(argNumber(args, "x", -2147483648));
+    var ay = Math.round(argNumber(args, "y", -2147483648));
+    var aw = Math.round(argNumber(args, "width", 0));
+    var ah = Math.round(argNumber(args, "height", 0));
+    var nx = (ax !== -2147483648) ? ax : Math.round(g.x || 0);
+    var ny = (ay !== -2147483648) ? ay : Math.round(g.y || 0);
+    var nw = (aw > 0) ? aw : Math.round(g.width || 0);
+    var nh = (ah > 0) ? ah : Math.round(g.height || 0);
     w.frameGeometry = { x: nx, y: ny, width: nw, height: nh };
     return { ok: true };
   },

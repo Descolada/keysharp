@@ -993,8 +993,39 @@ namespace Keysharp.Internals
 				return base.TryMoveResize(h, toolkit, setPos, setSize);
 			}
 
+			// Prefer a compositor-side move: it runs inside the WM and can place a window off screen, which the
+			// WM refuses for an external XMoveWindow ConfigureRequest (it clamps such requests fully on screen).
+			// Fall back to raw Xlib when no compositor answers (unknown DE, extension not loaded, window not found).
+			if (TryCompositorMoveResize(h, bounds))
+				return true;
+
 			X11SetBounds(h, bounds);
 			return true;
+		}
+
+		// Route an X11 move through the running compositor (Cinnamon/GNOME extension or KWin script), keyed by the
+		// window's X11 id. Unlike an external XMoveWindow, the in-compositor move is not clamped on screen (Mutter
+		// applies its looser user-action constraint; KWin sets frameGeometry directly), so this is what lets a
+		// managed foreign window be positioned partially/fully off screen. Position axes use the int.MinValue
+		// "unchanged" sentinel and size axes <= 0, matching the compositor move handlers. Returns false when no
+		// compositor path is available so the caller falls back to Xlib.
+		private static bool TryCompositorMoveResize(nint h, Rectangle bounds)
+		{
+			var xid = (ulong)(h.ToInt64() & 0xFFFF_FFFFL);
+
+			if (xid == 0)
+				return false;
+
+			if (Platform.Desktop.IsCinnamon)
+				return CinnamonShellBridge.SendMoveResizeByXid(xid, bounds.X, bounds.Y, bounds.Width, bounds.Height);
+
+			if (Platform.Desktop.IsGnome)
+				return GnomeShellBridge.SendMoveResizeByXid(xid, bounds.X, bounds.Y, bounds.Width, bounds.Height);
+
+			if (Platform.Desktop.IsKde)
+				return KWinDBusBridge.SendMoveResizeByXid(xid, bounds.X, bounds.Y, bounds.Width, bounds.Height);
+
+			return false;
 		}
 
 		public override bool TryActivate(nint h)
@@ -1388,7 +1419,58 @@ namespace Keysharp.Internals
 				tempParent = X11ParentHandle(parent);
 			}
 
-			return wmStateCandidate != 0 ? wmStateCandidate : parent;
+			if (wmStateCandidate != 0)
+				return wmStateCandidate;
+
+			// Nothing in the ancestor chain carries WM_STATE: the point landed on a reparenting WM's frame (a
+			// server-side titlebar/border), whose managed client is a DESCENDANT, not an ancestor. Search the
+			// frame's subtree for the WM_STATE window so a titlebar grab resolves to the movable client rather than
+			// the frame itself (which the WM refuses to move). The client is normally a direct child, so the depth
+			// bound stays small; this only runs when the up-walk already failed, i.e. not for ordinary client hits.
+			nint FindWmStateDescendant(nint win, int depth)
+			{
+				if (depth < 0 || win == 0)
+					return 0;
+
+				nint childrenPtr = 0;
+
+				try
+				{
+					if (Xlib.XQueryTree(display.Handle, win, out _, out _, out childrenPtr, out var nChildren) == 0 || childrenPtr == 0)
+						return 0;
+
+					for (var i = 0; i < nChildren; i++)
+					{
+						var c = Marshal.ReadIntPtr(childrenPtr, i * IntPtr.Size);
+
+						if (c != 0 && HasWmState(c))
+							return c;
+					}
+
+					for (var i = 0; i < nChildren; i++)
+					{
+						var c = Marshal.ReadIntPtr(childrenPtr, i * IntPtr.Size);
+
+						if (c == 0)
+							continue;
+
+						var found = FindWmStateDescendant(c, depth - 1);
+
+						if (found != 0)
+							return found;
+					}
+				}
+				finally
+				{
+					if (childrenPtr != 0)
+						_ = Xlib.XFree(childrenPtr);
+				}
+
+				return 0;
+			}
+
+			var client = FindWmStateDescendant(parent, 3);
+			return client != 0 ? client : parent;
 		}
 
 		private static nint X11ParentHandle(nint h)

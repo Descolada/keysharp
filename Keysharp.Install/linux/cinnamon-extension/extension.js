@@ -86,6 +86,15 @@ const DBUS_IFACE_XML =
       <arg type="b" direction="out" name="ok"/>
     </method>
 
+    <method name="MoveResizeWindowByXid">
+      <arg type="t" direction="in" name="xid"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/>
+      <arg type="i" direction="in" name="height"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
     <method name="SetWindowState">
       <arg type="t" direction="in" name="handle"/>
       <arg type="i" direction="in" name="state"/>
@@ -784,10 +793,15 @@ class KeysharpExtension {
         return false;
     }
 
-    MoveResizeWindow(handle, x, y, width, height) {
-        const win = this._findWindow(handle);
+    _moveResizeWin(win, x, y, width, height) {
         if (!win)
             return false;
+
+        // A maximized (or tiled) window ignores move/resize until it is restored — mirror how dragging its
+        // titlebar first unmaximizes it. Unmaximize BEFORE reading the frame rect so an unchanged-size move
+        // keeps the restored size, not the maximized one.
+        if (win.maximized_horizontally || win.maximized_vertically)
+            win.unmaximize(Meta.MaximizeFlags.BOTH);
 
         const frame = win.get_frame_rect();
         const nx = (x !== INT32_MIN) ? x : frame.x;
@@ -796,11 +810,28 @@ class KeysharpExtension {
         const nh = (height > 0) ? height : frame.height;
 
         try {
-            win.move_resize_frame(false, nx, ny, nw, nh);
+            // user_op = true marks this a user action, so Muffin applies the same "keep-minimal
+            // on screen" constraint as an interactive titlebar drag (allowing partially/fully
+            // off-screen placement) rather than the strict fully-on-screen clamp it forces on app
+            // ConfigureRequests. It does not steal focus. This is why moving through the extension
+            // can reach off-screen where a raw XMoveWindow / _NET_MOVERESIZE_WINDOW cannot.
+            win.move_resize_frame(true, nx, ny, nw, nh);
             return true;
         } catch (_e) {
             return false;
         }
+    }
+
+    MoveResizeWindow(handle, x, y, width, height) {
+        return this._moveResizeWin(this._findWindow(handle), x, y, width, height);
+    }
+
+    // Move by X11 window id. On an X11 session the caller identifies windows by their XID
+    // (XQueryTree / _NET_CLIENT_LIST), not the Muffin stable_sequence, so route the move through
+    // the compositor this way to reach off-screen placement a raw XMoveWindow can't (Muffin clamps
+    // that on screen).
+    MoveResizeWindowByXid(xid, x, y, width, height) {
+        return this._moveResizeWin(this._findWindowByXid(xid), x, y, width, height);
     }
 
     SetWindowState(handle, state) {
@@ -1569,6 +1600,18 @@ class KeysharpExtension {
         for (const actor of global.get_window_actors()) {
             const win = actor.get_meta_window();
             if (win && win.get_stable_sequence() === seq)
+                return win;
+        }
+
+        return null;
+    }
+
+    _findWindowByXid(xid) {
+        const target = Number(xid);
+
+        for (const actor of global.get_window_actors()) {
+            const win = actor.get_meta_window();
+            if (win && typeof win.get_xwindow === 'function' && Number(win.get_xwindow()) === target)
                 return win;
         }
 

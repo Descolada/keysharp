@@ -83,7 +83,11 @@ class WindowGrab {
         if dragged {
             WinGetPos(&nx, &ny, , , id)
             if (nx = wx && ny = wy)
-                this.Tip("Can't move this window — macOS needs Accessibility; Wayland needs a compositor backend.", 3000)
+                this.Tip("Can't move this window"
+#if OSX
+                    " — make sure Accessibility permissions are granted"
+#endif
+                    , 3000)
         }
     }
 

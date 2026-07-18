@@ -94,6 +94,17 @@ const DBUS_IFACE_XML = `
       <arg type="b" direction="out" name="ok"/>
     </method>
 
+    <!-- Same as MoveResizeWindow but the window is identified by its X11 window id
+         (get_xwindow), for X11 sessions where the caller has an XID, not a stable_sequence. -->
+    <method name="MoveResizeWindowByXid">
+      <arg type="t" direction="in" name="xid"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/>
+      <arg type="i" direction="in" name="height"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
     <!-- state: 0 = normal, 1 = minimized, 2 = maximized. -->
     <method name="SetWindowState">
       <arg type="t" direction="in" name="handle"/>
@@ -553,9 +564,14 @@ export default class KeysharpExtension {
         return false;
     }
 
-    MoveResizeWindow(handle, x, y, width, height) {
-        const win = this._findWindow(handle);
+    _moveResizeWin(win, x, y, width, height) {
         if (!win) return false;
+
+        // A maximized (or tiled) window ignores move/resize until it is restored — mirror how dragging its
+        // titlebar first unmaximizes it. Unmaximize BEFORE reading the frame rect so an unchanged-size move
+        // keeps the restored size, not the maximized one.
+        if (win.maximized_horizontally || win.maximized_vertically)
+            win.unmaximize(Meta.MaximizeFlags.HORIZONTAL | Meta.MaximizeFlags.VERTICAL);
 
         // Read the current frame rect so we can substitute unchanged axes.
         const frame = win.get_frame_rect();
@@ -566,8 +582,23 @@ export default class KeysharpExtension {
 
         // move_resize_frame is the single Mutter call for both move and resize;
         // win.resize() does not exist as a standalone public API in Mutter/GJS.
-        win.move_resize_frame(false, nx, ny, nw, nh);
+        // user_op = true marks this a user action, so Mutter applies the looser "keep-minimal on
+        // screen" constraint of an interactive drag (allowing off-screen placement) instead of the
+        // strict fully-on-screen clamp it forces on app ConfigureRequests. It does not steal focus.
+        win.move_resize_frame(true, nx, ny, nw, nh);
         return true;
+    }
+
+    MoveResizeWindow(handle, x, y, width, height) {
+        return this._moveResizeWin(this._findWindow(handle), x, y, width, height);
+    }
+
+    // Move by X11 window id. On an X11 session the caller identifies windows by their XID
+    // (XQueryTree / _NET_CLIENT_LIST), not the Mutter stable_sequence, so route the move through the
+    // compositor this way to reach off-screen placement a raw XMoveWindow can't (Mutter clamps that
+    // on screen).
+    MoveResizeWindowByXid(xid, x, y, width, height) {
+        return this._moveResizeWin(this._findWindowByXid(xid), x, y, width, height);
     }
 
     SetWindowState(handle, state) {
@@ -975,7 +1006,7 @@ export default class KeysharpExtension {
                 const a = new St.Widget({ reactive: false, style: css });
                 a.set_position(ex, ey);
                 a.set_size(ew, eh);
-                Main.layoutManager.addTopChrome(a, { affectsInputRegion: false });
+                this._addTopChromeClickThrough(a);
                 edges.push(a);
             }
 
@@ -1041,7 +1072,7 @@ export default class KeysharpExtension {
             }
 
             const actor = this._createImageActor(pngData, x, y, width, height);
-            Main.layoutManager.addTopChrome(actor, { affectsInputRegion: false });
+            this._addTopChromeClickThrough(actor);
             this._imageOverlays.set(key, {
                 actor: actor,
                 ownerKey: owner.key,
@@ -1116,7 +1147,7 @@ export default class KeysharpExtension {
                 style: 'background-color: #ffffe1; color: #000000; border: 1px solid #000000; padding: 6px; font-size: 10pt; font-family: sans-serif;',
             });
             actor.set_position(x, y);
-            Main.layoutManager.addTopChrome(actor, { affectsInputRegion: false });
+            this._addTopChromeClickThrough(actor);
 
             this._tooltips.set(key, {
                 actor: actor,
@@ -1474,6 +1505,21 @@ export default class KeysharpExtension {
         return actor;
     }
 
+    // Add a reactive:false actor to the top chrome as a CLICK-THROUGH overlay (clicks fall through to the
+    // window beneath). GNOME Shell 50 removed the `affectsInputRegion` chrome parameter: the shell input
+    // region is now built only from REACTIVE actors, so a reactive:false actor is click-through with no
+    // flag. Shells 45–49 still need `affectsInputRegion: false`, or the non-reactive chrome keeps clipping
+    // the input region and eats clicks. Passing the param on 50 throws "unrecognized parameter
+    // affectsInputRegion" from _trackActor — and because addTopChrome adds the actor to uiGroup BEFORE it
+    // validates params, the throw leaves a visible, untracked, un-reapable orphan actor on stage while the
+    // caller reports failure (which duplicated the overlay via the Eto fallback and persisted till logout).
+    _addTopChromeClickThrough(actor) {
+        if (SHELL_MAJOR >= 50)
+            Main.layoutManager.addTopChrome(actor);
+        else
+            Main.layoutManager.addTopChrome(actor, { affectsInputRegion: false });
+    }
+
     _emitActiveWindowChanged() {
         if (!this._dbusImpl) return;
         try {
@@ -1618,6 +1664,16 @@ export default class KeysharpExtension {
         for (const actor of global.get_window_actors()) {
             const win = actor.get_meta_window();
             if (win && win.get_stable_sequence() === seq)
+                return win;
+        }
+        return null;
+    }
+
+    _findWindowByXid(xid) {
+        const target = Number(xid);
+        for (const actor of global.get_window_actors()) {
+            const win = actor.get_meta_window();
+            if (win && typeof win.get_xwindow === 'function' && Number(win.get_xwindow()) === target)
                 return win;
         }
         return null;

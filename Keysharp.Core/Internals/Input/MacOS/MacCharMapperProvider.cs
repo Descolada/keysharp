@@ -56,6 +56,15 @@ namespace Keysharp.Internals.Input.Unix
 				map.TryAdd(vk, keyCode);
 			}
 
+			// MapMacKeyCodeToVk only produces the left/right-specific modifier VKs, so the neutral
+			// VK_SHIFT/VK_CONTROL/VK_MENU are absent from the reverse map. Callers that synthesize a bare
+			// modifier — e.g. the Alt-Tab hook action pressing VK_SHIFT to make ShiftAltTab move backward —
+			// would otherwise map to nothing and be silently dropped (CreateKeyboardEvent returns Zero).
+			// Alias each to its left-hand key, matching the Linux evdev mapping (VK_LSHIFT or VK_SHIFT => …).
+			map.TryAdd(VK_SHIFT, 0x38);   // kVK_Shift (left)
+			map.TryAdd(VK_CONTROL, 0x3B); // kVK_Control (left)
+			map.TryAdd(VK_MENU, 0x3A);    // kVK_Option (left)
+
 			return map;
 		}
 

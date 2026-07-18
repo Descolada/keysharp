@@ -44,6 +44,27 @@ namespace Keysharp.Tests
 			Assert.AreEqual(KeyIgnore, legacy);
 		}
 
+		// Regression: the Alt-Tab hook action synthesizes a bare VK_SHIFT to make ShiftAltTab move backward
+		// (Cmd+Shift+Tab in the macOS App Switcher). MapMacKeyCodeToVk only yields the left/right-specific
+		// modifiers, so without an explicit alias the neutral VK_SHIFT/VK_CONTROL/VK_MENU map to nothing and
+		// CreateKeyboardEvent drops the event — leaving ShiftAltTab to advance forward like AltTab.
+		[Test, Category("Input")]
+		public void NeutralModifierVksMapToLeftHandMacKeyCodes()
+		{
+			Assert.IsTrue(KeyCodes.TryMapVkToMacCode(VK_SHIFT, out var shift));
+			Assert.AreEqual(0x38u, shift);    // kVK_Shift (left)
+			Assert.IsTrue(KeyCodes.TryMapVkToMacCode(VK_CONTROL, out var control));
+			Assert.AreEqual(0x3Bu, control);  // kVK_Control (left)
+			Assert.IsTrue(KeyCodes.TryMapVkToMacCode(VK_MENU, out var menu));
+			Assert.AreEqual(0x3Au, menu);     // kVK_Option (left)
+
+			// The left/right-specific keys still resolve to their own key codes.
+			Assert.IsTrue(KeyCodes.TryMapVkToMacCode(VK_LSHIFT, out var lshift));
+			Assert.AreEqual(0x38u, lshift);
+			Assert.IsTrue(KeyCodes.TryMapVkToMacCode(VK_RSHIFT, out var rshift));
+			Assert.AreEqual(0x3Cu, rshift);
+		}
+
 		[Test, Category("Input")]
 		public void EventOriginUsesQuartzProvenanceAndKeysharpMetadataWins()
 		{

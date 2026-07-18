@@ -23,6 +23,54 @@ namespace Keysharp.Tests
 			Assert.AreEqual(2u, (uint)KeysharpInputdClient.HookDecisionDetail.StaleOrWrongResponder);
 			Assert.AreEqual(4u, (uint)KeysharpInputdClient.HookDecisionDetail.InvalidDecision);
 			Assert.AreEqual(7u, (uint)KeysharpInputdClient.HookDecisionDetail.EmptyModify);
+			Assert.AreEqual(48u, (uint)KeysharpInputdClient.MessageType.IdleTime);
+		}
+
+		[Test, Category("Misc")]
+		public async Task IdleTimeQueryAcceptsCurrentPayloadAndRejectsOldDaemonStatus()
+		{
+			var path = $"/tmp/keysharp-inputd-test-{Environment.ProcessId}-{Guid.NewGuid():N}.sock";
+			var previous = Environment.GetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable);
+			using var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+			listener.Bind(new UnixDomainSocketEndPoint(path));
+			listener.Listen(1);
+			Environment.SetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable, path);
+
+			try
+			{
+				var server = Task.Run(async () =>
+				{
+					using var socket = await listener.AcceptAsync();
+					var hello = ReceiveFrame(socket);
+					Assert.AreEqual(KeysharpInputdClient.MessageType.ClientHello, hello.Type);
+					SendFrame(socket, KeysharpInputdClient.MessageType.ClientHello,
+						hello.CorrelationId, new byte[24]);
+
+					var currentQuery = ReceiveFrame(socket);
+					Assert.AreEqual(KeysharpInputdClient.MessageType.IdleTime, currentQuery.Type);
+					var currentPayload = new byte[16];
+					currentPayload[0] = 1;
+					BinaryPrimitives.WriteUInt64LittleEndian(currentPayload.AsSpan(8), 123456);
+					SendFrame(socket, KeysharpInputdClient.MessageType.IdleTime,
+						currentQuery.CorrelationId, currentPayload);
+
+					var oldDaemonQuery = ReceiveFrame(socket);
+					Assert.AreEqual(KeysharpInputdClient.MessageType.IdleTime, oldDaemonQuery.Type);
+					SendStatus(socket, KeysharpInputdClient.MessageType.IdleTime,
+						oldDaemonQuery.CorrelationId, -1, 404);
+				});
+
+				using var client = KeysharpInputdClient.Connect();
+				Assert.IsTrue(client.TryGetIdleTime(out var milliseconds));
+				Assert.AreEqual(123456ul, milliseconds);
+				Assert.IsFalse(client.TryGetIdleTime(out _));
+				await server.WaitAsync(TimeSpan.FromSeconds(5));
+			}
+			finally
+			{
+				Environment.SetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable, previous);
+				try { File.Delete(path); } catch { }
+			}
 		}
 
 		[Test, Category("Misc")]

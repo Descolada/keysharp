@@ -8,9 +8,8 @@ After=keysharp-inputd.socket systemd-udevd.service keyd.service
 # virtual keyboard, per protocol.h's vendor-masquerade design) rather than
 # racing it for the raw device. Harmless no-op if keyd.service does not exist
 # on this system -- systemd silently ignores an After= on a unit that isn't
-# present. Does not (and cannot) fully solve the race: this daemon is
-# socket-activated, so it may start on first client connection at any later
-# time regardless of boot ordering.
+# present. The socket remains a recovery activation path, so a manually-stopped
+# daemon may still be started later by a client regardless of boot ordering.
 
 [Service]
 Type=simple
@@ -19,9 +18,10 @@ ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/keysharp-inputd --system-service
 # releases grabs on exit, so this fails open; restart re-establishes hooking).
 Restart=on-failure
 RestartSec=1
-# This daemon sits between the keyboard and the whole system; being paged out or
-# OOM-killed turns into system-wide input lag/loss. Deprioritize it for the OOM
-# killer and allow it to lock its (small, bounded) resident set via mlockall.
+# While hooks are active this daemon sits between the keyboard and the whole
+# system; being paged out or OOM-killed then becomes system-wide input lag/loss.
+# Deprioritize it for the OOM killer and permit its small, bounded resident set
+# to be locked only for the lifetime of an interception grab.
 OOMScoreAdjust=-900
 LimitMEMLOCK=infinity
 NoNewPrivileges=yes
@@ -37,3 +37,6 @@ UMask=0077
 DevicePolicy=closed
 DeviceAllow=char-input r
 DeviceAllow=/dev/uinput rw
+
+[Install]
+WantedBy=multi-user.target

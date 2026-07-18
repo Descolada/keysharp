@@ -55,6 +55,7 @@ namespace Keysharp.Internals.Input.MacOS
 		internal const uint kCGEventOtherMouseDragged = 27;
 		internal const uint kCGEventTapDisabledByTimeout = 0xFFFFFFFE;
 		internal const uint kCGEventTapDisabledByUserInput = 0xFFFFFFFF;
+		internal const uint kCGAnyInputEventType = 0xFFFFFFFF;
 
 		internal const ulong kCGEventFlagMaskAlphaShift = 1UL << 16;
 		internal const ulong kCGEventFlagMaskShift = 1UL << 17;
@@ -132,6 +133,9 @@ namespace Keysharp.Internals.Input.MacOS
 
 		[LibraryImport(ApplicationServices)]
 		internal static partial ulong CGEventSourceFlagsState(uint sourceState);
+
+		[LibraryImport(ApplicationServices)]
+		internal static partial double CGEventSourceSecondsSinceLastEventType(uint stateID, uint eventType);
 
 		[LibraryImport(ApplicationServices)]
 		[return: MarshalAs(UnmanagedType.I1)]
@@ -287,6 +291,22 @@ namespace Keysharp.Internals.Input.MacOS
 			=> LazyInitializer.EnsureInitialized(
 				ref sharedEventSource, ref sharedEventSourceInitialized, ref sharedEventSourceLock,
 				static () => CGEventSourceCreate(kCGEventSourceStateCombinedSessionState));
+
+		// Queried from WindowServer's own event counters, so unlike CGEventTap this needs no
+		// Accessibility/Input Monitoring permission and reflects physical + synthetic input alike.
+		internal static bool TryGetIdleTime(out long milliseconds)
+		{
+			var seconds = CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateCombinedSessionState, kCGAnyInputEventType);
+
+			if (seconds < 0 || double.IsNaN(seconds) || double.IsInfinity(seconds))
+			{
+				milliseconds = 0L;
+				return false;
+			}
+
+			milliseconds = (long)(seconds * 1000.0);
+			return true;
+		}
 
 		private static ulong FlagsForModifiers(uint modifiersLR, bool? capsLockOn)
 		{

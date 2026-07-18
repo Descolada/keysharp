@@ -116,6 +116,35 @@ namespace Keysharp.Internals.Input.Linux
 			return true;
 		}
 
+		/// <summary>
+		/// Queries the daemon's compositor-independent idle counter without requesting privileged hook
+		/// capabilities. A capless CLIENT_HELLO authenticates the process but never opens a trust prompt.
+		/// </summary>
+		internal static bool TryGetIdleTime(out long milliseconds)
+		{
+			milliseconds = 0;
+
+			lock (gate)
+				if (!TryEnsureConnected("query idle time", out _, out _))
+					return false;
+
+			ulong captured = 0;
+
+			try
+			{
+				if (!TryUseQueryClient(qc => qc.TryGetIdleTime(out captured)))
+					return false;
+			}
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"keysharp-inputd: idle time query failed: {ex.Message}");
+				return false;
+			}
+
+			milliseconds = captured > long.MaxValue ? long.MaxValue : (long)captured;
+			return true;
+		}
+
 		/// <summary>Queries inputd for current logical modifier and toggle-key state.</summary>
 		internal static bool TryGetKeyState(out uint modifiersLR, out bool capsLock, out bool numLock, out bool scrollLock)
 			=> TryGetKeyState(out modifiersLR, out capsLock, out numLock, out scrollLock, out _, out _);

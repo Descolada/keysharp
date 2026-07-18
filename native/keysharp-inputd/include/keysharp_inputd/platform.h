@@ -17,9 +17,17 @@ typedef struct ksi_platform_backend {
     const char *name;
     int (*start)(void);
     void (*stop)(void);
+    /* Lazily initialize resources needed by privileged input capabilities.
+     * Capless state queries must not call this. Runs on the daemon main thread
+     * before the requested capabilities are evaluated and may be NULL. */
+    void (*prepare_capabilities)(uint32_t requested_capabilities);
     uint32_t (*get_available_capabilities)(void);
     nfds_t (*poll_fds)(struct pollfd *fds, nfds_t max_fds);
     void (*process_fd)(int fd);
+    /* Drain already-queued device input and return the elapsed time from the
+     * newest upstream user-input event. Runs on the daemon main thread and may
+     * be NULL. */
+    bool (*get_idle_time)(ksi_idle_time_payload *result);
     /* Kernel CLOCK_MONOTONIC timestamp in nanoseconds, used only for admission
      * ordering. Public hook timestamps retain their Windows-compatible units. */
     bool (*peek_oldest_pending_input)(int *out_fd, uint64_t *out_time_ns);

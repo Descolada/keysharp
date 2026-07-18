@@ -33,6 +33,7 @@ GET_INDICATOR_STATE   INDICATOR_STATE_RESULT
 GET_POINTER_POSITION  POINTER_POSITION_RESULT
 GET_KEY_STATE         KEY_STATE_RESULT
 GET_POINTER_BUTTONS   POINTER_BUTTONS_RESULT
+IDLE_TIME
 LIST_PERMISSIONS      RESET_PERMISSIONS
 ```
 
@@ -45,6 +46,14 @@ legacy `buttons` field remains the physical mask; newer clients read appended
 `logical_buttons` and `physical_buttons`. Logical buttons combine the evdev
 physical snapshot with Keysharp's queued synthetic button state. It requires
 `KSI_CAP_HOOK_MOUSE`.
+
+`IDLE_TIME` is an empty request and a same-type response carrying a validity flag
+and milliseconds since the daemon last observed upstream user activity. It
+requires an authenticated `CLIENT_HELLO` but no privileged input capability, so
+reading `A_TimeIdle` never causes a permission prompt. Until the daemon observes
+its first activity event, the validity flag is false. Sharing the request and
+response type keeps the addition compatible with older 1.0 daemons: their
+8-byte unknown-message status is distinguishable from the 16-byte idle payload.
 
 `LIST_PERMISSIONS` and `RESET_PERMISSIONS` back the `keysharp-inputd trust`
 subcommand (see below).
@@ -261,6 +270,18 @@ before exposing the value to scripts. Requires `KSI_CAP_HOOK_MOUSE`.
 
 `GET_INDICATOR_STATE` / `INDICATOR_STATE_RESULT` report the current Caps Lock,
 Num Lock, and Scroll Lock LED state.
+
+`IDLE_TIME` is fed by keyboard, button, touch, pen, gamepad/media-key,
+relative-motion, wheel, and pointer-axis events from tracked evdev devices.
+Devices tracked only for idle time are opened read-only and are never grabbed or
+hook-dispatched. Keysharp's own uinput devices are excluded before the idle
+timestamp is updated or hooks are dispatched, so replayed and synthetic input
+cannot masquerade as new physical activity. Event timestamps use
+`CLOCK_MONOTONIC`; if an IPC query races queued device data, the daemon ingests
+that data first and computes the elapsed duration from the newest processed
+kernel event timestamp. A capless idle query does not create Keysharp's uinput
+devices or elevate the observer thread to real-time scheduling; those resources
+are activated only for explicitly requested privileged input functionality.
 
 ## Injected-event tagging
 

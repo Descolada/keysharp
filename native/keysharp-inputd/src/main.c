@@ -208,9 +208,11 @@ static int install_input_access(void)
 		status = 1;
 	}
 
-	/* Replace any stale socket-activated daemon: reload unit definitions, stop a
-	 * lingering Type=simple service instance so it is not left serving the new
-	 * client, then re-enable and restart the socket to bind a fresh listener.
+	/* Replace any stale daemon: reload unit definitions, stop a lingering
+	 * Type=simple service instance so it is not left serving the new client,
+	 * then enable both units and restart the socket before starting the service.
+	 * The service remains resident from boot so its idle counter has continuity
+	 * even when no Keysharp process is connected.
 	 * Tolerate systemctl being absent (e.g. non-systemd hosts): warn, do not
 	 * hard-fail — the udev/uinput setup above is still useful without it. */
 	if (system("command -v systemctl >/dev/null 2>&1") != 0) {
@@ -236,8 +238,18 @@ static int install_input_access(void)
 			status = 1;
 		}
 
+		if (system("systemctl enable keysharp-inputd.service") != 0) {
+			fprintf(stderr, "warning: failed to enable keysharp-inputd.service\n");
+			status = 1;
+		}
+
 		if (system("systemctl restart keysharp-inputd.socket") != 0) {
 			fprintf(stderr, "warning: failed to restart keysharp-inputd.socket\n");
+			status = 1;
+		}
+
+		if (system("systemctl restart keysharp-inputd.service") != 0) {
+			fprintf(stderr, "warning: failed to restart keysharp-inputd.service\n");
 			status = 1;
 		}
 	}

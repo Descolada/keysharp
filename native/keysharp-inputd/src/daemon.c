@@ -66,7 +66,6 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
 #define KSI_HOOK_SEND_ORDER_WAIT_MS 10
 #define KSI_SHUTDOWN_TIMEOUT_MS 5000u
 #define KSI_GRAB_LEASE_TIMEOUT_MS 15000u
-#define KSI_IDLE_EXIT_MS 30000u
 /* CLIENT_HELLO deadline; peers that connect and send nothing cannot pin slots. */
 #define KSI_HANDSHAKE_TIMEOUT_MS 10000u
 /* Idle deadline for authenticated-but-capability-less connections (no grants, no
@@ -464,6 +463,10 @@ typedef struct ksi_daemon_state {
     ksi_hook_lane mouse_lane;
     /* Used to enqueue RELEASE_ALL on keyboard grab held->released. */
     bool keyboard_grab_active;
+    /* The main evdev reader needs real-time priority only while it owns an
+     * interception grab. Idle observation remains ordinary SCHED_OTHER work. */
+    bool reader_realtime;
+    bool memory_locked;
     /* Per-uid FORCE_PROMPT throttle. A global timestamp let one uid on the shared
      * 0666 system socket suppress every other uid's forcePrompt re-ask; keying by
      * uid confines the cooldown to the spamming user. LRU-evict when full. */
@@ -481,6 +484,7 @@ typedef struct ksi_binary_message_view {
 } ksi_binary_message_view;
 
 static int update_grab_state(ksi_daemon_state *state);
+static void prepare_requested_capabilities(ksi_daemon_state *state, uint32_t requested);
 static void clear_hook_state(ksi_daemon_state *state);
 static void record_client_hook_failure(
     ksi_daemon_state *state, nfds_t index, uint32_t hook_type,
@@ -505,7 +509,8 @@ static void send_indicator_state_result(int client_fd, const ksi_message_header 
 static void send_pointer_position_result(int client_fd, const ksi_message_header *request);
 static void send_pointer_buttons_result(int client_fd, const ksi_message_header *request);
 static void handle_get_key_state(ksi_client *client, const ksi_binary_message_view *message);
-static void set_realtime_priority(const char *thread_name);
+static bool set_realtime_priority(const char *thread_name);
+static bool set_normal_priority(const char *thread_name);
 static ssize_t find_client_index_by_fd(const ksi_daemon_state *state, int client_fd);
 static ssize_t find_client_index_by_connection(
     const ksi_daemon_state *state,
@@ -684,31 +689,6 @@ static void run_backend_maintenance(ksi_daemon_state *state)
     }
 }
 
-static bool check_idle_exit(
-    const ksi_daemon_options *options,
-    const ksi_daemon_state *state,
-    uint64_t *idle_since_ms)
-{
-    uint64_t now;
-
-    if (!options->system_service
-        || state->client_count != 0
-        || ksi_worker_pool_has_work(&g_worker_pool)
-        || ksi_worker_pool_has_work(&g_identify_worker_pool)) {
-        *idle_since_ms = 0u;
-        return false;
-    }
-
-    now = monotonic_ms();
-
-    if (*idle_since_ms == 0u) {
-        *idle_since_ms = now;
-        return false;
-    }
-
-    return now >= *idle_since_ms && now - *idle_since_ms >= KSI_IDLE_EXIT_MS;
-}
-
 int ksi_daemon_run(const ksi_daemon_options *options)
 {
     ksi_ipc_server *server = NULL;
@@ -724,19 +704,6 @@ int ksi_daemon_run(const ksi_daemon_options *options)
     if (install_signal_handlers() != 0) {
         fprintf(stderr, "failed to install signal handlers: %s\n", strerror(errno));
         return 1;
-    }
-
-    /* Lock our pages resident. The hook lanes/sequencer run SCHED_FIFO, but that
-     * does not prevent a major page fault from stalling a latency-critical thread
-     * under memory pressure — and a stall here becomes system-wide keystroke lag
-     * since all input is grabbed. Best-effort: the system service runs as root
-     * (CAP_IPC_LOCK bypasses RLIMIT_MEMLOCK); a non-root/--foreground dev run may
-     * lack the cap, so a failure is a note, not fatal. The resident set is small
-     * and bounded (fixed lane/worker pools, ring buffers). */
-    if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) {
-        fprintf(stderr,
-            "inputd: note: mlockall failed (%s); hook latency may degrade under "
-            "memory pressure\n", strerror(errno));
     }
 
     if (backend->start() != 0) {
@@ -884,16 +851,12 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         return 1;
     }
 
-    /* Keep the grabbed-input producer at the same priority as lanes/sequencer. */
-    set_realtime_priority("evdev reader");
-
     /* This thread also writes request/response frames to clients. Bound how long a
      * non-reading client can stall physical-input dispatch: tear its reply stream
      * down after ~10ms of backpressure instead of the default 100ms. Lane/worker
      * threads keep the full budget (their writes never gate device ingestion). */
     ksi_ipc_set_write_drain_budget_ms(10);
 
-    uint64_t idle_since_ms = 0u;
 
     while (keep_running) {
         struct pollfd fds[KSI_MAX_POLL_FDS];
@@ -955,10 +918,6 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             expire_unauthenticated_clients(daemon_state);
             run_backend_maintenance(daemon_state);
 
-            if (check_idle_exit(options, daemon_state, &idle_since_ms)) {
-                keep_running = 0;
-            }
-
             continue;
         }
 
@@ -1009,19 +968,6 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         expire_client_leases(daemon_state);
         expire_unauthenticated_clients(daemon_state);
 
-        if (options->system_service && daemon_state->client_count == 0
-            && !ksi_worker_pool_has_work(&g_worker_pool)
-            && !ksi_worker_pool_has_work(&g_identify_worker_pool)) {
-            uint64_t now = monotonic_ms();
-
-            if (idle_since_ms == 0u) {
-                idle_since_ms = now;
-            } else if (now >= idle_since_ms && now - idle_since_ms >= KSI_IDLE_EXIT_MS) {
-                keep_running = 0;
-            }
-        } else {
-            idle_since_ms = 0u;
-        }
     }
 
     keep_running = 0;

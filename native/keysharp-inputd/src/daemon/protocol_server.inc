@@ -159,6 +159,7 @@ static void handle_client_hello(
     }
 
     /* Identity is known. Check what is already granted without prompting. */
+	prepare_requested_capabilities(state, requested);
 	granted = check_capabilities_sync(state, client, requested, force_prompt, &missing);
 
     /* If there are missing capabilities and a permissions store is configured,
@@ -271,6 +272,37 @@ static void handle_get_pointer_buttons(
     }
 
     send_pointer_buttons_result(client->fd, message->header);
+}
+
+static void handle_idle_time(
+    const ksi_platform_backend *backend,
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    ksi_idle_time_payload result;
+
+    /* Idle duration is presence metadata, not raw input content. Like desktop
+     * idle-monitor D-Bus APIs, it requires an authenticated peer but no hook or
+     * synthesis capability, and therefore never opens a trust prompt merely
+     * because a script reads A_TimeIdle. */
+    if (!client->authenticated) {
+        send_status(client->fd, message->header, KSI_MESSAGE_IDLE_TIME, -1, 403);
+        return;
+    }
+
+    memset(&result, 0, sizeof(result));
+
+    if (backend != NULL && backend->get_idle_time != NULL) {
+        (void)backend->get_idle_time(&result);
+    }
+
+    (void)ipc_send_locked(
+        client->fd,
+        KSI_MESSAGE_IDLE_TIME,
+        message->header->client_id,
+        message->header->correlation_id,
+        &result,
+        sizeof(result));
 }
 
 typedef struct ksi_list_permissions_context {
@@ -927,8 +959,6 @@ static void handle_binary_message(
     ksi_client *client,
     const ksi_binary_message_view *message)
 {
-    (void)backend;
-
     /* Any message keeps the connection out of the capless-idle reaper. */
     client->last_activity_ms = monotonic_ms();
 
@@ -970,6 +1000,9 @@ static void handle_binary_message(
             return;
         case KSI_MESSAGE_GET_KEY_STATE:
             handle_get_key_state(client, message);
+            return;
+        case KSI_MESSAGE_IDLE_TIME:
+            handle_idle_time(backend, client, message);
             return;
         case KSI_MESSAGE_LIST_PERMISSIONS:
             handle_list_permissions(state, client, message);

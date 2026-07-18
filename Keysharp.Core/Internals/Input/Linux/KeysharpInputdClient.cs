@@ -71,6 +71,7 @@ namespace Keysharp.Internals.Input.Linux
 			KeyStateResult       = 45,
 			GetPointerButtons    = 46,
 			PointerButtonsResult = 47,
+			IdleTime             = 48,
 		}
 
 		internal enum HookType : uint
@@ -544,6 +545,21 @@ namespace Keysharp.Internals.Input.Linux
 				buttons = new(compatPhysicalButtons, compatPhysicalButtons);
 			}
 
+			return true;
+		}
+
+		/// <summary>Queries milliseconds since inputd last observed upstream user activity.</summary>
+		internal bool TryGetIdleTime(out ulong milliseconds)
+		{
+			milliseconds = 0;
+			var response = SendRequest(MessageType.IdleTime, MessageType.IdleTime);
+
+			// Older protocol-1.0 daemons return an 8-byte unknown-message status. Requiring
+			// the complete payload makes that a quick unsupported result instead of a bogus duration.
+			if (response.Payload.Length != 16 || response.Payload[0] == 0)
+				return false;
+
+			milliseconds = BinaryPrimitives.ReadUInt64LittleEndian(response.Payload.AsSpan(8));
 			return true;
 		}
 

@@ -86,6 +86,7 @@ global using static global::Keysharp.Internals.Platform.Process;
 global using static global::Keysharp.Internals.Platform.Desktop;
 global using static global::Keysharp.Internals.Platform.Pointer;
 global using static global::Keysharp.Internals.Platform.Messages;
+global using static global::Keysharp.Internals.Platform.Time;
 global using static global::Keysharp.Internals.Window.WindowCoords;
 global using global::Keysharp.Internals.Scripting;
 global using global::Keysharp.Internals.Strings;
@@ -137,6 +138,7 @@ global using global::BitFaster.Caching.Scheduler;
 #endif
 
 #if OSX
+	global using global::Keysharp.Internals.Input.MacOS;
 	global using global::Keysharp.Internals.Input.Hooks.MacOS;
 	global using global::Keysharp.Internals.Window.MacOS;
 #endif

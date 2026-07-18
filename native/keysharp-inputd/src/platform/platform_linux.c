@@ -11,16 +11,35 @@ static int linux_start(void)
 {
     puts("linux input backend started");
 
-    if (ksi_linux_synth_start() != 0) {
-        return -1;
-    }
-
     if (ksi_linux_devices_start() != 0) {
-        ksi_linux_synth_stop();
         return -1;
     }
 
     return 0;
+}
+
+static void linux_prepare_capabilities(uint32_t requested_capabilities)
+{
+    const uint32_t privileged_input =
+        KSI_CAP_HOOK_KEYBOARD | KSI_CAP_HOOK_MOUSE
+        | KSI_CAP_SYNTH_KEYBOARD | KSI_CAP_SYNTH_MOUSE
+        | KSI_CAP_BLOCK_INPUT;
+
+    if ((requested_capabilities & privileged_input) == 0u
+        || ksi_linux_synth_is_started()) {
+        return;
+    }
+
+    /* The idle-only service owns no uinput devices. Create them only after an
+     * identified client asks for privileged input functionality, then rescan
+     * synchronously so our devices are tagged before any grab can begin. No
+     * synthesis action can be queued yet because no such capability has been
+     * granted. */
+    (void)ksi_linux_synth_start();
+
+    if (ksi_linux_synth_is_available()) {
+        ksi_linux_devices_rescan();
+    }
 }
 
 static uint32_t linux_get_available_capabilities(void)
@@ -54,6 +73,12 @@ static nfds_t linux_poll_fds(struct pollfd *fds, nfds_t max_fds)
 static void linux_process_fd(int fd)
 {
     ksi_linux_devices_process_fd(fd);
+}
+
+static bool linux_get_idle_time(ksi_idle_time_payload *result)
+{
+    ksi_linux_devices_drain_pending_input();
+    return ksi_linux_devices_get_idle_time(result);
 }
 
 static bool linux_peek_oldest_pending_input(int *out_fd, uint64_t *out_time_ns)
@@ -132,9 +157,11 @@ static const ksi_platform_backend linux_backend = {
     .name = "linux",
     .start = linux_start,
     .stop = linux_stop,
+    .prepare_capabilities = linux_prepare_capabilities,
     .get_available_capabilities = linux_get_available_capabilities,
     .poll_fds = linux_poll_fds,
     .process_fd = linux_process_fd,
+    .get_idle_time = linux_get_idle_time,
     .peek_oldest_pending_input = linux_peek_oldest_pending_input,
     .input_to_hook_event = linux_input_to_hook_event,
     .send_input = linux_send_input,

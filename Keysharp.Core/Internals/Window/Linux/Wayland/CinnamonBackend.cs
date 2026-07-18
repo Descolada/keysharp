@@ -26,6 +26,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		Task<bool> NameHasOwnerAsync(string name);
 	}
 
+	/// <summary>Muffin's compositor-owned idle monitor, independent of the Keysharp Shell extension.</summary>
+	[DBusInterface("org.cinnamon.Muffin.IdleMonitor")]
+	public interface IMuffinIdleMonitor : IDBusObject
+	{
+		Task<ulong> GetIdletimeAsync();
+	}
+
 	[DBusInterface("io.github.keysharp.CinnamonShell1")]
 	public interface IKeysharpCinnamonShell : IDBusObject
 	{
@@ -80,6 +87,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const string DBusObjectPath  = "/org/freedesktop/DBus";
 		private const string ExtensionServiceName = "io.github.keysharp.CinnamonShell";
 		private const string ExtensionObjectPath  = "/io/github/keysharp/CinnamonShell";
+		private const string IdleMonitorServiceName = "org.cinnamon.Muffin.IdleMonitor";
+		private const string IdleMonitorObjectPath = "/org/cinnamon/Muffin/IdleMonitor/Core";
 		private const int    TimeoutMs   = 2000;
 		// The first image-overlay upload is cold and large (full-resolution PNG); give it a generous deadline so
 		// it isn't classified TimedOut before the shell finishes decoding + uploading it. Mirrors GnomeShellBridge.
@@ -110,6 +119,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static IFreedesktopDBus dbusProxy;
 		private static ICinnamon proxy;
 		private static IKeysharpCinnamonShell extensionProxy;
+		private static IMuffinIdleMonitor idleMonitorProxy;
 		private static long extensionOwnerCacheUntil;
 		private static bool extensionOwnerCached;
 		private static long clipboardSupportCacheUntil;
@@ -129,6 +139,37 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			return JsonOk(json)
 				? json
 				: EvalJson("(function(){try{" + JsHelpers + "const w=global.display.get_focus_window();return JSON.stringify({ok:true,window:(w&&tracked(w))?info(w):null});}catch(e){return JSON.stringify({ok:false});}})()");
+		}
+
+		internal static bool QueryIdleTime(out long milliseconds)
+		{
+			milliseconds = 0;
+
+			try
+			{
+				var conn = EnsureConnection();
+
+				if (conn == null)
+					return false;
+
+				idleMonitorProxy ??= conn.CreateProxy<IMuffinIdleMonitor>(IdleMonitorServiceName, new ObjectPath(IdleMonitorObjectPath));
+				var task = idleMonitorProxy.GetIdletimeAsync();
+
+				if (!task.WaitWithoutInterruption(TimeoutMs))
+				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon idle monitor", "GetIdletime", $"timed out after {TimeoutMs} ms");
+					return false;
+				}
+
+				var value = task.GetAwaiter().GetResult();
+				milliseconds = value > long.MaxValue ? long.MaxValue : (long)value;
+				return true;
+			}
+			catch (Exception ex)
+			{
+				WaylandBridgeDiagnostics.Failure("Cinnamon idle monitor", "GetIdletime", WaylandBridgeDiagnostics.Describe(ex));
+				return false;
+			}
 		}
 
 		internal static string QueryWindowList(bool includeHidden)

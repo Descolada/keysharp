@@ -74,8 +74,13 @@ sudo cmake --install native/keysharp-inputd/build
 ```
 
 This installs the binary, systemd units, and runs `keysharp-inputd --install-input-access`
-to configure device access and enable the socket. The socket unit starts the daemon
-on demand; the daemon exits when no clients are connected.
+to configure device access and enable both the daemon and its socket. The daemon
+starts at boot and remains resident so its idle-time counter continues across
+separately launched Keysharp processes. It holds no input grabs without an active
+hook or BlockInput request. On an idle-only boot it also creates no virtual input
+devices: physical devices are observed through independent read-only evdev clients,
+and privileged uinput devices are created lazily only when an identified client
+requests hook, synthesis, or BlockInput access.
 
 Packaging installs that use `DESTDIR` must run the following from their post-install step:
 
@@ -85,8 +90,8 @@ keysharp-inputd --install-input-access
 
 ## Service management
 
-The installed service is socket-activated. The socket stays up permanently; the
-daemon process starts on first client connection and exits when idle.
+The installed service starts at boot. Its socket remains enabled as a recovery
+activation path if the service is stopped or crashes.
 
 ```bash
 # Status
@@ -99,9 +104,9 @@ systemctl restart keysharp-inputd.service
 systemctl stop keysharp-inputd.socket keysharp-inputd.service
 
 # Re-enable and start after a stop
-systemctl start keysharp-inputd.socket
+systemctl start keysharp-inputd.socket keysharp-inputd.service
 
-# Force-kill a stuck daemon (the socket stays up; the daemon restarts on next connection)
+# Force-kill a stuck daemon (systemd restarts the enabled service)
 systemctl kill keysharp-inputd.service
 
 # View logs

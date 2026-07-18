@@ -168,6 +168,42 @@ static bool test_output_queue_rejects_without_partial_admission(void)
     return true;
 }
 
+static unsigned int prepare_capabilities_calls;
+
+static void record_prepare_capabilities(uint32_t requested)
+{
+    if (requested != 0u) {
+        prepare_capabilities_calls++;
+    }
+}
+
+static uint32_t prepared_available_capabilities(void)
+{
+    return prepare_capabilities_calls == 0u ? 0u : KSI_CAP_HOOK_KEYBOARD;
+}
+
+static bool test_capless_query_does_not_prepare_privileged_devices(void)
+{
+    const ksi_platform_backend backend = {
+        .prepare_capabilities = record_prepare_capabilities,
+        .get_available_capabilities = prepared_available_capabilities,
+    };
+    ksi_daemon_state state;
+
+    memset(&state, 0, sizeof(state));
+    state.backend = &backend;
+    prepare_capabilities_calls = 0u;
+
+    prepare_requested_capabilities(&state, 0u);
+    CHECK(prepare_capabilities_calls == 0u);
+    CHECK(state.available_capabilities == 0u);
+
+    prepare_requested_capabilities(&state, KSI_CAP_HOOK_KEYBOARD);
+    CHECK(prepare_capabilities_calls == 1u);
+    CHECK(state.available_capabilities == KSI_CAP_HOOK_KEYBOARD);
+    return true;
+}
+
 static bool test_lane_event_allocation_benchmark(void)
 {
     const unsigned int iterations = 100000u;
@@ -211,6 +247,7 @@ int main(void)
         { "fifth quarantine invalidates session", test_fifth_quarantine_invalidates_session },
         { "synthetic queue atomic rejection", test_synthetic_queue_rejects_atomically },
         { "output queue atomic rejection", test_output_queue_rejects_without_partial_admission },
+        { "capless query leaves privileged devices inactive", test_capless_query_does_not_prepare_privileged_devices },
         { "lane event allocation benchmark", test_lane_event_allocation_benchmark },
     };
 

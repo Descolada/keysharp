@@ -70,6 +70,13 @@ typedef enum ksi_message_type {
      * newer clients read the appended logical_buttons and physical_buttons masks. */
     KSI_MESSAGE_GET_POINTER_BUTTONS    = 46,
     KSI_MESSAGE_POINTER_BUTTONS_RESULT = 47,
+    /* Milliseconds since the daemon last observed upstream user activity.
+     * Request and response deliberately share type 48. A pre-idle-query 1.0
+     * daemon replies to the unknown request with an 8-byte status payload;
+     * current clients require the 16-byte ksi_idle_time_payload and therefore
+     * fail fast and compatibly instead of waiting for a response type the old
+     * daemon can never send. */
+    KSI_MESSAGE_IDLE_TIME              = 48,
     /* Trust-store administration scoped to input capabilities.
      * LIST streams one ENTRY per stored record that has any input capability
      * bits, followed by a RESULT status terminator. RESET clears allow+deny
@@ -142,6 +149,16 @@ typedef struct ksi_pointer_buttons_payload {
     uint32_t logical_buttons;  /* bit0=left, bit1=right, bit2=middle, bit3=X1(side), bit4=X2(extra) */
     uint32_t physical_buttons; /* same bit layout */
 } ksi_pointer_buttons_payload;
+
+/* Payload for KSI_MESSAGE_IDLE_TIME responses. valid==0 means the daemon has
+ * not observed an activity event since it started, so it cannot yet provide a
+ * meaningful duration. The explicit padding fixes idle_time_ms at byte 8 on
+ * every supported ABI and keeps old-daemon 8-byte status replies distinguishable. */
+typedef struct ksi_idle_time_payload {
+    uint8_t valid;
+    uint8_t reserved[7];
+    uint64_t idle_time_ms;
+} ksi_idle_time_payload;
 
 typedef enum ksi_client_capability {
     KSI_CAP_HOOK_KEYBOARD = 0x00000001u,

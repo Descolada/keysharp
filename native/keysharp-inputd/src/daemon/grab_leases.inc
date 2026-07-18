@@ -411,7 +411,10 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
 		uint32_t flags = client->pending_hello_flags;
 		bool force_prompt = (flags & KSI_CLIENT_HELLO_FLAG_FORCE_PROMPT) != 0u;
 		uint32_t missing = 0u;
-		uint32_t granted = check_capabilities_sync(state, client, requested, force_prompt, &missing);
+		uint32_t granted;
+
+		prepare_requested_capabilities(state, requested);
+		granted = check_capabilities_sync(state, client, requested, force_prompt, &missing);
 
         if (missing != 0u && state->permissions != NULL) {
             /* Need to prompt. Transition to AWAITING_PROMPT and start the worker. */
@@ -466,6 +469,19 @@ static uint32_t daemon_available_capabilities(const ksi_platform_backend *backen
     }
 
     return 0;
+}
+
+static void prepare_requested_capabilities(ksi_daemon_state *state, uint32_t requested)
+{
+    if (state == NULL || state->backend == NULL || requested == 0u) {
+        return;
+    }
+
+    if (state->backend->prepare_capabilities != NULL) {
+        state->backend->prepare_capabilities(requested);
+    }
+
+    state->available_capabilities = daemon_available_capabilities(state->backend);
 }
 
 static bool client_has_capability(const ksi_client *client, uint32_t capability)
@@ -566,6 +582,7 @@ static int update_grab_state(ksi_daemon_state *state)
     uint32_t available;
     uint32_t effective_hook_mask;
     bool keyboard_grabbed;
+    bool interception_active;
     int result;
 
     if (state == NULL || state->backend == NULL) {
@@ -587,6 +604,27 @@ static int update_grab_state(ksi_daemon_state *state)
         ? state->backend->get_available_capabilities()
         : ~0u; /* no availability query -> assume everything honorable */
     effective_hook_mask = hook_mask & available;
+    interception_active = effective_hook_mask != 0u || block_mask != 0u;
+
+    /* Idle tracking is an ordinary read-only observer and must not preempt the
+     * desktop at SCHED_FIFO priority. Promote the main reader immediately before
+     * an interception grab can be acquired; demote it after all grabs are gone. */
+    if (interception_active && !state->reader_realtime) {
+        state->reader_realtime = set_realtime_priority("evdev reader");
+    }
+
+    /* Page locking is valuable only while grabbed input depends on this
+     * process meeting hook deadlines. Do not reserve resident memory for the
+     * boot-time idle observer. */
+    if (interception_active && !state->memory_locked) {
+        if (mlockall(MCL_CURRENT | MCL_FUTURE) == 0) {
+            state->memory_locked = true;
+        } else {
+            fprintf(stderr,
+                "inputd: note: mlockall failed (%s); hook latency may degrade under "
+                "memory pressure\n", strerror(errno));
+        }
+    }
 
     result = state->backend->set_grab_hook_mask == NULL
         ? 0
@@ -634,6 +672,20 @@ static int update_grab_state(ksi_daemon_state *state)
         }
     } else {
         state->keyboard_grab_active = keyboard_grabbed;
+    }
+
+    if (!interception_active && state->reader_realtime) {
+        if (set_normal_priority("evdev reader")) {
+            state->reader_realtime = false;
+        }
+    }
+
+    if (!interception_active && state->memory_locked) {
+        if (munlockall() == 0) {
+            state->memory_locked = false;
+        } else {
+            fprintf(stderr, "inputd: note: munlockall failed: %s\n", strerror(errno));
+        }
     }
 
     return 0;

@@ -111,6 +111,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			Action<(string type, string json)> handler, Action<Exception> onError = null);
 	}
 
+	/// <summary>Mutter's compositor-owned idle monitor, independent of the Keysharp Shell extension.</summary>
+	[DBusInterface("org.gnome.Mutter.IdleMonitor")]
+	public interface IMutterIdleMonitor : IDBusObject
+	{
+		Task<ulong> GetIdletimeAsync();
+	}
+
 #pragma warning restore IDE1006
 
 	/// <summary>
@@ -122,6 +129,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	{
 		private const string ServiceName  = "io.github.keysharp.GnomeShell";
 		private const string ObjectPath   = "/io/github/keysharp/GnomeShell";
+		private const string IdleMonitorServiceName = "org.gnome.Mutter.IdleMonitor";
+		private const string IdleMonitorObjectPath = "/org/gnome/Mutter/IdleMonitor/Core";
 		private const string DBusServiceName = "org.freedesktop.DBus";
 		private const string DBusObjectPath  = "/org/freedesktop/DBus";
 		private const int    TimeoutMs    = 2000;
@@ -149,6 +158,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static Connection connection;
 		private static IFreedesktopDBus dbusProxy;
 		private static IGnomeShell proxy;
+		private static IMutterIdleMonitor idleMonitorProxy;
 		// Permanent lockout — reserved for a definitively-unreachable session bus (see EnsureConnection).
 		private static bool initFailed;
 		// Time-based retry gate (Environment.TickCount64) for a transient connect failure/timeout.
@@ -187,6 +197,37 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 			catch
 			{
+				return false;
+			}
+		}
+
+		internal static bool QueryIdleTime(out long milliseconds)
+		{
+			milliseconds = 0;
+
+			try
+			{
+				var conn = EnsureConnection();
+
+				if (conn == null)
+					return false;
+
+				idleMonitorProxy ??= conn.CreateProxy<IMutterIdleMonitor>(IdleMonitorServiceName, new ObjectPath(IdleMonitorObjectPath));
+				var task = idleMonitorProxy.GetIdletimeAsync();
+
+				if (!task.WaitWithoutInterruption(TimeoutMs))
+				{
+					WaylandBridgeDiagnostics.Failure("GNOME idle monitor", "GetIdletime", $"timed out after {TimeoutMs} ms");
+					return false;
+				}
+
+				var value = task.GetAwaiter().GetResult();
+				milliseconds = value > long.MaxValue ? long.MaxValue : (long)value;
+				return true;
+			}
+			catch (Exception ex)
+			{
+				WaylandBridgeDiagnostics.Failure("GNOME idle monitor", "GetIdletime", WaylandBridgeDiagnostics.Describe(ex));
 				return false;
 			}
 		}

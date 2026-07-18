@@ -111,6 +111,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// </summary>
 		bool TryGetCursorPos(out int x, out int y);
 
+		/// <summary>
+		/// Best-effort milliseconds since the compositor last received user input. Returns false when the
+		/// compositor does not expose an exact current-idle query (as opposed to idle timeout notifications).
+		/// </summary>
+		bool TryGetIdleTime(out long milliseconds)
+		{
+			milliseconds = 0;
+			return false;
+		}
+
 		/// <summary>Cheap membership test — does this handle belong to this backend (bit-tag or id-map check,
 		/// NO compositor IPC)? True does not guarantee the window still exists; commands verify that themselves.
 		/// Use this to guard routing decisions; use <see cref="TryGetWindow"/> only when the info is consumed.</summary>

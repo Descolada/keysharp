@@ -9,6 +9,7 @@
 
 int ksi_linux_synth_start(void);
 void ksi_linux_synth_stop(void);
+bool ksi_linux_synth_is_started(void);
 bool ksi_linux_synth_is_available(void);
 /* Main-thread detector: returns true (rate-limited) when a prior write failure
  * has latched the device as broken and a recreation should be requested. Does

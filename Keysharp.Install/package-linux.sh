@@ -427,12 +427,12 @@ Linux input hooks, input synthesis, and BlockInput
 prompt may be unavailable until this is resolved. Re-run manually as root:
   sudo /usr/lib/keysharp/keysharp-inputd --install-input-access
 and check the output for the failing step (modprobe uinput, udevadm, or
-systemctl enable --now keysharp-inputd.socket).
+systemctl enable --now keysharp-inputd.socket keysharp-inputd.service).
 WARN
     # --install-input-access normally reloads the unit files and (re)starts the
-    # socket. When it fails, prerm has already stopped the old service on an
-    # upgrade, so reload units and restart the socket here to avoid leaving the
-    # socket down with a stale daemon behind.
+    # service/socket. When it fails, prerm has already stopped the old service
+    # on an upgrade, so reload units and restart the socket here to avoid leaving
+    # the broker wholly unavailable.
     if command -v systemctl >/dev/null 2>&1; then
       systemctl daemon-reload || true
       systemctl restart keysharp-inputd.socket || true
@@ -658,7 +658,7 @@ _ks_ext_remove() {
 # Runs on both removal ("remove"/"deconfigure") and upgrade ("upgrade"). In every
 # case stop the per-user compile daemon ("Keysharp --daemon") and the running
 # input broker so the old binaries are no longer in use; on an upgrade postinst
-# re-enables the inputd socket so activation launches the new binary.
+# re-enables and starts the updated inputd service and socket.
 if command -v pkill >/dev/null 2>&1; then
   pkill -f '[Kk]eysharp --daemon' 2>/dev/null || true
 fi
@@ -669,6 +669,7 @@ fi
 
 if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
   if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable --now keysharp-inputd.service || true
     systemctl disable --now keysharp-inputd.socket || true
   fi
 

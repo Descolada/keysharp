@@ -1507,7 +1507,7 @@ finalize:
 }
 
 /* Best-effort low real-time priority for bounded hook/output latency. */
-static void set_realtime_priority(const char *thread_name)
+static bool set_realtime_priority(const char *thread_name)
 {
     struct sched_param sp;
     memset(&sp, 0, sizeof(sp));
@@ -1517,7 +1517,25 @@ static void set_realtime_priority(const char *thread_name)
         fprintf(stderr,
             "inputd: note: could not set SCHED_FIFO for %s: %s\n",
             thread_name, strerror(errno));
+        return false;
     }
+
+    return true;
+}
+
+static bool set_normal_priority(const char *thread_name)
+{
+    struct sched_param sp;
+    memset(&sp, 0, sizeof(sp));
+
+    if (pthread_setschedparam(pthread_self(), SCHED_OTHER, &sp) != 0) {
+        fprintf(stderr,
+            "inputd: note: could not restore SCHED_OTHER for %s: %s\n",
+            thread_name, strerror(errno));
+        return false;
+    }
+
+    return true;
 }
 
 static void *lane_thread_main(void *arg)

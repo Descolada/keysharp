@@ -885,9 +885,14 @@ void ksi_linux_synth_stop(void)
     }
 }
 
+bool ksi_linux_synth_is_started(void)
+{
+    return uinput_fd >= 0;
+}
+
 bool ksi_linux_synth_is_available(void)
 {
-    return uinput_fd >= 0 && !synth_write_failed;
+    return ksi_linux_synth_is_started() && !synth_write_failed;
 }
 
 /* Rate limit for synth recovery: recreating the uinput devices is real

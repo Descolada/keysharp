@@ -59,6 +59,7 @@ typedef struct ksi_linux_tracked_device {
     bool keyboard_candidate;
     bool mouse_candidate;
     bool injected_source;
+    bool event_clock_monotonic;
     bool grab_deferred;
     bool has_buffered_event;
     struct input_event buffered_event;
@@ -107,6 +108,9 @@ static bool current_caps_lock;
 static bool current_num_lock;
 static bool current_scroll_lock;
 static ksi_pointer_position_payload current_pointer_position;
+/* Device ingestion and protocol queries run on the daemon's main poll thread,
+ * so this field is read and written serially. Zero means no observed input. */
+static uint64_t last_input_activity_ms;
 
 static void refresh_indicator_state_from_device(const ksi_linux_tracked_device *device);
 static int set_grab_masks(uint32_t hook_mask, uint32_t block_mask);
@@ -216,6 +220,11 @@ static bool is_keysharp_synth_device_identity(
 
 static int open_event_fd(const char *path)
 {
+    /* Every evdev open file description owns an independent event queue: these
+     * reads cannot consume or suppress events for libinput, keyd, games, or
+     * another observer. Interception is a separate EVIOCGRAB operation and is
+     * issued only from set_grab_masks() for a non-zero hook/BlockInput mask.
+     * EVIOCSCLOCKID below changes timestamps for this fd only. */
     /* O_CLOEXEC atomically at open (vs a post-open fcntl, which races a
      * concurrent fork+exec): a spawned helper (systemctl/udevadm/prompt worker)
      * must never inherit an evdev grab fd, or the grab would outlive this daemon
@@ -329,6 +338,16 @@ static bool is_candidate(const ksi_linux_device_info *info)
     return info->has_keyboard_keys || (info->has_mouse_buttons && info->has_pointer_axes);
 }
 
+/* Devices opened solely for idle tracking are never grabbed or hook-dispatched.
+ * EV_KEY covers touchscreens/pens/gamepads/media keys as well as keyboards;
+ * EV_REL covers pointer-like devices which may not advertise mouse buttons.
+ * Deliberately exclude absolute-only sensors (accelerometers, light sensors):
+ * their continuous EV_ABS reports are not evidence of user activity. */
+static bool is_idle_candidate(const ksi_linux_device_info *info)
+{
+    return is_candidate(info) || info->has_keys || info->has_relative;
+}
+
 static bool is_keyboard_candidate(const ksi_linux_device_info *info)
 {
     return info->has_keyboard_keys;
@@ -393,6 +412,7 @@ static void close_tracked_device(ksi_linux_tracked_device *device)
     }
 
     device->grab_deferred = false;
+    device->event_clock_monotonic = false;
     device->has_buffered_event = false;
     memset(&device->buffered_event, 0, sizeof(device->buffered_event));
     memset(device->physical_down_keys, 0, sizeof(device->physical_down_keys));
@@ -416,7 +436,7 @@ static int open_tracked_device(ksi_linux_tracked_device *device)
     /* Make evdev input_event timestamps comparable with daemon monotonic time.
      * Older kernels may reject this; in that case event ordering still works
      * best-effort with the device's default clock. */
-    (void)ioctl(fd, EVIOCSCLOCKID, &clock_id);
+    device->event_clock_monotonic = ioctl(fd, EVIOCSCLOCKID, &clock_id) == 0;
 
     result = libevdev_new_from_fd(fd, &device->evdev);
 
@@ -688,7 +708,7 @@ static void track_device(const ksi_linux_device_info *info, const char *reason)
     ksi_linux_tracked_device *target;
     bool is_new = existing_index < 0;
 
-    if (!is_candidate(info)) {
+    if (!is_idle_candidate(info)) {
         return;
     }
 
@@ -793,7 +813,7 @@ static void scan_existing_devices(void)
     while ((entry = readdir(dir)) != NULL) {
         char path[PATH_MAX];
         ksi_linux_device_info info;
-        bool candidate;
+        bool idle_candidate;
 
         if (!is_event_device_name(entry->d_name)) {
             continue;
@@ -810,9 +830,9 @@ static void scan_existing_devices(void)
             continue;
         }
 
-        candidate = is_candidate(&info);
+        idle_candidate = is_idle_candidate(&info);
 
-        if (candidate) {
+        if (idle_candidate) {
             candidates_seen++;
             track_device(&info, "existing");
         }
@@ -820,9 +840,14 @@ static void scan_existing_devices(void)
 
     closedir(dir);
 
-    fprintf(stderr, "inputd: scanned %d event devices, found %d keyboard/mouse candidates\n",
+    fprintf(stderr, "inputd: scanned %d event devices, found %d user-input candidates\n",
         devices_seen,
         candidates_seen);
+}
+
+void ksi_linux_devices_rescan(void)
+{
+    scan_existing_devices();
 }
 
 static void stop_udev_monitor(void)
@@ -882,8 +907,8 @@ static void handle_device_add_or_change(const char *path, const char *action)
         return;
     }
 
-    if (!is_candidate(&info)) {
-        fprintf(stderr, "inputd: %s %s ignored: not a keyboard/mouse candidate\n", action, path);
+    if (!is_idle_candidate(&info)) {
+        fprintf(stderr, "inputd: %s %s ignored: not a user-input candidate\n", action, path);
         return;
     }
 
@@ -897,6 +922,7 @@ int ksi_linux_devices_start(void)
     block_input_mask = 0;
     grab_state_incomplete = false;
     memset(&current_pointer_position, 0, sizeof(current_pointer_position));
+    last_input_activity_ms = 0u;
 
     /* Start the udev monitor BEFORE enumerating existing devices -- the same
      * order keyd itself uses (evloop.c: devmon_create() before device_scan()).
@@ -977,6 +1003,7 @@ void ksi_linux_devices_stop(void)
 
     tracked_device_count = 0;
     memset(&current_pointer_position, 0, sizeof(current_pointer_position));
+    last_input_activity_ms = 0u;
 }
 
 bool ksi_linux_devices_has_candidates(void)
@@ -1505,12 +1532,53 @@ static void dispatch_absolute_event(
     }
 }
 
-static void handle_input_event(ksi_linux_tracked_device *device, const struct input_event *event)
+static void handle_input_event(
+    ksi_linux_tracked_device *device,
+    const struct input_event *event,
+    uint64_t *fallback_activity_time_ms)
 {
     uint64_t extra_info = 0;
     bool is_injected = false;
 
-    if (device == NULL || device->injected_source) {
+    /* Keysharp's replay/synthesis device is a downstream copy, not new
+     * physical activity. Reject it at first ingress so it cannot reset idle
+     * time or re-enter hook dispatch. */
+    if (device == NULL || event == NULL || device->injected_source) {
+        return;
+    }
+
+    /* Count activity at raw evdev ingress, before hook callbacks or deferred
+     * processing can create re-entrant events. Synchronization packets, LED
+     * output, and zero relative deltas can occur without user-visible input and
+     * do not reset the clock. */
+    if (event->type == EV_KEY
+        || (event->type == EV_REL && event->value != 0)
+        || event->type == EV_ABS) {
+        uint64_t activity_time_ms;
+
+        /* EVIOCSCLOCKID makes this kernel timestamp CLOCK_MONOTONIC, so the hot
+         * path is only integer arithmetic. Fall back to clock_gettime only on
+         * old kernels which rejected that ioctl. Using the event time rather
+         * than processing time also preserves accuracy through a queue backlog. */
+        if (device->event_clock_monotonic) {
+            activity_time_ms = event_time_ms(event);
+        } else {
+            /* Query once, on the first real activity event in this readable
+             * batch. This remains before hook dispatch while avoiding a clock
+             * syscall for every event on kernels without EVIOCSCLOCKID. */
+            if (*fallback_activity_time_ms == 0u) {
+                *fallback_activity_time_ms = monotonic_ms();
+            }
+
+            activity_time_ms = *fallback_activity_time_ms;
+        }
+
+        if (activity_time_ms > last_input_activity_ms) {
+            last_input_activity_ms = activity_time_ms;
+        }
+    }
+
+    if (!device->keyboard_candidate && !device->mouse_candidate) {
         return;
     }
 
@@ -1535,7 +1603,7 @@ static void handle_input_event(ksi_linux_tracked_device *device, const struct in
         dispatch_relative_event(device, event, extra_info, is_injected);
     } else if (event->type == EV_ABS) {
         dispatch_absolute_event(device, event, extra_info, is_injected);
-    } else if (event->type == EV_LED && !device->injected_source) {
+    } else if (event->type == EV_LED) {
         /* Track indicator LED state so we can include it in keyboard hook events. */
         if (event->code == LED_CAPSL)
             current_caps_lock = event->value != 0;
@@ -1561,6 +1629,28 @@ bool ksi_linux_devices_get_pointer_position(ksi_pointer_position_payload *positi
 
     *position = current_pointer_position;
     return position->valid != 0u;
+}
+
+bool ksi_linux_devices_get_idle_time(ksi_idle_time_payload *result)
+{
+    uint64_t now;
+
+    if (result == NULL) {
+        return false;
+    }
+
+    memset(result, 0, sizeof(*result));
+
+    if (last_input_activity_ms == 0u) {
+        return false;
+    }
+
+    now = monotonic_ms();
+    result->valid = 1u;
+    result->idle_time_ms = now >= last_input_activity_ms
+        ? now - last_input_activity_ms
+        : 0u;
+    return true;
 }
 
 /* Snapshot the current mouse-button state. physical_buttons is read across all real pointer
@@ -1744,6 +1834,8 @@ void ksi_linux_devices_set_hook_event_callback(ksi_hook_event_callback callback,
 
 static void process_device_events(ksi_linux_tracked_device *device)
 {
+    uint64_t fallback_activity_time_ms = 0u;
+
     for (size_t processed = 0; processed < KSI_MAX_DEVICE_EVENTS_PER_PASS; processed++) {
         struct input_event event;
         int result;
@@ -1762,7 +1854,7 @@ static void process_device_events(ksi_linux_tracked_device *device)
         }
 
         if (result == 0) {
-            handle_input_event(device, &event);
+            handle_input_event(device, &event, &fallback_activity_time_ms);
             continue;
         }
 
@@ -1910,5 +2002,37 @@ void ksi_linux_devices_process_fd(int fd)
 
     if (device_index >= 0) {
         process_device_events(&tracked_devices[device_index]);
+    }
+}
+
+/* An idle-time request can share one poll wakeup with device input. Client RPC
+ * is normally serviced first to keep hook decisions responsive, so explicitly
+ * drain every currently-readable upstream device queue before calculating
+ * idle duration.
+ * The returned idle time therefore comes from the newest ingested kernel event
+ * timestamp; it is never replaced with a fabricated zero merely because data
+ * was queued. process_device_events retains its normal 256-event inner budget,
+ * and this outer loop repeats until every device reaches EAGAIN. */
+void ksi_linux_devices_drain_pending_input(void)
+{
+    for (;;) {
+        bool found_pending = false;
+
+        for (size_t i = 0u; i < tracked_device_count; i++) {
+            ksi_linux_tracked_device *device = &tracked_devices[i];
+
+            if (device->injected_source || device->fd < 0 || device->evdev == NULL
+                || (!device->has_buffered_event
+                    && libevdev_has_event_pending(device->evdev) != 1)) {
+                continue;
+            }
+
+            found_pending = true;
+            ksi_linux_devices_process_fd(device->fd);
+        }
+
+        if (!found_pending) {
+            break;
+        }
     }
 }

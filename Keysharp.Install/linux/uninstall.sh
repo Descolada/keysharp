@@ -132,8 +132,8 @@ maybe_run pkill -x '[Kk]eysharp' || true
 maybe_run pkill -x '[Kk]eyview' || true
 
 if [[ "${ROOT_INSTALL}" == "true" ]]; then
+  maybe_run systemctl disable --now keysharp-inputd.service || true
   maybe_run systemctl disable --now keysharp-inputd.socket || true
-  maybe_run systemctl stop keysharp-inputd.service || true
 
   # Remove the uaccess udev rule that grants the desktop user (via systemd-logind
   # uaccess) read access to the virtual input device the daemon creates. Prefer the

@@ -141,6 +141,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			public bool TryGetCursorPos(out int x, out int y)
 				=> KWinDBusBridge.QueryCursorPosition(out x, out y);
 
+			// KWin's public idle-time integration supplies timeout notifications but no exact current-idle
+			// query, and the KWin scripting API exposes no idle duration. Do not manufacture a zero via a script.
+			public bool TryGetIdleTime(out long milliseconds)
+			{
+				milliseconds = 0;
+				return false;
+			}
+
 			public bool TrySendMouseMoveAbsolute(int x, int y)
 				=> KWinFakeInputBridge.TryMoveAbsolute(x, y);
 
@@ -694,6 +702,9 @@ for (var __i = 0; __i < __order.length; ++__i) {
 
 			public bool TryGetCursorPos(out int x, out int y)
 				=> GnomeShellBridge.QueryCursorPosition(out x, out y);
+
+			public bool TryGetIdleTime(out long milliseconds)
+				=> GnomeShellBridge.QueryIdleTime(out milliseconds);
 
 			public bool TryGetWorkArea(out Rectangle area)
 				=> GnomeShellBridge.QueryWorkArea(out area);

@@ -515,7 +515,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			try
 			{
-				p = EnsureExtensionProxy();
+				// The real Show call is authoritative. Do not suppress it because the separate cached NameHasOwner
+				// availability probe was slow; a call to a genuinely absent well-known name fails definitively.
+				p = EnsureExtensionProxy(requireServiceOwner: false);
 			}
 			catch
 			{
@@ -557,9 +559,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private static IKeysharpCinnamonShell EnsureExtensionProxy()
+		private static IKeysharpCinnamonShell EnsureExtensionProxy(bool requireServiceOwner = true)
 		{
-			if (!ExtensionServiceHasOwner())
+			if (requireServiceOwner && !ExtensionServiceHasOwner())
 				return null;
 
 			if (extensionProxy != null)
@@ -992,6 +994,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			// the name but errors on the actual overlay call is handled reactively by TryShowImageOverlay's
 			// tri-state result (a definitive Failed falls back to Eto), not by a separate up-front probe.
 			public bool SupportsImageOverlay => CinnamonShellBridge.ExtensionServiceHasOwner();
+
+			// Cinnamon was selected from the desktop/session itself, so attempt the authoritative Show RPC even if
+			// the cached service-owner hint momentarily misses during startup.
+			public bool CanAttemptImageOverlay => true;
 
 			public OverlayShowResult TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 				=> CinnamonShellBridge.SendShowImageOverlay(id, x, y, width, height, pngBytes);

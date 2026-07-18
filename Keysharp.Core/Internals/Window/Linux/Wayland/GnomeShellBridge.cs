@@ -385,7 +385,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			try
 			{
-				p = EnsureProxy();
+				// Do not pre-gate the authoritative Show call on NameHasOwner. The owner probe is a cached availability
+				// hint and can time out under startup/load even while this service answers ordinary calls. Calling the
+				// well-known name directly fails definitively and quickly when it is truly absent.
+				p = EnsureProxy(requireServiceOwner: false);
 			}
 			catch
 			{
@@ -410,9 +413,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private static IGnomeShell EnsureProxy()
+		private static IGnomeShell EnsureProxy(bool requireServiceOwner = true)
 		{
-			if (!ExtensionServiceHasOwner())
+			if (requireServiceOwner && !ExtensionServiceHasOwner())
 				return null;
 
 			// Fast path: already connected. Re-attempt owner registration each time — it is cheap and

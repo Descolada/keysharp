@@ -852,6 +852,10 @@ for (var __i = 0; __i < __order.length; ++__i) {
 				// Failed falls back to Eto), not by a separate up-front probe.
 				public bool SupportsImageOverlay => GnomeShellBridge.ExtensionServiceHasOwner();
 
+				// GNOME was selected from the desktop/session itself. Always let the real Show RPC decide; a transient
+				// NameHasOwner miss must not permanently bind a newly-created overlay to the Eto fallback.
+				public bool CanAttemptImageOverlay => true;
+
 				public OverlayShowResult TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 					=> GnomeShellBridge.SendShowImageOverlay(id, x, y, width, height, pngBytes);
 

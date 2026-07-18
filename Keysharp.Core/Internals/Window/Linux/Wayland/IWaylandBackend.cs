@@ -189,6 +189,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>True when the backend can draw a generic PNG-backed click-through overlay inside the compositor.</summary>
 		bool SupportsImageOverlay => false;
 
+		/// <summary>True when an actual image-overlay call is worth attempting. Shell-extension backends override
+		/// this independently of <see cref="SupportsImageOverlay"/> because a transient/slow D-Bus owner probe is not
+		/// authoritative: the real Show call provides the definitive success/failure result and must get a chance to
+		/// run. Backends with a purely local capability can use the default.</summary>
+		bool CanAttemptImageOverlay => SupportsImageOverlay;
+
 		/// <summary>Create or update a compositor-owned image overlay. PNG bytes are copied by the compositor service.
 		/// The distinction between <see cref="OverlayShowResult.TimedOut"/> and <see cref="OverlayShowResult.Failed"/>
 		/// matters: a timed-out call most likely still reached the shell and created the actor (so the caller commits

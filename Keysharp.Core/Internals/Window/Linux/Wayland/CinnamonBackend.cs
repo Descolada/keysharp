@@ -499,14 +499,18 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private static T RunExtension<T>(Func<IKeysharpCinnamonShell, Task<T>> call)
+		private static T RunExtension<T>(Func<IKeysharpCinnamonShell, Task<T>> call,
+			[System.Runtime.CompilerServices.CallerMemberName] string operation = null)
 		{
 			try
 			{
 				var p = EnsureExtensionProxy();
 
 				if (p == null)
+				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, "extension proxy is unavailable");
 					return default;
+				}
 
 				var task = Task.Run(() => call(p));
 
@@ -514,34 +518,46 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// calls run from hotkey actions / timers on the main thread, and a slow (cold-channel) reply must
 				// not stall hotkey processing and the UI.
 				if (!task.WaitWithoutInterruption(TimeoutMs))
+				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, $"timed out after {TimeoutMs} ms");
 					return default;
+				}
 
 				return task.GetAwaiter().GetResult();
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, WaylandBridgeDiagnostics.Describe(ex));
 				return default;
 			}
 		}
 
-		private static bool RunExtensionBool(Func<IKeysharpCinnamonShell, Task<bool>> call)
+		private static bool RunExtensionBool(Func<IKeysharpCinnamonShell, Task<bool>> call,
+			[System.Runtime.CompilerServices.CallerMemberName] string operation = null)
 		{
 			try
 			{
 				var p = EnsureExtensionProxy();
 
 				if (p == null)
+				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, "extension proxy is unavailable");
 					return false;
+				}
 
 				var task = Task.Run(() => call(p));
 
 				if (!task.WaitWithoutInterruption(TimeoutMs))   // pump the queue while waiting (see RunExtension); overlay hide runs through here
+				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, $"timed out after {TimeoutMs} ms");
 					return false;
+				}
 
 				return task.GetAwaiter().GetResult();
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, WaylandBridgeDiagnostics.Describe(ex));
 				return false;
 			}
 		}
@@ -560,25 +576,38 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// availability probe was slow; a call to a genuinely absent well-known name fails definitively.
 				p = EnsureExtensionProxy(requireServiceOwner: false);
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "ShowImageOverlay proxy", WaylandBridgeDiagnostics.Describe(ex));
 				return OverlayShowResult.Failed;
 			}
 
 			if (p == null)
+			{
+				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "ShowImageOverlay", "extension proxy is unavailable");
 				return OverlayShowResult.Failed;
+			}
 
 			try
 			{
 				var task = Task.Run(() => call(p));
 
 				if (!task.WaitWithoutInterruption(timeoutMs))   // pump the queue while waiting (see RunExtension)
+				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "ShowImageOverlay",
+						$"timed out after {timeoutMs} ms; the compositor result is ambiguous");
 					return OverlayShowResult.TimedOut;
+				}
 
-				return task.GetAwaiter().GetResult() ? OverlayShowResult.Shown : OverlayShowResult.Failed;
+				if (task.GetAwaiter().GetResult())
+					return OverlayShowResult.Shown;
+
+				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "ShowImageOverlay", "extension returned false");
+				return OverlayShowResult.Failed;
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "ShowImageOverlay", WaylandBridgeDiagnostics.Describe(ex));
 				return OverlayShowResult.Failed;
 			}
 		}
@@ -637,6 +666,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// actions and must not stall the pump on a cold D-Bus channel.
 				if (!task.WaitWithoutInterruption(TimeoutMs))
 				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "RegisterHighlightOwner", $"timed out after {TimeoutMs} ms");
 					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + ExtensionMissingCacheMs;
 					return;
 				}
@@ -648,11 +678,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				}
 				else
 				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "RegisterHighlightOwner", "extension returned false");
 					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + ExtensionMissingCacheMs;
 				}
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "RegisterHighlightOwner", WaylandBridgeDiagnostics.Describe(ex));
 				highlightOwnerRegisterRetryAfter = Environment.TickCount64 + ExtensionMissingCacheMs;
 			}
 		}
@@ -682,6 +714,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// cannot freeze hotkey/timer/UI processing on the calling thread.
 				if (!task.WaitWithoutInterruption(ExtensionOwnerCheckTimeoutMs))
 				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "NameHasOwner",
+						$"timed out after {ExtensionOwnerCheckTimeoutMs} ms; cached result is {extensionOwnerCached}");
 					// A probe TIMEOUT is ambiguous (the bus is momentarily slow), not a definitive "absent". Keep a
 					// recent positive answer and re-check soon rather than declaring the extension gone for 5s — a
 					// single slow probe under load would otherwise route overlays to Eto and drop the proxy. Only
@@ -700,6 +734,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				if (!hasOwner)
 				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "NameHasOwner", $"{ExtensionServiceName} has no owner");
 					extensionProxy = null;
 					clipboardSupportCached = false;
 					clipboardSupportCacheUntil = now + ExtensionMissingCacheMs;
@@ -707,8 +742,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				return hasOwner;
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "NameHasOwner", WaylandBridgeDiagnostics.Describe(ex));
 				extensionOwnerCached = false;
 				extensionOwnerCacheUntil = now + ExtensionMissingCacheMs;
 				extensionProxy = null;
@@ -766,6 +802,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (string.IsNullOrEmpty(sessionAddress))
 				{
 					// No session bus is configured for this process; it cannot appear later, so latch permanently.
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "connect session bus", "D-Bus session address is empty");
 					initFailed = true;
 					return null;
 				}
@@ -777,6 +814,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// freeze hotkey/UI processing; a plain .Wait would stall the pump for up to TimeoutMs.
 				if (!task.WaitWithoutInterruption(TimeoutMs))
 				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "connect session bus", $"timed out after {TimeoutMs} ms");
 					try { localConn.Dispose(); } catch { }
 
 					// Slow / not-yet-up session bus: retry after the backoff instead of a permanent latch.
@@ -795,8 +833,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				nextConnectAttempt = 0;
 				return connection;
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "connect session bus", WaylandBridgeDiagnostics.Describe(ex));
 				// Creating/connecting threw unexpectedly — treat as transient and back off; do NOT permanently
 				// latch (the bus may simply have been momentarily unavailable). Dispose the connection we created but
 				// never published (the `connection = localConn` line is past every throw point), else a present-but-
@@ -829,6 +868,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			dbusProxy = null;
 			proxy = null;
 			extensionProxy = null;
+			idleMonitorProxy = null;
 			connectionLocalName = "";
 			registeredHighlightOwnerBusName = "";
 			highlightOwnerRegisterRetryAfter = 0;
@@ -906,6 +946,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		public bool TryGetCursorPos(out int x, out int y)
 			=> CinnamonShellBridge.QueryCursorPosition(out x, out y);
+
+		public bool TryGetIdleTime(out long milliseconds)
+			=> CinnamonShellBridge.QueryIdleTime(out milliseconds);
 
 		public bool TryGetWorkArea(out Rectangle area)
 			=> CinnamonShellBridge.QueryWorkArea(out area);

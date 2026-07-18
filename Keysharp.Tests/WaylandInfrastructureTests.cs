@@ -1,7 +1,6 @@
 #if LINUX
 using System.Runtime.InteropServices;
 using Keysharp.Internals;
-using Keysharp.Internals.Images;
 using Keysharp.Internals.Window.Linux.Wayland;
 
 namespace Keysharp.Tests
@@ -51,11 +50,33 @@ namespace Keysharp.Tests
 		[Test]
 		public void PassiveCompositorBackingRejectsInteractiveMode()
 		{
-			using var bitmap = ImageHelper.NewArgbCanvas(1, 1);
 			using var backing = new CompositorImageBacking(42);
-			Assert.That(backing.Show(bitmap, new ScreenRect(0, 0, 1, 1), clickThrough: false), Is.False);
+			Assert.That(backing.Show(null, new ScreenRect(0, 0, 1, 1), clickThrough: false), Is.False);
 			Assert.That(WaylandImageOverlay.ResolveInputRegion(clickThrough: true, new nint(17)), Is.EqualTo(new nint(17)));
 			Assert.That(WaylandImageOverlay.ResolveInputRegion(clickThrough: false, new nint(17)), Is.EqualTo(nint.Zero));
+		}
+
+		[Test]
+		public void ShellOverlayAttemptDoesNotDependOnTransientOwnerProbe()
+		{
+			IWaylandBackend backend = new TransientProbeOverlayBackend();
+			Assert.That(backend.SupportsImageOverlay, Is.False,
+				"the cached availability probe is allowed to miss");
+			Assert.That(LinuxImageOverlayBacking.ShouldAttemptCompositor(backend), Is.True,
+				"a shell backend must still issue the authoritative Show call");
+		}
+
+		[Test]
+		public void WaylandBridgeDiagnosticsThrottleRepeatedFailures()
+		{
+			var throttle = new WaylandDiagnosticThrottle(5000);
+			Assert.That(throttle.TryAcquire("GNOME:NameHasOwner", 1000, out var suppressed), Is.True);
+			Assert.That(suppressed, Is.Zero);
+			Assert.That(throttle.TryAcquire("GNOME:NameHasOwner", 2000, out _), Is.False);
+			Assert.That(throttle.TryAcquire("GNOME:ShowImageOverlay", 2000, out _), Is.True,
+				"different operations must not suppress each other");
+			Assert.That(throttle.TryAcquire("GNOME:NameHasOwner", 6000, out suppressed), Is.True);
+			Assert.That(suppressed, Is.EqualTo(1));
 		}
 
 		[Test]
@@ -129,6 +150,18 @@ namespace Keysharp.Tests
 		{
 			internal bool Disposed;
 			public void Dispose() => Disposed = true;
+		}
+
+		private sealed class TransientProbeOverlayBackend : IWaylandBackend
+		{
+			public string Name => "shell-test";
+			public bool CanAttemptImageOverlay => true;
+
+			public bool TryGetCursorPos(out int x, out int y)
+			{
+				x = y = 0;
+				return false;
+			}
 		}
 	}
 }

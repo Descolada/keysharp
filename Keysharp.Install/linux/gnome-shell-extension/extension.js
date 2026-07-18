@@ -936,6 +936,11 @@ export default class KeysharpExtension {
         const owner = this._parseOverlayOwner(ownerKey);
         const bus = String(busName || '');
 
+        // Registration is the first extension call made by a new Keysharp process. Reap dead owners here as
+        // well as from the periodic timer so stale actors/content cannot accumulate across process launches if
+        // GNOME delayed or dropped that timer while the shell was busy (for example during screen capture).
+        // Live owners are retained, so concurrently-running HUD scripts are unaffected.
+        this._cleanupDeadOverlays();
         this._cancelOverlayReconnectTimer(owner.key);
 
         for (const entry of this._highlights.values()) {
@@ -1476,18 +1481,24 @@ export default class KeysharpExtension {
         if (!pixbuf)
             throw new Error('Could not decode PNG overlay image.');
 
-        const pixels = pixbuf.get_pixels();
+        const width = pixbuf.get_width();
+        const height = pixbuf.get_height();
         const format = pixbuf.get_has_alpha() ? Cogl.PixelFormat.RGBA_8888 : Cogl.PixelFormat.RGB_888;
-        // Shell 48 removed Clutter.Image; St.ImageContent replaces it, with set_data()
-        // gaining a leading Cogl.Context parameter.
+        // Shell 48 removed Clutter.Image; St.ImageContent replaces it, with set_bytes()
+        // taking a leading Cogl.Context parameter. Give St.ImageContent a real preferred size (its default
+        // -1x-1 produces one shell warning per HUD frame on GNOME 50) and retain the pixels as GLib.Bytes so
+        // their lifetime is owned by the content rather than by GJS's temporary Uint8Array wrapper.
         let content;
         if (SHELL_MAJOR >= 48) {
-            content = new St.ImageContent();
+            content = new St.ImageContent({
+                preferredWidth: width,
+                preferredHeight: height,
+            });
             const coglContext = global.stage.context.get_backend().get_cogl_context();
-            content.set_data(coglContext, pixels, format, pixbuf.get_width(), pixbuf.get_height(), pixbuf.get_rowstride());
+            content.set_bytes(coglContext, pixbuf.read_pixel_bytes(), format, width, height, pixbuf.get_rowstride());
         } else {
             content = new Clutter.Image();
-            content.set_data(pixels, format, pixbuf.get_width(), pixbuf.get_height(), pixbuf.get_rowstride());
+            content.set_data(pixbuf.get_pixels(), format, width, height, pixbuf.get_rowstride());
         }
 
         return content;

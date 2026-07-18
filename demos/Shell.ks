@@ -31,6 +31,7 @@
 class Shell {
     static Margin := 22                  ; gap from the screen edges
     static ReopenHotkey := "^!+s"        ; Ctrl+Alt+Shift+S — reopens the card after it's dismissed (all demos)
+    static MainWindowHotkey := "^!+m"    ; Ctrl+Alt+Shift+M — opens Keysharp's main window (internal)
     static ov := ""
     static rect := {x: 0, y: 0, w: 0, h: 0}
     static checkRect := ""               ; on-screen rect of the "Don't show on startup" checkbox (hit-tested on click)
@@ -156,6 +157,7 @@ class Shell {
         Hotkey("LButton", (*) => Shell.OnClick())
         HotIf()
         Hotkey(this.ReopenHotkey, (*) => Shell.Reshow())   ; global: reopen after the card is dismissed
+        Hotkey(this.MainWindowHotkey, (*) => KeyHistory()) ; global: open Keysharp's main window
     }
 
     static Render() {

@@ -398,20 +398,32 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		// ---- connection management ---------------------------------------
 
-		private static T Run<T>(Func<IGnomeShell, Task<T>> call, int timeoutMs = TimeoutMs)
+		private static T Run<T>(Func<IGnomeShell, Task<T>> call, int timeoutMs = TimeoutMs,
+			[System.Runtime.CompilerServices.CallerMemberName] string operation = null)
 		{
 			try
 			{
 				var p = EnsureProxy();
 
 				if (p == null)
+				{
+					WaylandBridgeDiagnostics.Failure("GNOME Shell", operation, "extension proxy is unavailable");
 					return default;
+				}
 
 				var task = Task.Run(() => call(p));
-				return task.WaitWithoutInterruption(timeoutMs) ? task.GetAwaiter().GetResult() : default;
+
+				if (!task.WaitWithoutInterruption(timeoutMs))
+				{
+					WaylandBridgeDiagnostics.Failure("GNOME Shell", operation, $"timed out after {timeoutMs} ms");
+					return default;
+				}
+
+				return task.GetAwaiter().GetResult();
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("GNOME Shell", operation, WaylandBridgeDiagnostics.Describe(ex));
 				return default;
 			}
 		}
@@ -430,31 +442,52 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// hint and can time out under startup/load even while this service answers ordinary calls. Calling the
 				// well-known name directly fails definitively and quickly when it is truly absent.
 				p = EnsureProxy(requireServiceOwner: false);
+
+				// A failed cold connection arms a short backoff for ordinary polling calls. Show is different: it is
+				// the one authoritative decision between a compositor actor and the unusable-on-GNOME Eto fallback,
+				// so do not let that earlier miss decide the overlay's backing for its whole lifetime. Retry the bus
+				// connection once now, bypassing only the transient backoff (a definitively missing session address
+				// remains a permanent failure).
+				if (p == null)
+					p = EnsureProxy(requireServiceOwner: false, forceConnectionAttempt: true);
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("GNOME Shell", "ShowImageOverlay proxy", WaylandBridgeDiagnostics.Describe(ex));
 				return OverlayShowResult.Failed;
 			}
 
 			if (p == null)
+			{
+				WaylandBridgeDiagnostics.Failure("GNOME Shell", "ShowImageOverlay", "extension proxy is unavailable");
 				return OverlayShowResult.Failed;
+			}
 
 			try
 			{
 				var task = Task.Run(() => call(p));
 
 				if (!task.WaitWithoutInterruption(timeoutMs))
+				{
+					WaylandBridgeDiagnostics.Failure("GNOME Shell", "ShowImageOverlay",
+						$"timed out after {timeoutMs} ms; the compositor result is ambiguous");
 					return OverlayShowResult.TimedOut;
+				}
 
-				return task.GetAwaiter().GetResult() ? OverlayShowResult.Shown : OverlayShowResult.Failed;
+				if (task.GetAwaiter().GetResult())
+					return OverlayShowResult.Shown;
+
+				WaylandBridgeDiagnostics.Failure("GNOME Shell", "ShowImageOverlay", "extension returned false");
+				return OverlayShowResult.Failed;
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("GNOME Shell", "ShowImageOverlay", WaylandBridgeDiagnostics.Describe(ex));
 				return OverlayShowResult.Failed;
 			}
 		}
 
-		private static IGnomeShell EnsureProxy(bool requireServiceOwner = true)
+		private static IGnomeShell EnsureProxy(bool requireServiceOwner = true, bool forceConnectionAttempt = false)
 		{
 			if (requireServiceOwner && !ExtensionServiceHasOwner())
 				return null;
@@ -467,7 +500,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				return proxy;
 			}
 
-			var conn = EnsureConnection();
+			var conn = EnsureConnection(forceConnectionAttempt);
 
 			if (conn == null)
 				return null;
@@ -487,8 +520,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				RegisterHighlightOwner(proxy);
 				return proxy;
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("GNOME Shell", "create extension proxy", WaylandBridgeDiagnostics.Describe(ex));
 				proxy = null;
 				return null;
 			}
@@ -498,7 +532,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private static Connection EnsureConnection()
+		private static Connection EnsureConnection(bool forceAttempt = false)
 		{
 			if (connection != null)
 				return connection;
@@ -511,7 +545,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				return null;
 
 			// Fast path: within the retry backoff after a transient failure — don't hammer the bus.
-			if (Environment.TickCount64 < nextConnectAttempt)
+			if (!forceAttempt && Environment.TickCount64 < nextConnectAttempt)
 				return null;
 
 			initSemaphore.Wait();
@@ -524,7 +558,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (connection != null)
 					return connection;
 
-				if (initFailed || Environment.TickCount64 < nextConnectAttempt)
+				if (initFailed || (!forceAttempt && Environment.TickCount64 < nextConnectAttempt))
 					return null;
 
 				var sessionAddress = Tmds.DBus.Address.Session;
@@ -532,17 +566,21 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (string.IsNullOrEmpty(sessionAddress))
 				{
 					// No session bus is configured for this process; it cannot appear later, so latch permanently.
+					WaylandBridgeDiagnostics.Failure("GNOME Shell", "connect session bus", "D-Bus session address is empty");
 					initFailed = true;
 					return null;
 				}
 
 				localConn = new Connection(sessionAddress);
-				var connectTask = Task.Run(() => localConn.ConnectAsync());
+				// ConnectAsync is already asynchronous. Starting it directly avoids making the bridge's first D-Bus
+				// connection depend on a cold/busy ThreadPool worker during script startup.
+				var connectTask = localConn.ConnectAsync();
 
 				// Pump the message loop while waiting (WaitWithoutInterruption) so the connect deadline doesn't
 				// freeze hotkey/UI processing; a plain .Wait would stall the pump for up to TimeoutMs.
 				if (!connectTask.WaitWithoutInterruption(TimeoutMs))
 				{
+					WaylandBridgeDiagnostics.Failure("GNOME Shell", "connect session bus", $"timed out after {TimeoutMs} ms");
 					try { localConn.Dispose(); } catch { }
 
 					// Slow / not-yet-up session bus: retry after the backoff instead of a permanent latch.
@@ -560,14 +598,21 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				localConn.StateChanged += (_, e) =>
 				{
 					if (e.State == Tmds.DBus.ConnectionState.Disconnected)
+					{
+						if (e.DisconnectReason != null)
+							WaylandBridgeDiagnostics.Failure("GNOME Shell", "session bus disconnected",
+								WaylandBridgeDiagnostics.Describe(e.DisconnectReason));
+
 						ResetConnection(localConn);
+					}
 				};
 				connection = localConn;
 				nextConnectAttempt = 0;
 				return connection;
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("GNOME Shell", "connect session bus", WaylandBridgeDiagnostics.Describe(ex));
 				// Creating/connecting threw unexpectedly — treat as transient and back off; do NOT permanently
 				// latch (the bus may simply have been momentarily unavailable). Dispose the connection we created but
 				// never published (the `connection = localConn` line is past every throw point), else a present-but-
@@ -602,6 +647,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			connection = null;
 			dbusProxy = null;
 			proxy = null;
+			idleMonitorProxy = null;
 			connectionLocalName = "";
 			registeredHighlightOwnerBusName = "";
 			highlightOwnerRegisterRetryAfter = 0;
@@ -636,6 +682,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// cannot freeze hotkey/timer/UI processing on the calling thread.
 				if (!task.WaitWithoutInterruption(ExtensionOwnerCheckTimeoutMs))
 				{
+					WaylandBridgeDiagnostics.Failure("GNOME Shell", "NameHasOwner",
+						$"timed out after {ExtensionOwnerCheckTimeoutMs} ms; cached result is {extensionOwnerCached}");
 					// A probe TIMEOUT is ambiguous (the bus is momentarily slow / the connection is cold at
 					// startup), not a definitive "absent". If we recently saw the extension present, keep that
 					// answer; otherwise return "unknown" (false) but re-probe within a frame or two rather than
@@ -656,6 +704,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				if (!hasOwner)
 				{
+					WaylandBridgeDiagnostics.Failure("GNOME Shell", "NameHasOwner", $"{ServiceName} has no owner");
 					proxy = null;
 					registeredHighlightOwnerBusName = "";
 					highlightOwnerRegisterRetryAfter = 0;
@@ -663,8 +712,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				return hasOwner;
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("GNOME Shell", "NameHasOwner", WaylandBridgeDiagnostics.Describe(ex));
 				extensionOwnerCached = false;
 				extensionOwnerCacheUntil = now + ExtensionMissingCacheMs;
 				proxy = null;
@@ -691,6 +741,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// actions and must not stall the pump on a cold D-Bus channel.
 				if (!task.WaitWithoutInterruption(TimeoutMs))
 				{
+					WaylandBridgeDiagnostics.Failure("GNOME Shell", "RegisterHighlightOwner", $"timed out after {TimeoutMs} ms");
 					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + RegisterRetryBackoffMs;
 					return;
 				}
@@ -702,11 +753,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				}
 				else
 				{
+					WaylandBridgeDiagnostics.Failure("GNOME Shell", "RegisterHighlightOwner", "extension returned false");
 					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + RegisterRetryBackoffMs;
 				}
 			}
-			catch
+			catch (Exception ex)
 			{
+				WaylandBridgeDiagnostics.Failure("GNOME Shell", "RegisterHighlightOwner", WaylandBridgeDiagnostics.Describe(ex));
 				highlightOwnerRegisterRetryAfter = Environment.TickCount64 + RegisterRetryBackoffMs;
 			}
 		}

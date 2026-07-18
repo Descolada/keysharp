@@ -122,11 +122,16 @@ namespace Keysharp.Internals
 			if (client != null && client.IsAvailable)
 				return new LayerImageBacking();
 
-			if (IsWaylandSession && Wl.WaylandBackend.Current?.SupportsImageOverlay == true)
+			if (IsWaylandSession && ShouldAttemptCompositor(Wl.WaylandBackend.Current))
 				return new CompositorImageBacking(id);
 
 			return new EtoImageOverlay();
 		}
+
+		// A shell service's real Show response is authoritative. Its separate NameHasOwner probe is only a cached
+		// availability snapshot and can time out while other calls on the same healthy connection keep succeeding.
+		internal static bool ShouldAttemptCompositor(Wl.IWaylandBackend backend)
+			=> backend?.CanAttemptImageOverlay == true;
 	}
 
 	// wlr-layer-shell backing (KWin/wlroots). WaylandImageOverlay copies the pixels into its own SHM buffer on

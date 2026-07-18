@@ -77,9 +77,13 @@ build_native_helpers() {
   fi
 
   if pkg-config --exists libudev libevdev; then
+    # Build only the daemon: disable the hooktest diagnostic tool and the CTest
+    # executables (BUILD_TESTING defaults ON via the CMakeLists' include(CTest)).
+    # None of these are packaged, so compiling them just wastes build time.
     cmake -S "${ROOT}/native/keysharp-inputd" -B "${inputd_build_dir}" \
       -DCMAKE_BUILD_TYPE="${CONFIG}" \
-      -DKEYSHARP_INPUTD_BUILD_TOOLS=OFF
+      -DKEYSHARP_INPUTD_BUILD_HOOKTEST=OFF \
+      -DBUILD_TESTING=OFF
     cmake --build "${inputd_build_dir}" --clean-first
     cp "${inputd_build_dir}/keysharp-inputd" "${APP_DIR}/"
   else
@@ -872,19 +876,28 @@ build_deb() {
 echo "Publishing Keysharp and Keyview (CONFIG=${CONFIG}, RID=${RID})..."
 mkdir -p "${DIST_DIR}"
 rm -rf "${PUBLISH_DIR}/Keysharp" "${PUBLISH_DIR}/Keyview"
-# Eto is referenced via <ProjectReference> but is not a member of Keysharp.sln.
-# A solution build unsets the parent Configuration/Platform when building project
+# Publish only the two shipping projects rather than the whole solution. Keysharp and
+# Keyview pull in everything that actually ships via <ProjectReference>
+# (Keysharp -> Keysharp.Core -> Eto; Keyview -> Keysharp/Keysharp.Core/Eto), so this
+# builds all required code without compiling Keysharp.Tests, Keysharp.OutputTest, or
+# Keysharp.Benchmark — none of which are packaged.
+#
+# Eto is referenced via <ProjectReference> but is not a member of Keysharp.sln. A
+# solution build unsets the parent Configuration/Platform when building project
 # references, and an out-of-solution reference has no solution mapping, so Eto would
 # fall back to its default (Debug). A Debug Eto keeps its SourceLink "documents" key
 # on the raw local checkout path (csc /pathmap does not rewrite the SourceLink blob),
-# which trips verify_no_local_paths. Letting references inherit the parent config
-# builds Eto in Release, where DeterministicSourcePaths scrubs the path to /_/.
-dotnet publish "${ROOT}/Keysharp.sln" -c "${CONFIG}" -r "${RID}" \
-  -p:KeysharpVersion="${VERSION}" \
-  -p:Deterministic=true \
-  -p:ContinuousIntegrationBuild=true \
-  -p:ShouldUnsetParentConfigurationAndPlatform=false \
-  -p:PathMap="${PATH_MAP}"
+# which trips verify_no_local_paths. Building the projects directly (plus keeping
+# ShouldUnsetParentConfigurationAndPlatform=false) lets references inherit the parent
+# config and build Eto in Release, where DeterministicSourcePaths scrubs the path to /_/.
+for proj in Keysharp Keyview; do
+  dotnet publish "${ROOT}/${proj}/${proj}.csproj" -c "${CONFIG}" -r "${RID}" \
+    -p:KeysharpVersion="${VERSION}" \
+    -p:Deterministic=true \
+    -p:ContinuousIntegrationBuild=true \
+    -p:ShouldUnsetParentConfigurationAndPlatform=false \
+    -p:PathMap="${PATH_MAP}"
+done
 
 echo "Staging package at ${PKG_DIR}..."
 rm -rf "${PKG_DIR}"

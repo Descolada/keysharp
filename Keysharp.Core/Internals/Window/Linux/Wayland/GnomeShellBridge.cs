@@ -109,6 +109,29 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// </summary>
 		Task<IDisposable> WatchWindowEventAsync(
 			Action<(string type, string json)> handler, Action<Exception> onError = null);
+
+		// ---- Clipboard (compositor-mediated, all MIME types) ------------
+		// Mutter exposes no data-control protocol, so a background app can't read/write/monitor the clipboard
+		// directly; the shell extension does it via MetaSelection. Raw MIME <-> bytes so every format
+		// (text, image, html, uri-list, ...) round-trips.
+
+		/// <summary>MIME types currently on the clipboard.</summary>
+		Task<string[]> GetClipboardMimetypesAsync();
+
+		/// <summary>Bytes of one clipboard MIME type. Empty array = absent/empty.</summary>
+		Task<byte[]> GetClipboardContentAsync(string mimetype);
+
+		/// <summary>Replace the whole clipboard with one MIME type's bytes.</summary>
+		Task<bool> SetClipboardContentAsync(string mimetype, byte[] bytes);
+
+		/// <summary>Current clipboard UTF-8 text (fast path).</summary>
+		Task<string> GetClipboardTextAsync();
+
+		/// <summary>Replace the clipboard with UTF-8 text.</summary>
+		Task<bool> SetClipboardTextAsync(string text);
+
+		Task<IDisposable> WatchClipboardChangedAsync(
+			Action<(string text, string[] mimetypes)> handler, Action<Exception> onError = null);
 	}
 
 	/// <summary>Mutter's compositor-owned idle monitor, independent of the Keysharp Shell extension.</summary>
@@ -165,6 +188,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static long nextConnectAttempt;
 		private static long extensionOwnerCacheUntil;
 		private static bool extensionOwnerCached;
+		private static long clipboardSupportCacheUntil;
+		private static bool clipboardSupportCached;
 
 		// Overlay-ownership plumbing (mirrors CinnamonBackend): our stable process key, the unique name of
 		// our D-Bus connection, and the sticky "already registered under this connection" latch + retry gate.
@@ -388,6 +413,62 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return null;
 
 				var task = Task.Run(() => p.WatchWindowEventAsync(e => handler(e.type, e.json)));
+				return task.WaitWithoutInterruption(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
+			}
+			catch
+			{
+				return null;
+			}
+		}
+
+		// Whether the extension actually answers clipboard calls. The overlay path can gate on cheap name
+		// ownership because it reacts to a per-call tri-state (a definitive failure falls back to Eto), but the
+		// clipboard backend is resolved ONCE with no reactive fallback (LinuxClipboards.Resolve), so a stale/
+		// incompatible extension that owns the D-Bus name yet no longer speaks the clipboard protocol would leave
+		// the clipboard silently dead for the whole session. Verify with a cheap, side-effect-free
+		// GetClipboardMimetypes round-trip (null = absent/failed, any array = answered) and cache the result.
+		internal static bool SupportsClipboard()
+		{
+			var now = Environment.TickCount64;
+
+			if (now < clipboardSupportCacheUntil)
+				return clipboardSupportCached;
+
+			var ok = ExtensionServiceHasOwner() && Run(p => p.GetClipboardMimetypesAsync()) != null;
+			clipboardSupportCached = ok;
+			clipboardSupportCacheUntil = now + (ok ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
+			return ok;
+		}
+
+		// Clipboard access runs only through the extension (Mutter exposes no data-control protocol, so a
+		// background app otherwise can't read/write/monitor the clipboard). Content is raw MIME-type <-> bytes
+		// so every format round-trips. Getters return null when the extension is absent/failed (vs an empty
+		// array/"" for a legitimately empty clipboard).
+		internal static string[] GetClipboardMimetypes()
+			=> Run(p => p.GetClipboardMimetypesAsync()) ?? System.Array.Empty<string>();
+
+		internal static byte[] GetClipboardContent(string mimetype)
+			=> Run(p => p.GetClipboardContentAsync(mimetype));
+
+		internal static bool SetClipboardContent(string mimetype, byte[] bytes)
+			=> Run(p => p.SetClipboardContentAsync(mimetype, bytes ?? System.Array.Empty<byte>()));
+
+		internal static string GetClipboardText()
+			=> Run(p => p.GetClipboardTextAsync());
+
+		internal static bool SetClipboardText(string text)
+			=> Run(p => p.SetClipboardTextAsync(text ?? string.Empty));
+
+		internal static IDisposable WatchClipboardChanged(Action<string, string[]> handler)
+		{
+			try
+			{
+				var p = EnsureProxy();
+
+				if (p == null)
+					return null;
+
+				var task = Task.Run(() => p.WatchClipboardChangedAsync(e => handler(e.text, e.mimetypes)));
 				return task.WaitWithoutInterruption(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
 			}
 			catch

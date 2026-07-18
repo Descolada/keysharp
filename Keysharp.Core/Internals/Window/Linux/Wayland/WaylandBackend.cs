@@ -930,6 +930,30 @@ for (var __i = 0; __i < __order.length; ++__i) {
 			public bool TrySendMouseScroll(int delta, bool vertical)
 				=> GnomeShellBridge.SendMouseScroll(delta, vertical);
 
+				// Clipboard runs only through the extension (Mutter exposes no data-control protocol). Because the
+				// clipboard backend is chosen once with no reactive fallback, this gates on a real liveness probe (not
+				// mere name ownership) so a stale/broken extension degrades to the focus-gated Eto clipboard instead
+				// of a silently-dead one. Raw MIME <-> bytes; higher layers map formats onto it.
+				public bool SupportsClipboard => GnomeShellBridge.SupportsClipboard();
+
+				public string[] GetClipboardMimetypes()
+					=> GnomeShellBridge.GetClipboardMimetypes();
+
+				public byte[] GetClipboardContent(string mimetype)
+					=> GnomeShellBridge.GetClipboardContent(mimetype);
+
+				public bool SetClipboardContent(string mimetype, byte[] bytes)
+					=> GnomeShellBridge.SetClipboardContent(mimetype, bytes);
+
+				public string GetClipboardText()
+					=> GnomeShellBridge.GetClipboardText();
+
+				public bool SetClipboardText(string text)
+					=> GnomeShellBridge.SetClipboardText(text);
+
+				public IDisposable SubscribeClipboardChanges(Action<string, string[]> handler)
+					=> handler == null ? null : GnomeShellBridge.WatchClipboardChanged(handler);
+
 			// ---- helpers ------------------------------------------------
 
 			private static bool TryParseWindow(JsonElement item, out WaylandWindowInfo info)

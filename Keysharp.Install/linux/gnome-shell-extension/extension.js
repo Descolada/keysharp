@@ -57,6 +57,33 @@ const DBUS_IFACE_XML = `
       <arg type="i" direction="out" name="height"/>
     </method>
 
+    <!-- Clipboard bridge: Wayland has no focus-independent clipboard access for a background app, and
+         Mutter exposes no data-control protocol, so the shell (which owns the selection) reads/writes it
+         via MetaSelection and notifies of changes via the MetaSelection owner-changed signal. Content is
+         raw MIME-type <-> bytes so every format (text, image, html, uri-list, ...) round-trips. -->
+    <method name="GetClipboardMimetypes">
+      <arg type="as" direction="out" name="mimetypes"/>
+    </method>
+    <!-- Read one MIME type's bytes (async: MetaSelection.transfer_async). "" bytes = absent/empty. -->
+    <method name="GetClipboardContent">
+      <arg type="s" direction="in" name="mimetype"/>
+      <arg type="ay" direction="out" name="bytes"/>
+    </method>
+    <!-- Replace the whole selection with a single MIME type's bytes. -->
+    <method name="SetClipboardContent">
+      <arg type="s" direction="in" name="mimetype"/>
+      <arg type="ay" direction="in" name="bytes"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+    <!-- UTF-8 text convenience (the common A_Clipboard path). -->
+    <method name="GetClipboardText">
+      <arg type="s" direction="out" name="text"/>
+    </method>
+    <method name="SetClipboardText">
+      <arg type="s" direction="in" name="text"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
     <!-- Register this client as an overlay owner. ownerKey = "pid:starttime"; busName = the caller's
          unique D-Bus name. Lets the shell reap the caller's overlays when its process/connection dies. -->
     <method name="RegisterHighlightOwner">
@@ -292,6 +319,13 @@ const DBUS_IFACE_XML = `
       <arg type="s" name="json"/>
     </signal>
 
+    <!-- Fires on every clipboard change: text is the UTF-8 text (or ""), mimetypes lists the available MIME
+         types, so a listener can classify text/other/empty and read any format on demand. -->
+    <signal name="ClipboardChanged">
+      <arg type="s" name="text"/>
+      <arg type="as" name="mimetypes"/>
+    </signal>
+
   </interface>
 </node>`;
 
@@ -328,6 +362,8 @@ export default class KeysharpExtension {
         this._overlayNameWatchId = 0;
         this._overlayCleanupId = 0;
         this._overlayReconnectTimers = new Map();
+        this._clipboard = null;
+        this._clipboardSelectionId = null;
     }
 
     enable() {
@@ -412,9 +448,29 @@ export default class KeysharpExtension {
             if (win && this._isTrackedWindow(win))
                 this._hookWindow(win);
         }
+
+        // Clipboard change notification: the shell owns the selection, so MetaSelection's owner-changed fires
+        // for every clipboard change regardless of which client (or none) is focused — the focus-independent
+        // path a background app otherwise can't get on Wayland (Mutter exposes no data-control protocol).
+        try {
+            this._clipboard = St.Clipboard.get_default();
+            this._clipboardSelectionId = global.display.get_selection().connect('owner-changed',
+                (_selection, selectionType, _source) => {
+                    if (selectionType === Meta.SelectionType.SELECTION_CLIPBOARD)
+                        this._emitClipboardChanged();
+                });
+        } catch (e) {
+            logError(e, 'Keysharp: could not hook clipboard selection');
+        }
     }
 
     disable() {
+        if (this._clipboardSelectionId !== null) {
+            try { global.display.get_selection().disconnect(this._clipboardSelectionId); } catch (_e) {}
+            this._clipboardSelectionId = null;
+        }
+        this._clipboard = null;
+
         // Tear down any overlays still on screen, plus the owner-death cleanup machinery.
         for (const key of [...this._highlights.keys()])
             this._removeHighlightByKey(key);
@@ -512,6 +568,94 @@ export default class KeysharpExtension {
         const idx = Main.layoutManager.primaryIndex;
         const wa = Main.layoutManager.getWorkAreaForMonitor(idx);
         return [Math.round(wa.x), Math.round(wa.y), Math.round(wa.width), Math.round(wa.height)];
+    }
+
+    // --- Clipboard --------------------------------------------------------------------------------------
+    // MetaSelection is the focus-independent, all-MIME path (St.Clipboard alone can only *get* text):
+    // get_mimetypes lists the types, transfer_async streams one type's bytes, and a MetaSelectionSourceMemory
+    // owner writes one type.
+    _selectionObj() {
+        return global.display.get_selection();
+    }
+
+    _mimetypes() {
+        try {
+            return this._selectionObj().get_mimetypes(Meta.SelectionType.SELECTION_CLIPBOARD) || [];
+        } catch (_e) {
+            return [];
+        }
+    }
+
+    GetClipboardMimetypes() {
+        return this._mimetypes();
+    }
+
+    // Async: MetaSelection.transfer_async streams the content of one MIME type into a memory output stream.
+    GetClipboardContentAsync(params, invocation) {
+        const [mimetype] = params;
+        try {
+            const stream = Gio.MemoryOutputStream.new_resizable();
+            this._selectionObj().transfer_async(Meta.SelectionType.SELECTION_CLIPBOARD, String(mimetype), -1, stream, null,
+                (sel, res) => {
+                    let bytes = new Uint8Array(0);
+                    try {
+                        sel.transfer_finish(res);
+                        stream.close(null);
+                        const data = stream.steal_as_bytes().get_data();
+                        if (data)
+                            bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+                    } catch (_e) {
+                    }
+                    try { invocation.return_value(new GLib.Variant('(ay)', [bytes])); } catch (_e2) {}
+                });
+        } catch (_e) {
+            try { invocation.return_value(new GLib.Variant('(ay)', [new Uint8Array(0)])); } catch (_e2) {}
+        }
+    }
+
+    SetClipboardContent(mimetype, bytes) {
+        try {
+            const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+            const source = Meta.SelectionSourceMemory.new(String(mimetype), new GLib.Bytes(data));
+            this._selectionObj().set_owner(Meta.SelectionType.SELECTION_CLIPBOARD, source);
+            return true;
+        } catch (e) {
+            logError(e, 'Keysharp: SetClipboardContent failed');
+            return false;
+        }
+    }
+
+    // Text conveniences (the common A_Clipboard path). Read via St.Clipboard.get_text (async); write goes
+    // through SetClipboardContent so the owner is a proper MetaSelection source.
+    GetClipboardTextAsync(_params, invocation) {
+        try {
+            (this._clipboard || St.Clipboard.get_default()).get_text(St.ClipboardType.CLIPBOARD, (_cb, text) => {
+                try { invocation.return_value(new GLib.Variant('(s)', [text || ''])); } catch (_e) {}
+            });
+        } catch (_e) {
+            try { invocation.return_value(new GLib.Variant('(s)', [''])); } catch (_e2) {}
+        }
+    }
+
+    SetClipboardText(text) {
+        return this.SetClipboardContent('text/plain;charset=utf-8', new TextEncoder().encode(String(text || '')));
+    }
+
+    _emitClipboardChanged() {
+        if (!this._dbusImpl)
+            return;
+
+        const mimetypes = this._mimetypes();
+        try {
+            (this._clipboard || St.Clipboard.get_default()).get_text(St.ClipboardType.CLIPBOARD, (_cb, text) => {
+                if (!this._dbusImpl)
+                    return;
+                try {
+                    this._dbusImpl.emit_signal('ClipboardChanged', new GLib.Variant('(sas)', [text || '', mimetypes]));
+                } catch (_e) {}
+            });
+        } catch (_e) {
+        }
     }
 
     FocusWindow(handle) {

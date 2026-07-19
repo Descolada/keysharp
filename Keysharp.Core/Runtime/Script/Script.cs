@@ -458,6 +458,10 @@ namespace Keysharp.Runtime
 
 		public Script(Type program = null, string hookMutexName = null)
 		{
+			//Create the message filter before publishing TheScript. Windows belonging to a previous script (or forms
+			//owned by another pumping thread) can dispatch a message the instant TheScript points at this instance,
+			//and KeysharpForm.WndProc reads TheScript.msgFilter, so it must never observe a half-constructed script.
+			msgFilter = new MessageFilter(this);
 			Script.TheScript = this;//Everywhere in the script will reference this.
 			MainWindow.ResetDebugOutputBuffer();
 
@@ -483,12 +487,9 @@ namespace Keysharp.Runtime
 			mainEventScheduler = ThreadScheduler;
 
 #if WINDOWS
-			msgFilter = new MessageFilter(this);
 			Application.AddMessageFilter(msgFilter);
 			InitializeScreenSystemEventsOnNeutralContext();
 #else
-			msgFilter = new MessageFilter(this);
-
 			if (!IsOnMainThread)
 				PostToUIThread(msgFilter.Attach);
 			else

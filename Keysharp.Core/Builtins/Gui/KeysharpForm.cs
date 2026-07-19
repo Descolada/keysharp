@@ -78,17 +78,23 @@ namespace Keysharp.Builtins
 			// WM_KEYDOWN will get translated to WM_CHAR and the user may want to capture that as well.
 			// Additionally if any messages get lost for some reason or another message arrives here
 			// before the MessageFilter processed message has had time to arrive then we'd confuse the two.
-			var msgFilter = TheScript.msgFilter;
+			// A form can outlive the script that created it (the close is posted to the owning thread and only
+			// runs at the next pump, by which time the script may be disposed and another one constructed),
+			// so the filter can legitimately be absent here. Fall through to default processing when it is.
+			var msgFilter = TheScript?.msgFilter;
 
 			if (m.Msg == WindowsAPI.WM_COMMNOTIFY)
 				_ = Dialogs.HandleDialogNotification((uint)m.WParam.ToInt64(), m.LParam);
 
 			var handledByMessageHook = false;
 
-			if (msgFilter.handledMsg == m)
-				msgFilter.handledMsg = null;
-			else if (beenConstructed && msgFilter.CallEventHandlers(ref m))
-				handledByMessageHook = true;
+			if (msgFilter != null)
+			{
+				if (msgFilter.handledMsg == m)
+					msgFilter.handledMsg = null;
+				else if (beenConstructed && msgFilter.CallEventHandlers(ref m))
+					handledByMessageHook = true;
+			}
 
 			ApplyCtlColorThemeFromMessage(ref m);
 

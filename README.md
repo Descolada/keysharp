@@ -11,6 +11,13 @@ Most scripts run unmodified on Windows. Across platforms, anything using **DllCa
 - [Full setup & build guide](docs/reference.md)
 - [AutoHotkey v2 differences](docs/reference.md#differences)
 
+## Demos
+
+![Keysharp demos](https://github.com/Descolada/keysharp/releases/download/media/KeysharpDemo.gif)
+
+See the [demos folder](./demos) for example scripts showcasing Keysharp's
+cross-platform image, overlay, OCR, input and window-management APIs.
+
 ## Quick Start
 
 1. Install Keysharp for your platform (see [Install](#install)).

@@ -245,7 +245,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		/// <summary>Subscribe to clipboard changes; handler gets (utf8 text, available MIME types) and may fire
 		/// on any thread. Returns an IDisposable that ends the subscription, or null if unsupported.</summary>
-		IDisposable SubscribeClipboardChanges(Action<string, string[]> handler) => null;
+		IDisposable SubscribeClipboardChanges(Action<string, string[]> handler, Action<Exception> onError = null) => null;
+
+		/// <summary>Observe availability changes for the compositor clipboard service. This is a recovery hint, not
+		/// a clipboard-content notification.</summary>
+		IDisposable SubscribeClipboardAvailability(Action handler) => null;
 
 		// ---- Mouse simulation -------------------------------------------
 		// Default implementations return false (backend does not support it).

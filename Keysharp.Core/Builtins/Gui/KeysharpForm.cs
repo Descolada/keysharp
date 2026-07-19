@@ -18,7 +18,9 @@ namespace Keysharp.Builtins
 		internal bool beenConstructed = false;
 		internal bool clickThrough;
 		private bool closingFromDestroy;
+#if WINDOWS
 		private nint originalWndProcPtr;
+#endif
 #if OSX
 		private uint mouseTransparentWindow;
 #endif

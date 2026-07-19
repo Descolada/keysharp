@@ -47,10 +47,7 @@ namespace Keysharp.Internals.Window.Unix
 				if (disposed)
 					return;
 
-				if (value is Icon etoIcon)
-					indicator.Icon = etoIcon;
-				else if (value is Image etoImage)
-					indicator.Image = etoImage;
+				indicator.Image = value;
 			}
 		}
 

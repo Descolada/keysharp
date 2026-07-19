@@ -175,7 +175,7 @@ namespace Keysharp.Internals.Window.Unix
 			return item;
 		}
 
-		public ToolStripItem Add(ToolStripItem item)
+		public new ToolStripItem Add(ToolStripItem item)
 		{
 			AddItem(item);
 			return item;

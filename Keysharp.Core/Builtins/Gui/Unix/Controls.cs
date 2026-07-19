@@ -592,7 +592,7 @@ namespace Keysharp.Builtins
 		public bool AutoSize { get; set; }
 		public Color TextColor { get; set; } = SystemColors.ControlText;
 
-		public new string Text
+		public string Text
 		{
 			get => text;
 			set
@@ -950,7 +950,7 @@ namespace Keysharp.Builtins
 		}
 
 		public ListViewItemCollection Items { get; } = new ListViewItemCollection();
-		public ListViewItemCollection SelectedItems { get; } = new ListViewItemCollection();
+		public new ListViewItemCollection SelectedItems { get; } = new ListViewItemCollection();
 		public IList<int> SelectedIndices { get; } = new List<int>();
 		public ListViewItem FocusedItem { get; set; }
 		public new WinForms.ColumnHeaderCollection Columns { get; } = new WinForms.ColumnHeaderCollection();
@@ -964,7 +964,7 @@ namespace Keysharp.Builtins
 				RefreshDataStore();
 			}
 		}
-		public bool GridLines
+		public new bool GridLines
 		{
 			get => gridLines;
 			set
@@ -1742,7 +1742,7 @@ namespace Keysharp.Builtins
 				Invalidate();
 			}
 		}
-		public ProgressBarStyle Style
+		public new ProgressBarStyle Style
 		{
 			get => style;
 			set
@@ -1923,7 +1923,7 @@ namespace Keysharp.Builtins
 				this.owner = owner;
 			}
 
-			public KeysharpToolStripStatusLabel Add(KeysharpToolStripStatusLabel item)
+			public new KeysharpToolStripStatusLabel Add(KeysharpToolStripStatusLabel item)
 			{
 				base.Add(item);
 				owner?.UpdateItems();

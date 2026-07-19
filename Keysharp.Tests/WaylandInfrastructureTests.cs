@@ -118,37 +118,83 @@ namespace Keysharp.Tests
 		}
 
 		[Test]
-		public void LayerShellRetryBackoffIsBounded()
+		public void ScreencopySessionIsRetiredOnlyWhenOperationMarksItUnusable()
 		{
-			Assert.That(WaylandRetryPolicy.DelayMilliseconds(1), Is.EqualTo(200));
-			Assert.That(WaylandRetryPolicy.DelayMilliseconds(4), Is.EqualTo(1600));
-			Assert.That(WaylandRetryPolicy.DelayMilliseconds(8), Is.EqualTo(5000));
-			Assert.That(WaylandRetryPolicy.DelayMilliseconds(100), Is.EqualTo(5000));
+			FakeSession current = new();
+			var first = current;
+			Assert.That(WaylandScreenCapture.RunWithReusableSession(ref current, _ => (new object(), true)), Is.Not.Null);
+			Assert.That(current, Is.SameAs(first));
+
+			Assert.That(WaylandScreenCapture.RunWithReusableSession<FakeSession, object>(ref current,
+				_ => (null, true)), Is.Null);
+			Assert.That(first.Disposed, Is.False);
+			Assert.That(current, Is.SameAs(first));
+
+			Assert.That(WaylandScreenCapture.RunWithReusableSession<FakeSession, object>(ref current,
+				_ => (null, false)), Is.Null);
+			Assert.That(first.Disposed, Is.True);
+			Assert.That(current, Is.Null);
 		}
 
 		[Test]
-		public void ScreencopySessionIsReusedAndReopenedAfterFailure()
+		public void WindowEventSourcePromotesOnOwnerChangeAndDemotesOnStreamFailure()
 		{
-			FakeSession current = null;
-			var opens = 0;
-			FakeSession Open() { opens++; return new FakeSession(); }
+			var available = false;
+			var preferredAttempts = 0;
+			var fallbackStarts = 0;
+			Action availabilityChanged = null;
+			Action<Exception> streamError = null;
+			var fallbacks = new List<TrackingDisposable>();
+			var preferred = new TrackingDisposable();
 
-			Assert.That(WaylandScreenCapture.RunWithReusableSession(ref current, Open, _ => new object()), Is.Not.Null);
-			var first = current;
-			Assert.That(WaylandScreenCapture.RunWithReusableSession(ref current, Open, _ => new object()), Is.Not.Null);
-			Assert.That(current, Is.SameAs(first));
-			Assert.That(opens, Is.EqualTo(1));
+			using var source = new RecoveringSubscription(
+				onError =>
+				{
+					preferredAttempts++;
+					streamError = onError;
+					return preferred;
+				},
+				() =>
+				{
+					fallbackStarts++;
+					var fallback = new TrackingDisposable();
+					fallbacks.Add(fallback);
+					return fallback;
+				},
+				() => available,
+				handler =>
+				{
+					availabilityChanged = handler;
+					return new TrackingDisposable();
+				},
+				retryIntervalMs: 60_000);
+			source.Start();
 
-			Assert.That(WaylandScreenCapture.RunWithReusableSession(ref current, Open, _ => (object)null), Is.Null);
-			Assert.That(first.Disposed, Is.True);
-			Assert.That(current, Is.Null);
-			Assert.That(WaylandScreenCapture.RunWithReusableSession(ref current, Open, _ => new object()), Is.Not.Null);
-			Assert.That(opens, Is.EqualTo(2));
+			Assert.That(source.IsPreferred, Is.False);
+			Assert.That(preferredAttempts, Is.Zero, "known owner absence must not consume retry attempts");
+			Assert.That(fallbackStarts, Is.EqualTo(1));
+
+			available = true;
+			availabilityChanged();
+			Assert.That(source.IsPreferred, Is.True);
+			Assert.That(preferredAttempts, Is.EqualTo(1));
+			Assert.That(fallbacks[0].Disposed, Is.True);
+
+			streamError(new IOException("signal stream failed"));
+			Assert.That(source.IsPreferred, Is.False);
+			Assert.That(preferred.Disposed, Is.True);
+			Assert.That(fallbackStarts, Is.EqualTo(2));
 		}
 
 		private sealed class FakeSession : IDisposable
 		{
 			internal bool Disposed;
+			public void Dispose() => Disposed = true;
+		}
+
+		private sealed class TrackingDisposable : IDisposable
+		{
+			internal bool Disposed { get; private set; }
 			public void Dispose() => Disposed = true;
 		}
 

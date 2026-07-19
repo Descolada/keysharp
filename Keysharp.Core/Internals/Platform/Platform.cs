@@ -24,9 +24,15 @@ namespace Keysharp.Internals
 		/// <summary>The resolved host. Forcing this on the startup thread is the deterministic resolution point.</summary>
 		internal static PlatformHost Instance => host.Value;
 
-		/// <summary>Force re-resolution (e.g. a test that mutates the environment). Cheap; the next access
-		/// reconstructs the host. Not called per Script — the host holds no per-Script state (see class remarks).</summary>
-		internal static void Reset() => host = NewHost();
+		/// <summary>Dispose and re-resolve the service graph. This is a test-only, no-concurrent-use operation; the
+		/// static desktop-environment snapshot is intentionally not refreshed.</summary>
+		internal static void Reset()
+		{
+			var previous = Interlocked.Exchange(ref host, NewHost());
+
+			if (previous.IsValueCreated)
+				previous.Value.Dispose();
+		}
 
 		// Convenience accessors — a field read through Instance, then the service.
 		internal static IWindow Window => Instance.Window;

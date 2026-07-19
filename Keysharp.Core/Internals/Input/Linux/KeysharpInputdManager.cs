@@ -9,6 +9,10 @@ namespace Keysharp.Internals.Input.Linux
 	{
 		private static readonly Lock gate = new();
 		private static readonly Lock queryGate = new();
+		private static readonly RetryGate connectionRetries = new(maximumAttempts: 3,
+			initialRetryDelay: TimeSpan.FromMilliseconds(250), maximumRetryDelay: TimeSpan.FromSeconds(2));
+		private static readonly RetryGate queryRetries = new(maximumAttempts: 3,
+			initialRetryDelay: TimeSpan.FromMilliseconds(100), maximumRetryDelay: TimeSpan.FromSeconds(1));
 
 		// client owns trust/control state; queryClient handles ordinary synthesis/state RPC.
 		// Hook callbacks use their LinuxHookThread HookStream synchronously instead.
@@ -283,15 +287,29 @@ namespace Keysharp.Internals.Input.Linux
 
 				lock (queryGate)
 				{
-					if (queryClient != null)
+					if (queryClient != null && queryClient.IsConnected)
 						return queryClient;
+
+					if (queryClient != null)
+					{
+						try { queryClient.Dispose(); } catch { }
+						queryClient = null;
+						queryRetries.Rearm();
+					}
+
+					using var attempt = queryRetries.TryBegin();
+
+					if (attempt == null)
+						return null;
 
 					try
 					{
 						queryClient = KeysharpInputdClient.Connect();
+						attempt.Succeed();
 					}
 					catch (Exception ex) when (IsConnectException(ex))
 					{
+						attempt.Fail(ex);
 					}
 
 					return queryClient;
@@ -342,6 +360,7 @@ namespace Keysharp.Internals.Input.Linux
 					Ks.OutputDebugLine($"keysharp-inputd query channel lost: {ex.Message}");
 					try { queryClient?.Dispose(); } catch { }
 					queryClient = null;
+					queryRetries.Rearm();
 					return false;
 				}
 			}
@@ -415,7 +434,7 @@ namespace Keysharp.Internals.Input.Linux
 				}
 				catch (Exception ex) when (IsTransportException(ex))
 				{
-					DisposeClient();
+					HandleConnectionLost();
 					message = ex.Message;
 					return false;
 				}
@@ -454,9 +473,12 @@ namespace Keysharp.Internals.Input.Linux
 				var requested = ExpandInputPermissionRequest(required);
 				var requiredFromInputd = requested & InputdGrantedCapabilities;
 
-				// An explicit user re-request (forcePrompt) clears the declined latch.
+				// An explicit user re-request (forcePrompt) clears the declined latch and the endpoint retry budget.
 				if (forcePrompt)
+				{
 					declinedCapabilities &= ~requiredFromInputd;
+					connectionRetries.Rearm();
+				}
 
 				// Already declined this run: deny WITHOUT a hello/prompt (unless the caps
 				// are actually granted already). This is what stops one Deny from
@@ -486,7 +508,7 @@ namespace Keysharp.Internals.Input.Linux
 				}
 				catch (Exception ex) when (IsTransportException(ex))
 				{
-					DisposeClient();
+					HandleConnectionLost();
 					return new PermissionResult(PermissionStatus.Unsupported,
 						$"keysharp-inputd connection lost while preparing '{operation}': {ex.Message}");
 				}
@@ -511,7 +533,7 @@ namespace Keysharp.Internals.Input.Linux
 				// death threw an avoidable transport exception instead of
 				// transparently reconnecting here, same as every other
 				// caller-visible transport failure already does.
-				DisposeClient();
+				HandleConnectionLost();
 			}
 
 			return TryConnect(operation, out status, out message);
@@ -535,9 +557,21 @@ namespace Keysharp.Internals.Input.Linux
 
 		private static bool TryConnect(string operation, out PermissionStatus status, out string message)
 		{
+			using var attempt = connectionRetries.TryBegin();
+
+			if (attempt == null)
+			{
+				status = PermissionStatus.Unsupported;
+				message = $"keysharp-inputd is unavailable and its {connectionRetries.FailureCount}-attempt reconnect burst " +
+					$"has stopped for this run. An explicit permission request or a detected connection loss will rearm it.";
+				return false;
+			}
+
 			try
 			{
 				client = KeysharpInputdClient.Connect();
+				attempt.Succeed();
+				queryRetries.Rearm();
 				status = PermissionStatus.Granted;
 				message = string.Empty;
 
@@ -549,6 +583,7 @@ namespace Keysharp.Internals.Input.Linux
 			catch (Exception ex) when (IsConnectException(ex))
 			{
 				DisposeClient();
+				attempt.Fail(ex);
 				status = PermissionStatus.Unsupported;
 				message = $"keysharp-inputd is not installed or not available at '{KeysharpInputdClient.DefaultSocketPath}'. " +
 					$"Install Keysharp's optional Linux input helper to use '{operation ?? "input automation"}'. Details: {ex.Message}";
@@ -606,10 +641,21 @@ namespace Keysharp.Internals.Input.Linux
 			DisposeQueryClient();
 		}
 
+		private static void HandleConnectionLost()
+		{
+			DisposeClient();
+			connectionRetries.Rearm();
+			queryRetries.Rearm();
+		}
+
 		internal static void DisconnectClients()
 		{
 			lock (gate)
+			{
 				DisposeClient();
+				connectionRetries.Rearm();
+				queryRetries.Rearm();
+			}
 		}
 
 		private static void DisposeQueryClient()
@@ -618,6 +664,7 @@ namespace Keysharp.Internals.Input.Linux
 			{
 				try { queryClient?.Dispose(); } catch { }
 				queryClient = null;
+				queryRetries.Rearm();
 			}
 		}
 

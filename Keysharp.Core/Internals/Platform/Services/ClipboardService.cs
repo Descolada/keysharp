@@ -247,10 +247,19 @@ namespace Keysharp.Internals
 			clip.Changed += handler;
 			return new CallbackDisposable(() =>
 			{
-				var c = Clipboard.Instance;
+				void Unsubscribe()
+				{
+					var c = Clipboard.Instance;
 
-				if (c != null)
-					c.Changed -= handler;
+					if (c != null)
+						c.Changed -= handler;
+				}
+
+				var app = Eto.Forms.Application.Instance;
+				if (app != null && !app.IsUIThread)
+					app.AsyncInvoke(Unsubscribe);
+				else
+					Unsubscribe();
 			});
 		}
 
@@ -267,23 +276,214 @@ namespace Keysharp.Internals
 
 #if LINUX
 	/// <summary>
-	/// Resolves the one Linux <see cref="IClipboard"/> for this session — the only place the clipboard backend is
-	/// chosen. After this, every clipboard seam is a plain call: the right implementation was already selected, so
-	/// there is no <c>SupportsClipboard</c> / <c>is …Backend</c> test on the hot path.
+	/// Resolves the one Linux <see cref="IClipboard"/> for this session. Native data-control and X11 clipboards are
+	/// stable process capabilities and use Eto directly. A focus-gated Wayland session instead gets a recovering
+	/// router: extension availability is runtime state (shell startup/reload and D-Bus reconnects), so a transient
+	/// negative must never be frozen into the process-global <see cref="PlatformHost"/>.
 	/// </summary>
 	internal static class LinuxClipboards
 	{
 		internal static IClipboard Resolve()
 		{
-			// Route through a Wayland shell-extension backend only when the compositor exposes focus-independent
-			// clipboard access (a responding extension) AND Eto has fallen back to its focus-gated GTK handler
-			// (no data-control protocol). Otherwise — X11, or a Wayland session where Eto's data-control
-			// WaylandClipboardHandler works (e.g. KWin) — the shared Eto clipboard is correct.
-			if (Wl.WaylandBackend.Current?.SupportsClipboard == true
-				&& Eto.Forms.Clipboard.Instance?.Handler is not Eto.GtkSharp.Forms.WaylandClipboardHandler)
-				return new WaylandBackendClipboard();
+			var eto = new EtoClipboard();
+			var backend = Wl.WaylandBackend.Current;
 
-			return new EtoClipboard();
+			// Eto's WaylandClipboardHandler has a compositor data-control channel and remains authoritative. On X11,
+			// or when no compositor backend exists, there is likewise nothing useful to recover/promote to.
+			if (backend == null
+				|| Eto.Forms.Clipboard.Instance?.Handler is Eto.GtkSharp.Forms.WaylandClipboardHandler)
+				return eto;
+
+			var compositor = new WaylandBackendClipboard();
+			return new RecoveringLinuxClipboard(
+				eto,
+				compositor,
+				() => backend.SupportsClipboard,
+				(onChanged, onError) => compositor.SubscribeRecovering(onChanged, onError),
+				backend.SubscribeClipboardAvailability);
+		}
+	}
+
+	/// <summary>
+	/// Routes each operation to the compositor clipboard while it is live, otherwise to Eto. Unlike choosing a
+	/// concrete implementation from a one-shot startup probe, this object is safe to cache process-wide: every later
+	/// operation can promote after a transient miss, and a monitoring subscription retries until the shell signal is
+	/// available (then retries again if its D-Bus stream fails).
+	/// </summary>
+	internal sealed class RecoveringLinuxClipboard(
+		IClipboard fallback,
+		IClipboard compositor,
+		Func<bool> compositorAvailable,
+		Func<Action, Action<Exception>, IDisposable> subscribeCompositor,
+		Func<Action, IDisposable> subscribeAvailability = null,
+		int retryIntervalMs = 1000) : IClipboard
+	{
+		private bool CanUseCompositor()
+		{
+			try { return compositorAvailable(); }
+			catch { return false; }
+		}
+
+		private IClipboard Active => CanUseCompositor() ? compositor : fallback;
+
+		public string GetText() => Active.GetText();
+		public void SetText(string text) => Active.SetText(text);
+		public bool IsEmpty => Active.IsEmpty;
+		public int ChangeType() => Active.ChangeType();
+		public Bitmap GetImage() => Active.GetImage();
+		public void SetImage(Bitmap image) => Active.SetImage(image);
+		public byte[] CaptureAll() => Active.CaptureAll();
+		public void RestoreAll(Keysharp.Builtins.ClipboardAll clip) => Active.RestoreAll(clip);
+
+		public IDisposable Subscribe(Action onChanged)
+			=> new RecoveringClipboardSubscription(
+				onChanged,
+				callback => fallback.Subscribe(callback),
+				CanUseCompositor,
+				(callback, onError) => subscribeCompositor(callback, onError),
+				subscribeAvailability,
+				() => ClipboardSignature(fallback),
+				() => ClipboardSignature(compositor),
+				Math.Max(1, retryIntervalMs));
+
+		private static string ClipboardSignature(IClipboard clipboard)
+		{
+			try
+			{
+				var type = clipboard.ChangeType();
+				return type == 1 ? $"1\0{clipboard.GetText()}" : type.ToString(CultureInfo.InvariantCulture);
+			}
+			catch
+			{
+				return null;
+			}
+		}
+	}
+
+	/// <summary>Owns one recoverable clipboard watch. Eto remains subscribed so demotion has no attachment gap, but
+	/// source gating prevents duplicate delivery while the compositor stream is healthy. Retries are bounded and an
+	/// authoritative D-Bus owner change rearms them.</summary>
+	internal sealed class RecoveringClipboardSubscription : IDisposable
+	{
+		private readonly object sync = new();
+		private readonly Action onChanged;
+		private readonly Func<string> fallbackSignature;
+		private readonly Func<string> compositorSignature;
+		private readonly RecoveringSubscription recovery;
+		private string lastSignature;
+		private bool fallbackDirty;
+		private bool reconcileOnPromotion;
+		private int disposed;
+
+		internal RecoveringClipboardSubscription(
+			Action onChanged,
+			Func<Action, IDisposable> subscribeFallback,
+			Func<bool> compositorAvailable,
+			Func<Action, Action<Exception>, IDisposable> subscribeCompositor,
+			Func<Action, IDisposable> subscribeAvailability,
+			Func<string> fallbackSignature,
+			Func<string> compositorSignature,
+			int retryIntervalMs)
+		{
+			this.onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
+			this.fallbackSignature = fallbackSignature;
+			this.compositorSignature = compositorSignature;
+			lastSignature = SafeSignature(fallbackSignature);
+			recovery = new RecoveringSubscription(
+				onError => subscribeCompositor(CompositorChanged, onError),
+				() => subscribeFallback(FallbackChanged),
+				compositorAvailable,
+				subscribeAvailability,
+				PreferredStateChanged,
+				keepFallbackWarm: true,
+				retryIntervalMs);
+			recovery.Start();
+		}
+
+		internal bool HasCompositorSubscription
+		{
+			get => recovery.IsPreferred;
+		}
+
+		internal bool TryAttachCompositor() => recovery.TryAttachPreferred();
+
+		private void FallbackChanged()
+		{
+			lock (sync)
+			{
+				if (disposed != 0)
+					return;
+
+				if (recovery.IsPreferred)
+				{
+					fallbackDirty = true;
+					return;
+				}
+			}
+
+			SourceChanged(fallbackSignature);
+		}
+
+		private void CompositorChanged()
+		{
+			if (Volatile.Read(ref disposed) == 0)
+				SourceChanged(compositorSignature);
+		}
+
+		private void PreferredStateChanged(bool preferred)
+		{
+			bool reconcile = false;
+			lock (sync)
+			{
+				if (disposed != 0)
+					return;
+
+				if (preferred)
+				{
+					reconcile = reconcileOnPromotion;
+					reconcileOnPromotion = false;
+				}
+				else
+				{
+					reconcile = fallbackDirty;
+					fallbackDirty = false;
+					reconcileOnPromotion = true;
+				}
+			}
+
+			if (reconcile)
+				Reconcile(preferred ? compositorSignature : fallbackSignature);
+		}
+
+		private void SourceChanged(Func<string> provider)
+		{
+			lock (sync)
+				lastSignature = SafeSignature(provider);
+
+			onChanged();
+		}
+
+		private void Reconcile(Func<string> signatureProvider)
+		{
+			var current = SafeSignature(signatureProvider);
+
+			if (current == null || lastSignature == null || !string.Equals(current, lastSignature, StringComparison.Ordinal))
+			{
+				lastSignature = current;
+				onChanged();
+			}
+		}
+
+		private static string SafeSignature(Func<string> provider)
+		{
+			try { return provider?.Invoke(); }
+			catch { return null; }
+		}
+
+		public void Dispose()
+		{
+			if (Interlocked.Exchange(ref disposed, 1) == 0)
+				recovery.Dispose();
 		}
 	}
 
@@ -521,12 +721,19 @@ namespace Keysharp.Internals
 
 		// ---- monitoring -------------------------------------------------
 		public override IDisposable Subscribe(Action onChanged)
+			=> SubscribeRecovering(onChanged, null);
+
+		internal IDisposable SubscribeRecovering(Action onChanged, Action<Exception> onError)
 		{
 			var inner = Backend?.SubscribeClipboardChanges((text, mimes) =>
 			{
 				cachedText = text ?? "";
 				cachedMimetypes = mimes ?? System.Array.Empty<string>();
 				onChanged?.Invoke();
+			}, ex =>
+			{
+				monitoring = false;
+				onError?.Invoke(ex);
 			});
 
 			if (inner == null)

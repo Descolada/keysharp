@@ -26,6 +26,14 @@ namespace Keysharp.Runtime
 		internal ScriptEventScheduler CurrentSchedulerIfCreated
 			=> eventSchedulers != null && eventSchedulers.IsValueCreated ? eventSchedulers.Value : null;
 
+		/// <summary>Whether a synchronous task wait may safely pump Keysharp/UI events on this thread. Static
+		/// initialization and ThreadPool workers must use an ordinary wait: pumping there would either touch a
+		/// partially constructed Script or create/drain a scheduler on the wrong thread.</summary>
+		internal bool CanPumpTaskWait
+			=> mainEventScheduler != null
+			   && threads is { IsValueCreated: true }
+			   && IsOnMainThread;
+
 		/// <summary>
 		/// Returns the scheduler that should own work initiated on the current thread.
 		/// On threads with a SynchronizationContext (UI thread, RealThreads), returns that thread's

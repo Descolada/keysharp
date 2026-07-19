@@ -28,10 +28,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		protected readonly Dictionary<uint, bool> customPrefixSuppress = new();
 		protected readonly Dictionary<uint, List<(uint keycode, uint mods)>> dynamicPrefixGrabs = new();
 		private uint activeHotkeyVk;
-		private uint activeHotkeyKc;
 		private bool activeHotkeyDown;
 		internal uint ActiveHotkeyVk => activeHotkeyVk;
-		internal uint ActiveHotkeyKc => activeHotkeyKc;
 		internal bool SendInProgress => sendInProgress;
 		internal bool IsHotkeySuffixDown(uint vk) => activeHotkeyDown && activeHotkeyVk == vk;
 		private readonly Dictionary<uint, int> suppressedHotkeyReleases = new();

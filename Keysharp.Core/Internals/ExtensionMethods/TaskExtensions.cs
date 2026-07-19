@@ -38,6 +38,12 @@ namespace Keysharp.Internals.ExtensionMethods
 			if (task == null)
 				return true;
 
+			// These helpers are also used by cold-start/background compositor probes. Only the fully initialized
+			// script's main/UI thread may pump Keysharp events; a worker must never reach Flow.Sleep*, which is
+			// intentionally backed by Script.TheScript and its thread scheduler.
+			if (Script.TheScript?.CanPumpTaskWait != true)
+				return task.Wait(timeoutMs);
+
 			var deadline = Environment.TickCount64 + timeoutMs;
 
 			while (!task.Wait(10))
@@ -55,6 +61,12 @@ namespace Keysharp.Internals.ExtensionMethods
 		{
 			if (task == null)
 				return;
+
+			if (Script.TheScript?.CanPumpTaskWait != true)
+			{
+				task.Wait();
+				return;
+			}
 
 			while (!task.Wait(10))
 				Pump(interruptible);

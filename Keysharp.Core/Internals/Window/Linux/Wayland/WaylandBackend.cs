@@ -28,6 +28,24 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
+		/// <summary>Test/process-host lifecycle reset. Call only when no platform operation is in flight.</summary>
+		internal static void Reset()
+		{
+			IWaylandBackend previous;
+
+			lock (sync)
+			{
+				previous = current;
+				current = null;
+				probed = false;
+			}
+
+			(previous as IDisposable)?.Dispose();
+			WaylandLayerShellClient.Reset();
+			WaylandForeignToplevels.Reset();
+			WaylandScreenCapture.Reset();
+		}
+
 		private static IWaylandBackend Probe()
 		{
 			// These backends drive the *Wayland* compositor's privileged introspection (cursor/window
@@ -368,7 +386,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (sink == null)
 					return null;
 
-				var token = Guid.NewGuid().ToString("N");
 				var script = KWinDBusBridge.WindowHelpersJs + "\n" + EventScriptBody;
 
 				void OnEvent(string type, string json)
@@ -390,19 +407,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					}
 				}
 
-				IDisposable sub = null;
-
-				try
-				{
-					sub = KWinDBusBridge.StartEventScriptAsync(token, script, OnEvent).GetAwaiter().GetResult();
-				}
-				catch
-				{
-				}
-
-				// If the persistent script couldn't be loaded (KWin scripting unavailable), degrade to polling
-				// rather than silently delivering nothing.
-				return sub ?? new WaylandPollingEventSource(this, sink);
+				return RecoveringSubscription.Create(
+					onError =>
+					{
+						var token = Guid.NewGuid().ToString("N");
+						try { return KWinDBusBridge.StartEventScriptAsync(token, script, OnEvent).GetAwaiter().GetResult(); }
+						catch (Exception ex) { onError(ex); return null; }
+					},
+					() => new WaylandPollingEventSource(this, sink),
+					() => KWinDBusBridge.HasOwner,
+					KWinDBusBridge.SubscribeAvailability);
 			}
 
 			private static WaylandWindowEventKind? MapEventKind(string type) => type switch
@@ -902,8 +916,13 @@ for (var __i = 0; __i < __order.length; ++__i) {
 					}
 				}
 
-				// Fall back to polling if the extension's signal isn't available (extension missing/old).
-				return GnomeShellBridge.WatchWindowEvent(OnEvent) ?? new WaylandPollingEventSource(this, sink);
+				// GNOME has no independent query channel when the extension is absent, so remain quiescent and
+				// promote when its watched D-Bus owner returns instead of polling that same unavailable service.
+				return RecoveringSubscription.Create(
+					onError => GnomeShellBridge.WatchWindowEvent(OnEvent, onError),
+					null,
+					GnomeShellBridge.ExtensionServiceHasOwner,
+					GnomeShellBridge.SubscribeExtensionAvailability);
 			}
 
 			private static WaylandWindowEventKind? MapEventKind(string type) => type switch
@@ -930,10 +949,9 @@ for (var __i = 0; __i < __order.length; ++__i) {
 			public bool TrySendMouseScroll(int delta, bool vertical)
 				=> GnomeShellBridge.SendMouseScroll(delta, vertical);
 
-				// Clipboard runs only through the extension (Mutter exposes no data-control protocol). Because the
-				// clipboard backend is chosen once with no reactive fallback, this gates on a real liveness probe (not
-				// mere name ownership) so a stale/broken extension degrades to the focus-gated Eto clipboard instead
-				// of a silently-dead one. Raw MIME <-> bytes; higher layers map formats onto it.
+				// Clipboard runs only through the extension (Mutter exposes no data-control protocol). The recovering
+				// clipboard router uses this real protocol probe (not mere name ownership) to promote/demote at runtime.
+				// Raw MIME <-> bytes; higher layers map formats onto it.
 				public bool SupportsClipboard => GnomeShellBridge.SupportsClipboard();
 
 				public string[] GetClipboardMimetypes()
@@ -951,8 +969,11 @@ for (var __i = 0; __i < __order.length; ++__i) {
 				public bool SetClipboardText(string text)
 					=> GnomeShellBridge.SetClipboardText(text);
 
-				public IDisposable SubscribeClipboardChanges(Action<string, string[]> handler)
-					=> handler == null ? null : GnomeShellBridge.WatchClipboardChanged(handler);
+				public IDisposable SubscribeClipboardChanges(Action<string, string[]> handler, Action<Exception> onError = null)
+					=> handler == null ? null : GnomeShellBridge.WatchClipboardChanged(handler, onError);
+
+				public IDisposable SubscribeClipboardAvailability(Action handler)
+					=> GnomeShellBridge.SubscribeExtensionAvailability(handler);
 
 			// ---- helpers ------------------------------------------------
 

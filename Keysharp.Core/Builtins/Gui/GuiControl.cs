@@ -24,16 +24,22 @@ namespace Keysharp.Builtins
 			// The returned values are then inspected to determine whether subsequent handlers should be called.
 			private CallbackHub changeHandlers;
 			private CallbackHub columnClickHandlers;
+#if WINDOWS
 			private ConcurrentDictionary<int, CallbackHub> commandHandlers;
+#endif
 			private CallbackHub contextMenuChangedHandlers;
+#if WINDOWS
 			private nint dummyHandle;
+#endif
 			private CallbackHub focusedItemChangedHandlers;
 			private CallbackHub focusHandlers;
 			private CallbackHub itemCheckHandlers;
 			private CallbackHub itemEditHandlers;
 			private CallbackHub itemExpandHandlers;
 			private CallbackHub lostFocusHandlers;
+#if WINDOWS
 			private ConcurrentDictionary<int, CallbackHub> notifyHandlers;
+#endif
 			private long parenthandle;
 			private CallbackHub selectedItemChangedHandlers;
 			internal Size requestedSize = new (int.MinValue, int.MinValue);
@@ -45,7 +51,9 @@ namespace Keysharp.Builtins
 				removedAny |= doubleClickHandlers.RemoveOwned(scheduler);
 				removedAny |= changeHandlers?.RemoveOwned(scheduler) == true;
 				removedAny |= columnClickHandlers?.RemoveOwned(scheduler) == true;
+#if WINDOWS
 				removedAny |= CallbackRegistry<CallbackRegistration>.RemoveOwned(commandHandlers, scheduler);
+#endif
 				removedAny |= contextMenuChangedHandlers?.RemoveOwned(scheduler) == true;
 				removedAny |= focusedItemChangedHandlers?.RemoveOwned(scheduler) == true;
 				removedAny |= focusHandlers?.RemoveOwned(scheduler) == true;
@@ -53,7 +61,9 @@ namespace Keysharp.Builtins
 				removedAny |= itemEditHandlers?.RemoveOwned(scheduler) == true;
 				removedAny |= itemExpandHandlers?.RemoveOwned(scheduler) == true;
 				removedAny |= lostFocusHandlers?.RemoveOwned(scheduler) == true;
+#if WINDOWS
 				removedAny |= CallbackRegistry<CallbackRegistration>.RemoveOwned(notifyHandlers, scheduler);
+#endif
 				removedAny |= selectedItemChangedHandlers?.RemoveOwned(scheduler) == true;
 
 #if WINDOWS

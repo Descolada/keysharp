@@ -23,6 +23,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	internal static class WaylandScreenCapture
 	{
 		private static readonly object sync = new();
+		private static readonly RetryGate sessionProbes = new(maximumAttempts: 3,
+			initialRetryDelay: TimeSpan.FromMilliseconds(200), maximumRetryDelay: TimeSpan.FromSeconds(2));
+		private static readonly RetryGate captureAttempts = new(maximumAttempts: 3,
+			initialRetryDelay: TimeSpan.FromMilliseconds(200), maximumRetryDelay: TimeSpan.FromSeconds(2));
 		private static Session current;
 
 		private const string ScreencopyManagerName = "zwlr_screencopy_manager_v1";
@@ -46,31 +50,83 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				return null;
 
 			lock (sync)
-				return RunWithReusableSession(ref current, Session.TryOpen, session => session.Capture(x, y, w, h));
+			{
+				if (current == null)
+				{
+					using var probe = sessionProbes.TryBegin();
+
+					if (probe == null)
+						return null;
+
+					current = Session.TryOpen(out var unavailable);
+
+					if (current != null)
+					{
+						probe.Succeed();
+						captureAttempts.Rearm();
+					}
+					else if (unavailable)
+						sessionProbes.Suspend();
+				}
+
+				if (current == null)
+					return null;
+
+				using var capture = captureAttempts.TryBegin();
+
+				if (capture == null)
+					return null;
+
+				var result = RunWithReusableSession(ref current,
+					session => (session.Capture(x, y, w, h), session.IsUsable));
+
+				if (result != null)
+					capture.Succeed();
+
+				if (current == null)
+					sessionProbes.Rearm();
+
+				return result;
+			}
 		}
 
 		internal static TResult RunWithReusableSession<TSession, TResult>(ref TSession session,
-			Func<TSession> open, Func<TSession, TResult> operation)
+			Func<TSession, (TResult Result, bool KeepSession)> operation)
 			where TSession : class, IDisposable
 			where TResult : class
 		{
-			session ??= open();
 			TResult result = null;
+			var keepSession = session != null;
 
 			try
 			{
 				if (session != null)
-					result = operation(session);
+					(result, keepSession) = operation(session);
 			}
-			catch { }
+			catch { keepSession = false; }
 
-			if (result == null)
+			if (!keepSession)
 			{
 				session?.Dispose();
 				session = null;
 			}
 
 			return result;
+		}
+
+		internal static void Reset()
+		{
+			Session retired;
+
+			lock (sync)
+			{
+				retired = current;
+				current = null;
+				sessionProbes.Rearm();
+				captureAttempts.Rearm();
+			}
+
+			retired?.Dispose();
 		}
 
 		private sealed class FrameState
@@ -96,6 +152,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			private nint xdgOutputManager;
 			private nint screencopyManager;
 			private uint screencopyManagerVersion;
+			private bool connectionLost;
 
 			private Session(nint display)
 			{
@@ -103,8 +160,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				selfHandle = GCHandle.Alloc(this);
 			}
 
-			internal static Session TryOpen()
+			internal bool IsUsable => !connectionLost && display != 0 && screencopyManager != 0 && shm != 0;
+
+			internal static Session TryOpen(out bool unavailable)
 			{
+				unavailable = false;
 				var display = WaylandNative.DisplayConnect(null);
 
 				if (display == 0)
@@ -119,14 +179,19 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					if (self.registry == 0 || WaylandNative.ProxyAddListener(self.registry, RegistryListener.Pointer, GCHandle.ToIntPtr(self.selfHandle)) != 0)
 						return null;
 
-					_ = WaylandNative.DisplayRoundtrip(display);
+					if (WaylandNative.DisplayRoundtrip(display) < 0)
+						return null;
 
 					if (self.screencopyManager == 0 || self.shm == 0 || self.outputsByName.Count == 0)
+					{
+						unavailable = true;
 						return null;
+					}
 
 					// Second roundtrip delivers each wl_output's geometry / mode / done events
 					// so we know each monitor's logical position and size.
-					_ = WaylandNative.DisplayRoundtrip(display);
+					if (WaylandNative.DisplayRoundtrip(display) < 0)
+						return null;
 
 					var keep = self;
 					self = null;
@@ -364,7 +429,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				while (!completed())
 				{
 					if (WaylandNative.DisplayDispatchPending(display) < 0)
+					{
+						connectionLost = true;
 						return false;
+					}
 
 					if (completed())
 						return true;
@@ -372,7 +440,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					while (WaylandNative.DisplayPrepareRead(display) != 0)
 					{
 						if (WaylandNative.DisplayDispatchPending(display) < 0)
+						{
+							connectionLost = true;
 							return false;
+						}
 
 						if (completed())
 							return true;
@@ -401,7 +472,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					}
 
 					if (WaylandNative.DisplayReadEvents(display) < 0)
+					{
+						connectionLost = true;
 						return false;
+					}
 				}
 
 				return true;

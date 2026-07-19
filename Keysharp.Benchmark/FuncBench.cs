@@ -204,7 +204,7 @@ namespace Keysharp.Benchmark
 				{
 				}
 
-				public static Myclass staticCall(object @this, params object[] args)
+				public new static Myclass staticCall(object @this, params object[] args)
 				{
 					return new Myclass(args);
 				}

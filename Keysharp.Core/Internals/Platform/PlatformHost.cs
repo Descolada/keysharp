@@ -4,7 +4,7 @@ namespace Keysharp.Internals
 	/// The resolved-once bundle of platform capability services, one per process. OS selection happens at
 	/// compile time; Linux services choose their concrete session backend once during host construction.
 	/// </summary>
-	internal abstract class PlatformHost
+	internal abstract class PlatformHost : IDisposable
 	{
 		internal abstract IWindow Window { get; }
 		internal abstract IMouse Mouse { get; }
@@ -18,6 +18,8 @@ namespace Keysharp.Internals
 		internal abstract IKeyboard Keyboard { get; }
 		internal abstract IPermissionManager Permissions { get; }
 		internal abstract ControlManagerBase Control { get; }
+
+		public virtual void Dispose() { }
 
 		/// <summary>Compile-time OS selection. Windows/macOS are single-backend; Linux resolves X11/Wayland
 		/// services inside its host.</summary>
@@ -94,6 +96,14 @@ namespace Keysharp.Internals
 		internal override IWindow Window => window;
 		internal override IPermissionManager Permissions => permissions;
 		internal override ControlManagerBase Control => control;
+
+		public override void Dispose()
+		{
+			Keysharp.Internals.Window.Linux.Wayland.GnomeShellBridge.Reset();
+			Keysharp.Internals.Window.Linux.Wayland.CinnamonShellBridge.Reset();
+			Keysharp.Internals.Window.Linux.Wayland.KWinDBusBridge.Reset();
+			Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Reset();
+		}
 	}
 #elif OSX
 	internal sealed class MacPlatformHost : PlatformHost

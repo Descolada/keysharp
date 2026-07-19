@@ -83,8 +83,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	{
 		private const string ServiceName = "org.Cinnamon";
 		private const string ObjectPath  = "/org/Cinnamon";
-		private const string DBusServiceName = "org.freedesktop.DBus";
-		private const string DBusObjectPath  = "/org/freedesktop/DBus";
 		private const string ExtensionServiceName = "io.github.keysharp.CinnamonShell";
 		private const string ExtensionObjectPath  = "/io/github/keysharp/CinnamonShell";
 		private const string IdleMonitorServiceName = "org.cinnamon.Muffin.IdleMonitor";
@@ -93,13 +91,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		// The first image-overlay upload is cold and large (full-resolution PNG); give it a generous deadline so
 		// it isn't classified TimedOut before the shell finishes decoding + uploading it. Mirrors GnomeShellBridge.
 		private const int    ImageOverlayTimeoutMs = 10_000;
-		private const int    ExtensionOwnerCheckTimeoutMs = 250;
 		private const int    ExtensionMissingCacheMs = 5000;
 		private const int    ExtensionPresentCacheMs = 1000;
-		// Backoff before re-attempting a session-bus connect that timed out / threw. A transient failure must
-		// not permanently disable the bridge, so it arms this instead of the permanent initFailed latch.
-		private const long   ConnectRetryBackoffMs = 5000;
-
 		// Shared JS helpers injected into every query: window-type filter, window->info
 		// serializer (identical shape to the GNOME extension so the parser is shared in
 		// spirit), and a stable_sequence lookup. Uses single-quoted JS string literals so
@@ -114,24 +107,36 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			"function info(w){const f=w.get_frame_rect();return{id:String(w.get_stable_sequence()),title:w.get_title()||'',appId:w.get_wm_class()||w.get_wm_class_instance()||'',pid:w.get_pid(),frame:{x:f.x,y:f.y,width:f.width,height:f.height},client:{x:f.x,y:f.y,width:f.width,height:f.height},active:!!w.appears_focused,minimized:!!w.minimized,maximized:!!(w.maximized_horizontally&&w.maximized_vertically),visible:!w.minimized,alwaysOnTop:(w.is_above?w.is_above():!!w.above),decorated:w.decorated!==false,transparency:(function(){const o=opacity(w);return o<0?-1:clamp255(o);})()};}" +
 			"function find(s){const a=global.get_window_actors();for(let i=0;i<a.length;i++){const w=a[i].get_meta_window();if(w&&w.get_stable_sequence()===s)return w;}return null;}";
 
-		private static readonly SemaphoreSlim initSemaphore = new(1, 1);
-		private static Connection connection;
-		private static IFreedesktopDBus dbusProxy;
-		private static ICinnamon proxy;
-		private static IKeysharpCinnamonShell extensionProxy;
+		private static RecoverableService<DbusSession> sessions;
+		private static WatchedDbusService<ICinnamon> cinnamonService;
+		private static WatchedDbusService<IKeysharpCinnamonShell> extension;
+		private static RetryGate highlightOwnerRegistration;
 		private static IMuffinIdleMonitor idleMonitorProxy;
-		private static long extensionOwnerCacheUntil;
-		private static bool extensionOwnerCached;
+		private static DbusSession idleMonitorSession;
 		private static long clipboardSupportCacheUntil;
 		private static bool clipboardSupportCached;
+		private static RetryGate clipboardProbes;
 		private static string connectionLocalName = "";
 		private static string registeredHighlightOwnerBusName = "";
-		private static long highlightOwnerRegisterRetryAfter;
-		// Permanent lockout — reserved for a definitively-unreachable session bus (see EnsureConnection).
-		private static bool initFailed;
-		// Time-based retry gate (Environment.TickCount64) for a transient connect failure/timeout.
-		private static long nextConnectAttempt;
 		private static readonly string HighlightOwnerKey = WaylandOverlayOwner.Key;
+
+		static CinnamonShellBridge()
+			=> Initialize();
+
+		private static void Initialize()
+		{
+			sessions = new RecoverableService<DbusSession>(ConnectSessionBus,
+				initialRetryDelay: TimeSpan.FromMilliseconds(500),
+				maximumRetryDelay: TimeSpan.FromSeconds(5));
+			cinnamonService = new WatchedDbusService<ICinnamon>(sessions, ServiceName, new ObjectPath(ObjectPath), TimeoutMs);
+			extension = new WatchedDbusService<IKeysharpCinnamonShell>(sessions, ExtensionServiceName,
+				new ObjectPath(ExtensionObjectPath), TimeoutMs);
+			highlightOwnerRegistration = new RetryGate(maximumAttempts: 3,
+				initialRetryDelay: TimeSpan.FromMilliseconds(500), maximumRetryDelay: TimeSpan.FromSeconds(5));
+			clipboardProbes = new RetryGate(maximumAttempts: 3,
+				initialRetryDelay: TimeSpan.FromMilliseconds(250), maximumRetryDelay: TimeSpan.FromSeconds(2));
+			extension.AvailabilityChanged += ExtensionAvailabilityChanged;
+		}
 
 		internal static string QueryActiveWindow()
 		{
@@ -144,15 +149,20 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static bool QueryIdleTime(out long milliseconds)
 		{
 			milliseconds = 0;
+			using var lease = sessions.TryAcquire();
+
+			if (lease == null)
+				return false;
 
 			try
 			{
-				var conn = EnsureConnection();
+				if (!ReferenceEquals(idleMonitorSession, lease.Value))
+				{
+					idleMonitorSession = lease.Value;
+					idleMonitorProxy = lease.Value.Connection.CreateProxy<IMuffinIdleMonitor>(
+						IdleMonitorServiceName, new ObjectPath(IdleMonitorObjectPath));
+				}
 
-				if (conn == null)
-					return false;
-
-				idleMonitorProxy ??= conn.CreateProxy<IMuffinIdleMonitor>(IdleMonitorServiceName, new ObjectPath(IdleMonitorObjectPath));
 				var task = idleMonitorProxy.GetIdletimeAsync();
 
 				if (!task.WaitWithoutInterruption(TimeoutMs))
@@ -215,30 +225,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		{
 			area = Rectangle.Empty;
 
-			try
-			{
-				var p = EnsureExtensionProxy();
-
-				if (p == null)
-					return false;
-
-				var task = Task.Run(() => p.GetWorkAreaAsync());
-
-				if (!task.WaitWithoutInterruption(TimeoutMs))
-					return false;
-
-				var (x, y, w, h) = task.GetAwaiter().GetResult();
-
-				if (w <= 0 || h <= 0)
-					return false;
-
-				area = new Rectangle(x, y, w, h);
-				return true;
-			}
-			catch
-			{
+			if (!TryRunExtension(p => p.GetWorkAreaAsync(), out (int X, int Y, int Width, int Height) result))
 				return false;
-			}
+
+			if (result.Width <= 0 || result.Height <= 0)
+				return false;
+
+			area = new Rectangle(result.X, result.Y, result.Width, result.Height);
+			return true;
 		}
 
 		internal static bool SendFocusWindow(ulong seq)
@@ -297,21 +291,32 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		// Whether the extension actually answers clipboard calls. The overlay path can gate on cheap name
 		// ownership because it reacts to a per-call tri-state (a definitive failure falls back to Eto), but the
-		// clipboard backend is resolved ONCE with no reactive fallback (LinuxClipboards.Resolve), so a stale/
-		// incompatible extension that owns the D-Bus name yet no longer speaks the clipboard protocol would leave
-		// the clipboard silently dead for the whole session. Verify with a cheap, side-effect-free
+		// the recovering clipboard router uses this as its current liveness signal, so a stale/incompatible extension
+		// that owns the D-Bus name yet no longer speaks the clipboard protocol must not be treated as usable. Verify
+		// with a cheap, side-effect-free
 		// GetClipboardMimetypes round-trip (null = absent/failed, any array = answered) and cache the result.
 		internal static bool SupportsClipboard()
 		{
 			var now = Environment.TickCount64;
 
+			if (!ExtensionServiceHasOwner())
+				return false;
+
 			if (now < clipboardSupportCacheUntil)
 				return clipboardSupportCached;
 
-			var ok = ExtensionServiceHasOwner()
-					 && RunExtension(p => p.GetClipboardMimetypesAsync()) != null;
+			using var attempt = clipboardProbes.TryBegin();
+
+			if (attempt == null)
+				return false;
+
+			var ok = RunExtension(p => p.GetClipboardMimetypesAsync()) != null;
 			clipboardSupportCached = ok;
 			clipboardSupportCacheUntil = now + (ok ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
+
+			if (ok)
+				attempt.Succeed();
+
 			return ok;
 		}
 
@@ -332,7 +337,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			// MIME-type <-> bytes so every format round-trips. Getters return null when the extension is
 			// absent/failed (vs an empty array/"" for a legitimately empty clipboard).
 			internal static string[] GetClipboardMimetypes()
-				=> RunExtension(p => p.GetClipboardMimetypesAsync()) ?? System.Array.Empty<string>();
+				=> RunExtension(p => p.GetClipboardMimetypesAsync());
 
 			internal static byte[] GetClipboardContent(string mimetype)
 				=> RunExtension(p => p.GetClipboardContentAsync(mimetype));
@@ -346,23 +351,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			internal static bool SetClipboardText(string text)
 				=> RunExtensionBool(p => p.SetClipboardTextAsync(text ?? string.Empty));
 
-			internal static IDisposable WatchClipboardChanged(Action<string, string[]> handler)
-			{
-				try
-				{
-					var p = EnsureExtensionProxy();
-
-					if (p == null)
-						return null;
-
-					var task = Task.Run(() => p.WatchClipboardChangedAsync(e => handler(e.text, e.mimetypes)));
-					return task.WaitWithoutInterruption(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
-				}
-				catch
-				{
-					return null;
-				}
-			}
+			internal static IDisposable WatchClipboardChanged(Action<string, string[]> handler, Action<Exception> onError = null)
+				=> TryRunExtension(p => p.WatchClipboardChangedAsync(
+					e => handler(e.text, e.mimetypes), onError), out IDisposable subscription)
+					? subscription : null;
 
 		// Lazily creates a Clutter virtual pointer (Muffin is Clutter-based, same API as the
 		// GNOME extension) and stashes it on `global` so it persists across Eval calls.
@@ -391,23 +383,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				   || RunOk("(function(){try{" + JsVPointer + "const t=GLib.get_monotonic_time();for(let i=0;i<" + notches + ";i++)vp.notify_discrete_scroll(t,Clutter.ScrollDirection." + dir + ",Clutter.ScrollSource.WHEEL);return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false});}})()");
 		}
 
-		internal static IDisposable WatchWindowEvent(Action<string, string> handler)
-		{
-			try
-			{
-				var p = EnsureExtensionProxy();
-
-				if (p == null)
-					return null;
-
-				var task = Task.Run(() => p.WatchWindowEventAsync(e => handler(e.type, e.json)));
-				return task.WaitWithoutInterruption(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
-			}
-			catch
-			{
-				return null;
-			}
-		}
+		internal static IDisposable WatchWindowEvent(Action<string, string> handler, Action<Exception> onError = null)
+			=> TryRunExtension(p => p.WatchWindowEventAsync(e => handler(e.type, e.json), onError),
+				out IDisposable subscription) ? subscription : null;
 
 		private static bool RunOk(string js)
 		{
@@ -452,12 +430,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		{
 			try
 			{
-				var p = EnsureProxy();
-
-				if (p == null)
+				if (!cinnamonService.TryUse(p => p.EvalAsync(js), out Task<(bool success, string result)> task))
 					return null;
-
-				var task = Task.Run(() => p.EvalAsync(js));
 
 				if (!task.WaitWithoutInterruption(TimeoutMs))
 					return null;
@@ -476,91 +450,59 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			x = 0;
 			y = 0;
 
-			try
-			{
-				var p = EnsureExtensionProxy();
-
-				if (p == null)
-					return false;
-
-				var task = Task.Run(() => p.GetCursorPositionAsync());
-
-				if (!task.WaitWithoutInterruption(TimeoutMs))
-					return false;
-
-				var (rx, ry) = task.GetAwaiter().GetResult();
-				x = rx;
-				y = ry;
-				return true;
-			}
-			catch
-			{
+			if (!TryRunExtension(p => p.GetCursorPositionAsync(), out (int X, int Y) result))
 				return false;
-			}
+
+			x = result.X;
+			y = result.Y;
+			return true;
 		}
 
 		private static T RunExtension<T>(Func<IKeysharpCinnamonShell, Task<T>> call,
 			[System.Runtime.CompilerServices.CallerMemberName] string operation = null)
+			=> TryRunExtension(call, out T result, TimeoutMs, operation) ? result : default;
+
+		private static bool TryRunExtension<T>(Func<IKeysharpCinnamonShell, Task<T>> call, out T result,
+			int timeoutMs = TimeoutMs,
+			[System.Runtime.CompilerServices.CallerMemberName] string operation = null)
 		{
+			result = default;
+
 			try
 			{
-				var p = EnsureExtensionProxy();
-
-				if (p == null)
+				if (!extension.TryUse((p, session) =>
 				{
-					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, "extension proxy is unavailable");
-					return default;
+					connectionLocalName = session.LocalName;
+					RegisterHighlightOwner(p);
+					return call(p);
+				}, out Task<T> task))
+				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, "extension service is unavailable");
+					return false;
 				}
-
-				var task = Task.Run(() => call(p));
 
 				// Pump the message queue while waiting on the extension's reply instead of freezing it — these
 				// calls run from hotkey actions / timers on the main thread, and a slow (cold-channel) reply must
 				// not stall hotkey processing and the UI.
-				if (!task.WaitWithoutInterruption(TimeoutMs))
+				if (!task.WaitWithoutInterruption(timeoutMs))
 				{
-					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, $"timed out after {TimeoutMs} ms");
-					return default;
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, $"timed out after {timeoutMs} ms");
+					return false;
 				}
 
-				return task.GetAwaiter().GetResult();
+				result = task.GetAwaiter().GetResult();
+				return true;
 			}
 			catch (Exception ex)
 			{
 				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, WaylandBridgeDiagnostics.Describe(ex));
-				return default;
+				return false;
 			}
 		}
 
 		private static bool RunExtensionBool(Func<IKeysharpCinnamonShell, Task<bool>> call,
 			[System.Runtime.CompilerServices.CallerMemberName] string operation = null)
-		{
-			try
-			{
-				var p = EnsureExtensionProxy();
-
-				if (p == null)
-				{
-					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, "extension proxy is unavailable");
-					return false;
-				}
-
-				var task = Task.Run(() => call(p));
-
-				if (!task.WaitWithoutInterruption(TimeoutMs))   // pump the queue while waiting (see RunExtension); overlay hide runs through here
-				{
-					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, $"timed out after {TimeoutMs} ms");
-					return false;
-				}
-
-				return task.GetAwaiter().GetResult();
-			}
-			catch (Exception ex)
-			{
-				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", operation, WaylandBridgeDiagnostics.Describe(ex));
-				return false;
-			}
-		}
+			=> TryRunExtension(call, out bool result, TimeoutMs, operation) && result;
 
 		// Show an image overlay, classifying the outcome (see OverlayShowResult) so the caller can distinguish an
 		// ambiguous timeout — the shell most likely still created the actor, so commit to the compositor — from a
@@ -568,31 +510,20 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		// which is what let a slow first upload spawn a duplicate Eto overlay.
 		private static OverlayShowResult RunShow(Func<IKeysharpCinnamonShell, Task<bool>> call, int timeoutMs)
 		{
-			IKeysharpCinnamonShell p;
-
 			try
 			{
-				// The real Show call is authoritative. Do not suppress it because the separate cached NameHasOwner
-				// availability probe was slow; a call to a genuinely absent well-known name fails definitively.
-				p = EnsureExtensionProxy(requireServiceOwner: false);
-			}
-			catch (Exception ex)
-			{
-				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "ShowImageOverlay proxy", WaylandBridgeDiagnostics.Describe(ex));
-				return OverlayShowResult.Failed;
-			}
+				if (!extension.TryUse((p, session) =>
+				{
+					connectionLocalName = session.LocalName;
+					RegisterHighlightOwner(p);
+					return call(p);
+				}, out Task<bool> task))
+				{
+					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "ShowImageOverlay", "extension service is unavailable");
+					return OverlayShowResult.Failed;
+				}
 
-			if (p == null)
-			{
-				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "ShowImageOverlay", "extension proxy is unavailable");
-				return OverlayShowResult.Failed;
-			}
-
-			try
-			{
-				var task = Task.Run(() => call(p));
-
-				if (!task.WaitWithoutInterruption(timeoutMs))   // pump the queue while waiting (see RunExtension)
+				if (!task.WaitWithoutInterruption(timeoutMs))
 				{
 					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "ShowImageOverlay",
 						$"timed out after {timeoutMs} ms; the compositor result is ambiguous");
@@ -629,33 +560,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private static IKeysharpCinnamonShell EnsureExtensionProxy(bool requireServiceOwner = true)
-		{
-			if (requireServiceOwner && !ExtensionServiceHasOwner())
-				return null;
-
-			if (extensionProxy != null)
-			{
-				RegisterHighlightOwner(extensionProxy);
-				return extensionProxy;
-			}
-
-			var conn = EnsureConnection();
-
-			if (conn == null)
-				return null;
-
-			extensionProxy = conn.CreateProxy<IKeysharpCinnamonShell>(ExtensionServiceName, new ObjectPath(ExtensionObjectPath));
-			RegisterHighlightOwner(extensionProxy);
-			return extensionProxy;
-		}
-
 		private static void RegisterHighlightOwner(IKeysharpCinnamonShell p)
 		{
 			if (p == null || connectionLocalName.IsNullOrEmpty() || registeredHighlightOwnerBusName == connectionLocalName)
 				return;
 
-			if (Environment.TickCount64 < highlightOwnerRegisterRetryAfter)
+			using var attempt = highlightOwnerRegistration.TryBegin();
+
+			if (attempt == null)
 				return;
 
 			try
@@ -667,217 +579,96 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (!task.WaitWithoutInterruption(TimeoutMs))
 				{
 					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "RegisterHighlightOwner", $"timed out after {TimeoutMs} ms");
-					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + ExtensionMissingCacheMs;
 					return;
 				}
 
 				if (task.GetAwaiter().GetResult())
 				{
 					registeredHighlightOwnerBusName = connectionLocalName;
-					highlightOwnerRegisterRetryAfter = 0;
+					attempt.Succeed();
 				}
 				else
 				{
 					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "RegisterHighlightOwner", "extension returned false");
-					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + ExtensionMissingCacheMs;
 				}
 			}
 			catch (Exception ex)
 			{
 				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "RegisterHighlightOwner", WaylandBridgeDiagnostics.Describe(ex));
-				highlightOwnerRegisterRetryAfter = Environment.TickCount64 + ExtensionMissingCacheMs;
+				attempt.Fail(ex);
 			}
 		}
 
-		// Whether the Keysharp Cinnamon extension currently owns its D-Bus service. This is the single capability
-		// gate for the extension-provided surfaces (compositor image overlays + clipboard). Cheap and cached; a
-		// stale/incompatible extension that owns the name but errors on a specific call is caught reactively by
-		// that call (e.g. the image-overlay tri-state falls back to Eto on a definitive failure).
-		internal static bool ExtensionServiceHasOwner()
-		{
-			var now = Environment.TickCount64;
+		internal static bool ExtensionServiceHasOwner() => extension.HasOwner;
 
-			if (now < extensionOwnerCacheUntil)
-				return extensionOwnerCached;
+		internal static IDisposable SubscribeExtensionAvailability(Action handler)
+		{
+			if (handler == null)
+				return null;
+
+			extension.AvailabilityChanged += handler;
+			return new CallbackDisposable(() => extension.AvailabilityChanged -= handler);
+		}
+
+		private static DbusSession ConnectSessionBus()
+		{
+			var address = Tmds.DBus.Address.Session;
+
+			if (string.IsNullOrEmpty(address))
+			{
+				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "connect session bus", "D-Bus session address is empty");
+				return null;
+			}
+
+			Connection connection = null;
 
 			try
 			{
-				var conn = EnsureConnection();
+				connection = new Connection(address);
+				var task = connection.ConnectAsync();
 
-				if (conn == null)
-					return false;
-
-				dbusProxy ??= conn.CreateProxy<IFreedesktopDBus>(DBusServiceName, new ObjectPath(DBusObjectPath));
-				var task = Task.Run(() => dbusProxy.NameHasOwnerAsync(ExtensionServiceName));
-
-				// Pump the message loop while waiting (never a plain .Wait) so a momentarily-slow bus probe
-				// cannot freeze hotkey/timer/UI processing on the calling thread.
-				if (!task.WaitWithoutInterruption(ExtensionOwnerCheckTimeoutMs))
-				{
-					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "NameHasOwner",
-						$"timed out after {ExtensionOwnerCheckTimeoutMs} ms; cached result is {extensionOwnerCached}");
-					// A probe TIMEOUT is ambiguous (the bus is momentarily slow), not a definitive "absent". Keep a
-					// recent positive answer and re-check soon rather than declaring the extension gone for 5s — a
-					// single slow probe under load would otherwise route overlays to Eto and drop the proxy. Only
-					// fall back to "absent" when we have no recent positive.
-					extensionOwnerCacheUntil = now + (extensionOwnerCached ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
-
-					if (!extensionOwnerCached)
-						extensionProxy = null;
-
-					return extensionOwnerCached;
-				}
-
-				var hasOwner = task.GetAwaiter().GetResult();
-				extensionOwnerCached = hasOwner;
-				extensionOwnerCacheUntil = now + (hasOwner ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
-
-				if (!hasOwner)
-				{
-					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "NameHasOwner", $"{ExtensionServiceName} has no owner");
-					extensionProxy = null;
-					clipboardSupportCached = false;
-					clipboardSupportCacheUntil = now + ExtensionMissingCacheMs;
-				}
-
-				return hasOwner;
-			}
-			catch (Exception ex)
-			{
-				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "NameHasOwner", WaylandBridgeDiagnostics.Describe(ex));
-				extensionOwnerCached = false;
-				extensionOwnerCacheUntil = now + ExtensionMissingCacheMs;
-				extensionProxy = null;
-				clipboardSupportCached = false;
-				clipboardSupportCacheUntil = now + ExtensionMissingCacheMs;
-				return false;
-			}
-		}
-
-		private static ICinnamon EnsureProxy()
-		{
-			if (proxy != null)
-				return proxy;
-
-			var conn = EnsureConnection();
-
-			if (conn == null)
-				return null;
-
-			proxy = conn.CreateProxy<ICinnamon>(ServiceName, new ObjectPath(ObjectPath));
-			return proxy;
-		}
-
-		private static Connection EnsureConnection()
-		{
-			if (connection != null)
-				return connection;
-
-			// Permanent lockout is reserved for a definitively-unreachable session bus (no session-bus address in
-			// the environment — it will never appear). A transient connect failure/timeout instead arms a short
-			// time-based backoff (nextConnectAttempt) so a later call transparently re-attempts, rather than a single
-			// slow first connect disabling all Cinnamon window management + overlays for the whole process lifetime.
-			if (initFailed)
-				return null;
-
-			// Fast path: within the retry backoff after a transient failure — don't hammer the bus.
-			if (Environment.TickCount64 < nextConnectAttempt)
-				return null;
-
-			initSemaphore.Wait();
-
-			// Hoisted above the try so the catch can dispose a connection that was created but never published.
-			Connection localConn = null;
-
-			try
-			{
-				if (connection != null)
-					return connection;
-
-				if (initFailed || Environment.TickCount64 < nextConnectAttempt)
-					return null;
-
-				var sessionAddress = Tmds.DBus.Address.Session;
-
-				if (string.IsNullOrEmpty(sessionAddress))
-				{
-					// No session bus is configured for this process; it cannot appear later, so latch permanently.
-					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "connect session bus", "D-Bus session address is empty");
-					initFailed = true;
-					return null;
-				}
-
-				localConn = new Connection(sessionAddress);
-				var task = Task.Run(() => localConn.ConnectAsync());
-
-				// Pump the message loop while waiting (WaitWithoutInterruption) so the connect deadline doesn't
-				// freeze hotkey/UI processing; a plain .Wait would stall the pump for up to TimeoutMs.
 				if (!task.WaitWithoutInterruption(TimeoutMs))
 				{
 					WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "connect session bus", $"timed out after {TimeoutMs} ms");
-					try { localConn.Dispose(); } catch { }
-
-					// Slow / not-yet-up session bus: retry after the backoff instead of a permanent latch.
-					nextConnectAttempt = Environment.TickCount64 + ConnectRetryBackoffMs;
+					connection.Dispose();
 					return null;
 				}
 
 				var info = task.GetAwaiter().GetResult();
-				connectionLocalName = info?.LocalName ?? "";
-				localConn.StateChanged += (_, e) =>
+				var session = new DbusSession(connection, info?.LocalName);
+				connection.StateChanged += (_, e) =>
 				{
 					if (e.State == Tmds.DBus.ConnectionState.Disconnected)
-						ResetConnection(localConn);
+						sessions.Invalidate(session, e.DisconnectReason);
 				};
-				connection = localConn;
-				nextConnectAttempt = 0;
-				return connection;
+				return session;
 			}
 			catch (Exception ex)
 			{
 				WaylandBridgeDiagnostics.Failure("Cinnamon Shell", "connect session bus", WaylandBridgeDiagnostics.Describe(ex));
-				// Creating/connecting threw unexpectedly — treat as transient and back off; do NOT permanently
-				// latch (the bus may simply have been momentarily unavailable). Dispose the connection we created but
-				// never published (the `connection = localConn` line is past every throw point), else a present-but-
-				// faulting bus leaks one Tmds.DBus Connection — a socket/native handle — every ConnectRetryBackoffMs.
-				try { localConn?.Dispose(); } catch { }
-				nextConnectAttempt = Environment.TickCount64 + ConnectRetryBackoffMs;
+				try { connection?.Dispose(); } catch { }
 				return null;
-			}
-			finally
-			{
-				_ = initSemaphore.Release();
 			}
 		}
 
-		private static void ResetConnection(Connection deadConnection = null)
+		private static void ExtensionAvailabilityChanged()
 		{
-			if (deadConnection != null && connection != null && !ReferenceEquals(connection, deadConnection))
-				return;
-
-			try
-			{
-				if (deadConnection == null)
-					connection?.Dispose();
-			}
-			catch
-			{
-			}
-
-			connection = null;
-			dbusProxy = null;
-			proxy = null;
-			extensionProxy = null;
-			idleMonitorProxy = null;
-			connectionLocalName = "";
 			registeredHighlightOwnerBusName = "";
-			highlightOwnerRegisterRetryAfter = 0;
-			extensionOwnerCached = false;
-			extensionOwnerCacheUntil = 0;
+			highlightOwnerRegistration.Rearm();
 			clipboardSupportCached = false;
 			clipboardSupportCacheUntil = 0;
-			initFailed = false;
-			nextConnectAttempt = 0;
+			clipboardProbes.Rearm();
+		}
+
+		internal static void Reset()
+		{
+			extension.Dispose();
+			cinnamonService.Dispose();
+			sessions.Dispose();
+			idleMonitorProxy = null;
+			idleMonitorSession = null;
+			connectionLocalName = registeredHighlightOwnerBusName = "";
+			Initialize();
 		}
 
 		private static bool GetBool(JsonElement e, string name)
@@ -941,7 +732,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				}
 			}
 
-			return CinnamonShellBridge.WatchWindowEvent(OnEvent) ?? new WaylandPollingEventSource(this, sink);
+			return RecoveringSubscription.Create(
+				onError => CinnamonShellBridge.WatchWindowEvent(OnEvent, onError),
+				() => new WaylandPollingEventSource(this, sink),
+				CinnamonShellBridge.ExtensionServiceHasOwner,
+				CinnamonShellBridge.SubscribeExtensionAvailability);
 		}
 
 		public bool TryGetCursorPos(out int x, out int y)
@@ -1093,9 +888,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				=> CinnamonShellBridge.SendHideImageOverlay(id);
 
 			// Clipboard runs only through the extension (Muffin exposes no data-control protocol). Because the
-			// clipboard backend is chosen once with no reactive fallback, this gates on a real liveness probe (not
-			// mere name ownership) so a stale/broken extension degrades to the focus-gated Eto clipboard instead
-			// of a silently-dead one. Raw MIME <-> bytes; higher layers map formats onto it.
+			// the recovering clipboard router can promote/demote at runtime, this remains a real liveness probe (not
+			// mere name ownership). Raw MIME <-> bytes; higher layers map formats onto it.
 			public bool SupportsClipboard => CinnamonShellBridge.SupportsClipboard();
 
 			public string[] GetClipboardMimetypes()
@@ -1113,8 +907,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			public bool SetClipboardText(string text)
 				=> CinnamonShellBridge.SetClipboardText(text);
 
-			public IDisposable SubscribeClipboardChanges(Action<string, string[]> handler)
-				=> handler == null ? null : CinnamonShellBridge.WatchClipboardChanged(handler);
+			public IDisposable SubscribeClipboardChanges(Action<string, string[]> handler, Action<Exception> onError = null)
+				=> handler == null ? null : CinnamonShellBridge.WatchClipboardChanged(handler, onError);
+
+			public IDisposable SubscribeClipboardAvailability(Action handler)
+				=> CinnamonShellBridge.SubscribeExtensionAvailability(handler);
 
 		// ---- helpers ------------------------------------------------
 

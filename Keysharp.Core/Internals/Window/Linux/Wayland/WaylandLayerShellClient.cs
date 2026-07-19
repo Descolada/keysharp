@@ -17,9 +17,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			int SourceOffsetY);
 
 		private static readonly object sync = new();
+		private static readonly RetryGate probes = new(maximumAttempts: 3,
+			initialRetryDelay: TimeSpan.FromMilliseconds(200), maximumRetryDelay: TimeSpan.FromSeconds(2));
 		private static WaylandLayerShellClient current;
-		private static int consecutiveProbeFailures;
-		private static long nextProbeAt;
 
 		internal static object Sync => sync;
 
@@ -35,6 +35,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					{
 						stale = current;
 						current = null;
+						probes.Rearm();
 					}
 
 					if (current != null)
@@ -49,23 +50,17 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					if (current != null)
 						return current;
 
-					var now = Environment.TickCount64;
+					using var attempt = probes.TryBegin();
 
-					if (now < nextProbeAt)
+					if (attempt == null)
 						return null;
 
-					current = TryCreate();
+					current = TryCreate(out var unavailable);
 
 					if (current != null)
-					{
-						consecutiveProbeFailures = 0;
-						nextProbeAt = 0;
-					}
-					else
-					{
-						consecutiveProbeFailures = Math.Min(8, consecutiveProbeFailures + 1);
-						nextProbeAt = now + WaylandRetryPolicy.DelayMilliseconds(consecutiveProbeFailures);
-					}
+						attempt.Succeed();
+					else if (unavailable)
+						probes.Suspend();
 
 					return current;
 				}
@@ -210,10 +205,15 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					&& output.IntegerScale == target.IntegerScale && output.BufferScale == target.BufferScale;
 		}
 
-		private static WaylandLayerShellClient TryCreate()
+		private static WaylandLayerShellClient TryCreate(out bool unavailable)
 		{
+			unavailable = false;
+
 			if (!Platform.Desktop.IsWaylandSession)
+			{
+				unavailable = true;
 				return null;
+			}
 
 			var display = WaylandNative.DisplayConnect(null);
 
@@ -237,6 +237,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				if (!client.IsAvailable)
 				{
+					// A connected registry that does not advertise the required globals is a stable
+					// capability absence for this compositor generation, not a transport retry.
+					unavailable = true;
 					client.Dispose();
 					return null;
 				}
@@ -254,6 +257,20 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				client.Dispose();
 				return null;
 			}
+		}
+
+		internal static void Reset()
+		{
+			WaylandLayerShellClient retired;
+
+			lock (sync)
+			{
+				retired = current;
+				current = null;
+				probes.Rearm();
+			}
+
+			retired?.Dispose();
 		}
 
 		private void StartDispatcher()

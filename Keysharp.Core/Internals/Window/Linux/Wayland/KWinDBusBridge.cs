@@ -79,13 +79,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const int ProbeTimeoutMs = 2000;
 		private static readonly object initLock = new();
 		private static readonly SemaphoreSlim initSemaphore = new(1, 1);
+		private static readonly RetryGate initRetries = new(maximumAttempts: 3,
+			initialRetryDelay: TimeSpan.FromMilliseconds(250), maximumRetryDelay: TimeSpan.FromSeconds(2));
 		private static readonly string bridgeServiceName = $"org.keysharp.KWinBridge_{Environment.ProcessId}";
 		internal static readonly ObjectPath BridgeObjectPath = new("/keysharp/kwin");
 
 		private static Connection connection;
 		private static KWinBridgeService bridgeService;
 		private static IKWinScripting scriptingProxy;
-		private static bool initFailed;
+		private static IDisposable kwinOwnerWatch;
+		private static event Action availabilityChanged;
 
 		// Persistent operation channel: one resident KWin script answers typed compositor operations instead of
 		// the load/run/report/unload lifecycle (which costs 4 D-Bus round trips + a QJS compile + temp-file I/O
@@ -104,6 +107,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static DateTime lastPersistentAttempt = DateTime.MinValue;
 		private static bool persistentCleanupRegistered;
 		private static string kwinOwner;
+		private static long kwinOwnerChanges;
 		private static long requestCounter;
 
 		// KWin 6 uses "/Scripting/Script{id}" as the per-script object path; KWin 5
@@ -330,28 +334,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				catch { }
 			};
 
-			try
-			{
-				_ = connection.ResolveServiceOwnerAsync("org.kde.KWin", change =>
-				{
-					var newOwner = change.NewOwner;
-
-					if (kwinOwner != null && newOwner != kwinOwner)
-					{
-						// A different compositor instance: the resident script is gone, and any failure latch
-						// belonged to the old one — re-arm so the next query reloads immediately.
-						persistentReady = false;
-						persistentFailures = 0;
-						lastPersistentAttempt = DateTime.MinValue;
-					}
-
-					kwinOwner = newOwner;
-				}, _ => { });
-			}
-			catch
-			{
-				// Owner watching is an optimization; without it a KWin restart costs one waiter timeout.
-			}
 		}
 
 		private static async Task<string> RunOneShotOperationAsync(string operation, object args, string requestPrefix)
@@ -527,11 +509,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		private static async Task<bool> EnsureConnectedAsync()
 		{
-			if (connection != null)
-				return true;
+			lock (initLock)
+				if (connection != null)
+					return scriptingProxy != null;
 
 			Connection localConnection = null;
 			KWinBridgeService localBridge = null;
+			IDisposable localOwnerWatch = null;
 
 			await initSemaphore.WaitAsync().ConfigureAwait(false);
 
@@ -539,48 +523,218 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			{
 				lock (initLock)
 				{
-					if (initFailed)
-						return false;
-
 					if (connection != null)
-						return true;
+						return scriptingProxy != null;
 				}
 
+				using var attempt = initRetries.TryBegin();
+
+				if (attempt == null)
+					return false;
+
 				localConnection = new Connection(Tmds.DBus.Address.Session);
-				await localConnection.ConnectAsync().ConfigureAwait(false);
+				_ = await localConnection.ConnectAsync().ConfigureAwait(false);
 				localBridge = new KWinBridgeService();
 				await localConnection.RegisterObjectAsync(localBridge).ConfigureAwait(false);
 				await localConnection.RegisterServiceAsync(bridgeServiceName).ConfigureAwait(false);
-				var proxy = localConnection.CreateProxy<IKWinScripting>("org.kde.KWin", new ObjectPath("/Scripting"));
 
 				lock (initLock)
 				{
 					if (connection != null)
 					{
 						localConnection.Dispose();
-						return true;
+						return scriptingProxy != null;
 					}
 
 					connection = localConnection;
 					bridgeService = localBridge;
-					scriptingProxy = proxy;
 				}
 
-				return true;
-			}
-			catch
-			{
-				try { localConnection?.Dispose(); }
-				catch { }
+				var connected = localConnection;
+				connected.StateChanged += (_, e) =>
+				{
+					if (e.State == Tmds.DBus.ConnectionState.Disconnected)
+						InvalidateConnection(connected, e.DisconnectReason);
+				};
+
+				localOwnerWatch = await connected.ResolveServiceOwnerAsync("org.kde.KWin",
+					change => KWinOwnerChanged(connected, change.NewOwner),
+					error => InvalidateConnection(connected, error)).ConfigureAwait(false);
 
 				lock (initLock)
-					initFailed = true;
+				{
+					if (!ReferenceEquals(connection, localConnection))
+						return false;
 
+					kwinOwnerWatch = localOwnerWatch;
+					localOwnerWatch = null;
+				}
+
+				long changesBeforeQuery;
+				lock (initLock)
+					changesBeforeQuery = kwinOwnerChanges;
+
+				var owner = await connected.ResolveServiceOwnerAsync("org.kde.KWin").ConfigureAwait(false);
+				lock (initLock)
+					if (kwinOwnerChanges == changesBeforeQuery)
+						KWinOwnerChanged(connected, owner, false);
+				attempt.Succeed();
+				localConnection = null;
+
+				lock (initLock)
+					return scriptingProxy != null;
+			}
+			catch (Exception ex)
+			{
+				InvalidateConnection(localConnection, ex, false);
 				return false;
 			}
 			finally
 			{
+				try { localOwnerWatch?.Dispose(); } catch { }
+				try { localConnection?.Dispose(); } catch { }
 				initSemaphore.Release();
+			}
+		}
+
+		private static void KWinOwnerChanged(Connection source, string newOwner, bool fromWatch = true)
+		{
+			Action handlers = null;
+			bool changed;
+
+			lock (initLock)
+			{
+				if (!ReferenceEquals(connection, source))
+					return;
+
+				if (fromWatch)
+					kwinOwnerChanges++;
+
+				changed = !string.Equals(kwinOwner, newOwner, StringComparison.Ordinal);
+				kwinOwner = newOwner;
+				scriptingProxy = string.IsNullOrEmpty(newOwner) ? null
+					: source.CreateProxy<IKWinScripting>(newOwner, new ObjectPath("/Scripting"));
+
+				if (changed)
+				{
+					scriptPathFormat = null;
+					persistentReady = false;
+					persistentFailures = 0;
+					lastPersistentAttempt = DateTime.MinValue;
+					handlers = availabilityChanged;
+				}
+			}
+
+			if (changed)
+			{
+				queryService?.Reset();
+				Notify(handlers);
+			}
+		}
+
+		private static void InvalidateConnection(Connection failed, Exception error, bool rearm = true)
+		{
+			IDisposable watch = null;
+			Connection retired = null;
+			Action handlers = null;
+
+			lock (initLock)
+			{
+				if (failed == null || !ReferenceEquals(connection, failed))
+					return;
+
+				retired = connection;
+				connection = null;
+				bridgeService = null;
+				scriptingProxy = null;
+				kwinOwner = null;
+				watch = kwinOwnerWatch;
+				kwinOwnerWatch = null;
+				persistentReady = false;
+				handlers = availabilityChanged;
+			}
+
+			try { watch?.Dispose(); } catch { }
+			try { retired?.Dispose(); } catch { }
+
+			if (rearm)
+				initRetries.Rearm();
+
+			Notify(handlers);
+		}
+
+		private static void Notify(Action handlers)
+		{
+			if (handlers == null)
+				return;
+
+			foreach (Action handler in handlers.GetInvocationList())
+				try { handler(); } catch { }
+		}
+
+		internal static bool HasOwner
+		{
+			get
+			{
+				_ = EnsureConnectedAsync().GetAwaiter().GetResult();
+				lock (initLock)
+					return scriptingProxy != null;
+			}
+		}
+
+		internal static IDisposable SubscribeAvailability(Action handler)
+		{
+			if (handler == null)
+				return null;
+
+			availabilityChanged += handler;
+			_ = EnsureConnectedAsync();
+			return new AvailabilitySubscription(handler);
+		}
+
+		internal static void Reset()
+		{
+			Connection main;
+			Connection queries;
+			IDisposable watch;
+
+			lock (initLock)
+			{
+				main = connection;
+				queries = queryConnection;
+				watch = kwinOwnerWatch;
+				connection = null;
+				queryConnection = null;
+				bridgeService = null;
+				queryService = null;
+				scriptingProxy = null;
+				kwinOwnerWatch = null;
+				kwinOwner = null;
+				kwinOwnerChanges++;
+				scriptPathFormat = null;
+				persistentReady = false;
+				persistentFailures = 0;
+				lastPersistentAttempt = DateTime.MinValue;
+			}
+
+			try { watch?.Dispose(); } catch { }
+			try { main?.Dispose(); } catch { }
+			try { queries?.Dispose(); } catch { }
+			initRetries.Rearm();
+			KWinFakeInputBridge.Reset();
+		}
+
+		private sealed class AvailabilitySubscription : IDisposable
+		{
+			private Action handler;
+
+			internal AvailabilitySubscription(Action handler) => this.handler = handler;
+
+			public void Dispose()
+			{
+				var remove = Interlocked.Exchange(ref handler, null);
+				if (remove != null)
+					availabilityChanged -= remove;
 			}
 		}
 
@@ -1408,8 +1562,7 @@ function executeOperation(op, args) {
 	/// <summary>
 	/// Thin wrapper around KWin's FakeInput D-Bus interface for mouse simulation.
 	/// The first call authenticates with KWin; subsequent calls reuse the proxy.
-	/// Authentication is granted silently for same-user local D-Bus clients in
-	/// all current KWin versions; the proxy is permanently disabled on failure.
+	/// Authentication is scoped to the current KWin owner and retried as a bounded burst.
 	/// </summary>
 	internal static class KWinFakeInputBridge
 	{
@@ -1417,10 +1570,13 @@ function executeOperation(op, args) {
 		private const string FakeInputPath  = "/org/kde/KWin/FakeInput";
 		private const int    TimeoutMs      = 1000;
 
-		private static readonly SemaphoreSlim initSemaphore = new(1, 1);
-		private static Connection  connection;
-		private static IKWinFakeInput proxy;
-		private static bool initFailed;
+		private static readonly object authLock = new();
+		private static RecoverableService<DbusSession> sessions;
+		private static WatchedDbusService<IKWinFakeInput> service;
+		private static RetryGate authentication;
+		private static long authenticatedGeneration = -1;
+
+		static KWinFakeInputBridge() => Initialize();
 
 		internal static bool TryMoveAbsolute(double x, double y)
 			=> Run(p => p.pointerMotionAbsoluteAsync(x, y));
@@ -1439,71 +1595,111 @@ function executeOperation(op, args) {
 
 		private static bool Run(Func<IKWinFakeInput, Task> call)
 		{
+			(IKWinFakeInput Proxy, long Generation) target;
+
+			if (!service.TryUse(proxy => (proxy, service.Generation), out target)
+				|| !EnsureAuthenticated(target.Proxy, target.Generation))
+				return false;
+
 			try
 			{
-				var p = EnsureProxy();
-
-				if (p == null)
-					return false;
-
-				call(p).WaitAsync(TimeSpan.FromMilliseconds(TimeoutMs)).GetAwaiter().GetResult();
+				call(target.Proxy).WaitAsync(TimeSpan.FromMilliseconds(TimeoutMs)).GetAwaiter().GetResult();
 				return true;
 			}
 			catch
 			{
+				// The connection watcher owns transport recovery. An individual input call can fail for
+				// operation-specific reasons and must not evict an otherwise healthy bus session.
 				return false;
 			}
 		}
 
-		private static IKWinFakeInput EnsureProxy()
+		private static bool EnsureAuthenticated(IKWinFakeInput proxy, long generation)
 		{
-			if (proxy != null)
-				return proxy;
+			lock (authLock)
+			{
+				if (authenticatedGeneration == generation)
+					return true;
 
-			if (initFailed)
-				return null;
+				using var attempt = authentication.TryBegin();
 
-			initSemaphore.Wait();
+				if (attempt == null)
+					return false;
+
+				try
+				{
+					var granted = proxy.authenticateAsync("Keysharp", "Keysharp mouse automation")
+						.WaitAsync(TimeSpan.FromMilliseconds(2000))
+						.GetAwaiter()
+						.GetResult();
+
+					if (!granted)
+					{
+						authentication.Suspend();
+						return false;
+					}
+
+					authenticatedGeneration = generation;
+					attempt.Succeed();
+					return true;
+				}
+				catch (Exception ex)
+				{
+					attempt.Fail(ex);
+					return false;
+				}
+			}
+		}
+
+		private static void Initialize()
+		{
+			sessions = new RecoverableService<DbusSession>(ConnectSessionBus);
+			service = new WatchedDbusService<IKWinFakeInput>(sessions, ServiceName,
+				new ObjectPath(FakeInputPath), TimeoutMs);
+			authentication = new RetryGate(maximumAttempts: 3, initialRetryDelay: TimeSpan.FromMilliseconds(250),
+				maximumRetryDelay: TimeSpan.FromSeconds(2));
+			service.AvailabilityChanged += () =>
+			{
+				lock (authLock)
+					authenticatedGeneration = -1;
+
+				authentication.Rearm();
+			};
+		}
+
+		private static DbusSession ConnectSessionBus()
+		{
+			Connection connection = null;
 
 			try
 			{
-				if (proxy != null)
-					return proxy;
+				connection = new Connection(Tmds.DBus.Address.Session);
+				var task = connection.ConnectAsync();
 
-				if (initFailed)
-					return null;
+				if (!task.WaitWithoutInterruption(TimeoutMs))
+					throw new TimeoutException($"Connecting to the D-Bus session bus timed out after {TimeoutMs} ms.");
 
-				var localConn = new Connection(Tmds.DBus.Address.Session);
-				localConn.ConnectAsync().GetAwaiter().GetResult();
-
-				var localProxy = localConn.CreateProxy<IKWinFakeInput>(
-					ServiceName, new ObjectPath(FakeInputPath));
-
-				var granted = localProxy.authenticateAsync("Keysharp", "Keysharp mouse automation")
-					.WaitAsync(TimeSpan.FromMilliseconds(2000))
-					.GetAwaiter()
-					.GetResult();
-
-				if (!granted)
+				var info = task.GetAwaiter().GetResult();
+				var session = new DbusSession(connection, info?.LocalName);
+				connection.StateChanged += (_, e) =>
 				{
-					localConn.Dispose();
-					initFailed = true;
-					return null;
-				}
-
-				connection = localConn;
-				proxy = localProxy;
-				return proxy;
+					if (e.State == Tmds.DBus.ConnectionState.Disconnected)
+						sessions.Invalidate(session, e.DisconnectReason);
+				};
+				return session;
 			}
 			catch
 			{
-				initFailed = true;
-				return null;
+				try { connection?.Dispose(); } catch { }
+				throw;
 			}
-			finally
-			{
-				initSemaphore.Release();
-			}
+		}
+
+		internal static void Reset()
+		{
+			service.Dispose();
+			sessions.Dispose();
+			Initialize();
 		}
 	}
 }

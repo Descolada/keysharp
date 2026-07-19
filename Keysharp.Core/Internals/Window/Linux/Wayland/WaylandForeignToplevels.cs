@@ -13,6 +13,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const string WlrManagerName = "zwlr_foreign_toplevel_manager_v1";
 
 		private static readonly object sync = new();
+		private static readonly RetryGate probes = new(maximumAttempts: 3,
+			initialRetryDelay: TimeSpan.FromMilliseconds(200), maximumRetryDelay: TimeSpan.FromSeconds(2));
 		private static WaylandForeignToplevels current;
 
 		private readonly Dictionary<nint, WaylandToplevel> toplevelsByHandle = [];
@@ -25,6 +27,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private nint seat;
 		private nint wlrManager;
 		private long nextHandle = -1;
+		private volatile bool connectionLost;
+		private bool disposed;
 
 		private WaylandForeignToplevels(nint display)
 		{
@@ -36,19 +40,57 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		{
 			get
 			{
+				WaylandForeignToplevels stale = null;
+
 				lock (sync)
-					return current ??= TryCreate();
+				{
+					if (current != null && !current.IsAvailable)
+					{
+						stale = current;
+						current = null;
+						probes.Rearm();
+					}
+
+					if (current != null)
+						return current;
+				}
+
+				stale?.Dispose();
+
+				lock (sync)
+				{
+					if (current != null)
+						return current;
+
+					using var attempt = probes.TryBegin();
+
+					if (attempt == null)
+						return null;
+
+					current = TryCreate(out var unavailable);
+
+					if (current != null)
+						attempt.Succeed();
+					else if (unavailable)
+						probes.Suspend();
+
+					return current;
+				}
 			}
 		}
 
-		internal bool CanList => wlrManager != 0 || extList != 0;
-		internal bool CanManage => wlrManager != 0;
+		private bool IsAvailable => !disposed && !connectionLost && display != 0;
+		internal bool CanList => IsAvailable && (wlrManager != 0 || extList != 0);
+		internal bool CanManage => IsAvailable && wlrManager != 0;
 
 		internal WaylandToplevel Active
 		{
 			get
 			{
 				Refresh();
+				if (!IsAvailable)
+					return null;
+
 				return toplevelsByHandle.Values.FirstOrDefault(toplevel => !toplevel.Closed && toplevel.Activated);
 			}
 		}
@@ -56,6 +98,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal IReadOnlyList<WaylandToplevel> Enumerate()
 		{
 			Refresh();
+			if (!IsAvailable)
+				return [];
+
 			var protocol = CanManage ? WaylandForeignToplevelProtocol.Wlr : WaylandForeignToplevelProtocol.Ext;
 			return toplevelsByHandle.Values
 				.Where(toplevel => !toplevel.Closed && toplevel.Protocol == protocol)
@@ -65,12 +110,18 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal bool IsWindow(nint handle)
 		{
 			Refresh();
+			if (!IsAvailable)
+				return false;
+
 			return toplevelsByHandle.TryGetValue(handle, out var toplevel) && !toplevel.Closed;
 		}
 
 		internal WaylandToplevel Get(nint handle)
 		{
 			Refresh();
+			if (!IsAvailable)
+				return null;
+
 			return toplevelsByHandle.TryGetValue(handle, out var toplevel) && !toplevel.Closed ? toplevel : null;
 		}
 
@@ -116,8 +167,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		public void Dispose()
 		{
 			lock (sync)
+			{
+				if (disposed)
+					return;
+
+				disposed = true;
 				if (ReferenceEquals(current, this))
 					current = null;
+			}
 
 			foreach (var handle in listenerData)
 				if (handle.IsAllocated)
@@ -157,14 +214,22 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		private void Refresh()
 		{
-			if (display != 0)
-				_ = WaylandNative.DisplayRoundtrip(display);
+			if (!disposed && !connectionLost && display != 0 && WaylandNative.DisplayRoundtrip(display) < 0)
+			{
+				connectionLost = true;
+				probes.Rearm();
+			}
 		}
 
-		private static WaylandForeignToplevels TryCreate()
+		private static WaylandForeignToplevels TryCreate(out bool unavailable)
 		{
+			unavailable = false;
+
 			if (!Platform.Desktop.IsWaylandSession)
+			{
+				unavailable = true;
 				return null;
+			}
 
 			var display = WaylandNative.DisplayConnect(null);
 			if (display == 0)
@@ -182,13 +247,34 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			client.Refresh();
 			client.Refresh();
 
-			if (!client.CanList)
+			if (client.connectionLost)
 			{
 				client.Dispose();
 				return null;
 			}
 
+			if (!client.CanList)
+			{
+				unavailable = true;
+				client.Dispose();
+				return null;
+			}
+
 			return client;
+		}
+
+		internal static void Reset()
+		{
+			WaylandForeignToplevels retired;
+
+			lock (sync)
+			{
+				retired = current;
+				current = null;
+				probes.Rearm();
+			}
+
+			retired?.Dispose();
 		}
 
 		private void AddToplevel(nint proxy, WaylandForeignToplevelProtocol protocol)

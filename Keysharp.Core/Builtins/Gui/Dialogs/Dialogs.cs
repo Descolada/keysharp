@@ -389,7 +389,10 @@ namespace Keysharp.Builtins
 			var t = title.As();
 			var f = FixFilters(filter.As());
 			var script = Script.TheScript;
-			bool save = false, multi = false, check = false, create = false, overwite = false, shortcuts = false, dir = false;
+			bool save = false, multi = false, dir = false;
+#if WINDOWS
+			bool check = false, create = false, overwite = false, shortcuts = false;
+#endif
 			opts = opts.ToUpperInvariant();
 			object files = null;
 
@@ -413,20 +416,25 @@ namespace Keysharp.Builtins
 
 			if (int.TryParse(opts.Trim(), out var result))
 			{
+#if WINDOWS
 				if ((result & 1) == 1 || (result & 2) == 2)
 					check = true;
 
 				if (!save && ((result & 8) == 8))
 					create = true;
+#endif
 
 				if ((result & 16) == 16)
 				{
+#if WINDOWS
 					overwite = true;
+#endif
 
 					if ((result & 8) != 8)
 						save = true;
 				}
 
+#if WINDOWS
 				if ((result & 32) == 32)
 					shortcuts = true;
 
@@ -437,6 +445,7 @@ namespace Keysharp.Builtins
 					else
 						create = true;
 				}
+#endif
 			}
 
 			if (!f.Contains("All Files (*.*)|*.*", StringComparison.OrdinalIgnoreCase))

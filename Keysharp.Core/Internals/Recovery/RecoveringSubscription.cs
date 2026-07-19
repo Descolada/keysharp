@@ -10,7 +10,7 @@ namespace Keysharp.Internals
 		private readonly Func<bool> preferredAvailable;
 		private readonly Action<bool> stateChanged;
 		private readonly bool keepFallbackWarm;
-		private readonly Timer timer;
+		private readonly System.Threading.Timer timer;
 		private IDisposable preferred, fallback, availability;
 		private int generation, activeGeneration, failedGeneration, failures, attaching;
 		private long epoch;
@@ -26,7 +26,7 @@ namespace Keysharp.Internals
 			this.preferredAvailable = preferredAvailable;
 			this.stateChanged = stateChanged;
 			this.keepFallbackWarm = keepFallbackWarm;
-			timer = new Timer(_ => TryAttachPreferred(), null, Timeout.Infinite, Timeout.Infinite);
+			timer = new System.Threading.Timer(_ => TryAttachPreferred(), null, Timeout.Infinite, Timeout.Infinite);
 			RetryIntervalMs = Math.Max(1, retryIntervalMs);
 			availability = subscribeAvailability?.Invoke(AvailabilityChanged);
 		}

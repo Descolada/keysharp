@@ -164,6 +164,18 @@ if [[ "${ROOT_INSTALL}" == "true" ]]; then
   fi
 
   rm -f "${SYSTEMD_DIR}/keysharp-inputd.service" "${SYSTEMD_DIR}/keysharp-inputd.socket"
+  # Also purge units left in /usr/local/lib/systemd/system by an old `cmake
+  # --install` (default /usr/local prefix). That directory outranks the dpkg
+  # target /usr/lib/systemd/system in systemd's search path, so a leftover copy
+  # there would keep shadowing a later package install (and, if it predates the
+  # [Install] section, make `systemctl enable` warn about a static unit). It is
+  # never dpkg-owned, so removing it here is safe. We deliberately do not touch
+  # /usr/lib/systemd/system: those units belong to the .deb and are removed by
+  # dpkg's own prerm, not by this tarball uninstaller.
+  rm -f /usr/local/lib/systemd/system/keysharp-inputd.service \
+        /usr/local/lib/systemd/system/keysharp-inputd.socket \
+        /usr/local/lib/systemd/system/sockets.target.wants/keysharp-inputd.socket \
+        /usr/local/lib/systemd/system/multi-user.target.wants/keysharp-inputd.service || true
   maybe_run systemctl daemon-reload || true
 
   # Remove the root-owned input-permission trust store (the daemon's systemd

@@ -411,16 +411,24 @@ fi
 
 if [ -f /usr/lib/keysharp/keysharp-inputd ]; then
   echo "Configuring keysharp-inputd for reliable Linux input hooks, input synthesis, and BlockInput."
-  # A prior root *tarball* install writes its units to /etc/systemd/system, which
-  # systemd gives strict precedence over this package's units in
-  # /usr/lib/systemd/system. Left in place they would shadow the dpkg units and keep
-  # socket-activating the old /usr/local/lib/keysharp/keysharp-inputd binary. Remove
-  # the tarball-era units (and any leftover enable symlink) so the dpkg units are
-  # the ones activated; --install-input-access below runs daemon-reload + enable.
+  # Purge any keysharp-inputd unit that outranks this package's units in
+  # /usr/lib/systemd/system. systemd's unit search path gives strict precedence to
+  # both /etc/systemd/system (a prior root *tarball* install target) and
+  # /usr/local/lib/systemd/system (an old `cmake --install` with the default
+  # /usr/local prefix). A stale copy in either place shadows the dpkg unit: it keeps
+  # socket-activating the old /usr/local/lib/keysharp/keysharp-inputd binary, and if
+  # it predates the [Install] section that older release shipped, `systemctl enable`
+  # resolves the stale *static* file and prints the "no installation config" warning.
+  # Remove the shadowing units (and any leftover enable symlink) so the dpkg units
+  # are the ones resolved; --install-input-access below runs daemon-reload + enable.
   rm -f /etc/systemd/system/keysharp-inputd.service \
         /etc/systemd/system/keysharp-inputd.socket \
         /etc/systemd/system/sockets.target.wants/keysharp-inputd.socket \
-        /etc/systemd/system/multi-user.target.wants/keysharp-inputd.service || true
+        /etc/systemd/system/multi-user.target.wants/keysharp-inputd.service \
+        /usr/local/lib/systemd/system/keysharp-inputd.service \
+        /usr/local/lib/systemd/system/keysharp-inputd.socket \
+        /usr/local/lib/systemd/system/sockets.target.wants/keysharp-inputd.socket \
+        /usr/local/lib/systemd/system/multi-user.target.wants/keysharp-inputd.service || true
   if ! /usr/lib/keysharp/keysharp-inputd --install-input-access; then
     cat >&2 <<'WARN'
 Warning: keysharp-inputd --install-input-access did not complete successfully.

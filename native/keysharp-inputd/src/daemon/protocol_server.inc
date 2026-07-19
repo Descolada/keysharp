@@ -1446,5 +1446,3 @@ static void process_daemon_commands(ksi_daemon_state *state)
         free_daemon_command(&command);
     }
 }
-
-/* Returns true when the daemon should exit due to the idle timeout. */

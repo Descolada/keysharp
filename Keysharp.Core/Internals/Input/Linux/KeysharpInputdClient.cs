@@ -221,6 +221,13 @@ namespace Keysharp.Internals.Input.Linux
 		// One thread reads a HookStream. The monitor is reentrant, so synchronous
 		// nested callbacks can issue their own request without admitting another reader.
 		private readonly object responseGate = new();
+		// Response demultiplexing: which (type, correlation) pairs someone is still
+		// waiting for, and frames already read on their behalf by another waiter.
+		// Both are held under dispatchLock, never under responseGate -- a hook pump
+		// parks itself inside responseGate for as long as the daemon stays idle.
+		private readonly Lock dispatchLock = new();
+		private readonly List<(MessageType Type, ulong CorrelationId)> awaitedResponses = [];
+		private readonly List<Frame> deferredResponses = [];
 		private Action<KeysharpInputdClient, HookEvent> nestedHookEventHandler;
 		private Action<HookQuarantine> hookQuarantineHandler;
 		private Timer leaseHeartbeatTimer;
@@ -561,7 +568,9 @@ namespace Keysharp.Internals.Input.Linux
 						continue;
 					}
 
-					throw new InvalidDataException($"Expected hook event, got {frame.Type}.");
+					// A response belonging to another thread's in-flight request, or the
+					// late reply to one that gave up, must not kill the pump.
+					DeferOrDropResponse(frame);
 				}
 			}
 		}
@@ -665,8 +674,7 @@ namespace Keysharp.Internals.Input.Linux
 			BinaryPrimitives.WriteUInt32LittleEndian(payload[8..], (uint)connectionRole);
 
 			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.ClientHello, correlationId, payload);
-
+			BeginAwait(MessageType.ClientHello, correlationId);
 			Frame response;
 			var previousReceiveTimeout = socket.ReceiveTimeout;
 
@@ -675,10 +683,13 @@ namespace Keysharp.Internals.Input.Linux
 
 			try
 			{
+				SendFrame(MessageType.ClientHello, correlationId, payload);
 				response = ReadResponseFrame(MessageType.ClientHello, correlationId);
 			}
 			finally
 			{
+				EndAwait(MessageType.ClientHello, correlationId);
+
 				if (requestTimeoutMs > 0)
 					socket.ReceiveTimeout = previousReceiveTimeout;
 			}
@@ -706,8 +717,17 @@ namespace Keysharp.Internals.Input.Linux
 			ulong? correlationId = null)
 		{
 			var id = correlationId ?? NextCorrelationId();
-			SendFrame(requestType, id, payload);
-			return EnsureStatus(ReadResponseFrame(responseType, id), responseType, id);
+			BeginAwait(responseType, id);
+
+			try
+			{
+				SendFrame(requestType, id, payload);
+				return EnsureStatus(ReadResponseFrame(responseType, id), responseType, id);
+			}
+			finally
+			{
+				EndAwait(responseType, id);
+			}
 		}
 
 		private Frame SendRequest(MessageType requestType, MessageType responseType)
@@ -716,8 +736,17 @@ namespace Keysharp.Internals.Input.Linux
 		private Frame SendRequest(MessageType requestType, MessageType responseType, ReadOnlySpan<byte> payload)
 		{
 			var correlationId = NextCorrelationId();
-			SendFrame(requestType, correlationId, payload);
-			return ReadResponseFrame(responseType, correlationId);
+			BeginAwait(responseType, correlationId);
+
+			try
+			{
+				SendFrame(requestType, correlationId, payload);
+				return ReadResponseFrame(responseType, correlationId);
+			}
+			finally
+			{
+				EndAwait(responseType, correlationId);
+			}
 		}
 
 		private void SendFrame(MessageType type, ulong correlationId, ReadOnlySpan<byte> payload)
@@ -839,6 +868,13 @@ namespace Keysharp.Internals.Input.Linux
 			{
 				for (;;)
 				{
+					// An outer request's response can already be queued behind a hook
+					// event the daemon emitted first (e.g. a mouse event races the
+					// keyboard SubscribeHook ack). The nested callback reads it while
+					// waiting for its own reply, so park it for the outer waiter.
+					if (TryTakeDeferredResponse(expectedType, expectedCorrelationId, out var deferred))
+						return deferred;
+
 					var frame = ReadFrame();
 
 					if (frame.Type == expectedType
@@ -862,10 +898,66 @@ namespace Keysharp.Internals.Input.Linux
 						continue;
 					}
 
-					throw new InvalidDataException(
-						$"Expected {expectedType}/{expectedCorrelationId}, got {frame.Type}/{frame.CorrelationId}. " +
-						"HookStream requests must remain synchronously nested.");
+					DeferOrDropResponse(frame);
 				}
+			}
+		}
+
+		/// <summary>
+		/// Parks a response for the waiter it belongs to. Anything nobody is waiting
+		/// for is a duplicate or the reply to a request that already gave up, so it
+		/// is dropped -- the stream stays in sync either way.
+		/// </summary>
+		private void DeferOrDropResponse(Frame frame)
+		{
+			lock (dispatchLock)
+			{
+				if (awaitedResponses.Contains((frame.Type, frame.CorrelationId)))
+					deferredResponses.Add(frame);
+			}
+		}
+
+		private bool TryTakeDeferredResponse(MessageType expectedType, ulong expectedCorrelationId, out Frame frame)
+		{
+			lock (dispatchLock)
+			{
+				for (var i = 0; i < deferredResponses.Count; i++)
+				{
+					if (deferredResponses[i].Type == expectedType
+						&& deferredResponses[i].CorrelationId == expectedCorrelationId)
+					{
+						frame = deferredResponses[i];
+						deferredResponses.RemoveAt(i);
+						return true;
+					}
+				}
+			}
+
+			frame = default;
+			return false;
+		}
+
+		/// <summary>
+		/// Publishes a request's response key so a concurrent or nested reader parks
+		/// that response instead of discarding it. Every call must be paired with
+		/// <see cref="EndAwait"/> so an abandoned request leaves nothing behind.
+		/// </summary>
+		private void BeginAwait(MessageType responseType, ulong correlationId)
+		{
+			lock (dispatchLock)
+				awaitedResponses.Add((responseType, correlationId));
+		}
+
+		private void EndAwait(MessageType responseType, ulong correlationId)
+		{
+			lock (dispatchLock)
+			{
+				_ = awaitedResponses.Remove((responseType, correlationId));
+
+				// A request that threw before claiming its parked response (or whose
+				// nested callback threw) must not leave that frame behind.
+				if (!awaitedResponses.Contains((responseType, correlationId)))
+					_ = deferredResponses.RemoveAll(f => f.Type == responseType && f.CorrelationId == correlationId);
 			}
 		}
 

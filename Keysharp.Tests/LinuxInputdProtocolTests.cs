@@ -149,6 +149,106 @@ namespace Keysharp.Tests
 			}
 		}
 
+		[Test, Category("Misc")]
+		public async Task SubscribeHookSurvivesHookEventRacingItsAck()
+		{
+			var path = $"/tmp/keysharp-inputd-test-{Environment.ProcessId}-{Guid.NewGuid():N}.sock";
+			var previous = Environment.GetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable);
+			using var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+			listener.Bind(new UnixDomainSocketEndPoint(path));
+			listener.Listen(1);
+			Environment.SetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable, path);
+			try
+			{
+				var server = Task.Run(async () =>
+				{
+					using var socket = await listener.AcceptAsync();
+					var hello = ReceiveFrame(socket);
+					SendFrame(socket, KeysharpInputdClient.MessageType.ClientHello,
+						hello.CorrelationId, new byte[24]);
+
+					var subscribe = ReceiveFrame(socket);
+					Assert.AreEqual(KeysharpInputdClient.MessageType.SubscribeHook, subscribe.Type);
+
+					// An already-subscribed lane emitted this before the ack was written.
+					var hookPayload = new byte[56];
+					BinaryPrimitives.WriteUInt64LittleEndian(hookPayload, 775);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(8),
+						(uint)KeysharpInputdClient.HookType.KeyboardLowLevel);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(16), 0x0100);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(20), 0x41);
+					SendFrame(socket, KeysharpInputdClient.MessageType.HookEvent, 775, hookPayload);
+					SendStatus(socket, KeysharpInputdClient.MessageType.SubscribeHook,
+						subscribe.CorrelationId, 0, 1);
+
+					var decision = ReceiveFrame(socket);
+					Assert.AreEqual(KeysharpInputdClient.MessageType.HookDecision, decision.Type);
+					Assert.AreEqual(775ul, decision.CorrelationId);
+					SendStatus(socket, KeysharpInputdClient.MessageType.HookDecision,
+						decision.CorrelationId, 0, 0);
+				});
+
+				using var client = KeysharpInputdClient.Connect(
+					role: KeysharpInputdClient.ConnectionRole.HookStream);
+				var nestedCount = 0;
+				client.SetNestedHookEventHandler((rpc, hookEvent) =>
+				{
+					Assert.AreEqual(775ul, hookEvent.EventId);
+					nestedCount++;
+					rpc.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+				});
+
+				Assert.AreEqual(1u, client.SubscribeHook(KeysharpInputdClient.HookType.KeyboardLowLevel));
+				await server.WaitAsync(TimeSpan.FromSeconds(5));
+				Assert.AreEqual(1, nestedCount);
+			}
+			finally
+			{
+				Environment.SetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable, previous);
+				try { File.Delete(path); } catch { }
+			}
+		}
+
+		[Test, Category("Misc")]
+		public async Task HookPumpDiscardsResponsesNoRequestIsWaitingFor()
+		{
+			var path = $"/tmp/keysharp-inputd-test-{Environment.ProcessId}-{Guid.NewGuid():N}.sock";
+			var previous = Environment.GetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable);
+			using var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+			listener.Bind(new UnixDomainSocketEndPoint(path));
+			listener.Listen(1);
+			Environment.SetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable, path);
+			try
+			{
+				var server = Task.Run(async () =>
+				{
+					using var socket = await listener.AcceptAsync();
+					var hello = ReceiveFrame(socket);
+					SendFrame(socket, KeysharpInputdClient.MessageType.ClientHello,
+						hello.CorrelationId, new byte[24]);
+
+					// The reply to a request that already timed out, then a real event.
+					SendStatus(socket, KeysharpInputdClient.MessageType.SynthesisResult, 99, 0, 0);
+					var hookPayload = new byte[56];
+					BinaryPrimitives.WriteUInt64LittleEndian(hookPayload, 12);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(8),
+						(uint)KeysharpInputdClient.HookType.KeyboardLowLevel);
+					SendFrame(socket, KeysharpInputdClient.MessageType.HookEvent, 12, hookPayload);
+					await Task.Delay(50);
+				});
+
+				using var client = KeysharpInputdClient.Connect(
+					role: KeysharpInputdClient.ConnectionRole.HookStream);
+				Assert.AreEqual(12ul, client.ReadHookEvent().EventId);
+				await server.WaitAsync(TimeSpan.FromSeconds(5));
+			}
+			finally
+			{
+				Environment.SetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable, previous);
+				try { File.Delete(path); } catch { }
+			}
+		}
+
 		private readonly record struct TestFrame(
 			KeysharpInputdClient.MessageType Type,
 			ulong CorrelationId,

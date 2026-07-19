@@ -26,13 +26,11 @@ namespace Keysharp.Internals.Input.Linux
 		// CLIENT_HELLO may wait on the daemon's interactive trust prompt.
 		private const int HelloResponseTimeoutMs = 75000;
 		private const int LeaseHeartbeatPeriodMs = 5000;
-		private const int HookSessionTokenSize = 16;
 
 		internal enum ConnectionRole : uint
 		{
 			GeneralRpc = 0,
 			HookStream = 1,
-			CallbackRpc = 2,
 		}
 
 		[Flags]
@@ -58,7 +56,6 @@ namespace Keysharp.Internals.Input.Linux
 			HookEvent = 12,
 			HookDecision = 13,
 			HookQuarantined = 14,
-			RearmHook = 15,
 			SynthesizeInput = 20,
 			SynthesisResult = 21,
 			EmergencyPassthrough = 30,
@@ -220,19 +217,9 @@ namespace Keysharp.Internals.Input.Linux
 
 		private readonly Socket socket;
 		private readonly ConnectionRole connectionRole;
-		private readonly byte[] boundHookSessionToken;
-		/// <summary>
-		/// Hook events received on this socket while a thread was waiting for a
-		/// command response. Buffered by ReadResponseFrame and drained by
-		/// ReadHookEvent.
-		/// </summary>
-		private readonly Queue<HookEvent> pendingHookEvents = new();
-		private readonly Lock pendingHookEventsLock = new();
-		private readonly Dictionary<(MessageType Type, ulong CorrelationId), Frame> pendingResponses = new();
 		private readonly Lock sendLock = new();
-		// Exactly one thread reads a socket at a time. ReadResponseFrame temporarily
-		// releases this gate while invoking a nested hook, allowing a #HotIf Task to
-		// issue the child RPC which the parent response depends on.
+		// One thread reads a HookStream. The monitor is reentrant, so synchronous
+		// nested callbacks can issue their own request without admitting another reader.
 		private readonly object responseGate = new();
 		private Action<KeysharpInputdClient, HookEvent> nestedHookEventHandler;
 		private Action<HookQuarantine> hookQuarantineHandler;
@@ -243,14 +230,11 @@ namespace Keysharp.Internals.Input.Linux
 		private bool disposed;
 		private readonly int requestTimeoutMs;
 
-		private KeysharpInputdClient(Socket socket, int requestTimeoutMs, ConnectionRole role, byte[] hookSessionToken)
+		private KeysharpInputdClient(Socket socket, int requestTimeoutMs, ConnectionRole role)
 		{
 			this.socket = socket;
 			this.requestTimeoutMs = requestTimeoutMs;
 			connectionRole = role;
-			boundHookSessionToken = hookSessionToken is { Length: HookSessionTokenSize }
-				? (byte[])hookSessionToken.Clone()
-				: new byte[HookSessionTokenSize];
 
 			if (requestTimeoutMs > 0)
 			{
@@ -259,16 +243,12 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		internal byte[] HookSessionToken { get; private set; } = new byte[HookSessionTokenSize];
-
 		/// <summary>
-		/// Installs the synchronous callback pump used only by an authenticated
-		/// CALLBACK_RPC connection. Nested hook delivery is processed on the thread
-		/// which is waiting for the synthesis result, so a Send from a low-level hook
-		/// has the same recursive completion semantics as Windows.
+		/// Installs the synchronous callback pump used by a HookStream while it waits
+		/// for a hook-originated synthesis result.
 		/// </summary>
 		internal void SetNestedHookEventHandler(Action<KeysharpInputdClient, HookEvent> handler)
-			=> nestedHookEventHandler = handler;
+			=> Volatile.Write(ref nestedHookEventHandler, handler);
 
 		internal void SetHookQuarantineHandler(Action<HookQuarantine> handler)
 			=> hookQuarantineHandler = handler;
@@ -293,13 +273,6 @@ namespace Keysharp.Internals.Input.Linux
 			{
 				RequestType: MessageType.HookDecision,
 				Detail: (uint)HookDecisionDetail.StaleOrWrongResponder
-			};
-
-		internal static bool IsSynthesisBackpressure(Exception exception)
-			=> exception is RequestFailedException
-			{
-				RequestType: MessageType.SynthesisResult,
-				Detail: (uint)StatusDetail.ResourceExhausted
 			};
 
 		internal Capabilities GrantedCapabilities { get; private set; }
@@ -356,8 +329,7 @@ namespace Keysharp.Internals.Input.Linux
 			Capabilities requested = Capabilities.None,
 			string socketPath = null,
 			int requestTimeoutMs = DefaultRequestTimeoutMs,
-			ConnectionRole role = ConnectionRole.GeneralRpc,
-			byte[] hookSessionToken = null)
+			ConnectionRole role = ConnectionRole.GeneralRpc)
 		{
 			var endpoint = new UnixDomainSocketEndPoint(socketPath ?? DefaultSocketPath);
 			var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
@@ -380,7 +352,7 @@ namespace Keysharp.Internals.Input.Linux
 				else
 					socket.Connect(endpoint);
 
-				var client = new KeysharpInputdClient(socket, requestTimeoutMs, role, hookSessionToken);
+				var client = new KeysharpInputdClient(socket, requestTimeoutMs, role);
 				client.RequestCapabilities(requested);
 				return client;
 			}
@@ -445,12 +417,18 @@ namespace Keysharp.Internals.Input.Linux
 			BypassHook = 0x00000001,  // mirrors KSI_SYNTH_FLAG_BYPASS_HOOK
 		}
 
-		internal void SendInput(IReadOnlyList<Input> inputs, SynthFlags flags = SynthFlags.None)
+		internal void SendInput(
+			IReadOnlyList<Input> inputs,
+			SynthFlags flags = SynthFlags.None,
+			ulong parentHookEventId = 0u)
 		{
 			if (inputs == null)
 				throw new ArgumentNullException(nameof(inputs));
 			if (inputs.Count > MaxInputsPerRequest)
 				throw new ArgumentOutOfRangeException(nameof(inputs));
+			if ((connectionRole == ConnectionRole.HookStream) != (parentHookEventId != 0u))
+				throw new InvalidOperationException(
+					"HookStream synthesis requires its current parent event; ordinary synthesis must use GeneralRpc.");
 
 			var payload = new byte[8 + (inputs.Count * InputSize)];
 			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)inputs.Count);
@@ -459,7 +437,10 @@ namespace Keysharp.Internals.Input.Linux
 			for (var i = 0; i < inputs.Count; i++)
 				WriteInput(payload.AsSpan(8 + (i * InputSize), InputSize), inputs[i]);
 
-			SendStatusRequest(MessageType.SynthesizeInput, MessageType.SynthesisResult, payload);
+			// On a HookStream the request/response correlation is also the asserted
+			// parent callback. Requests are synchronous, so siblings may reuse it.
+			SendStatusRequest(MessageType.SynthesizeInput, MessageType.SynthesisResult,
+				payload, parentHookEventId == 0u ? null : parentHookEventId);
 		}
 
 		/// <summary>Queries the daemon for current lock-key indicator state.</summary>
@@ -565,26 +546,23 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal HookEvent ReadHookEvent()
 		{
-			for (;;)
+			lock (responseGate)
 			{
-				lock (pendingHookEventsLock)
+				for (;;)
 				{
-					if (pendingHookEvents.Count != 0)
-						return pendingHookEvents.Dequeue();
+					var frame = ReadFrame(idleRetry: true);
+
+					if (frame.Type == MessageType.HookEvent)
+						return ParseHookEvent(frame);
+
+					if (frame.Type == MessageType.HookQuarantined)
+					{
+						DispatchHookQuarantine(frame);
+						continue;
+					}
+
+					throw new InvalidDataException($"Expected hook event, got {frame.Type}.");
 				}
-
-				var frame = ReadFrame(idleRetry: true);
-
-				if (frame.Type == MessageType.HookEvent)
-					return ParseHookEvent(frame);
-
-				if (frame.Type == MessageType.HookQuarantined)
-				{
-					DispatchHookQuarantine(frame);
-					continue;
-				}
-
-				throw new InvalidDataException($"Expected hook event, got {frame.Type}.");
 			}
 		}
 
@@ -649,14 +627,6 @@ namespace Keysharp.Internals.Input.Linux
 			SendStatusRequest(MessageType.HookDecision, MessageType.HookDecision, payload, eventId);
 		}
 
-		internal void RearmHook(HookType hookType, uint generation)
-		{
-			Span<byte> payload = stackalloc byte[8];
-			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)hookType);
-			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], generation);
-			SendStatusRequest(MessageType.RearmHook, payload);
-		}
-
 		public void Dispose()
 		{
 			if (disposed)
@@ -693,7 +663,6 @@ namespace Keysharp.Internals.Input.Linux
 			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)requested);
 			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], forcePrompt ? ClientHelloFlagForcePrompt : 0);
 			BinaryPrimitives.WriteUInt32LittleEndian(payload[8..], (uint)connectionRole);
-			boundHookSessionToken.CopyTo(payload[16..]);
 
 			var correlationId = NextCorrelationId();
 			SendFrame(MessageType.ClientHello, correlationId, payload);
@@ -719,7 +688,6 @@ namespace Keysharp.Internals.Input.Linux
 
 			var status = BinaryPrimitives.ReadInt32LittleEndian(response.Payload);
 			var granted = (Capabilities)BinaryPrimitives.ReadUInt32LittleEndian(response.Payload[4..]);
-			response.Payload.AsSpan(8, HookSessionTokenSize).CopyTo(HookSessionToken);
 			return (status, granted);
 		}
 
@@ -867,46 +835,24 @@ namespace Keysharp.Internals.Input.Linux
 
 		private Frame ReadResponseFrame(MessageType expectedType, ulong expectedCorrelationId)
 		{
-			Monitor.Enter(responseGate);
-
-			try
+			lock (responseGate)
 			{
-				var expectedKey = (expectedType, expectedCorrelationId);
-
 				for (;;)
 				{
-					if (pendingResponses.Remove(expectedKey, out var pending))
-						return pending;
-
 					var frame = ReadFrame();
 
-					if (frame.Type == expectedType && frame.CorrelationId == expectedCorrelationId)
+					if (frame.Type == expectedType
+						&& frame.CorrelationId == expectedCorrelationId)
 						return frame;
 
 					if (frame.Type == MessageType.HookEvent)
 					{
-						var hookEvent = ParseHookEvent(frame);
-						var handler = nestedHookEventHandler;
+						var handler = Volatile.Read(ref nestedHookEventHandler);
 
-						if (connectionRole == ConnectionRole.CallbackRpc && handler != null)
-						{
-							Monitor.Exit(responseGate);
+						if (connectionRole != ConnectionRole.HookStream || handler == null)
+							throw new InvalidDataException("Unexpected recursive hook event on a non-hook connection.");
 
-							try
-							{
-								handler(this, hookEvent);
-							}
-							finally
-							{
-								Monitor.Enter(responseGate);
-							}
-
-							continue;
-						}
-
-						lock (pendingHookEventsLock)
-							pendingHookEvents.Enqueue(hookEvent);
-
+						handler(this, ParseHookEvent(frame));
 						continue;
 					}
 
@@ -916,16 +862,10 @@ namespace Keysharp.Internals.Input.Linux
 						continue;
 					}
 
-					var key = (frame.Type, frame.CorrelationId);
-
-					if (!pendingResponses.TryAdd(key, frame))
-						throw new InvalidDataException(
-							$"Duplicate response type={frame.Type} correlation={frame.CorrelationId}.");
+					throw new InvalidDataException(
+						$"Expected {expectedType}/{expectedCorrelationId}, got {frame.Type}/{frame.CorrelationId}. " +
+						"HookStream requests must remain synchronously nested.");
 				}
-			}
-			finally
-			{
-				Monitor.Exit(responseGate);
 			}
 		}
 

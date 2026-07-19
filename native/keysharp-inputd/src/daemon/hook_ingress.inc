@@ -37,7 +37,11 @@ static bool synth_batch_needs_hook_queue(
     return false;
 }
 
-static bool enqueue_synth_direct(ksi_daemon_state *state, const ksi_input *input, bool batch_start)
+static bool enqueue_synth_direct(
+    ksi_daemon_state *state,
+    const ksi_input *input,
+    bool batch_start,
+    uint64_t input_generation)
 {
     /* BATCH_FRAGMENT: this is one event of an already-received client batch (the
      * synthetic hook queue re-emits them individually), so per-batch synthesis
@@ -47,16 +51,19 @@ static bool enqueue_synth_direct(ksi_daemon_state *state, const ksi_input *input
     uint32_t flags = KSI_SYNTH_FLAG_BYPASS_HOOK | KSI_SYNTH_FLAG_BATCH_FRAGMENT
         | (batch_start ? KSI_SYNTH_FLAG_BATCH_START : 0u);
 
-    return output_queue_push_synth(&state->output_queue, input, 1u, flags);
+    return output_queue_push_synth(
+        &state->output_queue, input, 1u, flags, input_generation);
 }
 
 static bool enqueue_synth_direct_complete(
     ksi_daemon_state *state,
     const ksi_input *input,
     ksi_synth_completion *completion,
-    bool batch_start)
+    bool batch_start,
+    uint64_t input_generation)
 {
-    bool ok = enqueue_synth_direct(state, input, batch_start);
+    bool ok = enqueue_synth_direct(
+        state, input, batch_start, input_generation);
 
     if (completion != NULL) {
         if (ok) {
@@ -76,10 +83,10 @@ static bool create_synthetic_lane_event(
     ksi_daemon_state *state,
     const ksi_input *input,
     bool batch_start,
-    uint64_t origin_hook_connection_id,
     uint32_t nesting_depth,
     ksi_synth_completion *completion,
-    ksi_lane_event **event)
+    ksi_lane_event **event,
+    uint64_t input_generation)
 {
     uint32_t hook_type = hook_type_for_input(input);
     ksi_hook_event_payload payload;
@@ -102,7 +109,8 @@ static bool create_synthetic_lane_event(
 
     egress.synth_inputs[0] = *input;
     *event = create_hook_lane_event(state, hook_type, &payload.event, event_size,
-        &egress, completion, origin_hook_connection_id, nesting_depth);
+        &egress, completion, nesting_depth,
+        input_generation);
     return *event != NULL;
 }
 
@@ -110,7 +118,8 @@ static bool process_synthetic_hook_input(
     ksi_daemon_state *state,
     const ksi_input *input,
     ksi_synth_completion *completion,
-    bool batch_start)
+    bool batch_start,
+    uint64_t input_generation)
 {
     ksi_lane_event *event;
 
@@ -119,14 +128,15 @@ static bool process_synthetic_hook_input(
         return false;
     }
 
-    if (!create_synthetic_lane_event(state, input, batch_start, 0u, 0u,
-            completion, &event)) {
+    if (!create_synthetic_lane_event(state, input, batch_start, 0u,
+            completion, &event, input_generation)) {
         synth_completion_fail(completion, -1, KSI_DETAIL_RESOURCE_EXHAUSTED);
         return false;
     }
 
     if (event == NULL) {
-        return enqueue_synth_direct_complete(state, input, completion, batch_start);
+        return enqueue_synth_direct_complete(
+            state, input, completion, batch_start, input_generation);
     }
 
     atomic_store(&state->synthetic_hook_inflight, 1);
@@ -140,21 +150,30 @@ static bool process_synthetic_hook_queue_one(ksi_daemon_state *state)
     uint64_t queued_at_ns;
     ksi_synth_completion *completion = NULL;
     bool batch_start = false;
+    uint64_t input_generation = 0u;
 
     if (state == NULL
         || atomic_load(&state->synthetic_hook_inflight) != 0
         || !synthetic_hook_queue_pop(&state->synthetic_hook_queue,
-            &input, &queued_at_ns, &completion, &batch_start)) {
+            &input, &queued_at_ns, &completion, &batch_start,
+            &input_generation)) {
         return false;
     }
 
     (void)queued_at_ns;
 
+    if (input_generation != 0u
+        && input_generation != current_input_generation(state)) {
+        synth_completion_fail(completion, -1, KSI_DETAIL_CANCELLED);
+        return true;
+    }
+
     if (batch_start) {
         synth_completion_begin_atomic(completion);
     }
 
-    if (!process_synthetic_hook_input(state, &input, completion, batch_start)) {
+    if (!process_synthetic_hook_input(
+            state, &input, completion, batch_start, input_generation)) {
         fprintf(stderr, "inputd: failed to route synthetic hook input\n");
     }
 

@@ -48,7 +48,6 @@ typedef enum ksi_message_type {
     KSI_MESSAGE_HOOK_EVENT = 12,
     KSI_MESSAGE_HOOK_DECISION = 13,
     KSI_MESSAGE_HOOK_QUARANTINED = 14,
-    KSI_MESSAGE_REARM_HOOK = 15,
     KSI_MESSAGE_SYNTHESIZE_INPUT = 20,
     KSI_MESSAGE_SYNTHESIS_RESULT = 21,
     KSI_MESSAGE_EMERGENCY_PASSTHROUGH = 30,
@@ -188,7 +187,7 @@ typedef enum ksi_hook_decision {
      * hook path no longer produces this — inline hook sends (modifier disguise /
      * Alt-Tab) now go out as a separate synthesis after a pure Block/Pass decision
      * (mirroring Windows: a hook returns block/pass and any extra input is an
-     * independent SendInput; callback RPC recursively dispatches and completes
+     * independent SendInput; the HookStream recursively dispatches and completes
      * that input before the parent hook resumes). Kept as a valid primitive. */
     KSI_HOOK_DECISION_MODIFY = 2,
 } ksi_hook_decision;
@@ -361,17 +360,16 @@ typedef enum ksi_hook_decision_detail {
 typedef enum ksi_connection_role {
     KSI_CONNECTION_GENERAL_RPC = 0,
     KSI_CONNECTION_HOOK_STREAM = 1,
-    KSI_CONNECTION_CALLBACK_RPC = 2,
 } ksi_connection_role;
 
-#define KSI_HOOK_SESSION_TOKEN_SIZE 16u
+#define KSI_HELLO_RESERVED_SIZE 16u
 
 typedef struct ksi_client_hello_payload {
     uint32_t requested_capabilities;
     uint32_t flags;
     uint32_t role;
     uint32_t reserved;
-    uint8_t hook_session_token[KSI_HOOK_SESSION_TOKEN_SIZE];
+    uint8_t reserved_session[KSI_HELLO_RESERVED_SIZE];
 } ksi_client_hello_payload;
 
 #define KSI_CLIENT_HELLO_FLAG_FORCE_PROMPT 0x00000001u
@@ -379,7 +377,7 @@ typedef struct ksi_client_hello_payload {
 typedef struct ksi_client_hello_result_payload {
     int32_t status;
     uint32_t granted_capabilities;
-    uint8_t hook_session_token[KSI_HOOK_SESSION_TOKEN_SIZE];
+    uint8_t reserved_session[KSI_HELLO_RESERVED_SIZE];
 } ksi_client_hello_result_payload;
 
 typedef struct ksi_hook_quarantined_payload {
@@ -391,11 +389,6 @@ typedef struct ksi_hook_quarantined_payload {
     uint32_t retry_after_ms;
     uint32_t reserved;
 } ksi_hook_quarantined_payload;
-
-typedef struct ksi_rearm_hook_payload {
-    uint32_t hook_type;
-    uint32_t generation;
-} ksi_rearm_hook_payload;
 
 #define KSI_HOOK_QUARANTINE_REASON_TIMEOUT 1u
 #define KSI_HOOK_QUARANTINE_REASON_TRANSPORT 2u

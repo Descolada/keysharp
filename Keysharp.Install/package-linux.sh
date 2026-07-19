@@ -419,7 +419,8 @@ if [ -f /usr/lib/keysharp/keysharp-inputd ]; then
   # the ones activated; --install-input-access below runs daemon-reload + enable.
   rm -f /etc/systemd/system/keysharp-inputd.service \
         /etc/systemd/system/keysharp-inputd.socket \
-        /etc/systemd/system/sockets.target.wants/keysharp-inputd.socket || true
+        /etc/systemd/system/sockets.target.wants/keysharp-inputd.socket \
+        /etc/systemd/system/multi-user.target.wants/keysharp-inputd.service || true
   if ! /usr/lib/keysharp/keysharp-inputd --install-input-access; then
     cat >&2 <<'WARN'
 Warning: keysharp-inputd --install-input-access did not complete successfully.
@@ -427,15 +428,14 @@ Linux input hooks, input synthesis, and BlockInput
 prompt may be unavailable until this is resolved. Re-run manually as root:
   sudo /usr/lib/keysharp/keysharp-inputd --install-input-access
 and check the output for the failing step (modprobe uinput, udevadm, or
-systemctl enable --now keysharp-inputd.socket keysharp-inputd.service).
+systemctl enable --now keysharp-inputd.service).
 WARN
-    # --install-input-access normally reloads the unit files and (re)starts the
-    # service/socket. When it fails, prerm has already stopped the old service
-    # on an upgrade, so reload units and restart the socket here to avoid leaving
-    # the broker wholly unavailable.
+    # --install-input-access normally reloads and starts the service. When it
+    # fails, prerm has already stopped the old daemon on an upgrade, so retry the
+    # same entry point; its Requires= dependency starts the socket.
     if command -v systemctl >/dev/null 2>&1; then
       systemctl daemon-reload || true
-      systemctl restart keysharp-inputd.socket || true
+      systemctl start keysharp-inputd.service || true
     fi
   fi
 fi
@@ -658,7 +658,7 @@ _ks_ext_remove() {
 # Runs on both removal ("remove"/"deconfigure") and upgrade ("upgrade"). In every
 # case stop the per-user compile daemon ("Keysharp --daemon") and the running
 # input broker so the old binaries are no longer in use; on an upgrade postinst
-# re-enables and starts the updated inputd service and socket.
+# re-enables the updated inputd service, which starts its required socket.
 if command -v pkill >/dev/null 2>&1; then
   pkill -f '[Kk]eysharp --daemon' 2>/dev/null || true
 fi

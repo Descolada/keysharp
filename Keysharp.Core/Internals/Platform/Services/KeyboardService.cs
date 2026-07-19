@@ -145,7 +145,7 @@ namespace Keysharp.Internals
 
 		public bool TryGetIndicatorStates(out bool capsOn, out bool numOn, out bool scrollOn)
 		{
-			if (Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsHookReaderThread && TryGetIndicatorSnapshot(out capsOn, out numOn, out scrollOn))
+			if (Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsInHookCallback && TryGetIndicatorSnapshot(out capsOn, out numOn, out scrollOn))
 				return true;
 
 			return Keysharp.Internals.Input.Linux.KeysharpInputdManager.TryGetKeyState(out _, out capsOn, out numOn, out scrollOn);

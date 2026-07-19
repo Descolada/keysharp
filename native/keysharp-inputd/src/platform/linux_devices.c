@@ -3,6 +3,7 @@
 #include "keysharp_inputd/globals.h"
 #include "keysharp_inputd/linux_synth.h"
 #include "keysharp_inputd/protocol.h"
+#include "linux_device_filter.h"
 #include "vk_evdev.h"
 
 #include <dirent.h>
@@ -331,6 +332,76 @@ static bool is_event_device_path(const char *path)
 
     last_slash = strrchr(path, '/');
     return last_slash != NULL && is_event_device_name(last_slash + 1);
+}
+
+/* ID_SEAT is normally attached to the event node itself, but custom udev
+ * rules may put it on an input parent. Walk the chain before applying the
+ * documented default (no ID_SEAT anywhere means seat0). A missing or not-yet-
+ * initialized udev object is different from a confirmed missing property:
+ * metadata lookup races fail closed so a non-seat0 device is never opened
+ * merely because its udev database record is incomplete. */
+static bool udev_device_is_on_seat0(
+    struct udev_device *device,
+    const char **out_id_seat,
+    bool *out_metadata_initialized)
+{
+    struct udev_device *current;
+    const char *id_seat = NULL;
+    bool metadata_initialized = false;
+
+    if (device != NULL) {
+        metadata_initialized = udev_device_get_is_initialized(device) > 0;
+    }
+
+    if (out_metadata_initialized != NULL) {
+        *out_metadata_initialized = metadata_initialized;
+    }
+
+    if (metadata_initialized) {
+        for (current = device; current != NULL; current = udev_device_get_parent(current)) {
+            id_seat = ksi_linux_device_prefer_nearest_id_seat(
+                id_seat,
+                udev_device_get_property_value(current, "ID_SEAT"));
+
+            if (id_seat != NULL) {
+                break;
+            }
+        }
+    }
+
+    if (out_id_seat != NULL) {
+        *out_id_seat = id_seat;
+    }
+
+    return ksi_linux_device_seat_metadata_is_admitted(
+        metadata_initialized,
+        id_seat);
+}
+
+static bool admit_udev_event_device(struct udev_device *device, const char *path, const char *reason)
+{
+    const char *id_seat = NULL;
+    bool metadata_initialized = false;
+
+    if (udev_device_is_on_seat0(device, &id_seat, &metadata_initialized)) {
+        return true;
+    }
+
+    if (device == NULL || !metadata_initialized) {
+        fprintf(stderr,
+            "inputd: %s %s ignored: udev metadata unavailable or not initialized "
+            "(seat lookup failed closed)\n",
+            reason,
+            path);
+    } else {
+        fprintf(stderr,
+            "inputd: %s %s ignored: ID_SEAT=\"%s\" is outside seat0\n",
+            reason,
+            path,
+            id_seat != NULL ? id_seat : "");
+    }
+
+    return false;
 }
 
 static bool is_candidate(const ksi_linux_device_info *info)
@@ -800,6 +871,7 @@ static void scan_existing_devices(void)
 {
     DIR *dir;
     struct dirent *entry;
+    struct udev *scan_udev;
     int devices_seen = 0;
     int candidates_seen = 0;
 
@@ -810,9 +882,21 @@ static void scan_existing_devices(void)
         return;
     }
 
+    /* The monitor owns the long-lived context when available. In degraded
+     * no-monitor mode, create a temporary context solely for admission. */
+    scan_udev = udev_context != NULL ? udev_ref(udev_context) : udev_new();
+
+    if (scan_udev == NULL) {
+        fprintf(stderr,
+            "inputd: cannot create udev context for seat0 filtering; skipping input devices\n");
+        closedir(dir);
+        return;
+    }
+
     while ((entry = readdir(dir)) != NULL) {
         char path[PATH_MAX];
         ksi_linux_device_info info;
+        struct udev_device *udev_device;
         bool idle_candidate;
 
         if (!is_event_device_name(entry->d_name)) {
@@ -826,6 +910,21 @@ static void scan_existing_devices(void)
 
         devices_seen++;
 
+        udev_device = udev_device_new_from_subsystem_sysname(
+            scan_udev,
+            "input",
+            entry->d_name);
+
+        if (!admit_udev_event_device(udev_device, path, "existing")) {
+            if (udev_device != NULL) {
+                udev_device_unref(udev_device);
+            }
+
+            continue;
+        }
+
+        udev_device_unref(udev_device);
+
         if (read_device_info(path, &info) != 0) {
             continue;
         }
@@ -838,6 +937,7 @@ static void scan_existing_devices(void)
         }
     }
 
+    udev_unref(scan_udev);
     closedir(dir);
 
     fprintf(stderr, "inputd: scanned %d event devices, found %d user-input candidates\n",
@@ -899,9 +999,19 @@ static int start_udev_monitor(void)
     return 0;
 }
 
-static void handle_device_add_or_change(const char *path, const char *action)
+static void handle_device_add_or_change(
+    struct udev_device *udev_device,
+    const char *path,
+    const char *action)
 {
     ksi_linux_device_info info;
+
+    if (!admit_udev_event_device(udev_device, path, action)) {
+        /* A change event can move an already-tracked device to another seat.
+         * Release its grab and fd before any further event processing. */
+        untrack_device(path);
+        return;
+    }
 
     if (read_device_info(path, &info) != 0) {
         return;
@@ -1981,7 +2091,7 @@ static void process_udev_events(void)
             if (action != NULL && strcmp(action, "remove") == 0) {
                 untrack_device(devnode);
             } else if (action != NULL && (strcmp(action, "add") == 0 || strcmp(action, "change") == 0)) {
-                handle_device_add_or_change(devnode, action);
+                handle_device_add_or_change(device, devnode, action);
             }
         }
 

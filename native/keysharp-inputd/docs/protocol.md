@@ -26,7 +26,7 @@ Supported message types:
 CLIENT_HELLO          HEARTBEAT
 SUBSCRIBE_HOOK        UNSUBSCRIBE_HOOK
 HOOK_EVENT            HOOK_DECISION
-HOOK_QUARANTINED      REARM_HOOK
+HOOK_QUARANTINED
 SYNTHESIZE_INPUT      SYNTHESIS_RESULT
 EMERGENCY_PASSTHROUGH SET_BLOCK_INPUT
 GET_INDICATOR_STATE   INDICATOR_STATE_RESULT
@@ -72,16 +72,21 @@ Clients connect through the systemd socket at
 Protocol 1.0 is intentionally incompatible with 0.2. `CLIENT_HELLO` carries
 requested capabilities, optional flags, and one authenticated connection role:
 
-- `HOOK_STREAM` receives hook events and returns decisions.
-- `CALLBACK_RPC` is bound to a hook session and carries RPC made from callbacks.
+- `HOOK_STREAM` receives hook events, returns decisions, and carries synchronous
+  requests made while one of those callbacks is active.
 - `GENERAL_RPC` carries ordinary requests from unrelated script threads.
 
-A successful `HOOK_STREAM` hello returns a random 128-bit session token. A
-`CALLBACK_RPC` must present that token and match the hook stream's peer PID and
-UID, process start time, executable path, and executable hash. Exactly one callback
-RPC may bind to a hook session. Synthesis requests never carry a parent event id or
-claim callback ancestry; the daemon decides ancestry from its active callback stack
-and the bound socket.
+Callback synthesis stays on the same `HOOK_STREAM` and uses its current parent
+event id as the request correlation id. The daemon accepts that ancestry only while
+the same authenticated stream is the active responder for that event. A general
+connection cannot claim a parent, and stale callback output is emitted only through
+the bypassed fail-open path.
+
+The system socket is machine-wide, but input ownership is not: only the uid of
+logind's active session on `seat0` may acquire capabilities, subscribe, block,
+synthesize, query input state, or enter a hook snapshot. A seat-owner transition
+fails old work closed by generation and releases its grabs before the new uid is
+published. Evdev discovery likewise admits only `seat0` devices.
 
 Capabilities and flags are:
 
@@ -115,10 +120,11 @@ daemon is running as root) can target another user's records.
 
 ## Hook model
 
-The daemon implements hook transport only; Keysharp owns all policy. Keyboard
-and mouse decision waits run on independent lane threads, so a stalled keyboard
-hook decision does not hold mouse events back (and vice versa). All uinput-bound
-writes go through a single output sequencer thread.
+The daemon implements hook transport only; Keysharp owns all policy. Root keyboard
+and mouse events use independent lane threads. Each script has one `HOOK_STREAM`
+call stack shared by both hook types, so its own keyboard/mouse callbacks serialize;
+different scripts can execute in parallel. All uinput-bound writes use one output
+sequencer thread.
 
 ```
 evdev / main thread       lane threads             sequencer thread
@@ -133,15 +139,18 @@ classify hook event  ──►  (mouse lane)
 SYNTHESIZE_INPUT     ──────────────────────────────►
 ```
 
-Each lane has its own decision-timeout deadline and pending event stack. An
-ordinary `SYNTHESIZE_INPUT` completes only after every matching low-level hook
-has decided and each unsuppressed output has been admitted by the sequencer.
-When synthesis arrives on the callback RPC belonging to the active responder,
-it is a child transaction: same-lane events are pushed recursively and
-cross-lane events are submitted to the other live lane. The complete newest-to-
-oldest hook chain runs for every child event before the parent callback resumes.
-The managed callback RPC pumps nested `HOOK_EVENT` frames while waiting for its
-result and buffers correlation responses which complete child-before-parent.
+An ordinary `SYNTHESIZE_INPUT` result acknowledges atomic queue admission; its
+low-level callbacks run later and never hold the sender RPC open. A request on an
+active `HOOK_STREAM` instead forms one synchronous child transaction on the exact
+parent lane, irrespective of child input type. The stream marks its parent frame as
+pumping; recursive callbacks then enter the same per-script call stack ahead of
+queued root callbacks. Every child runs the complete newest-to-oldest hook chain,
+and the synthesis result is sent only after all child frames unwind. The managed
+reader pumps those nested `HOOK_EVENT` frames synchronously, so Send returns
+child-before-parent just as it does inside a Windows low-level hook. Before the
+daemon publishes a synthesis result, it closes that parent pump and lets any
+recursive frames which already entered from the other lane unwind. Consequently,
+two separate back-to-back Sends cannot overlap stale native pump state.
 
 Recursion is limited to 32 callback transactions and synthesis requests are
 limited to 1024 `ksi_input` entries and 4096 expanded low-level hook events. Either
@@ -153,14 +162,14 @@ Hook subscriptions require the matching hook access. `MODIFY` decisions and dire
 `EVIOCGRAB` is active, passed events must be replayable through `uinput`; if
 `uinput` is unavailable, subscriptions are denied.
 
-Every subscriber callback has a one-second absolute deadline, including time in
-nested synthesis. The first timeout passes the event for that subscriber and
-quarantines only that hook type. `HOOK_QUARANTINED` reports the event, generation,
-strike and cooldown. Once the overdue callback returns, Keysharp uses the bound
-callback RPC to send authenticated `REARM_HOOK`; a heartbeat cannot rearm it.
-Cooldowns are 1, 2, 4, 8 and 16 seconds. Sixty seconds without another quarantine
-resets the strike history. The fifth consecutive timeout invalidates the hook
-session so managed recovery establishes a fresh hook stream and callback RPC.
+Every entered subscriber callback has its own one-second deadline. Time spent in
+recursive child callbacks is charged to those children, not again to the suspended
+parent. A busy stream which cannot start another root turn simply passes that event;
+the active callback owns timeout accounting. An entered timeout passes the event and
+quarantines only that hook type. `HOOK_QUARANTINED` reports the event, strike and
+cooldown; the daemon retries automatically after 1, 2, 4, 8 or 16 seconds. Sixty
+seconds without another quarantine resets the strike history. The fifth consecutive
+timeout invalidates only that HookStream so managed recovery reconnects it.
 Keyboard and mouse quarantine state is independent.
 
 `EMERGENCY_PASSTHROUGH` from a client already granted hook access clears all hook
@@ -187,7 +196,8 @@ has a single pending decision slot, so a decision from any client other than the
 lane's current responder — or a late decision after the one-second timeout — is
 rejected. A `SYNTHESIZE_INPUT` request or `MODIFY` decision that would exceed the
 output bounds is rejected with a failure result rather than partially queued, and
-capacity is reserved for physical replay and the emergency chord.
+capacity is reserved for key/button releases so saturation cannot split cleanup
+after its press.
 
 ## Ordering and timestamps
 

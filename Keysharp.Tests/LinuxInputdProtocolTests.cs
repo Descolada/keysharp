@@ -74,7 +74,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Misc")]
-		public async Task CallbackRpcPumpsNestedEventsAndBuffersParentResponse()
+		public async Task HookStreamPumpsNestedEventsInStackOrder()
 		{
 			var path = $"/tmp/keysharp-inputd-test-{Environment.ProcessId}-{Guid.NewGuid():N}.sock";
 			var previous = Environment.GetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable);
@@ -82,8 +82,6 @@ namespace Keysharp.Tests
 			listener.Bind(new UnixDomainSocketEndPoint(path));
 			listener.Listen(1);
 			Environment.SetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable, path);
-			var token = Enumerable.Range(1, 16).Select(i => (byte)i).ToArray();
-
 			try
 			{
 				var server = Task.Run(async () =>
@@ -92,16 +90,16 @@ namespace Keysharp.Tests
 					var hello = ReceiveFrame(socket);
 					Assert.AreEqual(KeysharpInputdClient.MessageType.ClientHello, hello.Type);
 					Assert.AreEqual(32, hello.Payload.Length);
-					Assert.AreEqual((uint)KeysharpInputdClient.ConnectionRole.CallbackRpc,
+					Assert.AreEqual((uint)KeysharpInputdClient.ConnectionRole.HookStream,
 						BinaryPrimitives.ReadUInt32LittleEndian(hello.Payload.AsSpan(8)));
-					Assert.IsTrue(hello.Payload.AsSpan(16, 16).SequenceEqual(token));
 					var helloResult = new byte[24];
-					token.CopyTo(helloResult, 8);
 					SendFrame(socket, KeysharpInputdClient.MessageType.ClientHello,
 						hello.CorrelationId, helloResult);
 
 					var synthesis = ReceiveFrame(socket);
 					Assert.AreEqual(KeysharpInputdClient.MessageType.SynthesizeInput, synthesis.Type);
+					Assert.AreEqual(77ul, synthesis.CorrelationId);
+					Assert.AreEqual(48, synthesis.Payload.Length);
 					var hookPayload = new byte[56];
 					BinaryPrimitives.WriteUInt64LittleEndian(hookPayload, 77);
 					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(8),
@@ -114,8 +112,6 @@ namespace Keysharp.Tests
 
 					var stateQuery = ReceiveFrame(socket);
 					Assert.AreEqual(KeysharpInputdClient.MessageType.GetKeyState, stateQuery.Type);
-					SendStatus(socket, KeysharpInputdClient.MessageType.SynthesisResult,
-						synthesis.CorrelationId, 0, 0);
 					SendFrame(socket, KeysharpInputdClient.MessageType.KeyStateResult,
 						stateQuery.CorrelationId, new byte[8]);
 
@@ -124,35 +120,25 @@ namespace Keysharp.Tests
 					Assert.AreEqual(77ul, decision.CorrelationId);
 					SendStatus(socket, KeysharpInputdClient.MessageType.HookDecision,
 						decision.CorrelationId, 0, 0);
-
-					var rearm = ReceiveFrame(socket);
-					Assert.AreEqual(KeysharpInputdClient.MessageType.RearmHook, rearm.Type);
-					Assert.AreEqual((uint)KeysharpInputdClient.HookType.KeyboardLowLevel,
-						BinaryPrimitives.ReadUInt32LittleEndian(rearm.Payload));
-					Assert.AreEqual(9u, BinaryPrimitives.ReadUInt32LittleEndian(rearm.Payload.AsSpan(4)));
-					SendStatus(socket, KeysharpInputdClient.MessageType.RearmHook,
-						rearm.CorrelationId, 0, 1);
+					SendStatus(socket, KeysharpInputdClient.MessageType.SynthesisResult,
+						synthesis.CorrelationId, 0, 0);
 				});
 
 				using var client = KeysharpInputdClient.Connect(
-					role: KeysharpInputdClient.ConnectionRole.CallbackRpc,
-					hookSessionToken: token);
+					role: KeysharpInputdClient.ConnectionRole.HookStream);
 				var nestedCount = 0;
 				client.SetNestedHookEventHandler((rpc, hookEvent) =>
 				{
 					Assert.AreEqual(77ul, hookEvent.EventId);
 					Assert.AreEqual(0x10u, hookEvent.Keyboard.Flags);
 					Assert.AreEqual(1234u, hookEvent.Keyboard.DeviceId);
-					// #HotIf criteria run on a Task rather than the physical hook-reader
-					// thread. The child must be able to take over this callback RPC while
-					// the parent response pump is paused in the handler.
-					Assert.IsTrue(Task.Run(rpc.QueryKeyState).Wait(TimeSpan.FromSeconds(2)));
+					// Recursive requests stay on the HookStream's synchronous callback stack.
+					rpc.QueryKeyState();
 					nestedCount++;
 					rpc.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
 				});
 
-				client.SendInput([KeysharpInputdClient.Input.Key(0x41)]);
-				client.RearmHook(KeysharpInputdClient.HookType.KeyboardLowLevel, 9);
+				client.SendInput([KeysharpInputdClient.Input.Key(0x41)], parentHookEventId: 77);
 				await server.WaitAsync(TimeSpan.FromSeconds(5));
 				Assert.AreEqual(1, nestedCount);
 			}

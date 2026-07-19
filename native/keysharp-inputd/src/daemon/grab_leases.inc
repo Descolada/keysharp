@@ -31,11 +31,6 @@ static void send_hello_status(
         .granted_capabilities = granted_capabilities,
     };
 
-    if (client != NULL && client->connection_role == KSI_CONNECTION_HOOK_STREAM) {
-        memcpy(payload.hook_session_token, client->hook_session_token,
-            sizeof(payload.hook_session_token));
-    }
-
     (void)ipc_send_locked(
         client->fd,
         KSI_MESSAGE_CLIENT_HELLO,
@@ -217,6 +212,15 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
         return;
     }
 
+    if (!input_owner_matches_uid(state, client->uid)) {
+        client->pending_hello_valid = false;
+        send_hello_status(client,
+            client->pending_hello_client_id,
+            client->pending_hello_correlation_id,
+            -1, 0u);
+        return;
+    }
+
     client->pending_hello_valid = false;
 
     /* Separate physical (inputd-managed) from non-physical (e.g. screen capture)
@@ -338,6 +342,20 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
 
     client = &state->clients[client_index];
 
+    if (!input_owner_matches_uid(state, client->uid)) {
+        client->state = KSI_CLIENT_STATE_READY;
+
+        if (client->pending_hello_valid) {
+            client->pending_hello_valid = false;
+            send_hello_status(client,
+                client->pending_hello_client_id,
+                client->pending_hello_correlation_id,
+                -1, 0u);
+        }
+
+        return;
+    }
+
     /* Reject the identity if the process the worker read is not the one we
      * accepted: a zero/mismatched start time means the pid was recycled between
      * accept and the /proc read (TOCTOU). Deny caps rather than trust a possibly
@@ -376,33 +394,6 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
 
     if (!client->pending_hello_valid) {
         return;
-    }
-
-    if (client->connection_role == KSI_CONNECTION_CALLBACK_RPC) {
-        ksi_client *hook_session = find_hook_session(
-            state, client, client->hook_session_token);
-
-        if (hook_session == NULL
-            || find_callback_rpc_for_session(
-                state, hook_session->connection_id, client->connection_id) != NULL
-            || !client->has_identity
-            || !hook_session->has_identity
-            || client->start_time != hook_session->start_time
-            || strcmp(client->exe_hash, hook_session->exe_hash) != 0
-            || strcmp(client->exe_path, hook_session->exe_path) != 0) {
-            fprintf(stderr,
-                "inputd: rejecting callback RPC pid=%ld: hook-session executable identity mismatch\n",
-                (long)client->pid);
-            client->pending_hello_valid = false;
-            client->bound_hook_connection_id = 0u;
-            send_hello_status(client,
-                client->pending_hello_client_id,
-                client->pending_hello_correlation_id,
-                -1, 0u);
-            return;
-        }
-
-        client->bound_hook_connection_id = hook_session->connection_id;
     }
 
     /* There is a buffered CLIENT_HELLO — process it now that we have identity. */
@@ -529,8 +520,10 @@ static uint32_t active_hook_subscription_mask(const ksi_daemon_state *state)
     }
 
     for (nfds_t i = 0; i < state->client_count; i++) {
-        mask |= state->clients[i].hook_subscriptions
-            & (uint32_t)~state->clients[i].quarantined_hooks;
+        if (input_owner_matches_uid(state, state->clients[i].uid)) {
+            mask |= state->clients[i].hook_subscriptions
+                & (uint32_t)~state->clients[i].quarantined_hooks;
+        }
     }
 
     return mask;
@@ -545,7 +538,9 @@ static uint32_t active_block_input_mask(const ksi_daemon_state *state)
     }
 
     for (nfds_t i = 0; i < state->client_count; i++) {
-        mask |= state->clients[i].block_input_mask;
+        if (input_owner_matches_uid(state, state->clients[i].uid)) {
+            mask |= state->clients[i].block_input_mask;
+        }
     }
 
     return mask;
@@ -567,7 +562,8 @@ static bool any_matching_hook_subscriptions(const ksi_daemon_state *state, uint3
 
     for (nfds_t i = 0; i < state->client_count; i++) {
         if ((state->clients[i].hook_subscriptions & subscription_bit) != 0
-            && (state->clients[i].quarantined_hooks & subscription_bit) == 0u) {
+            && (state->clients[i].quarantined_hooks & subscription_bit) == 0u
+            && input_owner_matches_uid(state, state->clients[i].uid)) {
             return true;
         }
     }
@@ -703,6 +699,8 @@ static void clear_hook_state(ksi_daemon_state *state)
 
     for (nfds_t i = 0; i < state->client_count; i++) {
         state->clients[i].hook_subscriptions = 0;
+        state->clients[i].hook_subscription_ordinal[0] = 0u;
+        state->clients[i].hook_subscription_ordinal[1] = 0u;
         state->clients[i].block_input_mask = 0;
         state->clients[i].consecutive_hook_failures[0] = 0;
         state->clients[i].consecutive_hook_failures[1] = 0;
@@ -736,24 +734,20 @@ static void expire_client_leases(ksi_daemon_state *state)
     for (nfds_t i = state->client_count; i > 0; i--) {
         nfds_t index = i - 1u;
         ksi_client *client = &state->clients[index];
-        uint32_t expired_subscriptions;
-
         if (client->lease_expires_ms == 0u || now < client->lease_expires_ms) {
             continue;
         }
 
-        expired_subscriptions = client->hook_subscriptions;
+        /* A switched-away user's stored hook state is deliberately dormant,
+         * not abandoned. Pause its lease while logind says another uid owns
+         * seat0; refresh it when that uid becomes active again. */
+        if (!input_owner_matches_uid(state, client->uid)) {
+            continue;
+        }
+
         fprintf(stderr,
             "inputd: client fd=%d grab lease expired; failing open and disconnecting\n",
             client->fd);
-
-        if ((expired_subscriptions & KSI_CAP_HOOK_KEYBOARD) != 0u) {
-            lane_flush_passthrough(&state->keyboard_lane);
-        }
-
-        if ((expired_subscriptions & KSI_CAP_HOOK_MOUSE) != 0u) {
-            lane_flush_passthrough(&state->mouse_lane);
-        }
 
         remove_client(state, index);
     }
@@ -835,11 +829,48 @@ static void record_client_hook_success(ksi_daemon_state *state, nfds_t index, ui
     }
 
     client = &state->clients[index];
+
+    if (!input_owner_matches_uid(state, client->uid)) {
+        return;
+    }
     lane_index = hook_type_to_lane_index(hook_type);
 
     if (client->last_hook_quarantine_ms[lane_index] != 0u
         && monotonic_ms() >= client->last_hook_quarantine_ms[lane_index] + 60000u) {
         client->consecutive_hook_failures[lane_index] = 0u;
+    }
+}
+
+static void retry_quarantined_hooks(ksi_daemon_state *state)
+{
+    uint64_t now = monotonic_ms();
+    bool changed = false;
+
+    if (state == NULL) {
+        return;
+    }
+
+    for (nfds_t i = 0u; i < state->client_count; i++) {
+        ksi_client *client = &state->clients[i];
+
+        for (size_t lane = 0u; lane < 2u; lane++) {
+            uint32_t bit = lane == 0u ? KSI_CAP_HOOK_KEYBOARD : KSI_CAP_HOOK_MOUSE;
+
+            if ((client->quarantined_hooks & bit) == 0u
+                || client->quarantine_rearm_after_ms[lane] == 0u
+                || now < client->quarantine_rearm_after_ms[lane]) {
+                continue;
+            }
+
+            client->quarantined_hooks &= ~bit;
+            client->quarantine_rearm_after_ms[lane] = 0u;
+            hook_send_ref_clear_stalled(client->hook_send_ref, lane);
+            changed = true;
+        }
+    }
+
+    if (changed && update_grab_state(state) != 0) {
+        fprintf(stderr, "inputd: failed to restore grabs after hook retry\n");
     }
 }
 
@@ -860,6 +891,11 @@ static void record_client_hook_failure(
     }
 
     client = &state->clients[index];
+
+    if (!input_owner_matches_uid(state, client->uid)) {
+        return;
+    }
+
     lane_index = hook_type_to_lane_index(hook_type);
     lane_bit = (lane_index == 1u) ? KSI_CAP_HOOK_MOUSE : KSI_CAP_HOOK_KEYBOARD;
 
@@ -879,12 +915,6 @@ static void record_client_hook_failure(
     client->last_hook_quarantine_ms[lane_index] = now;
     client->quarantined_hooks |= lane_bit;
     hook_send_ref_mark_stalled(client->hook_send_ref, lane_index);
-    client->quarantine_generation[lane_index]++;
-
-    if (client->quarantine_generation[lane_index] == 0u) {
-        client->quarantine_generation[lane_index]++;
-    }
-
     retry_after_ms = 1000u << (client->consecutive_hook_failures[lane_index] > 5u
         ? 4u
         : client->consecutive_hook_failures[lane_index] - 1u);
@@ -902,7 +932,7 @@ static void record_client_hook_failure(
     notification.hook_type = hook_type;
     notification.reason = reason;
     notification.event_id = event_id;
-    notification.generation = client->quarantine_generation[lane_index];
+    notification.generation = 0u;
     notification.strike_count = client->consecutive_hook_failures[lane_index];
     notification.retry_after_ms = retry_after_ms;
 

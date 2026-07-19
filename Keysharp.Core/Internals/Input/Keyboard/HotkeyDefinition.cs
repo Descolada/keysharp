@@ -1407,12 +1407,6 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <param name="criterion"></param>
 		/// <param name="hotkeyName"></param>
 		/// <returns></returns>
-		// Upper bound (ms) on how long a #HotIf WinActive/WinExist criterion may block the inputd hook
-		// reader thread, kept well under the daemon's ~1s hook-decision deadline. Only applied when the
-		// criterion is evaluated on that thread (see HotCriterionAllowsFiring); script/UI threads use the
-		// full A_HotIfTimeout.
-		private const double HookThreadHotCriterionTimeoutMs = 500.0;
-
 		internal static long HotCriterionAllowsFiring(IFuncObj criterion, string hotkeyName, object eventInfo = null)
 		{
 			if (criterion == null)
@@ -1423,8 +1417,6 @@ namespace Keysharp.Internals.Input.Keyboard
 			{
 				try
 				{
-					// Nested evaluation stays on the admitted worker. Spawning another bounded request
-					// can deadlock all lanes when callbacks recursively trigger input decisions.
 					return EvaluateCriterion(criterion, criterionType, hotkeyName, eventInfo);
 				}
 				catch (Exception ex)
@@ -1437,19 +1429,17 @@ namespace Keysharp.Internals.Input.Keyboard
 			var hotIfTimeoutMs = A_HotIfTimeout.Ad();
 			var isHookCallback = false;
 
-			// On the inputd hook reader thread this criterion is evaluated synchronously while the
-			// shared callback gate is held and the daemon's ~1s hook-decision deadline is ticking, so a
-			// slow WinActive/WinExist (e.g. a cold window backend right after autostart, or a busy
-			// compositor) would stall this input lane for up to A_HotIfTimeout (default 1000ms) per key.
-			// Cap the wait well below the daemon deadline there. On timeout the criterion is treated as
-			// not-firing / pass-through -- identical to any other A_HotIfTimeout expiry -- and the
-			// background task is abandoned. We deliberately do NOT cache the active-window result: a
-			// stale answer could fire the wrong context hotkey. Off the hook thread (script/UI threads)
-			// the full A_HotIfTimeout still applies.
 #if LINUX
-			isHookCallback = Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsHookReaderThread;
-			if (isHookCallback && hotIfTimeoutMs > HookThreadHotCriterionTimeoutMs)
-				hotIfTimeoutMs = HookThreadHotCriterionTimeoutMs;
+			isHookCallback = Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsInHookCallback;
+			if (isHookCallback)
+			{
+				// Every criterion in this native callback shares one budget below inputd's
+				// one-second hook deadline; repeated variant checks cannot multiply it.
+				var remaining = Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.RemainingHotIfMilliseconds;
+				if (remaining <= 0.0)
+					return 0L;
+				hotIfTimeoutMs = Math.Min(hotIfTimeoutMs, remaining);
+			}
 #elif OSX
 			isHookCallback = Keysharp.Internals.Input.MacOS.MacNativeEventTap.IsEventTapThread;
 			if (isHookCallback)
@@ -1466,8 +1456,9 @@ namespace Keysharp.Internals.Input.Keyboard
 
 			var script = Script.TheScript;
 			var executors = criterionExecutors.GetValue(script, static _ => new ScriptCriterionExecutors());
-			var status = executors.Select(isHookCallback).Execute(() => EvaluateCriterion(criterion, criterionType,
-				hotkeyName, eventInfo), TimeSpan.FromMilliseconds(Math.Max(0, hotIfTimeoutMs)), out var value, out var error);
+			var status = executors.Select(isHookCallback).Execute(
+				() => EvaluateCriterion(criterion, criterionType, hotkeyName, eventInfo),
+				TimeSpan.FromMilliseconds(Math.Max(0, hotIfTimeoutMs)), out var value, out var error);
 
 			if (status == CriterionExecutionStatus.Rejected)
 			{

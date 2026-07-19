@@ -97,7 +97,7 @@ static void print_usage(const char *argv0)
 		"  --verbose      Enable per-event debug logging.\n"
 		"  --install-input-access\n"
 		"                Load uinput, install the uaccess udev rule for the virtual devices, and\n"
-		"                (re)enable the installed system socket. Must be run as root.\n"
+		"                (re)enable the installed system service. Must be run as root.\n"
 		"  --remove-input-access\n"
 		"                Remove the uaccess udev rule and reload udev. Must be run as root.\n"
 		"  --version      Print version information.\n"
@@ -208,48 +208,41 @@ static int install_input_access(void)
 		status = 1;
 	}
 
-	/* Replace any stale daemon: reload unit definitions, stop a lingering
-	 * Type=simple service instance so it is not left serving the new client,
-	 * then enable both units and restart the socket before starting the service.
+	/* Replace any stale daemon: reload unit definitions, stop both halves of the
+	 * socket-activated service, then enable only the service and start it.  The
+	 * service's Requires= dependency starts keysharp-inputd.socket, so enabling
+	 * the socket separately only creates a redundant second boot symlink; it does
+	 * not create a second IPC endpoint.  Explicitly disabling the socket target
+	 * also cleans up that redundant symlink on upgrades from older installs.
 	 * The service remains resident from boot so its idle counter has continuity
-	 * even when no Keysharp process is connected.
+	 * even when no Keysharp process is connected.  Once started, the socket stays
+	 * available as the daemon's recovery activation path.
 	 * Tolerate systemctl being absent (e.g. non-systemd hosts): warn, do not
 	 * hard-fail — the udev/uinput setup above is still useful without it. */
 	if (system("command -v systemctl >/dev/null 2>&1") != 0) {
 		/* Benign on non-systemd hosts: the udev/uinput setup above is the part
 		 * that actually fixes input access, so don't fail the whole command (and
 		 * trigger the installer's scary "did not complete" banner) just for this. */
-		fprintf(stderr, "notice: systemctl not found; skipping socket activation refresh\n");
+		fprintf(stderr, "notice: systemctl not found; skipping service activation refresh\n");
 	} else {
 		if (system("systemctl daemon-reload") != 0) {
 			fprintf(stderr, "warning: systemctl daemon-reload failed\n");
 			status = 1;
 		}
 
-		/* Stopping an inactive/absent unit can exit non-zero on older systemd;
-		 * that's benign here (we re-enable and restart the socket next), so warn
-		 * without failing the command. */
-		if (system("systemctl stop keysharp-inputd.service") != 0) {
-			fprintf(stderr, "notice: keysharp-inputd.service was not running (nothing to stop)\n");
+		/* Stopping inactive/absent units can exit non-zero on older systemd;
+		 * that's benign here because the service start below recreates the pair. */
+		if (system("systemctl stop keysharp-inputd.service keysharp-inputd.socket") != 0) {
+			fprintf(stderr, "notice: keysharp-inputd units were not running (nothing to stop)\n");
 		}
 
-		if (system("systemctl enable keysharp-inputd.socket") != 0) {
-			fprintf(stderr, "warning: failed to enable keysharp-inputd.socket\n");
+		if (system("systemctl disable keysharp-inputd.socket") != 0) {
+			fprintf(stderr, "warning: failed to remove redundant keysharp-inputd.socket boot enablement\n");
 			status = 1;
 		}
 
-		if (system("systemctl enable keysharp-inputd.service") != 0) {
-			fprintf(stderr, "warning: failed to enable keysharp-inputd.service\n");
-			status = 1;
-		}
-
-		if (system("systemctl restart keysharp-inputd.socket") != 0) {
-			fprintf(stderr, "warning: failed to restart keysharp-inputd.socket\n");
-			status = 1;
-		}
-
-		if (system("systemctl restart keysharp-inputd.service") != 0) {
-			fprintf(stderr, "warning: failed to restart keysharp-inputd.service\n");
+		if (system("systemctl enable --now keysharp-inputd.service") != 0) {
+			fprintf(stderr, "warning: failed to enable and start keysharp-inputd.service\n");
 			status = 1;
 		}
 	}

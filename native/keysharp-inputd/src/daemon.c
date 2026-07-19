@@ -5,6 +5,7 @@
 #include "keysharp_inputd/daemon.h"
 
 #include "connection_ref.h"
+#include "active_session.h"
 #include "keysharp_inputd/ipc.h"
 #include "keysharp_inputd/linux_devices.h"
 #include "keysharp_inputd/linux_synth.h"
@@ -31,7 +32,6 @@
 #include <sys/mman.h>
 #include <sched.h>
 #include <sys/socket.h>
-#include <sys/random.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -58,12 +58,15 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
  * for legitimate bursts; the common case still exits on the first short read. */
 #define KSI_MAX_CLIENT_READS_PER_PASS 8
 #define KSI_MAX_OUTPUT_ACTIONS 4096u
+#define KSI_OUTPUT_CLEANUP_RESERVE KSI_MAX_SYNTH_INPUTS
 #define KSI_MAX_SYNTH_HOOK_ACTIONS 4096u
+#define KSI_ACTIVE_SESSION_REFRESH_MS 100u
+#define KSI_ACTIVE_SESSION_RESOLVER_RETRY_MS 5000u
 
 #define KSI_MAX_OUTPUT_SYNTH_BYTES (1024u * 1024u)
+#define KSI_OUTPUT_CLEANUP_BYTES ((size_t)KSI_MAX_SYNTH_INPUTS * sizeof(ksi_input))
 #define KSI_MAX_SYNTH_HOOK_STEPS_PER_PASS 256u
 #define KSI_MAX_RECURSION_DEPTH 32u
-#define KSI_HOOK_SEND_ORDER_WAIT_MS 10
 #define KSI_SHUTDOWN_TIMEOUT_MS 5000u
 #define KSI_GRAB_LEASE_TIMEOUT_MS 15000u
 /* CLIENT_HELLO deadline; peers that connect and send nothing cannot pin slots. */
@@ -138,8 +141,6 @@ typedef struct ksi_client {
     bool authenticated;
     bool role_initialized;
     uint32_t connection_role;
-    uint8_t hook_session_token[KSI_HOOK_SESSION_TOKEN_SIZE];
-    uint64_t bound_hook_connection_id;
     /* Set by CLIENT_HELLO; missing handshakes are dropped after the deadline. */
     bool hello_seen;
     uint64_t connected_at_ms;
@@ -149,11 +150,14 @@ typedef struct ksi_client {
      * disk, so a mis-clicked Deny recovers on the next run. Never serialized; dies with the fd. */
     uint32_t session_denied_capabilities;
     uint32_t hook_subscriptions;
+    /* Windows installs each hook type independently at the chain head. A
+     * disconnect/re-subscribe therefore gets a fresh per-type ordinal even if
+     * its transport connection is older than other scripts. */
+    uint64_t hook_subscription_ordinal[2];
     uint32_t block_input_mask;
     /* Consecutive hook failures per lane: index 0 keyboard, 1 mouse. */
     uint32_t consecutive_hook_failures[2];
     uint32_t quarantined_hooks;
-    uint32_t quarantine_generation[2];
     uint64_t quarantine_rearm_after_ms[2];
     uint64_t last_hook_quarantine_ms[2];
     uint64_t lease_expires_ms;
@@ -213,7 +217,6 @@ typedef struct ksi_daemon_command {
         struct {
             uint32_t hook_type; /* KSI_HOOK_KEYBOARD_LL / KSI_HOOK_MOUSE_LL */
             uint64_t event_id;
-            uint64_t hook_session_connection_id;
             uint32_t nesting_depth;
             uint32_t elapsed_ms;
             uint32_t reason;
@@ -265,6 +268,9 @@ typedef enum ksi_output_action_type {
 
 typedef struct ksi_output_action {
     ksi_output_action_type type;
+    /* Zero is reserved for daemon-internal safety actions. Client/physical
+     * output is tagged with the active-seat generation which admitted it. */
+    uint64_t input_generation;
     uint32_t hook_type;
     ksi_hook_event_payload replay_payload;
     uint32_t synth_flags;
@@ -275,12 +281,18 @@ typedef struct ksi_output_action {
 typedef struct ksi_output_queue {
     pthread_mutex_t mutex;
     bool mutex_initialized;
+    /* Serializes the sequencer's epoch-check + backend write with a seat-owner
+     * transition. Queue admission stays on mutex above, so ordinary producers
+     * never wait for a potentially slow uinput write. */
+    pthread_mutex_t execution_mutex;
+    bool execution_mutex_initialized;
     ksi_output_action actions[KSI_MAX_OUTPUT_ACTIONS];
     size_t head;
     size_t count;
     size_t synth_bytes;
     int wake_read_fd;
     int wake_write_fd;
+    struct ksi_daemon_state *state;
 } ksi_output_queue;
 
 typedef struct ksi_synth_completion {
@@ -289,8 +301,10 @@ typedef struct ksi_synth_completion {
     uint32_t client_id;
     uint64_t correlation_id;
     atomic_uint remaining;
-    atomic_bool result_sent;
+    _Atomic uint64_t terminal_result;
     bool owns_atomic_transaction;
+    bool is_recursive_synthesis;
+    uint64_t parent_hook_event_id;
 } ksi_synth_completion;
 
 typedef enum ksi_lane_egress_type {
@@ -310,6 +324,7 @@ typedef struct ksi_synthetic_hook_item {
     ksi_input input;
     uint64_t queued_at_ns;
     ksi_synth_completion *completion;
+    uint64_t input_generation;
     bool batch_start;  /* first node of a client batch; re-arms the surrogate reset */
 } ksi_synthetic_hook_item;
 
@@ -324,10 +339,10 @@ typedef struct ksi_synthetic_hook_queue {
 } ksi_synthetic_hook_queue;
 
 typedef struct ksi_lane_subscriber {
+    /* One HookStream is both transport and shared K/M hook-thread domain. */
     ksi_hook_send_ref *send_ref;
     uint64_t connection_id;
-    uint64_t hook_session_id;
-    bool uses_callback_rpc;
+    uint64_t subscription_ordinal;
 } ksi_lane_subscriber;
 
 /* Immutable hook event snapshot. Lanes never touch state->clients[]. The
@@ -336,30 +351,16 @@ typedef struct ksi_lane_event {
     uint64_t event_id;
     uint32_t hook_type;
     uint32_t generation;
+    uint64_t input_generation;
     ksi_synth_completion *synthetic_completion;
     ksi_lane_egress egress;
     ksi_hook_event_payload payload;
     size_t payload_size;
     size_t subscriber_count;
     uint32_t nesting_depth;
-    uint64_t inherited_deadline_ms;
-    struct ksi_nested_event_waiter *nested_waiter;
     bool physical_input;
     ksi_lane_subscriber subscribers[];
 } ksi_lane_event;
-
-typedef enum ksi_nested_wait_state {
-    KSI_NESTED_WAIT_PENDING = 0,
-    KSI_NESTED_WAIT_COMPLETED,
-    KSI_NESTED_WAIT_FAILED,
-    KSI_NESTED_WAIT_ABANDONED,
-} ksi_nested_wait_state;
-
-typedef struct ksi_nested_event_waiter {
-    pthread_mutex_t mutex;
-    pthread_cond_t condition;
-    ksi_nested_wait_state state;
-} ksi_nested_event_waiter;
 
 typedef struct ksi_nested_member {
     ksi_input input;
@@ -370,7 +371,9 @@ typedef struct ksi_nested_transaction {
     uint32_t count;
     uint32_t depth;
     uint32_t origin_generation;
-    uint64_t origin_hook_connection_id;
+    uint64_t input_generation;
+    uint64_t origin_connection_id;
+    uint64_t parent_hook_event_id;
     ksi_synth_completion *completion;
     ksi_nested_member members[];
 } ksi_nested_transaction;
@@ -379,13 +382,11 @@ typedef struct ksi_nested_transaction_queue {
     ksi_pipe_ring ring;
 } ksi_nested_transaction_queue;
 
-/* Decision routed from the main thread into a lane thread. The lane validates
- * that responder_fd matches the current subscriber it is waiting on; mismatched
- * decisions are dropped. */
+/* Decision routed from the main thread into a lane thread. The globally unique
+ * connection id identifies the subscriber; mismatched decisions are dropped. */
 typedef struct ksi_lane_decision {
     uint64_t event_id;
     uint32_t decision;
-    int responder_fd;
     uint64_t responder_connection_id;
     uint32_t input_count;
     ksi_input inputs[KSI_MAX_MODIFY_INPUTS];
@@ -423,11 +424,7 @@ typedef struct ksi_hook_lane {
     pthread_t thread;
     bool thread_started;
     atomic_uint_least64_t current_event_id;  /* 0 = idle */
-    atomic_int current_responder_fd;
     atomic_uint_least64_t current_responder_connection_id;
-    /* The HOOK_STREAM session which owns the active callback. Decisions may
-     * arrive on its bound CALLBACK_RPC fd/connection instead. */
-    atomic_uint_least64_t current_hook_session_connection_id;
     atomic_uint current_nesting_depth;
     /* Set by lane_shutdown to abort waits and drain promptly. */
     atomic_int shutting_down;
@@ -449,6 +446,20 @@ typedef struct ksi_daemon_state {
     uint32_t available_capabilities;
     uint64_t next_connection_id;
     uint64_t next_event_id;
+    uint64_t next_hook_subscription_ordinal[2];
+    /* The system service is a single machine-wide transport, but only the
+     * logind-active seat0 user is an input owner. Connections belonging to a
+     * user who switched away remain open with their subscriptions stored, yet
+     * are inert until that uid becomes active again. Manual per-user daemons do
+     * not enable this gate; their Unix socket is already uid-private. */
+    bool input_owner_enforced;
+    atomic_bool active_input_uid_valid;
+    atomic_uint active_input_uid;
+    atomic_uint_least64_t active_input_generation;
+    ksi_active_session_resolver active_session_resolver;
+    bool active_session_resolver_initialized;
+    uint64_t next_active_session_refresh_ms;
+    uint64_t next_active_session_resolver_retry_ms;
     /* Single ordered uinput writer for replay, modify and SendInput output. */
     ksi_output_queue output_queue;
     ksi_synthetic_hook_queue synthetic_hook_queue;
@@ -492,6 +503,9 @@ static void record_client_hook_failure(
     uint32_t reason);
 static void lane_flush_passthrough(ksi_hook_lane *lane);
 static bool output_queue_push_release_all(ksi_output_queue *q);
+static bool input_owner_matches_uid(
+    const ksi_daemon_state *state, uid_t uid);
+static uint64_t current_input_generation(const ksi_daemon_state *state);
 
 /* Per-hook-type failure-counter slot: 0 keyboard, 1 mouse. */
 static size_t hook_type_to_lane_index(uint32_t hook_type)
@@ -508,7 +522,10 @@ static void remove_client(ksi_daemon_state *state, nfds_t index);
 static void send_indicator_state_result(int client_fd, const ksi_message_header *request);
 static void send_pointer_position_result(int client_fd, const ksi_message_header *request);
 static void send_pointer_buttons_result(int client_fd, const ksi_message_header *request);
-static void handle_get_key_state(ksi_client *client, const ksi_binary_message_view *message);
+static void handle_get_key_state(
+    ksi_daemon_state *state,
+    ksi_client *client,
+    const ksi_binary_message_view *message);
 static bool set_realtime_priority(const char *thread_name);
 static bool set_normal_priority(const char *thread_name);
 static ssize_t find_client_index_by_fd(const ksi_daemon_state *state, int client_fd);
@@ -518,79 +535,6 @@ static ssize_t find_client_index_by_connection(
     uint64_t connection_id);
 static void process_client_identified(ksi_daemon_state *state, ksi_daemon_command *command);
 static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_command *command);
-
-static bool fill_hook_session_token(uint8_t token[KSI_HOOK_SESSION_TOKEN_SIZE])
-{
-    size_t offset = 0u;
-
-    while (offset < KSI_HOOK_SESSION_TOKEN_SIZE) {
-        ssize_t got = getrandom(token + offset, KSI_HOOK_SESSION_TOKEN_SIZE - offset, 0);
-
-        if (got > 0) {
-            offset += (size_t)got;
-            continue;
-        }
-
-        if (got < 0 && errno == EINTR) {
-            continue;
-        }
-
-        memset(token, 0, KSI_HOOK_SESSION_TOKEN_SIZE);
-        return false;
-    }
-
-    return true;
-}
-
-static ksi_client *find_hook_session(
-    ksi_daemon_state *state,
-    const ksi_client *binding_client,
-    const uint8_t token[KSI_HOOK_SESSION_TOKEN_SIZE])
-{
-    if (state == NULL || binding_client == NULL || token == NULL) {
-        return NULL;
-    }
-
-    for (nfds_t i = 0; i < state->client_count; i++) {
-        ksi_client *candidate = &state->clients[i];
-
-        if (candidate->role_initialized
-            && candidate->connection_role == KSI_CONNECTION_HOOK_STREAM
-            && candidate->hello_seen
-            && candidate->authenticated
-            && candidate->has_identity
-            && candidate->pid == binding_client->pid
-            && candidate->uid == binding_client->uid
-            && memcmp(candidate->hook_session_token, token, KSI_HOOK_SESSION_TOKEN_SIZE) == 0) {
-            return candidate;
-        }
-    }
-
-    return NULL;
-}
-
-static const ksi_client *find_callback_rpc_for_session(
-    const ksi_daemon_state *state,
-    uint64_t hook_connection_id,
-    uint64_t except_connection_id)
-{
-    if (state == NULL || hook_connection_id == 0u) {
-        return NULL;
-    }
-
-    for (nfds_t i = 0; i < state->client_count; i++) {
-        const ksi_client *candidate = &state->clients[i];
-
-        if (candidate->connection_id != except_connection_id
-            && candidate->role_initialized
-            && candidate->connection_role == KSI_CONNECTION_CALLBACK_RPC
-            && candidate->bound_hook_connection_id == hook_connection_id) {
-            return candidate;
-        }
-    }
-
-    return NULL;
-}
 
 static void handle_signal(int signal_number)
 {
@@ -644,6 +588,31 @@ static void free_daemon_command(ksi_daemon_command *command)
     }
 }
 
+static bool input_owner_matches_uid(
+    const ksi_daemon_state *state, uid_t uid)
+{
+    if (state == NULL) {
+        return false;
+    }
+
+    if (!state->input_owner_enforced) {
+        return true;
+    }
+
+    return atomic_load_explicit(
+            &state->active_input_uid_valid, memory_order_acquire)
+        && (uid_t)atomic_load_explicit(
+            &state->active_input_uid, memory_order_relaxed) == uid;
+}
+
+static uint64_t current_input_generation(const ksi_daemon_state *state)
+{
+    return state == NULL
+        ? 0u
+        : atomic_load_explicit(
+            &state->active_input_generation, memory_order_acquire);
+}
+
 #include "daemon/privilege_workers.inc"
 #include "daemon/client_lifecycle.inc"
 #include "daemon/hook_lanes.inc"
@@ -651,6 +620,150 @@ static void free_daemon_command(ksi_daemon_command *command)
 #include "daemon/hook_dispatch.inc"
 #include "daemon/hook_ingress.inc"
 #include "daemon/protocol_server.inc"
+
+static uint64_t advance_input_generation(ksi_daemon_state *state)
+{
+    uint64_t generation = atomic_fetch_add_explicit(
+        &state->active_input_generation, 1u, memory_order_acq_rel) + 1u;
+
+    if (generation == 0u) {
+        generation = atomic_fetch_add_explicit(
+            &state->active_input_generation, 1u, memory_order_acq_rel) + 1u;
+    }
+
+    return generation;
+}
+
+/* Change the sole input owner without tearing down either user's transport.
+ * Invalid is published first, so every admission/filter path fails closed
+ * throughout the transition. The generation fence makes lane/output work
+ * captured under the old owner unexecutable even if a worker completes late. */
+static void set_active_input_owner(
+    ksi_daemon_state *state,
+    bool valid,
+    uid_t uid)
+{
+    bool old_valid;
+    uid_t old_uid;
+    uint64_t generation;
+
+    if (state == NULL || !state->input_owner_enforced) {
+        return;
+    }
+
+    old_valid = atomic_load_explicit(
+        &state->active_input_uid_valid, memory_order_acquire);
+    old_uid = (uid_t)atomic_load_explicit(
+        &state->active_input_uid, memory_order_relaxed);
+
+    if (old_valid == valid && (!valid || old_uid == uid)) {
+        return;
+    }
+
+    atomic_store_explicit(
+        &state->active_input_uid_valid, false, memory_order_release);
+    generation = advance_input_generation(state);
+
+    lane_flush_passthrough(&state->keyboard_lane);
+    lane_flush_passthrough(&state->mouse_lane);
+    synthetic_hook_queue_abort(&state->synthetic_hook_queue);
+    /* If the sequencer already passed its epoch check, wait for that backend
+     * write to finish while the owner is still invalid. Anything not yet in
+     * flight will observe the new generation and be skipped. */
+    output_queue_wait_for_inflight(&state->output_queue);
+
+    /* No uid matches while invalid, so this releases every hook/BlockInput
+     * grab without erasing stored subscriptions. */
+    if (update_grab_state(state) != 0) {
+        fprintf(stderr,
+            "inputd: failed to release grabs during seat0 owner transition\n");
+    }
+
+    /* Consume evdev/libevdev backlog while the owner gate is invalid. The
+     * callback deliberately emits nothing in this state, preventing an event
+     * read under the former session from being stamped with the new epoch and
+     * delivered to the newly active user's hooks. */
+    ksi_linux_devices_drain_pending_input();
+
+    output_queue_discard_stale(&state->output_queue, generation);
+
+    if (!output_queue_push_release_all(&state->output_queue)) {
+        fprintf(stderr,
+            "inputd: failed to enqueue release-all during seat0 owner transition\n");
+    }
+
+    if (!valid) {
+        fprintf(stderr,
+            "inputd: seat0 has no active input owner; input IPC is fail-closed\n");
+        return;
+    }
+
+    atomic_store_explicit(
+        &state->active_input_uid, (unsigned int)uid, memory_order_relaxed);
+    atomic_store_explicit(
+        &state->active_input_uid_valid, true, memory_order_release);
+
+    /* Resume stored subscriptions for this uid and give their leases a fresh
+     * active interval; switched-away users' lease clocks remain paused. */
+    for (nfds_t i = 0u; i < state->client_count; i++) {
+        if (state->clients[i].uid == uid) {
+            renew_client_lease(&state->clients[i]);
+        }
+    }
+
+    if (update_grab_state(state) != 0) {
+        fprintf(stderr,
+            "inputd: failed to restore active seat0 user's grabs\n");
+    }
+
+    fprintf(stderr,
+        "inputd: seat0 input owner uid=%ld generation=%llu\n",
+        (long)uid, (unsigned long long)generation);
+}
+
+static void refresh_active_input_owner(
+    ksi_daemon_state *state,
+    bool force)
+{
+    uint64_t now;
+    uid_t active_uid;
+
+    if (state == NULL || !state->input_owner_enforced) {
+        return;
+    }
+
+    now = monotonic_ms();
+
+    if (!force && now < state->next_active_session_refresh_ms) {
+        return;
+    }
+
+    state->next_active_session_refresh_ms = now + KSI_ACTIVE_SESSION_REFRESH_MS;
+
+    if (!state->active_session_resolver_initialized
+        && (force || now >= state->next_active_session_resolver_retry_ms)) {
+        if (ksi_active_session_resolver_init(
+                &state->active_session_resolver) == 0) {
+            state->active_session_resolver_initialized = true;
+        } else {
+            state->next_active_session_resolver_retry_ms =
+                now + KSI_ACTIVE_SESSION_RESOLVER_RETRY_MS;
+            fprintf(stderr,
+                "inputd: logind active-seat resolver unavailable (%s); "
+                "input IPC remains fail-closed\n",
+                strerror(errno));
+        }
+    }
+
+    if (!state->active_session_resolver_initialized
+        || ksi_active_session_resolver_get_uid(
+            &state->active_session_resolver, &active_uid) != 0) {
+        set_active_input_owner(state, false, (uid_t)-1);
+        return;
+    }
+
+    set_active_input_owner(state, true, active_uid);
+}
 
 /* Runs the backend's periodic maintenance, then two follow-ups the daemon owns:
  *   1. If the backend reports its synthetic-output device has failed, enqueue a
@@ -669,6 +782,8 @@ static void run_backend_maintenance(ksi_daemon_state *state)
     if (state == NULL || (backend = state->backend) == NULL) {
         return;
     }
+
+    retry_quarantined_hooks(state);
 
     if (backend->periodic_maintenance != NULL) {
         backend->periodic_maintenance();
@@ -749,6 +864,10 @@ int ksi_daemon_run(const ksi_daemon_options *options)
     daemon_state->available_capabilities = available_capabilities;
     daemon_state->next_connection_id = 1;
     daemon_state->next_event_id = 1;
+    daemon_state->input_owner_enforced = options->system_service;
+    atomic_init(&daemon_state->active_input_uid_valid, false);
+    atomic_init(&daemon_state->active_input_uid, 0u);
+    atomic_init(&daemon_state->active_input_generation, 1u);
 
     if (command_queue_init(&command_queue) != 0) {
         free(daemon_state);
@@ -758,7 +877,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         return 1;
     }
 
-    if (output_queue_init(&daemon_state->output_queue) != 0) {
+    if (output_queue_init(&daemon_state->output_queue, daemon_state) != 0) {
         command_queue_destroy(&command_queue);
         free(daemon_state);
         ksi_ipc_server_close(server);
@@ -857,6 +976,10 @@ int ksi_daemon_run(const ksi_daemon_options *options)
      * threads keep the full budget (their writes never gate device ingestion). */
     ksi_ipc_set_write_drain_budget_ms(10);
 
+    /* The shared system socket is closed to all input clients until logind
+     * supplies the active seat0 uid. Manual per-user daemons skip this gate. */
+    refresh_active_input_owner(daemon_state, true);
+
 
     while (keep_running) {
         struct pollfd fds[KSI_MAX_POLL_FDS];
@@ -899,7 +1022,10 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         }
 
         /* Lane threads own hook-decision deadlines. */
-        int poll_result = poll(fds, count, 1000);
+        int poll_result = poll(fds, count,
+            daemon_state->input_owner_enforced
+                ? (int)KSI_ACTIVE_SESSION_REFRESH_MS
+                : 1000);
 
         if (poll_result < 0) {
             if (errno == EINTR) {
@@ -909,6 +1035,10 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             fprintf(stderr, "poll failed: %s\n", strerror(errno));
             break;
         }
+
+        /* Publish any seat transition before accepting clients, reading
+         * requests, or ingesting backend events from this poll pass. */
+        refresh_active_input_owner(daemon_state, false);
 
         if (poll_result == 0) {
             (void)process_hook_ingress(daemon_state);
@@ -1031,6 +1161,8 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
     synthetic_hook_queue_close(&daemon_state->synthetic_hook_queue);
     output_queue_close(&daemon_state->output_queue);
+    ksi_active_session_resolver_cleanup(
+        &daemon_state->active_session_resolver);
     command_queue_destroy(&command_queue);
     free(daemon_state);
     ksi_ipc_server_close(server);

@@ -21,7 +21,8 @@ an internal ABI.
 Standalone infrastructure with independently testable ownership lives beside
 `daemon.c`:
 
-- `connection_ref.c`: connection fd lifetime and per-connection send locking.
+- `connection_ref.c`: connection lifetime, serialized writes, and the per-script
+  keyboard/mouse callback call stack.
 - `pipe_ring.c`: bounded pipe-woken inline ring.
 - `synthetic_hooks.c`: pure expansion of SendInput records into the individual
   low-level hook events observed by Windows callbacks.
@@ -36,21 +37,24 @@ in standalone modules.
 
 - The main thread exclusively owns `clients[]`, subscription snapshots, device
   discovery, and protocol parsing.
-- Each hook lane owns its current callback stack. Other threads communicate
-  with it only through bounded action, decision, and nested-transaction queues.
+- Each hook lane owns its current event context. Other threads communicate with
+  it only through bounded action, decision, and nested-transaction queues.
+- One `ksi_hook_send_ref` owns each script's shared keyboard/mouse callback stack.
+  Root turns enter only an empty stack; recursive turns enter only while the top
+  callback is synchronously pumping Send.
 - The output sequencer is the only thread that writes to or recreates uinput
   devices. Admission order is fixed before work reaches that thread.
-- A `ksi_synth_completion` owns one acquired send reference. Its `remaining`
-  count covers every admitted fragment; exactly the transition from one to zero
-  releases the atomic-transaction count and destroys the completion.
-- A cross-lane nested waiter has one owner at a time. Timeout transfers cleanup
-  ownership to the target lane so an already-admitted event never touches freed
-  waiter state.
+- A `ksi_synth_completion` counts every admitted fragment; exactly the transition
+  from one to zero releases the atomic-transaction count and destroys it. Recursive
+  completions also own the HookStream reply reference; ordinary batches are detached
+  because their RPC already acknowledged admission.
 - `flush_generation` invalidates queued snapshots during fail-open or teardown;
   stale events may release resources but must not invoke callbacks or output
   synthetic replacements.
-- Hook deadlines use `CLOCK_MONOTONIC` and are inherited by nested work. No child
-  transaction may extend its parent's absolute deadline.
+- `active_input_generation` independently fences every queued output across a
+  seat-owner transition.
+- Each entered callback has its own monotonic deadline. A parent's deadline is
+  suspended while recursive child transactions consume their own turns.
 
 The white-box CTest target includes `daemon.c` in a test translation unit so it
 can exercise private queue and ownership invariants without exporting a

@@ -23,6 +23,7 @@ add_subdirectory(
     ${CMAKE_CURRENT_BINARY_DIR}/keysharp-trust-lib)
 
 add_executable(keysharp-inputd
+    src/active_session.c
     src/connection_ref.c
     src/daemon.c
     src/ipc_unix.c
@@ -39,6 +40,7 @@ target_include_directories(keysharp-inputd
 
 target_compile_definitions(keysharp-inputd PRIVATE _GNU_SOURCE _POSIX_C_SOURCE=200809L)
 target_link_libraries(keysharp-inputd PRIVATE
+    ${CMAKE_DL_LIBS}
     keysharp-trust-lib
     Threads::Threads
     PkgConfig::LIBUDEV
@@ -125,6 +127,7 @@ endif()
 if(BUILD_TESTING)
     add_executable(keysharp-inputd-unit-tests
         tests/daemon_unit_tests.c
+        src/active_session.c
         src/connection_ref.c
         src/ipc_unix.c
         src/pipe_ring.c
@@ -142,7 +145,8 @@ if(BUILD_TESTING)
     target_compile_definitions(keysharp-inputd-unit-tests PRIVATE
         _GNU_SOURCE _POSIX_C_SOURCE=200809L KSI_PLATFORM_LINUX=1)
     target_link_libraries(keysharp-inputd-unit-tests PRIVATE
-        keysharp-trust-lib Threads::Threads PkgConfig::LIBUDEV PkgConfig::LIBEVDEV)
+        ${CMAKE_DL_LIBS} keysharp-trust-lib Threads::Threads
+        PkgConfig::LIBUDEV PkgConfig::LIBEVDEV)
 
     if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(keysharp-inputd-unit-tests PRIVATE
@@ -150,6 +154,25 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME keysharp-inputd-unit-tests COMMAND keysharp-inputd-unit-tests)
+
+    add_executable(keysharp-inputd-scheduler-tests
+        tests/scheduler_adversarial_tests.c
+        src/connection_ref.c
+        src/ipc_unix.c)
+    target_include_directories(keysharp-inputd-scheduler-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(keysharp-inputd-scheduler-tests PRIVATE
+        _GNU_SOURCE _POSIX_C_SOURCE=200809L)
+    target_link_libraries(keysharp-inputd-scheduler-tests PRIVATE Threads::Threads)
+
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(keysharp-inputd-scheduler-tests PRIVATE
+            -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
+
+    add_test(NAME keysharp-inputd-scheduler-tests
+        COMMAND keysharp-inputd-scheduler-tests)
 
     add_executable(keysharp-inputd-synthetic-hooks-tests
         tests/synthetic_hooks_tests.c
@@ -199,4 +222,41 @@ if(BUILD_TESTING)
 
     add_test(NAME keysharp-inputd-wake-pipe-tests
         COMMAND keysharp-inputd-wake-pipe-tests)
+
+    add_executable(keysharp-inputd-active-session-tests
+        tests/active_session_tests.c
+        src/active_session.c)
+    target_include_directories(keysharp-inputd-active-session-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(keysharp-inputd-active-session-tests PRIVATE
+        _GNU_SOURCE _POSIX_C_SOURCE=200809L)
+    target_link_libraries(keysharp-inputd-active-session-tests PRIVATE
+        ${CMAKE_DL_LIBS})
+
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(keysharp-inputd-active-session-tests PRIVATE
+            -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
+
+    add_test(NAME keysharp-inputd-active-session-tests
+        COMMAND keysharp-inputd-active-session-tests)
+
+    add_executable(keysharp-inputd-linux-device-filter-tests
+        tests/linux_device_filter_tests.c)
+    target_include_directories(keysharp-inputd-linux-device-filter-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(keysharp-inputd-linux-device-filter-tests PRIVATE
+            -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
+
+    add_test(NAME keysharp-inputd-linux-device-filter-tests
+        COMMAND keysharp-inputd-linux-device-filter-tests)
+
+    add_test(NAME keysharp-inputd-systemd-unit-tests
+        COMMAND ${CMAKE_COMMAND}
+            -DKSI_SOCKET_UNIT=${CMAKE_CURRENT_SOURCE_DIR}/systemd/keysharp-inputd.socket
+            -DKSI_SERVICE_UNIT=${CMAKE_CURRENT_SOURCE_DIR}/systemd/keysharp-inputd.service.in
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/systemd_unit_tests.cmake)
 endif()

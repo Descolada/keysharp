@@ -74,10 +74,12 @@ sudo cmake --install native/keysharp-inputd/build
 ```
 
 This installs the binary, systemd units, and runs `keysharp-inputd --install-input-access`
-to configure device access and enable both the daemon and its socket. The daemon
-starts at boot and remains resident so its idle-time counter continues across
+to configure device access and enable the daemon service. The service pulls in
+its required socket unit, so there is one Unix socket endpoint and only the
+service needs a boot-target symlink. The daemon starts at boot and remains
+resident so its idle-time counter continues across
 separately launched Keysharp processes. It holds no input grabs without an active
-hook or BlockInput request. On an idle-only boot it also creates no virtual input
+seat0 user's hook or BlockInput request. On an idle-only boot it also creates no virtual input
 devices: physical devices are observed through independent read-only evdev clients,
 and privileged uinput devices are created lazily only when an identified client
 requests hook, synthesis, or BlockInput access.
@@ -90,8 +92,9 @@ keysharp-inputd --install-input-access
 
 ## Service management
 
-The installed service starts at boot. Its socket remains enabled as a recovery
-activation path if the service is stopped or crashes.
+The installed service starts at boot and starts its required socket. That socket
+remains active as a recovery activation path if the service is stopped or crashes;
+it is not enabled separately in `sockets.target`.
 
 ```bash
 # Status
@@ -103,8 +106,8 @@ systemctl restart keysharp-inputd.service
 # Stop the daemon and prevent it from restarting on new connections
 systemctl stop keysharp-inputd.socket keysharp-inputd.service
 
-# Re-enable and start after a stop
-systemctl start keysharp-inputd.socket keysharp-inputd.service
+# Re-enable and start after a stop (the service starts its required socket)
+systemctl start keysharp-inputd.service
 
 # Force-kill a stuck daemon (systemd restarts the enabled service)
 systemctl kill keysharp-inputd.service
@@ -127,7 +130,7 @@ can write the shared trust store:
 ```bash
 sudo cmake --install native/keysharp-inputd/build
 sudo systemctl daemon-reload
-sudo systemctl restart keysharp-inputd.socket keysharp-inputd.service
+sudo systemctl restart keysharp-inputd.service
 ```
 
 ## Development run
@@ -150,6 +153,15 @@ native/keysharp-inputd/build/keysharp-inputd --socket /tmp/keysharp-test.sock
 should not be added to the `input` group.
 
 - The daemon uses `SO_PEERCRED` to record each connecting process's pid/uid/gid.
+- The system service resolves logind's active `seat0` uid and accepts input
+  clients only from that uid. A switched-away user's existing connections stay
+  open so its subscriptions can resume after switching back, but they are inert:
+  they cannot receive hooks, hold BlockInput/grabs, query input state, or
+  synthesize. A seat-owner generation fence also discards delayed callback,
+  replay, and synthesis output from the former session before the new user is
+  activated. If logind cannot identify an active owner, input IPC fails closed.
+- A manually launched daemon keeps the separate per-user model: its private
+  `$XDG_RUNTIME_DIR` socket accepts only the daemon uid.
 - It resolves `/proc/<pid>/exe` and hashes the executable digest with the
   argument vector as the persistent app identity.
 - Clients send `CLIENT_HELLO` with requested capabilities; the daemon grants only
@@ -159,11 +171,11 @@ should not be added to the `input` group.
   store (`/var/lib/keysharp-trust/permissions.tsv`), partitioned by peer uid,
   and pruned after 60 days.
 - `Allow once` decisions last for the current daemon session only.
-- The socket is world-connectable, so the daemon bounds abuse from any local
-  process: a connection that does not complete its `CLIENT_HELLO` handshake is
-  dropped after a short deadline (no silent slot-holding), a single uid cannot
-  occupy the last client slots (others stay reachable), and client-forced
-  re-prompts are rate-limited.
+- The installed socket is world-connectable so a newly active user can reach it,
+  but inactive-uid peers are rejected before `CLIENT_HELLO`. Connections that do
+  not complete the handshake are dropped after a short deadline, per-uid and
+  global slot limits remain bounded, and client-forced re-prompts are
+  rate-limited.
 
 Capabilities: `KSI_CAP_HOOK_KEYBOARD`, `KSI_CAP_HOOK_MOUSE`,
 `KSI_CAP_SYNTH_KEYBOARD`, `KSI_CAP_SYNTH_MOUSE`, `KSI_CAP_BLOCK_INPUT`.

@@ -4,7 +4,8 @@ static void complete_hook_dispatch_fallback(
     const void *event,
     size_t event_size,
     const ksi_lane_egress *egress,
-    ksi_synth_completion *completion)
+    ksi_synth_completion *completion,
+    uint64_t input_generation)
 {
     bool ok = true;
 
@@ -13,14 +14,16 @@ static void complete_hook_dispatch_fallback(
             ok = output_queue_push_synth(&state->output_queue,
                 egress->synth_inputs,
                 egress->synth_count,
-                egress->synth_flags);
+                egress->synth_flags,
+                input_generation);
         } else if (egress->type == KSI_LANE_EGRESS_REPLAY) {
             ksi_hook_event_payload payload;
 
             memset(&payload, 0, sizeof(payload));
             payload.hook_type = hook_type;
             memcpy(&payload.event, event, event_size);
-            ok = output_queue_push_replay(&state->output_queue, hook_type, &payload);
+            ok = output_queue_push_replay(
+                &state->output_queue, hook_type, &payload, input_generation);
         }
     }
 
@@ -46,8 +49,8 @@ static ksi_lane_event *create_hook_lane_event(
     size_t event_size,
     const ksi_lane_egress *egress,
     ksi_synth_completion *completion,
-    uint64_t origin_hook_connection_id,
-    uint32_t nesting_depth)
+    uint32_t nesting_depth,
+    uint64_t input_generation)
 {
     ksi_hook_lane *lane;
     ksi_lane_event *lane_event;
@@ -55,6 +58,7 @@ static ksi_lane_event *create_hook_lane_event(
     size_t candidate_count = 0u;
     uint64_t event_id;
     uint32_t subscription_bit;
+    size_t lane_index;
 
     lane = lane_for_hook_type(state, hook_type);
 
@@ -69,42 +73,45 @@ static ksi_lane_event *create_hook_lane_event(
     }
 
     event_id = state->next_event_id++;
+    lane_index = hook_type_to_lane_index(hook_type);
 
-    /* Iterate clients newest-connected first so the most-recently-installed hook
-     * decides first, matching the Windows WH_KEYBOARD_LL/WH_MOUSE_LL chain order
-     * (SetWindowsHookEx installs at the head; CallNextHookEx walks toward older
-     * hooks). clients[] is append-ordered (oldest at index 0), so walk it in
-     * reverse. nfds_t is unsigned, hence the decrement-guard form. */
+    /* Windows installs each hook TYPE at the head of its own chain. Connection
+     * age is not install age: an older process which unsubscribes/re-subscribes
+     * becomes newest for that type. Collect by monotonic subscription ordinal;
+     * connection id is only a deterministic fallback for zeroed test fixtures. */
     for (nfds_t i = state->client_count;
             i-- > 0 && candidate_count < KSI_MAX_CLIENTS; ) {
         const ksi_client *c = &state->clients[i];
-        const ksi_client *delivery = c;
-        bool uses_callback_rpc = false;
+        ksi_lane_subscriber candidate;
+        size_t position;
 
         if ((c->hook_subscriptions & subscription_bit) == 0u
-            || (c->quarantined_hooks & subscription_bit) != 0u) {
+            || (c->quarantined_hooks & subscription_bit) != 0u
+            || !input_owner_matches_uid(state, c->uid)) {
             continue;
         }
 
-        if (c->connection_id == origin_hook_connection_id) {
-            const ksi_client *callback = find_callback_rpc_for_session(
-                state, origin_hook_connection_id, 0u);
+        candidate = (ksi_lane_subscriber) {
+            .send_ref = c->hook_send_ref,
+            .connection_id = c->connection_id,
+            .subscription_ordinal = c->hook_subscription_ordinal[lane_index],
+        };
 
-            if (callback == NULL) {
-                fprintf(stderr, "inputd: nested hook session has no callback RPC\n");
-                continue;
-            }
+        position = candidate_count;
 
-            delivery = callback;
-            uses_callback_rpc = true;
+        while (position > 0u
+            && (candidate.subscription_ordinal
+                    > candidates[position - 1u].subscription_ordinal
+                || (candidate.subscription_ordinal
+                        == candidates[position - 1u].subscription_ordinal
+                    && candidate.connection_id
+                        > candidates[position - 1u].connection_id))) {
+            candidates[position] = candidates[position - 1u];
+            position--;
         }
 
-        candidates[candidate_count++] = (ksi_lane_subscriber) {
-            .send_ref = delivery->hook_send_ref,
-            .connection_id = delivery->connection_id,
-            .hook_session_id = c->connection_id,
-            .uses_callback_rpc = uses_callback_rpc,
-        };
+        candidates[position] = candidate;
+        candidate_count++;
     }
 
     lane_event = calloc(1,
@@ -117,6 +124,7 @@ static ksi_lane_event *create_hook_lane_event(
     lane_event->event_id = event_id;
     lane_event->hook_type = hook_type;
     lane_event->generation = atomic_load(&lane->flush_generation);
+    lane_event->input_generation = input_generation;
     lane_event->synthetic_completion = completion;
     lane_event->nesting_depth = nesting_depth;
 
@@ -138,13 +146,6 @@ static ksi_lane_event *create_hook_lane_event(
 
         if (!hook_send_ref_acquire(candidate.send_ref)) {
             fprintf(stderr, "inputd: hook subscriber has no send handle\n");
-            continue;
-        }
-
-        if (!candidate.uses_callback_rpc
-            && !hook_send_ref_note_event(candidate.send_ref, event_id)) {
-            fprintf(stderr, "inputd: hook subscriber ordering queue full\n");
-            hook_send_ref_release(candidate.send_ref);
             continue;
         }
 
@@ -199,14 +200,17 @@ static void dispatch_hook_event_to_lane(
     size_t event_size,
     const ksi_lane_egress *egress,
     ksi_synth_completion *completion,
-    bool physical_input)
+    bool physical_input,
+    uint64_t input_generation)
 {
     ksi_lane_event *lane_event = create_hook_lane_event(
-        state, hook_type, event, event_size, egress, completion, 0u, 0u);
+        state, hook_type, event, event_size, egress, completion, 0u,
+        input_generation);
 
     if (lane_event == NULL) {
         complete_hook_dispatch_fallback(
-            state, hook_type, event, event_size, egress, completion);
+            state, hook_type, event, event_size, egress, completion,
+            input_generation);
         return;
     }
 
@@ -245,7 +249,8 @@ static void enqueue_emergency_passthrough_chord(ksi_daemon_state *state, uint32_
     inputs[5] = inputs[0];
     inputs[5].data.keyboard.flags = KSI_KEYEVENTF_KEYUP;
 
-    if (!output_queue_push_synth(&state->output_queue, inputs, 6u, KSI_SYNTH_FLAG_BYPASS_HOOK)) {
+    if (!output_queue_push_synth(&state->output_queue, inputs, 6u,
+            KSI_SYNTH_FLAG_BYPASS_HOOK, 0u)) {
         fprintf(stderr, "inputd: failed to enqueue emergency passthrough chord\n");
     }
 }
@@ -261,7 +266,10 @@ static void daemon_handle_hook_event(
     uint32_t block_bit;
     bool is_injected;
 
-    if (state == NULL || subscription_bit == 0) {
+    if (state == NULL || subscription_bit == 0
+        || (state->input_owner_enforced
+            && !atomic_load_explicit(
+                &state->active_input_uid_valid, memory_order_acquire))) {
         return;
     }
 
@@ -331,7 +339,8 @@ static void daemon_handle_hook_event(
             payload.hook_type = hook_type;
             memcpy(&payload.event, event, event_size);
 
-            if (!output_queue_push_replay(&state->output_queue, hook_type, &payload)) {
+            if (!output_queue_push_replay(&state->output_queue, hook_type, &payload,
+                    current_input_generation(state))) {
                 fprintf(stderr, "inputd: replay enqueue of unhooked grabbed input failed\n");
                 request_fail_open(state);
             }
@@ -345,6 +354,7 @@ static void daemon_handle_hook_event(
         memset(&egress, 0, sizeof(egress));
         egress.type = (is_injected || block_active) ? KSI_LANE_EGRESS_NONE : KSI_LANE_EGRESS_REPLAY;
         dispatch_hook_event_to_lane(
-            state, hook_type, event, event_size, &egress, NULL, true);
+            state, hook_type, event, event_size, &egress, NULL, true,
+            current_input_generation(state));
     }
 }

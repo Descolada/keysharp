@@ -11,40 +11,38 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 	// Linux hook extension points backed by keysharp-inputd.
 	internal sealed class LinuxHookThread : UnixHookThread
 	{
-		// Set to true for the duration of InputdHookLoop so callers can detect
-		// they're on the hook reader thread and avoid lock acquisitions that
-		// could deadlock against the script thread holding the same lock.
-		[System.ThreadStatic]
-		internal static bool IsHookReaderThread;
-		private sealed class CallbackContext
-		{
-			internal required LinuxHookThread Owner { get; init; }
-			internal required byte[] SessionToken { get; init; }
-			internal volatile bool Active = true;
-		}
+		private sealed record CallbackContext(
+			KeysharpInputdClient Client,
+			ulong EventId,
+			long HotIfDeadline);
 
-		// ExecutionContext flows this through Task.Run. This intentionally makes a
-		// #HotIf callback logically part of the low-level callback even though it is
-		// evaluated on a pool thread. Active is cleared when the originating callback
-		// returns, so abandoned/timed-out work cannot borrow a later callback frame.
-		private static readonly AsyncLocal<CallbackContext> callbackContext = new();
+		// A hook-originated Send belongs to this native callback thread. ThreadStatic
+		// deliberately keeps queued hotkey work and bounded #HotIf tasks off this
+		// HookStream; only this thread may synchronously read and re-enter it.
+		[ThreadStatic]
+		private static CallbackContext callbackContext;
 
 		private KeysharpInputdClient inputdHookClient;
 		private CancellationTokenSource inputdHookCancel;
 		private Task inputdHookTask;
 		private HookType inputdHookKinds;
 		private bool usingInputdHooks;
-		internal static bool IsInHookCallback => callbackContext.Value?.Active == true;
-		internal static byte[] CurrentHookSessionToken
-			=> IsInHookCallback ? callbackContext.Value.SessionToken : null;
-
-		internal static void ConfigureCallbackRpc(KeysharpInputdClient client)
+		internal const int HotIfCallbackBudgetMilliseconds = 500;
+		private static readonly long hotIfCallbackBudgetTicks =
+			Stopwatch.Frequency * HotIfCallbackBudgetMilliseconds / 1000;
+		internal static bool IsInHookCallback => callbackContext != null;
+		internal static double RemainingHotIfMilliseconds
 		{
-			var context = callbackContext.Value;
-
-			if (context?.Active == true)
-				client.SetNestedHookEventHandler(context.Owner.ProcessNestedHookEvent);
+			get
+			{
+				var remaining = (callbackContext?.HotIfDeadline ?? 0L) - Stopwatch.GetTimestamp();
+				return remaining > 0L ? remaining * 1000.0 / Stopwatch.Frequency : 0.0;
+			}
 		}
+		internal static KeysharpInputdClient CurrentHookClient
+			=> callbackContext?.Client;
+		internal static ulong CurrentHookEventId
+			=> callbackContext?.EventId ?? 0u;
 		// Avoid grabbing evdev before X/XWayland can receive inputd's replay device.
 		private const int InputdGrabDisplayWaitMs = 5000;
 		private const int InputdGrabDisplayWaitPollMs = 100;
@@ -282,6 +280,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 					permissionRequest,
 					role: KeysharpInputdClient.ConnectionRole.HookStream);
 				inputdHookClient.SetHookQuarantineHandler(HandleHookQuarantined);
+				inputdHookClient.SetNestedHookEventHandler(ProcessNestedHookEvent);
 
 				if (wantMouse)
 					_ = inputdHookClient.SubscribeHook(KeysharpInputdClient.HookType.MouseLowLevel);
@@ -308,31 +307,9 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 		private void HandleHookQuarantined(KeysharpInputdClient.HookQuarantine quarantine)
 		{
-			var sessionToken = inputdHookClient?.HookSessionToken is { Length: > 0 } token
-				? (byte[])token.Clone()
-				: null;
-
 			Ks.OutputDebugLine(
 				$"keysharp-inputd quarantined {quarantine.HookType} hook at event {quarantine.EventId}; " +
-				$"strike {quarantine.StrikeCount}, retry in {quarantine.RetryAfterMs} ms.");
-
-			if (sessionToken == null)
-				return;
-
-			using (ExecutionContext.SuppressFlow())
-			{
-				_ = Task.Run(async () =>
-				{
-					await Task.Delay(checked((int)quarantine.RetryAfterMs)).ConfigureAwait(false);
-					var currentToken = inputdHookClient?.HookSessionToken;
-
-					if (currentToken == null || !currentToken.AsSpan().SequenceEqual(sessionToken))
-						return;
-
-					KeysharpInputdManager.TryRearmHook(
-						sessionToken, quarantine.HookType, quarantine.Generation);
-				});
-			}
+				$"strike {quarantine.StrikeCount}; inputd will retry it after {quarantine.RetryAfterMs} ms.");
 		}
 
 		private void StopInputdHookCore()
@@ -372,7 +349,6 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 		private void InputdHookLoop(KeysharpInputdClient client, CancellationToken token)
 		{
-			IsHookReaderThread = true;
 			var liveness = new HookReaderLiveness();
 			client.SetLeaseLivenessProbe(liveness.IsAlive);
 
@@ -383,7 +359,6 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			finally
 			{
 				client.SetLeaseLivenessProbe(static () => false);
-				IsHookReaderThread = false;
 			}
 		}
 
@@ -457,16 +432,14 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			KeysharpInputdClient client,
 			in KeysharpInputdClient.HookEvent hookEvent)
 		{
-			var previousContext = callbackContext.Value;
-			var context = new CallbackContext
-			{
-				Owner = this,
-				SessionToken = previousContext?.SessionToken ?? client.HookSessionToken ?? []
-			};
+			var previousContext = callbackContext;
 			var block = false;
 			Exception callbackError = null;
 
-			callbackContext.Value = context;
+			callbackContext = new(
+				client,
+				hookEvent.EventId,
+				Stopwatch.GetTimestamp() + hotIfCallbackBudgetTicks);
 
 			try
 			{
@@ -489,8 +462,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			}
 			finally
 			{
-				context.Active = false;
-				callbackContext.Value = previousContext;
+				callbackContext = previousContext;
 			}
 
 			if (!block
@@ -507,8 +479,8 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		private bool inputdPanicCtrlDown;
 		private bool inputdPanicAltDown;
 
-		// A hook decision is pure suppress-or-pass. Sends made while calculating it
-		// have already completed their daemon-owned recursive hook transaction.
+		// A hook decision is pure suppress-or-pass. Direct sends on this owner have
+		// already unwound recursively; worker-thread sends are independently queued.
 		private static void SendInputdHookDecision(
 			KeysharpInputdClient client,
 			in KeysharpInputdClient.HookEvent hookEvent,

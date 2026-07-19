@@ -18,6 +18,7 @@ namespace Keysharp.Tests
 #if LINUX
 		private const uint F13 = 0x7C;
 		private const uint F14 = 0x7D;
+		private const uint F15 = 0x7E;
 		private const uint KeyUp = 0x80;
 		private const uint Injected = 0x10;
 		private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
@@ -27,9 +28,9 @@ namespace Keysharp.Tests
 		{
 			using var fixture = new LiveHookFixture();
 			var trace = new ConcurrentQueue<string>();
-			var outerFinished = new ManualResetEventSlim();
+			using var outerFinished = new ManualResetEventSlim();
 
-			fixture.Callback.SetNestedHookEventHandler((rpc, hookEvent) =>
+			fixture.Hook.SetNestedHookEventHandler((rpc, hookEvent) =>
 			{
 				AssertSyntheticKey(hookEvent, F14);
 				trace.Enqueue($"nested-{Direction(hookEvent)}");
@@ -43,7 +44,7 @@ namespace Keysharp.Tests
 
 				if ((hookEvent.Keyboard.Flags & KeyUp) == 0)
 				{
-					fixture.Callback.SendInput(KeyStroke(F14));
+					fixture.Hook.SendInput(KeyStroke(F14), parentHookEventId: hookEvent.EventId);
 					trace.Enqueue("nested-send-returned");
 				}
 
@@ -71,7 +72,345 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("External")]
-		public void SendWaitsForEveryHookDecision()
+		public void WorkerThreadSendQueuesBehindActiveHookCallback()
+		{
+			using var fixture = new LiveHookFixture();
+			using var finished = new CountdownEvent(2);
+			var trace = new ConcurrentQueue<string>();
+
+			fixture.StartReader(hookEvent =>
+			{
+				var vk = hookEvent.Keyboard.VkCode;
+				var direction = Direction(hookEvent);
+
+				if (vk == F13)
+				{
+					trace.Enqueue($"parent-{direction}-enter");
+
+					if (direction == "down")
+					{
+						var send = Task.Run(() => fixture.Sender.SendInput(KeyStroke(F14)));
+						Assert.IsTrue(send.Wait(TestTimeout),
+							"Worker-thread Send did not return after queue admission.");
+						trace.Enqueue("worker-send-returned");
+					}
+
+					trace.Enqueue($"parent-{direction}-decide");
+					fixture.Hook.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+				}
+				else
+				{
+					AssertSyntheticKey(hookEvent, F14);
+					trace.Enqueue($"child-{direction}");
+					fixture.Hook.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+					finished.Signal();
+				}
+			});
+
+			fixture.Sender.SendInput(KeyStroke(F13));
+			Assert.IsTrue(finished.Wait(TestTimeout));
+			fixture.ThrowReaderFailure();
+			Assert.That(trace.ToArray(), Is.EqualTo(new[]
+			{
+				"parent-down-enter",
+				"worker-send-returned",
+				"parent-down-decide",
+				"parent-up-enter",
+				"parent-up-decide",
+				"child-down",
+				"child-up",
+			}));
+		}
+
+		[TestCase(false, TestName = "RecursiveMaskOvertakesBystanderQueuedParent")]
+		[TestCase(true, TestName = "RecursiveMaskReentersBystanderAfterItsParentTurn")]
+		[Category("External")]
+		public void RecursiveMaskTraversesEveryHookWithoutParentDeadlock(bool bystanderNewest)
+		{
+			// Connect in the requested order because inputd runs the newest hook first.
+			// F13 is the parent and F14 down/up model the separately-sent Ctrl mask
+			// without risking a stranded desktop modifier if a live test fails.
+			LiveHookFixture origin;
+			LiveHookFixture bystander;
+
+			if (bystanderNewest)
+			{
+				origin = new LiveHookFixture();
+				bystander = new LiveHookFixture(subscribeMouse: true);
+			}
+			else
+			{
+				bystander = new LiveHookFixture(subscribeMouse: true);
+				origin = new LiveHookFixture();
+			}
+
+			using (origin)
+			using (bystander)
+			using (var originParents = new CountdownEvent(2))
+			using (var bystanderParents = new CountdownEvent(2))
+			using (var originMask = new CountdownEvent(2))
+			using (var bystanderMask = new CountdownEvent(2))
+			{
+				var trace = new ConcurrentQueue<string>();
+				var quarantines = 0;
+				Task parentSend = null;
+
+				origin.Hook.SetHookQuarantineHandler(_ => Interlocked.Increment(ref quarantines));
+				bystander.Hook.SetHookQuarantineHandler(_ => Interlocked.Increment(ref quarantines));
+				origin.Hook.SetNestedHookEventHandler((rpc, hookEvent) =>
+				{
+					AssertSyntheticKey(hookEvent, F14);
+					var direction = Direction(hookEvent);
+					trace.Enqueue($"origin-mask-{direction}");
+
+					rpc.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+					originMask.Signal();
+				});
+				origin.StartReader(hookEvent =>
+				{
+					if (hookEvent.HookType != KeysharpInputdClient.HookType.KeyboardLowLevel
+						|| hookEvent.Keyboard.VkCode != F13)
+					{
+						origin.Hook.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+						return;
+					}
+
+					var direction = Direction(hookEvent);
+					trace.Enqueue($"origin-parent-{direction}-enter");
+
+					if (direction == "down")
+					{
+						origin.Hook.SendInput([
+							KeysharpInputdClient.Input.Key((ushort)F14)
+						], parentHookEventId: hookEvent.EventId);
+						trace.Enqueue("origin-send-down-returned");
+						origin.Hook.SendInput([
+							KeysharpInputdClient.Input.Key(
+								(ushort)F14,
+								flags: KeysharpInputdClient.KeyEventFlags.KeyUp)
+						], parentHookEventId: hookEvent.EventId);
+						trace.Enqueue("origin-send-up-returned");
+					}
+
+					origin.Hook.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+					trace.Enqueue($"origin-parent-{direction}-leave");
+					originParents.Signal();
+				});
+				bystander.StartReader(hookEvent =>
+				{
+					if (hookEvent.HookType == KeysharpInputdClient.HookType.MouseLowLevel)
+					{
+						bystander.Hook.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+						return;
+					}
+
+					var vk = hookEvent.Keyboard.VkCode;
+					var direction = Direction(hookEvent);
+
+					if (vk == F13)
+						trace.Enqueue($"bystander-parent-{direction}");
+					else if (vk == F14)
+						trace.Enqueue($"bystander-mask-{direction}");
+
+					bystander.Hook.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+
+					if (vk == F13)
+						bystanderParents.Signal();
+					else if (vk == F14)
+						bystanderMask.Signal();
+				});
+
+				try
+				{
+					parentSend = Task.Run(() => origin.Sender.SendInput(KeyStroke(F13)));
+					Assert.IsTrue(parentSend.Wait(TestTimeout), "Synthetic send did not complete.");
+					Assert.IsTrue(originParents.Wait(TestTimeout), "Origin missed a parent callback.");
+					Assert.IsTrue(bystanderParents.Wait(TestTimeout), "Bystander missed a parent callback.");
+					Assert.IsTrue(originMask.Wait(TestTimeout), "Origin missed a recursive mask callback.");
+					Assert.IsTrue(bystanderMask.Wait(TestTimeout), "Bystander missed a recursive mask callback.");
+					Assert.AreEqual(0, Volatile.Read(ref quarantines));
+
+					var observed = trace.ToArray();
+					int Position(string value)
+					{
+						var position = System.Array.IndexOf(observed, value);
+						Assert.That(position, Is.GreaterThanOrEqualTo(0), $"Missing trace item {value}: {string.Join(", ", observed)}");
+						return position;
+					}
+
+					Assert.That(Position("origin-send-down-returned"),
+						Is.GreaterThan(Position("origin-mask-down")));
+					Assert.That(Position("origin-send-up-returned"),
+						Is.GreaterThan(Position("origin-mask-up")));
+					Assert.That(Position("origin-send-up-returned"),
+						Is.GreaterThan(Position("bystander-mask-up")));
+
+					if (bystanderNewest)
+					{
+						Assert.That(Position("bystander-parent-down"),
+							Is.LessThan(Position("origin-parent-down-enter")));
+						Assert.That(Position("bystander-mask-down"),
+							Is.LessThan(Position("origin-mask-down")));
+						Assert.That(Position("bystander-mask-up"),
+							Is.LessThan(Position("origin-mask-up")));
+					}
+					else
+					{
+						Assert.That(Position("origin-mask-down"),
+							Is.LessThan(Position("bystander-mask-down")));
+						Assert.That(Position("origin-mask-up"),
+							Is.LessThan(Position("bystander-mask-up")));
+						Assert.That(Position("origin-send-up-returned"),
+							Is.LessThan(Position("bystander-parent-down")));
+					}
+
+					origin.ThrowReaderFailure();
+					bystander.ThrowReaderFailure();
+				}
+				finally
+				{
+					try { parentSend?.Wait(TestTimeout); } catch { }
+				}
+			}
+		}
+
+		[Test, Category("External")]
+		public void RecursiveChildRoutesThroughActiveHookStream()
+		{
+			// B is older. A receives F13 first and waits synchronously for its F14
+			// transaction. While B handles F14 on its hook stream, it sends F15.
+			// A's hook stream is still inside F13, so F15 must re-enter the same
+			// HookStream call stack which is already pumping F14's response.
+			using var b = new LiveHookFixture();
+			using var a = new LiveHookFixture();
+			var trace = new ConcurrentQueue<string>();
+			using var outerFinished = new ManualResetEventSlim();
+			var quarantines = 0;
+			Task parentSend = null;
+
+			a.Hook.SetHookQuarantineHandler(_ => Interlocked.Increment(ref quarantines));
+			b.Hook.SetHookQuarantineHandler(_ => Interlocked.Increment(ref quarantines));
+			a.Hook.SetNestedHookEventHandler((rpc, hookEvent) =>
+			{
+				var direction = Direction(hookEvent);
+
+				if (hookEvent.Keyboard.VkCode == F14)
+				{
+					AssertSyntheticKey(hookEvent, F14);
+					trace.Enqueue($"a-callback-f14-{direction}");
+				}
+				else
+				{
+					AssertSyntheticKey(hookEvent, F15);
+					trace.Enqueue($"a-callback-f15-{direction}");
+				}
+
+				rpc.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+			});
+			b.Hook.SetNestedHookEventHandler((rpc, hookEvent) =>
+			{
+				AssertSyntheticKey(hookEvent, F15);
+				trace.Enqueue($"b-callback-f15-{Direction(hookEvent)}");
+				rpc.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+			});
+			a.StartReader(hookEvent =>
+			{
+				if (hookEvent.HookType != KeysharpInputdClient.HookType.KeyboardLowLevel
+					|| hookEvent.Keyboard.VkCode != F13)
+				{
+					trace.Enqueue($"a-hook-unexpected-{hookEvent.Keyboard.VkCode:x}-{Direction(hookEvent)}");
+					a.Hook.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+					return;
+				}
+
+				AssertSyntheticKey(hookEvent, F13);
+				var direction = Direction(hookEvent);
+
+				if (direction == "down")
+				{
+					trace.Enqueue("a-parent-f13-down-enter");
+					a.Hook.SendInput(KeyStroke(F14), parentHookEventId: hookEvent.EventId);
+					trace.Enqueue("a-send-f14-returned");
+				}
+
+				trace.Enqueue($"a-parent-f13-{direction}-decide");
+				a.Hook.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+			});
+			b.StartReader(hookEvent =>
+			{
+				if (hookEvent.HookType != KeysharpInputdClient.HookType.KeyboardLowLevel)
+				{
+					b.Hook.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+					return;
+				}
+
+				var vk = hookEvent.Keyboard.VkCode;
+				var direction = Direction(hookEvent);
+
+				if (vk == F14)
+				{
+					AssertSyntheticKey(hookEvent, F14);
+
+					if (direction == "down")
+					{
+						trace.Enqueue("b-hook-f14-down-enter");
+						b.Hook.SendInput(KeyStroke(F15), parentHookEventId: hookEvent.EventId);
+						trace.Enqueue("b-send-f15-returned");
+					}
+
+					trace.Enqueue($"b-hook-f14-{direction}-decide");
+				}
+				else if (vk == F13)
+				{
+					AssertSyntheticKey(hookEvent, F13);
+					trace.Enqueue($"b-parent-f13-{direction}");
+					if (direction == "up")
+						outerFinished.Set();
+				}
+				else
+				{
+					trace.Enqueue($"b-hook-unexpected-{vk:x}-{direction}");
+				}
+
+				b.Hook.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+			});
+
+			try
+			{
+				parentSend = Task.Run(() => a.Sender.SendInput(KeyStroke(F13)));
+				Assert.IsTrue(parentSend.Wait(TestTimeout), "Parent send was not admitted.");
+				Assert.IsTrue(outerFinished.Wait(TestTimeout), "Parent hook chain did not complete.");
+				a.ThrowReaderFailure();
+				b.ThrowReaderFailure();
+				Assert.AreEqual(0, Volatile.Read(ref quarantines));
+				Assert.That(trace.ToArray(), Is.EqualTo(new[]
+				{
+					"a-parent-f13-down-enter",
+					"a-callback-f14-down",
+					"b-hook-f14-down-enter",
+					"a-callback-f15-down",
+					"b-callback-f15-down",
+					"a-callback-f15-up",
+					"b-callback-f15-up",
+					"b-send-f15-returned",
+					"b-hook-f14-down-decide",
+					"a-callback-f14-up",
+					"b-hook-f14-up-decide",
+					"a-send-f14-returned",
+					"a-parent-f13-down-decide",
+					"b-parent-f13-down",
+					"a-parent-f13-up-decide",
+					"b-parent-f13-up",
+				}), "Recursive callbacks did not unwind grandchild-before-child-before-parent.");
+			}
+			finally
+			{
+				try { parentSend?.Wait(TestTimeout); } catch { }
+			}
+		}
+
+		[Test, Category("External")]
+		public void OrdinarySendReturnsAfterQueueAdmission()
 		{
 			using var fixture = new LiveHookFixture();
 			using var callbackEntered = new AutoResetEvent(false);
@@ -86,15 +425,64 @@ namespace Keysharp.Tests
 			});
 
 			var send = Task.Run(() => fixture.Sender.SendInput(KeyStroke(F13)));
-			Assert.IsTrue(callbackEntered.WaitOne(TestTimeout));
-			Assert.IsFalse(send.IsCompleted, "SendInput returned before the first hook decision.");
-			allowDecision.Release();
-			Assert.IsTrue(callbackEntered.WaitOne(TestTimeout));
-			Assert.IsFalse(send.IsCompleted, "SendInput returned before the second hook decision.");
-			allowDecision.Release();
 
-			Assert.IsTrue(send.Wait(TestTimeout));
-			Assert.AreEqual(2, Volatile.Read(ref callbacks));
+			try
+			{
+				Assert.IsTrue(send.Wait(TestTimeout), "SendInput did not return after queue admission.");
+				Assert.IsTrue(callbackEntered.WaitOne(TestTimeout));
+				allowDecision.Release();
+				Assert.IsTrue(callbackEntered.WaitOne(TestTimeout));
+				Assert.IsTrue(send.IsCompleted,
+					"An ordinary sender must not wait for generated hook callbacks.");
+				allowDecision.Release();
+				Assert.AreEqual(2, Volatile.Read(ref callbacks));
+				fixture.ThrowReaderFailure();
+			}
+			finally
+			{
+				allowDecision.Release(2);
+			}
+		}
+
+		[Test, Category("External")]
+		public void BackToBackRecursiveSendsCannotOverlapNativePumpState()
+		{
+			using var fixture = new LiveHookFixture();
+			using var nestedCallbacks = new CountdownEvent(256);
+			using var outerFinished = new ManualResetEventSlim();
+			fixture.Hook.SetNestedHookEventHandler((rpc, hookEvent) =>
+			{
+				AssertSyntheticKey(hookEvent, F14);
+				rpc.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+				nestedCallbacks.Signal();
+			});
+			fixture.StartReader(hookEvent =>
+			{
+				AssertSyntheticKey(hookEvent, F13);
+
+				if ((hookEvent.Keyboard.Flags & KeyUp) == 0)
+				{
+					for (var i = 0; i < 128; i++)
+					{
+						fixture.Hook.SendInput([
+							KeysharpInputdClient.Input.Key((ushort)F14)
+						], parentHookEventId: hookEvent.EventId);
+						fixture.Hook.SendInput([
+							KeysharpInputdClient.Input.Key((ushort)F14,
+								flags: KeysharpInputdClient.KeyEventFlags.KeyUp)
+						], parentHookEventId: hookEvent.EventId);
+					}
+				}
+
+				fixture.Hook.SendHookDecision(hookEvent.EventId, KeysharpInputdClient.HookDecision.Pass);
+
+				if ((hookEvent.Keyboard.Flags & KeyUp) != 0)
+					outerFinished.Set();
+			});
+
+			fixture.Sender.SendInput(KeyStroke(F13));
+			Assert.IsTrue(nestedCallbacks.Wait(TestTimeout));
+			Assert.IsTrue(outerFinished.Wait(TestTimeout));
 			fixture.ThrowReaderFailure();
 		}
 
@@ -153,7 +541,6 @@ namespace Keysharp.Tests
 			fixture.Sender.SendInput(KeyStroke(F13));
 			Assert.IsTrue(quarantineSeen.Wait(TestTimeout));
 			Thread.Sleep(checked((int)quarantine.RetryAfterMs + 100));
-			fixture.Callback.RearmHook(quarantine.HookType, quarantine.Generation);
 			Volatile.Write(ref phase, 1);
 			fixture.Sender.SendInput(KeyStroke(F13));
 
@@ -167,7 +554,7 @@ namespace Keysharp.Tests
 			using var fixture = new LiveHookFixture(subscribeMouse: true);
 			var trace = new ConcurrentQueue<string>();
 			var completed = new ManualResetEventSlim();
-			fixture.Callback.SetNestedHookEventHandler((rpc, hookEvent) =>
+			fixture.Hook.SetNestedHookEventHandler((rpc, hookEvent) =>
 			{
 				Assert.AreEqual(KeysharpInputdClient.HookType.MouseLowLevel, hookEvent.HookType);
 				Assert.AreEqual(0u, hookEvent.Mouse.DeviceId);
@@ -185,9 +572,9 @@ namespace Keysharp.Tests
 				trace.Enqueue("outer-enter");
 				if ((hookEvent.Keyboard.Flags & KeyUp) == 0)
 				{
-					fixture.Callback.SendInput([
+					fixture.Hook.SendInput([
 						KeysharpInputdClient.Input.MouseEvent(0, 0, 0, KeysharpInputdClient.MouseEventFlags.Move)
-					]);
+					], parentHookEventId: hookEvent.EventId);
 					trace.Enqueue("nested-returned");
 				}
 
@@ -317,7 +704,6 @@ namespace Keysharp.Tests
 			private Exception readerFailure;
 
 			internal KeysharpInputdClient Hook { get; }
-			internal KeysharpInputdClient Callback { get; }
 			internal KeysharpInputdClient Sender { get; }
 
 			internal LiveHookFixture(bool subscribeMouse = false)
@@ -330,9 +716,6 @@ namespace Keysharp.Tests
 					capabilities |= KeysharpInputdClient.Capabilities.HookMouse |
 						KeysharpInputdClient.Capabilities.SynthMouse;
 				Hook = KeysharpInputdClient.Connect(capabilities, role: KeysharpInputdClient.ConnectionRole.HookStream);
-				Callback = KeysharpInputdClient.Connect(capabilities,
-					role: KeysharpInputdClient.ConnectionRole.CallbackRpc,
-					hookSessionToken: Hook.HookSessionToken);
 				Sender = KeysharpInputdClient.Connect(capabilities);
 				Hook.SubscribeHook(KeysharpInputdClient.HookType.KeyboardLowLevel);
 
@@ -370,7 +753,6 @@ namespace Keysharp.Tests
 			{
 				cancellation.Cancel();
 				Hook.Dispose();
-				Callback.Dispose();
 				Sender.Dispose();
 				try { reader?.Wait(TestTimeout); } catch { }
 			}

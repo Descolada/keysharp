@@ -13,7 +13,7 @@ Most scripts run unmodified on Windows. Across platforms, anything using **DllCa
 
 ## Demos
 
-![Keysharp demos](https://github.com/Descolada/keysharp/releases/download/media/KeysharpDemo.gif)
+<a href="https://github.com/user-attachments/assets/c362ccf2-f096-4d0e-960a-aef2d9ce46b5" target="_blank">▶ Watch the Keysharp demos</a> *(8 MB GIF)*
 
 See the [demos folder](./demos) for example scripts showcasing Keysharp's
 cross-platform image, overlay, OCR, input and window-management APIs.

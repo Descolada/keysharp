@@ -116,6 +116,29 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
 		internal static extern nint MarshalCaptureOutputRegion(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, nint newId, int overlayCursor, nint output, int x, int y, int width, int height);
 
+		// signature "uuu" (3 uints): zwlr_virtual_pointer_v1.button
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern void MarshalUuu(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, uint a, uint b, uint c);
+
+		// signature "uuf" (2 uints + 1 wl_fixed_t): zwlr_virtual_pointer_v1.axis
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern void MarshalUuf(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, uint a, uint b, int fixedValue);
+
+		// signature "uff" (1 uint + 2 wl_fixed_t): zwlr_virtual_pointer_v1.motion
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern void MarshalUff(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, uint time, int dxFixed, int dyFixed);
+
+		// signature "uuuuu" (5 uints): zwlr_virtual_pointer_v1.motion_absolute
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern void Marshal5U(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, uint a, uint b, uint c, uint d, uint e);
+
+		// signature "?on" (nullable object THEN new_id -- note the reversed order relative to
+		// MarshalConstructorObject's "no" shape): zwlr_virtual_pointer_manager_v1.create_virtual_pointer.
+		// The object argument must be passed first and the new_id placeholder second, matching the wire
+		// signature's left-to-right order; wl_proxy_marshal_flags reads varargs positionally.
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern nint MarshalObjectThenConstructor(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, nint obj, nint newId);
+
 		// libc bindings used for the SHM buffer plumbing (memfd-backed wl_shm_pool).
 		internal const int MFD_CLOEXEC = 0x0001;
 		internal const int PROT_READ = 0x1;
@@ -207,6 +230,26 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const uint WlrLayerSurfaceAckConfigureOpcode = 6;
 		private const uint WlrLayerSurfaceDestroyOpcode = 7;
 		private const uint WlrLayerSurfaceSetLayerOpcode = 8; // v2+
+
+		// zwlr_virtual_pointer_v1 opcodes (identical since v1; v2 added nothing on this interface)
+		private const uint WlrVirtualPointerMotionOpcode = 0;
+		private const uint WlrVirtualPointerMotionAbsoluteOpcode = 1;
+		private const uint WlrVirtualPointerButtonOpcode = 2;
+		private const uint WlrVirtualPointerAxisOpcode = 3;
+		private const uint WlrVirtualPointerFrameOpcode = 4;
+		private const uint WlrVirtualPointerDestroyOpcode = 8;
+
+		// zwlr_virtual_pointer_manager_v1 opcodes
+		private const uint WlrVirtualPointerManagerCreateVirtualPointerOpcode = 0;
+		private const uint WlrVirtualPointerManagerDestroyOpcode = 1;
+
+		// wl_pointer.button_state enum (used by zwlr_virtual_pointer_v1.button's state argument)
+		internal const uint ButtonStateReleased = 0;
+		internal const uint ButtonStatePressed = 1;
+
+		// wl_pointer.axis enum (used by zwlr_virtual_pointer_v1.axis's axis argument)
+		internal const uint AxisVerticalScroll = 0;
+		internal const uint AxisHorizontalScroll = 1;
 
 		// wl_shm pixel format constants. argb8888 is byte order: B,G,R,A on little-endian, with
 		// premultiplied alpha. xrgb8888 is identical layout but the alpha channel is ignored.
@@ -376,6 +419,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		// Converts a wl_fixed_t (24.8 fixed-point integer) to a double pixel coordinate.
 		internal static double FixedToDouble(int value) => value / 256.0;
 
+		// Converts a double pixel value to a wl_fixed_t (24.8 fixed-point integer). Mirrors FixedToDouble;
+		// wl_fixed_from_double is a static-inline in the client headers, not an exported symbol, so this is
+		// hand-rolled the same way FixedToDouble already is. Callers here only ever pass whole-pixel deltas.
+		internal static int DoubleToFixed(double value) => (int)Math.Round(value * 256.0, MidpointRounding.AwayFromZero);
+
 		// ----- zwlr_layer_shell_v1 helpers -----
 
 		internal static nint LayerShellGetLayerSurface(nint layerShell, nint surface, nint output, uint layer, string ns)
@@ -430,6 +478,39 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal static void LayerSurfaceDestroy(nint surface)
 			=> MarshalRequest(surface, WlrLayerSurfaceDestroyOpcode, 0, ProxyGetVersion(surface), DestroyFlag);
+
+		// ----- zwlr_virtual_pointer_manager_v1 / zwlr_virtual_pointer_v1 helpers -----
+
+		// Creates the one long-lived zwlr_virtual_pointer_v1 this client keeps for its whole lifetime.
+		// seat may be 0/null (compositor picks its default seat) if wl_seat hasn't arrived yet.
+		internal static nint VirtualPointerManagerCreateVirtualPointer(nint manager, nint seat)
+			=> MarshalObjectThenConstructor(manager, WlrVirtualPointerManagerCreateVirtualPointerOpcode,
+				Interfaces.WlrVirtualPointer.Pointer, ProxyGetVersion(manager), 0, seat, 0);
+
+		internal static void VirtualPointerManagerDestroy(nint manager)
+			=> MarshalRequest(manager, WlrVirtualPointerManagerDestroyOpcode, 0, ProxyGetVersion(manager), DestroyFlag);
+
+		internal static void VirtualPointerMotion(nint pointer, uint timeMs, double dx, double dy)
+			=> MarshalUff(pointer, WlrVirtualPointerMotionOpcode, 0, ProxyGetVersion(pointer), 0,
+				timeMs, DoubleToFixed(dx), DoubleToFixed(dy));
+
+		internal static void VirtualPointerMotionAbsolute(nint pointer, uint timeMs, uint x, uint y, uint xExtent, uint yExtent)
+			=> Marshal5U(pointer, WlrVirtualPointerMotionAbsoluteOpcode, 0, ProxyGetVersion(pointer), 0,
+				timeMs, x, y, xExtent, yExtent);
+
+		internal static void VirtualPointerButton(nint pointer, uint timeMs, uint evdevButton, bool pressed)
+			=> MarshalUuu(pointer, WlrVirtualPointerButtonOpcode, 0, ProxyGetVersion(pointer), 0,
+				timeMs, evdevButton, pressed ? ButtonStatePressed : ButtonStateReleased);
+
+		internal static void VirtualPointerAxis(nint pointer, uint timeMs, uint axis, double value)
+			=> MarshalUuf(pointer, WlrVirtualPointerAxisOpcode, 0, ProxyGetVersion(pointer), 0,
+				timeMs, axis, DoubleToFixed(value));
+
+		internal static void VirtualPointerFrame(nint pointer)
+			=> MarshalRequest(pointer, WlrVirtualPointerFrameOpcode, 0, ProxyGetVersion(pointer), 0);
+
+		internal static void VirtualPointerDestroy(nint pointer)
+			=> MarshalRequest(pointer, WlrVirtualPointerDestroyOpcode, 0, ProxyGetVersion(pointer), DestroyFlag);
 
 		// ----- xdg-output / viewporter helpers -----
 
@@ -609,8 +690,34 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				],
 				[]);
 
+			// zwlr_virtual_pointer_v1: pure fire-and-forget requests, no events. Identical since v1;
+			// v2 changed nothing on this interface (only the manager below gained a new request).
+			internal static readonly ProtocolInterface WlrVirtualPointer = new(WlrVirtualPointerName, 2,
+				[
+					("motion", "uff", [0, 0, 0]),
+					("motion_absolute", "uuuuu", [0, 0, 0, 0, 0]),
+					("button", "uuu", [0, 0, 0]),
+					("axis", "uuf", [0, 0, 0]),
+					("frame", "", []),
+					("axis_source", "u", [0]),
+					("axis_stop", "uu", [0, 0]),
+					("axis_discrete", "uufi", [0, 0, 0, 0]),
+					("destroy", "", [])
+				],
+				[]);
+
+			internal static readonly ProtocolInterface WlrVirtualPointerManager = new(WlrVirtualPointerManagerName, 2,
+				[
+					("create_virtual_pointer", "?on", [0, WlrVirtualPointer.Pointer]),
+					("destroy", "", []),
+					("create_virtual_pointer_with_output", "?o?on", [0, 0, WlrVirtualPointer.Pointer])
+				],
+				[]);
+
 			internal const string WlrLayerShellName = "zwlr_layer_shell_v1";
 			internal const string WlrLayerSurfaceName = "zwlr_layer_surface_v1";
+			internal const string WlrVirtualPointerName = "zwlr_virtual_pointer_v1";
+			internal const string WlrVirtualPointerManagerName = "zwlr_virtual_pointer_manager_v1";
 		}
 	}
 }

@@ -106,6 +106,35 @@ namespace Keysharp.Tests
 		}
 
 		[Test]
+		public void MotionAbsoluteNormalizesAgainstVirtualDesktopOrigin()
+		{
+			// Primary-only desktop, origin at (0,0): identity mapping, extent == width/height.
+			Assert.That(WaylandVirtualPointerCoordinates.ToMotionAbsolute(100, 50, 0, 0, 1920, 1080),
+				Is.EqualTo((100u, 50u, 1920u, 1080u)));
+
+			// Secondary monitor left-of-primary gives a negative-origin virtual desktop; the pixel must be
+			// translated into the layout's own non-negative coordinate space before being sent as x/y.
+			Assert.That(WaylandVirtualPointerCoordinates.ToMotionAbsolute(-500, 200, -1920, 0, 3840, 1080),
+				Is.EqualTo((1420u, 200u, 3840u, 1080u)));
+
+			// Out-of-bounds targets clamp into [0, extent] rather than wrapping/underflowing to a huge uint.
+			Assert.That(WaylandVirtualPointerCoordinates.ToMotionAbsolute(-10, -10, 0, 0, 1920, 1080),
+				Is.EqualTo((0u, 0u, 1920u, 1080u)));
+
+			// A zero-area virtual desktop (degenerate/pre-enumeration state) must not produce a zero extent --
+			// wlroots silently drops motion_absolute when x_extent or y_extent is 0.
+			Assert.That(WaylandVirtualPointerCoordinates.ToMotionAbsolute(0, 0, 0, 0, 0, 0),
+				Is.EqualTo((0u, 0u, 1u, 1u)));
+		}
+
+		[Test]
+		public void FixedPointRoundTripPreservesWholePixelValues()
+		{
+			foreach (var v in new[] { 0, 1, -1, 120, -120, 65535 })
+				Assert.That(WaylandNative.FixedToDouble(WaylandNative.DoubleToFixed(v)), Is.EqualTo((double)v));
+		}
+
+		[Test]
 		public void OutputAbandonClearsHotplugIdentityAndListenerHandle()
 		{
 			var output = new WaylandOutput { RegistryName = 7 };

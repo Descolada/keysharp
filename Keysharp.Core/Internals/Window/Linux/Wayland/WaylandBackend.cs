@@ -44,6 +44,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			WaylandLayerShellClient.Reset();
 			WaylandForeignToplevels.Reset();
 			WaylandScreenCapture.Reset();
+			WaylandVirtualPointerClient.Reset();
 		}
 
 		private static IWaylandBackend Probe()
@@ -1128,6 +1129,26 @@ for (var __i = 0; __i < __order.length; ++__i) {
 				// without sway changes.
 				return false;
 			}
+
+			// Sway is selected purely by $SWAYSOCK, which says nothing about whether this build
+			// actually advertises zwlr_virtual_pointer_manager_v1 -- SupportsMouse reflects the real,
+			// probed capability so WaylandMouseInjection.Backend() can fall through to inputd gracefully.
+			public bool SupportsMouse => WaylandVirtualPointerClient.Current != null;
+
+			public bool TrySendMouseMoveAbsolute(int x, int y)
+				=> WaylandVirtualPointerClient.Current?.TryMoveAbsolute(x, y) == true;
+
+			public bool TrySendMouseMoveRelative(int dx, int dy)
+				=> WaylandVirtualPointerClient.Current?.TryMoveRelative(dx, dy) == true;
+
+			public bool TrySendMouseButton(uint button, bool pressed)
+			{
+				var evdev = WaylandVirtualPointerClient.MapX11ButtonToEvdev(button);
+				return evdev != 0 && WaylandVirtualPointerClient.Current?.TryButton(evdev, pressed) == true;
+			}
+
+			public bool TrySendMouseScroll(int delta, bool vertical)
+				=> WaylandVirtualPointerClient.Current?.TryScroll(delta, vertical) == true;
 		}
 
 		internal sealed class HyprlandBackend : IWaylandBackend
@@ -1201,6 +1222,26 @@ for (var __i = 0; __i < __order.length; ++__i) {
 				y = 0;
 				return false;
 			}
+
+			// Hyprland is selected purely by $HYPRLAND_INSTANCE_SIGNATURE, which says nothing about
+			// whether this build actually advertises zwlr_virtual_pointer_manager_v1 -- SupportsMouse
+			// reflects the real, probed capability so the caller can fall through to inputd gracefully.
+			public bool SupportsMouse => WaylandVirtualPointerClient.Current != null;
+
+			public bool TrySendMouseMoveAbsolute(int x, int y)
+				=> WaylandVirtualPointerClient.Current?.TryMoveAbsolute(x, y) == true;
+
+			public bool TrySendMouseMoveRelative(int dx, int dy)
+				=> WaylandVirtualPointerClient.Current?.TryMoveRelative(dx, dy) == true;
+
+			public bool TrySendMouseButton(uint button, bool pressed)
+			{
+				var evdev = WaylandVirtualPointerClient.MapX11ButtonToEvdev(button);
+				return evdev != 0 && WaylandVirtualPointerClient.Current?.TryButton(evdev, pressed) == true;
+			}
+
+			public bool TrySendMouseScroll(int delta, bool vertical)
+				=> WaylandVirtualPointerClient.Current?.TryScroll(delta, vertical) == true;
 		}
 
 		internal sealed class CosmicBackend : IWaylandBackend
@@ -1219,6 +1260,26 @@ for (var __i = 0; __i < __order.length; ++__i) {
 				// either; the toplevel-info extension exists but doesn't carry the cursor.
 				return false;
 			}
+
+			// COSMIC is selected purely by $XDG_CURRENT_DESKTOP, which says nothing about whether
+			// this build actually advertises zwlr_virtual_pointer_manager_v1 -- SupportsMouse reflects
+			// the real, probed capability so the caller can fall through to inputd gracefully.
+			public bool SupportsMouse => WaylandVirtualPointerClient.Current != null;
+
+			public bool TrySendMouseMoveAbsolute(int x, int y)
+				=> WaylandVirtualPointerClient.Current?.TryMoveAbsolute(x, y) == true;
+
+			public bool TrySendMouseMoveRelative(int dx, int dy)
+				=> WaylandVirtualPointerClient.Current?.TryMoveRelative(dx, dy) == true;
+
+			public bool TrySendMouseButton(uint button, bool pressed)
+			{
+				var evdev = WaylandVirtualPointerClient.MapX11ButtonToEvdev(button);
+				return evdev != 0 && WaylandVirtualPointerClient.Current?.TryButton(evdev, pressed) == true;
+			}
+
+			public bool TrySendMouseScroll(int delta, bool vertical)
+				=> WaylandVirtualPointerClient.Current?.TryScroll(delta, vertical) == true;
 		}
 	}
 }

@@ -7,7 +7,7 @@ namespace Keysharp.Internals
 
 	/// <summary>The currently-live keyboard/mouse injection transport. Kept as a typed value (not a bool)
 	/// so additional transports/state can be added without churning consumers.</summary>
-	internal enum InputTransport { None, Inputd, Mac, Windows }
+	internal enum InputTransport { None, Inputd, Mac, Windows, WindowsInterception }
 
 	/// <summary>Foreign window READ surface (by handle). The Linux impl internally composes X11 + the active
 	/// Wayland backend; routing re-resolves the backend from the handle on each call.</summary>

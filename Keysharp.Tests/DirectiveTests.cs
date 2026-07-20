@@ -91,5 +91,53 @@ namespace Keysharp.Tests
 			Assert.IsFalse(codeNone.Contains("RequireCapabilities"),
 				"a version-only #Requires must not emit RequireCapabilities");
 		}
+
+		[Test, Category("Directives")]
+		public void UseHookInterception()
+		{
+			// `#UseHook Interception` (and the quoted form) select the Interception backend for the whole
+			// script: unlike `#UseHook 0/1`, it must NOT emit a positional MainScript.ForceKeybdHook
+			// assignment, and it must be threaded into the generated Script constructor call so
+			// CreateHookThread can resolve it before any hook is installed -- regardless of where in the
+			// script the directive appears (see Lowerer._hookBackend/_requireHookBackend).
+			var ch = new CompilerHelper();
+
+			var (arrUnquoted, codeUnquoted) = ch.CompileCodeToByteArray(
+				"#UseHook Interception\nx := 1\n", "usehook-interception", null, false, true);
+			Assert.IsNotNull(arrUnquoted, codeUnquoted);
+			Assert.IsFalse(codeUnquoted.Contains("ForceKeybdHook"),
+				"#UseHook Interception must not emit the positional ForceKeybdHook assignment");
+			Assert.IsTrue(codeUnquoted.Contains("new Keysharp.Runtime.Script(typeof(Program), null, \"Interception\")"),
+				"#UseHook Interception should pass the backend name to the Script constructor; generated:\n" + codeUnquoted);
+
+			var (arrQuoted, codeQuoted) = ch.CompileCodeToByteArray(
+				"#UseHook \"Interception\"\nx := 1\n", "usehook-interception-quoted", null, false, true);
+			Assert.IsNotNull(arrQuoted, codeQuoted);
+			Assert.IsTrue(codeQuoted.Contains("new Keysharp.Runtime.Script(typeof(Program), null, \"Interception\")"),
+				"the quoted form #UseHook \"Interception\" must behave identically to the unquoted form; generated:\n" + codeQuoted);
+
+			// Control: the existing numeric/boolean form is unchanged.
+			var (arrBool, codeBool) = ch.CompileCodeToByteArray(
+				"#UseHook 1\nx := 1\n", "usehook-bool", null, false, true);
+			Assert.IsNotNull(arrBool, codeBool);
+			Assert.IsTrue(codeBool.Contains("ForceKeybdHook"),
+				"#UseHook 1 must keep emitting the positional ForceKeybdHook assignment");
+			Assert.IsFalse(codeBool.Contains("\"Interception\""),
+				"#UseHook 1 must not select the Interception backend");
+
+			// `#Requires capability interception` converts the default graceful fallback into a hard
+			// requirement, regardless of whether it appears before or after #UseHook Interception.
+			var (arrBefore, codeBefore) = ch.CompileCodeToByteArray(
+				"#Requires capability interception\n#UseHook Interception\nx := 1\n", "usehook-req-before", null, false, true);
+			Assert.IsNotNull(arrBefore, codeBefore);
+			Assert.IsTrue(codeBefore.Contains("new Keysharp.Runtime.Script(typeof(Program), null, \"Interception\", true)"),
+				"#Requires capability interception before #UseHook Interception should still set requireHookBackend; generated:\n" + codeBefore);
+
+			var (arrAfter, codeAfter) = ch.CompileCodeToByteArray(
+				"#UseHook Interception\n#Requires capability interception\nx := 1\n", "usehook-req-after", null, false, true);
+			Assert.IsNotNull(arrAfter, codeAfter);
+			Assert.IsTrue(codeAfter.Contains("new Keysharp.Runtime.Script(typeof(Program), null, \"Interception\", true)"),
+				"#Requires capability interception after #UseHook Interception must behave identically; generated:\n" + codeAfter);
+		}
 	}
 }

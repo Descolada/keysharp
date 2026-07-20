@@ -11,7 +11,10 @@ namespace Keysharp.Internals
 #elif WINDOWS
 	internal sealed class WindowsInput : IInput
 	{
-		public InputTransport ActiveTransport => InputTransport.Windows;
+		public InputTransport ActiveTransport =>
+			Script.TheScript.HookThread is Keysharp.Internals.Input.Hooks.Windows.WindowsInterceptionHookThread
+				? InputTransport.WindowsInterception
+				: InputTransport.Windows;
 	}
 #elif OSX
 	internal sealed class MacInput : IInput

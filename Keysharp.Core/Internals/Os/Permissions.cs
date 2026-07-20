@@ -37,6 +37,7 @@ namespace Keysharp.Internals.Os
 		PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool accessibilityAutomation = false, bool? prompt = null, string operation = null);
 		PermissionResult RequestScreenCapture(bool? prompt = null, string operation = null);
 		PermissionResult RequestFileAccess(string path, FilePermissionAccess access, bool? prompt = null, string operation = null);
+		PermissionResult RequestInterceptionDriver(bool? prompt = null, string operation = null);
 
 		PermissionResult EnsureAccessibilityAutomation(bool? prompt = null, string operation = null);
 		PermissionResult EnsureInputMonitoring(bool? prompt = null, string operation = null);
@@ -72,6 +73,23 @@ namespace Keysharp.Internals.Os
 			=> accumulated.IsGranted ? next : accumulated;
 		public virtual PermissionResult RequestScreenCapture(bool? prompt = null, string operation = null) => new(PermissionStatus.NotApplicable);
 		public virtual PermissionResult RequestFileAccess(string path, FilePermissionAccess access, bool? prompt = null, string operation = null) => new(PermissionStatus.NotApplicable);
+
+		// Unlike the other capabilities, there is no OS consent dialog to show -- this is a presence/connectivity
+		// probe for the third-party Interception kernel driver, not a permission prompt, so `prompt` is unused and
+		// there is no platform-specific PermissionManager subclass; Windows is the only platform where the driver
+		// can exist at all, so the probe lives here inline rather than via a WindowsPermissionManager override.
+		public virtual PermissionResult RequestInterceptionDriver(bool? prompt = null, string operation = null)
+		{
+#if WINDOWS
+			return Keysharp.Internals.Input.Windows.Interception.InterceptionDriver.IsAvailable()
+				? new(PermissionStatus.Granted)
+				: new(PermissionStatus.Denied,
+					$"The Interception driver is required for '{operation ?? "interception hook backend"}' but is not installed or not running. " +
+					"Install it from https://github.com/oblitum/Interception and reboot, then retry.");
+#else
+			return new(PermissionStatus.NotApplicable);
+#endif
+		}
 
 		public virtual PermissionResult EnsureAccessibilityAutomation(bool? prompt = null, string operation = null)
 			=> EnsureGranted(RequestAccessibilityAutomation(prompt, operation), operation ?? "accessibility automation");

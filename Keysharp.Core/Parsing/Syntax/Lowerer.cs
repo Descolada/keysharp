@@ -93,6 +93,13 @@ namespace Keysharp.Parsing.Syntax
 		private string _singleInstanceMode;  // #SingleInstance mode (Force/Ignore/Prompt/Off), null = directive absent
 		private bool _noTrayIcon;            // #NoTrayIcon present: applied at the top of Main, before any tray chrome is created
 		private string _hookMutexName;       // #HookMutexName argument (passed to the Script constructor), null = absent
+		// #UseHook <BackendName> (e.g. "Interception"): selects a hook/synthesis backend for the whole script,
+		// regardless of where the directive appears (unlike #UseHook 0/1, which stays positional). Null = default
+		// native backend. Passed to the Script constructor alongside _requireHookBackend (set by #Requires
+		// capability interception, wherever it appears) so CreateHookThread can decide fallback vs. hard failure
+		// before any hook is installed.
+		private string _hookBackend;
+		private bool _requireHookBackend;
 		// #Warn config: per-type output mode ("MsgBox"/"StdOut"/"OutputDebug") or null when that warning is off.
 		// Matching AHK, VarUnset and Unreachable are ENABLED by default (MsgBox mode); LocalSameAsGlobal is off until a
 		// `#Warn` directive turns it on. A `#Warn` directive overrides these. `_warnDefaultMode` is the program-wide
@@ -1516,7 +1523,21 @@ namespace Keysharp.Parsing.Syntax
 				case "MAXTHREADSPERHOTKEY":
 					long.TryParse(args, out var mtph);
 					return Set("Keysharp.Builtins.Accessors.A_MaxThreadsPerHotkey", Num(System.Math.Clamp(mtph, 1, 255).ToString()));
-				case "USEHOOK": return Set("MainScript.ForceKeybdHook", Op("ForceBool", NumArg(0)));
+				// #UseHook <BackendName>: a non-numeric/non-bool argument names a hook/synthesis backend (currently
+				// only "Interception") rather than forcing hook-vs-RegisterHotkey. It's recorded here (like
+				// #HookMutexName/#SingleInstance) instead of emitted as a positional statement, because the backend
+				// choice applies to the whole script -- two backends can't be active at once -- and must be resolved
+				// before the first hook is installed, not at this directive's textual position.
+				case "USEHOOK":
+				{
+					var backendArg = args.Trim('"', '\'');
+					if (backendArg.Equals("Interception", System.StringComparison.OrdinalIgnoreCase))
+					{
+						_hookBackend = "Interception";
+						return null;
+					}
+					return Set("MainScript.ForceKeybdHook", Op("ForceBool", NumArg(0)));
+				}
 				// #NoTrayIcon: recorded here and applied at the top of Main (see BuildMain), before any tray
 				// chrome is created. Emitting it inline in the auto-exec section runs too late -- the default
 				// tray icon would already have been created/shown by RunMainWindow, so the directive would be
@@ -1575,9 +1596,18 @@ namespace Keysharp.Parsing.Syntax
 						&& (reqParts[0].Equals("capability", System.StringComparison.OrdinalIgnoreCase)
 							|| reqParts[0].Equals("capabilities", System.StringComparison.OrdinalIgnoreCase))
 						&& reqParts[1].Trim() is { Length: > 0 } caps)
+					{
+						// A capability list containing "interception" converts #UseHook Interception's default
+						// graceful fallback into a hard failure (checked by CreateHookThread before any hook is
+						// installed) -- recorded here, wherever this directive appears, for the same
+						// position-independence reason _hookBackend is.
+						foreach (var part in caps.Split([' ', '\t', '\r', '\n', ',', ';', '|'], System.StringSplitOptions.RemoveEmptyEntries))
+							if (part.Equals("interception", System.StringComparison.OrdinalIgnoreCase))
+								_requireHookBackend = true;
 						// RequireCapabilities (not RequestCapabilities): a #Requires directive is a hard
 						// requirement, so a denied prompt exits the app. The runtime builtin does not exit.
 						return ExprStmt(Inv(Access("Keysharp.Builtins.Ks.RequireCapabilities"), Str(caps)));
+					}
 					return null;
 				}
 				// #Warn config is applied in a prescan (PrescanWarnDirectives) so it is location-independent (per the
@@ -3975,14 +4005,25 @@ namespace Keysharp.Parsing.Syntax
 		// DHHR + per-module auto-exec in execution order) and the compilation unit (+ #Assembly* attributes).
 		private CompilationUnitSyntax AssembleProgram(string name, IEnumerable<MemberDeclarationSyntax> moduleClasses, IReadOnlyList<string> execOrder)
 		{
+			// Positional args after `Type program`: hookMutexName, hookBackend, requireHookBackend. Trailing absent
+			// (null-valued) arguments are simply omitted, relying on the constructor's own defaults, so a script
+			// using neither #HookMutexName nor #UseHook <Backend> emits the same single-arg call as before.
+			var scriptCtorArgs = new List<ArgumentSyntax> { Arg(SyntaxFactory.TypeOfExpression(Id("Program"))) };
+			if (_hookMutexName != null || _hookBackend != null || _requireHookBackend)
+				scriptCtorArgs.Add(Arg(_hookMutexName == null
+					? SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+					: Str(_hookMutexName)));
+			if (_hookBackend != null || _requireHookBackend)
+				scriptCtorArgs.Add(Arg(_hookBackend == null
+					? SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+					: Str(_hookBackend)));
+			if (_requireHookBackend)
+				scriptCtorArgs.Add(Arg(SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression)));
 			var mainScriptField = SyntaxFactory.FieldDeclaration(
 				SyntaxFactory.VariableDeclaration(Ty("Keysharp.Runtime.Script")).AddVariables(
 					SyntaxFactory.VariableDeclarator(SyntaxFactory.Identifier("MainScript")).WithInitializer(SyntaxFactory.EqualsValueClause(
 						SyntaxFactory.ObjectCreationExpression(Ty("Keysharp.Runtime.Script"))
-							.WithArgumentList(SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(
-								_hookMutexName == null
-									? new[] { Arg(SyntaxFactory.TypeOfExpression(Id("Program"))) }
-									: new[] { Arg(SyntaxFactory.TypeOfExpression(Id("Program"))), Arg(Str(_hookMutexName)) })))))))
+							.WithArgumentList(SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(scriptCtorArgs)))))))
 				.AddModifiers(PrivateTok, StaticTok);
 
 			var programMembers = new List<MemberDeclarationSyntax> { BuildMain(name), mainScriptField };

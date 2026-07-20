@@ -220,10 +220,14 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			AddScKeyName("PageUp", PgUp);
 			AddScKeyName("PgDn", PgDn);
 			AddScKeyName("PageDown", PgDn);
-			kbdMsSender = new WindowsKeyboardMouseSender();
 			kbdHandlerDel = new LowLevelKeyboardProc(LowLevelKeybdHandler);
 			mouseHandlerDel = new LowLevelMouseProc(LowLevelMouseHandler);
 		}
+
+		// Lazily created on first access via the base class's kbdMsSender getter (HookThread.cs), same pattern
+		// UnixHookThread/LinuxHookThread already use -- lets WindowsInterceptionHookThread swap in a different
+		// sender without needing its own constructor to run before this base constructor's field init does.
+		protected override KeyboardMouseSender CreateKbdMsSender() => new WindowsKeyboardMouseSender();
 
 		public override void SimulateKeyPress(uint key)
 		{
@@ -1122,6 +1126,29 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			thread = new StaThreadWithMessageQueue();
 		}
 
+		// The actual OS-level install/uninstall primitives, factored out of ChangeHookState below so a
+		// different capture backend (see WindowsInterceptionHookThread) can override just these four and
+		// inherit all of ChangeHookState's activate/deactivate orchestration, key-state reset timing, and
+		// STA-thread marshaling unchanged. Each returns success/failure the same way the inlined
+		// SetWindowsHookEx/UnhookWindowsHookEx calls did (kbdHook/mouseHook double as the "is active"
+		// sentinel elsewhere, e.g. HasKbdHook()/HasMouseHook(), so an override must still set them non-zero
+		// while active -- it need not be a real Win32 hook handle, just non-zero, exactly like the Unix
+		// backends already do with kbdHook/mouseHook set to 1).
+		protected virtual bool InstallKeyboardHook() =>
+			(kbdHook = SetWindowsHookEx(WH_KEYBOARD_LL,
+				kbdHandlerDel,//This must be a class member or else it will go out of scope and cause the program to crash unpredictably.
+				Marshal.GetHINSTANCE(typeof(Script).Module), 0)) != 0;
+
+		protected virtual bool UninstallKeyboardHook() =>
+			// Check last error in case the OS has already removed the hook.
+			UnhookWindowsHookEx(kbdHook) || GetLastError() == ERROR_INVALID_HOOK_HANDLE;
+
+		protected virtual bool InstallMouseHook() =>
+			(mouseHook = SetWindowsHookEx(WH_MOUSE_LL, mouseHandlerDel, Marshal.GetHINSTANCE(typeof(Script).Module), 0)) != 0;
+
+		protected virtual bool UninstallMouseHook() =>
+			UnhookWindowsHookEx(mouseHook) || GetLastError() == ERROR_INVALID_HOOK_HANDLE;
+
 		// Callable from any thread: the hook-API calls below are marshaled onto the dedicated
 		// StaThreadWithMessageQueue hook thread via Invoke(func), which synchronously Sends onto
 		// that thread's message loop. The caller's thread does not need a message pump.
@@ -1143,16 +1170,13 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 						//No matter what we do in C#, it can and must only run on the main window thread.
 						//This could potentially be a problem with all of the intricate code that takes special action depending
 						//on the thread that a particular function is being called from.
-						if ((kbdHook = SetWindowsHookEx(WH_KEYBOARD_LL,
-														kbdHandlerDel,//This must be a class member or else it will go out of scope and cause the program to crash unpredictably.
-														//GetModuleHandle(Process.GetCurrentProcess().MainModule.ModuleName), 0)) == 0)
-														Marshal.GetHINSTANCE(typeof(Script).Module), 0)) == 0)
+						if (!InstallKeyboardHook())
 							problem_activating_hooks = true;
 					}
 				}
 				else // Caller specified that the keyboard hook is to be deactivated (if it isn't already).
 					if (HasKbdHook())
-						if (UnhookWindowsHookEx(kbdHook) || GetLastError() == ERROR_INVALID_HOOK_HANDLE)// Check last error in case the OS has already removed the hook.
+						if (UninstallKeyboardHook())
 							kbdHook = 0;
 
 				if (((uint)hooksToBeActive & (uint)HookType.Mouse) != 0) // Activate the mouse hook (if it isn't already).
@@ -1162,16 +1186,13 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 						if (!changeIsTemporary) // Sender of msg. is signaling that reset should be done.
 							ResetHook(false, HookType.Mouse, true);
 
-						if ((mouseHook = SetWindowsHookEx(WH_MOUSE_LL,
-														  mouseHandlerDel,
-														  //GetModuleHandle(Process.GetCurrentProcess().MainModule.ModuleName), 0)) == 0)
-														  Marshal.GetHINSTANCE(typeof(Script).Module), 0)) == 0)
+						if (!InstallMouseHook())
 							problem_activating_hooks = true;
 					}
 				}
 				else // Caller specified that the mouse hook is to be deactivated (if it isn't already).
 					if (mouseHook != 0)
-						if (UnhookWindowsHookEx(mouseHook) || GetLastError() == ERROR_INVALID_HOOK_HANDLE)// Check last error in case the OS has already removed the hook.
+						if (UninstallMouseHook())
 							mouseHook = 0;
 
 				return DefaultObject;

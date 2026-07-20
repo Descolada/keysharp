@@ -456,7 +456,7 @@ namespace Keysharp.Runtime
 		}
 #endif
 
-		public Script(Type program = null, string hookMutexName = null)
+		public Script(Type program = null, string hookMutexName = null, string hookBackend = null, bool requireHookBackend = false)
 		{
 			//Create the message filter before publishing TheScript. Windows belonging to a previous script (or forms
 			//owned by another pumping thread) can dispatch a message the instant TheScript points at this instance,
@@ -495,7 +495,7 @@ namespace Keysharp.Runtime
 			else
 				msgFilter.Attach();
 #endif
-			HookThread = CreateHookThread();
+			HookThread = CreateHookThread(hookBackend, requireHookBackend);
 			if (hookMutexName != null && hookMutexName != "") Keysharp.Internals.Input.Hooks.HookThread.MutexName = hookMutexName;
 			//Init the data objects that the API classes will use.
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.
@@ -1408,9 +1408,30 @@ namespace Keysharp.Runtime
 			thisHotkeyStartTime = DateTime.UtcNow; // Fixed for v1.0.35.10 to not happen for GUI
 		}
 
-		private static HookThread CreateHookThread()
+		private static HookThread CreateHookThread(string hookBackend, bool requireHookBackend)
 		{
 #if WINDOWS
+			if (string.Equals(hookBackend, "Interception", StringComparison.OrdinalIgnoreCase))
+			{
+				if (Keysharp.Internals.Input.Windows.Interception.InterceptionDriver.IsAvailable())
+					return new WindowsInterceptionHookThread();
+
+				var message = "Keysharp: #UseHook Interception was specified, but the Interception driver " +
+					"is not installed or not running (https://github.com/oblitum/Interception).";
+
+				if (requireHookBackend)
+				{
+					// #Requires capability interception turns the normally-graceful fallback below into a hard
+					// failure. This runs inside the Script constructor -- before auto-exec, before general
+					// Flow/Ks runtime state is guaranteed ready -- so exit directly rather than routing through
+					// Ks.RequireCapabilities/Flow.ExitApp.
+					WriteUncaughtErrorToStdErr(message + " Exiting because #Requires capability interception was declared.");
+					Environment.Exit(1);
+				}
+
+				WriteUncaughtErrorToStdErr(message + " Falling back to the native keyboard/mouse hook.");
+			}
+
 			return new WindowsHookThread();
 #elif LINUX
 			return new LinuxHookThread();

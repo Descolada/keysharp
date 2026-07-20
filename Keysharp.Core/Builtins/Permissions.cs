@@ -11,7 +11,8 @@ namespace Keysharp.Builtins
 			BlockInput,
 			InputInjection,
 			InputMonitoring,
-			ScreenCapture
+			ScreenCapture,
+			Interception
 		}
 
 		/// <summary>
@@ -118,6 +119,8 @@ namespace Keysharp.Builtins
 						=> permissions.RequestScreenCapture(prompt: false),
 					KeysharpCapability.BlockInput
 						=> QueryBlockInputCapability(),
+					KeysharpCapability.Interception
+						=> permissions.RequestInterceptionDriver(prompt: false),
 				_ => new PermissionResult(PermissionStatus.Unsupported)
 			};
 		}
@@ -184,6 +187,8 @@ namespace Keysharp.Builtins
 					=> KeysharpCapability.InputMonitoring,
 				"screencapture" or "screenrecording" or "capture" or "imagecapture"
 					=> KeysharpCapability.ScreenCapture,
+				"interception" or "interceptiondriver"
+					=> KeysharpCapability.Interception,
 				_ => throw new ValueError($"Unknown capability name: {name}.")
 			};
 		}
@@ -209,6 +214,7 @@ namespace Keysharp.Builtins
 				KeysharpCapability.InputInjection => "InputInjection",
 				KeysharpCapability.InputMonitoring => "InputMonitoring",
 				KeysharpCapability.ScreenCapture => "ScreenCapture",
+				KeysharpCapability.Interception => "Interception",
 				_ => capability.ToString()
 			};
 	}

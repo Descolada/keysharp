@@ -94,6 +94,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 	internal abstract class HookThread//Fill in base stuff here later, but this serves as the thread which attaches/detaches the keyboard hooks.
 	{
+		private const int MaxHotCriterionWorkers = 2;
 		internal const uint END_KEY_ENABLED = END_KEY_WITH_SHIFT | END_KEY_WITHOUT_SHIFT;
 		internal const uint END_KEY_WITH_SHIFT = 0x01;
 		internal const uint END_KEY_WITHOUT_SHIFT = 0x02;
@@ -106,6 +107,7 @@ namespace Keysharp.Internals.Input.Hooks
 		internal const uint INPUT_KEY_SUPPRESS = 0x04;
 		internal const uint INPUT_KEY_VISIBILITY_MASK = INPUT_KEY_SUPPRESS | INPUT_KEY_VISIBLE;
 		internal const uint INPUT_KEY_VISIBLE = 0x08;
+		internal const int HotIfCallbackBudgetMilliseconds = 500;
 		internal const int SC_ARRAY_COUNT = SC_MAX + 1;
 		// SC is the hook backend's low-level key code. Linux inputd follows evdev
 		// KEY_* up through KEY_MAX; Windows and the other backends keep the AHK range.
@@ -123,6 +125,9 @@ namespace Keysharp.Internals.Input.Hooks
 		internal const int WM_HOTKEY = 0x0312;
 		internal const int WM_QUIT = 0x0012;
 
+		[ThreadStatic]
+		private static long hotIfCallbackDeadline;
+
 		internal static string MutexName = "Keysharp";
 		internal Mutex keybdMutex = null, mouseMutex = null;
 		internal string KeybdMutexName = $"{MutexName} Keybd";
@@ -137,6 +142,7 @@ namespace Keysharp.Internals.Input.Hooks
 		// Read directly (not via the kbdMsSender getter) when you must inspect the
 		// current sender WITHOUT forcing lazy creation. null until first use.
 		protected KeyboardMouseSender _kbdMsSender;
+		private readonly HotCriterionExecutor hotCriterionExecutor = new(MaxHotCriterionWorkers);
 		internal KeyboardMouseSender kbdMsSender
 		{
 			get => _kbdMsSender ??= CreateKbdMsSender();
@@ -198,8 +204,34 @@ namespace Keysharp.Internals.Input.Hooks
 		protected internal bool undisguisedMenuInEffect = false;
 
 		protected internal virtual nint CallNextHook(HookEventArgs e) => nint.Zero;
+		internal HotCriterionExecutor HotCriterionExecutor => hotCriterionExecutor;
 		protected internal virtual bool IsMouseMenuVisible() => false;
 		protected internal virtual void UpdateForegroundWindowData(KeyHistoryItem item, KeyHistory history) { }
+
+		/// <summary>
+		/// Gives all #HotIf evaluations performed by one native hook callback a single monotonic deadline.
+		/// Nested native callbacks retain the earliest deadline.
+		/// </summary>
+		internal static HotIfCallbackScope BeginHotIfCallback(int budgetMilliseconds)
+		{
+			var previous = hotIfCallbackDeadline;
+			var now = Stopwatch.GetTimestamp();
+			var budgetTicks = (long)(Math.Max(0, budgetMilliseconds) * (double)Stopwatch.Frequency / 1000.0);
+			var requested = now + budgetTicks;
+			hotIfCallbackDeadline = previous == 0L ? requested : Math.Min(previous, requested);
+			return new(previous);
+		}
+
+		internal static bool TryGetHotIfCallbackDeadline(out long deadline)
+		{
+			deadline = hotIfCallbackDeadline;
+			return deadline != 0L;
+		}
+
+		internal readonly struct HotIfCallbackScope(long previousDeadline) : IDisposable
+		{
+			public void Dispose() => hotIfCallbackDeadline = previousDeadline;
+		}
 
 		internal HookThread()
 		{
@@ -4159,6 +4191,8 @@ namespace Keysharp.Internals.Input.Hooks
 		{
 			try
 			{
+				hotCriterionExecutor.Dispose();
+
 				if (kbdMsSender is IDisposable disposable)
 					disposable.Dispose();
 
@@ -4863,7 +4897,7 @@ namespace Keysharp.Internals.Input.Hooks
 		// unlikely to be used by OS features.
 		, AHK_CLIPBOARD_CHANGE, AHK_HOOK_TEST_MSG, AHK_CHANGE_HOOK_STATE, AHK_GETWINDOWTEXT
 
-		, AHK_HOT_IF_EVAL   // HotCriterionAllowsFiring uses this to ensure expressions are evaluated only on the main thread.
+		, AHK_HOT_IF_EVAL   // Reserved for message-number compatibility; #HotIf no longer uses this message.
 		, AHK_HOOK_SYNC // For WaitHookIdle().
 		, AHK_INPUT_END, AHK_INPUT_KEYDOWN, AHK_INPUT_CHAR, AHK_INPUT_KEYUP
 		, AHK_HOOK_SET_KEYHISTORY

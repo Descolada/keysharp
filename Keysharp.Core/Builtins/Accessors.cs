@@ -25,6 +25,8 @@ namespace Keysharp.Builtins
 	/// </summary>
 	public static class Accessors
 	{
+		internal const long DefaultHotIfTimeout = 250L;
+
 		/// <summary>
 		/// The version of the assembly that was used to compile the script that is currently running.
 		/// This queries the AssemblyBuildVersionAttribute of the generated code, which is automatically added by the script compiler
@@ -524,9 +526,9 @@ namespace Keysharp.Builtins
 		public static object A_HotIf => (Script.TheScript.Threads.CurrentThread.hotCriterion as FuncObj) ?? (object)DefaultObject;
 
 		/// <summary>
-		/// The timeout used for checking if a window exists during a #HotIf check.
+		/// The maximum time allowed for a #HotIf criterion evaluation.
 		/// </summary>
-		public static object A_HotIfTimeout { get; set; } = 1000L;
+		public static object A_HotIfTimeout { get; set; } = DefaultHotIfTimeout;
 
 		/// <summary>
 		/// The rate in milliseconds of hotkey activations beyond which a warning dialog will be displayed.

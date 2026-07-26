@@ -989,6 +989,8 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 				return suppressMove ? new nint(1) : CallNextHookEx(mouseHook, code, param, ref lParam);
 			}
 
+			using var hotIfBudget = BeginHotIfCallback(HotIfCallbackBudgetMilliseconds);
+
 			// Above: In v1.0.43.11, a new mode was added to block mouse movement only since it's more flexible than
 			// BlockInput (which keybd too, and blocks all mouse buttons too).  However, this mode blocks only
 			// physical mouse movement because it seems most flexible (and simplest) to allow all artificial
@@ -1191,6 +1193,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			if (code != HC_ACTION)  // MSDN docs specify that both LL keybd & mouse hook should return in this case.
 				return CallNextHookEx(kbdHook, code, wParam, ref lParam);
 
+			using var hotIfBudget = BeginHotIfCallback(HotIfCallbackBudgetMilliseconds);
 			var wParamVal = wParam.ToInt64();
 
 			// Change the event to be physical if that is indicated in its dwExtraInfo attribute.

@@ -1507,7 +1507,8 @@ namespace Keysharp.Parsing.Syntax
 			switch (d.Name.ToUpperInvariant())
 			{
 				case "CLIPBOARDTIMEOUT": return Set("Keysharp.Builtins.Accessors.A_ClipboardTimeout", NumArg(1000));
-				case "HOTIFTIMEOUT": return Set("Keysharp.Builtins.Accessors.A_HotIfTimeout", NumArg(1000));
+				case "HOTIFTIMEOUT": return Set("Keysharp.Builtins.Accessors.A_HotIfTimeout",
+						NumArg(Keysharp.Builtins.Accessors.DefaultHotIfTimeout));
 				case "INPUTLEVEL": return Set("Keysharp.Builtins.Accessors.A_InputLevel", NumArg(0));   // setter clamps 0..100
 				case "SUSPENDEXEMPT": return Set("Keysharp.Builtins.Ks.A_SuspendExempt", NumArg(1));   // on Ks; setter ForceBools
 				case "MAXTHREADSBUFFER":

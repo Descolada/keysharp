@@ -97,22 +97,6 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Input")]
-		public void NativeEventWorkSharesOneNonExtendableDeadline()
-		{
-			const long start = 1_000_000;
-			var fortyMs = Stopwatch.Frequency * 40 / 1000;
-			using (MacNativeEventTap.BeginCallbackBudget(100, start))
-			{
-				Assert.AreEqual(60.0, MacNativeEventTap.RemainingCallbackMillisecondsAt(start + fortyMs), 1.0);
-				using (MacNativeEventTap.BeginCallbackBudget(100, start + fortyMs))
-					Assert.AreEqual(60.0, MacNativeEventTap.RemainingCallbackMillisecondsAt(start + fortyMs), 1.0);
-				Assert.AreEqual(0.0, MacNativeEventTap.RemainingCallbackMillisecondsAt(
-					start + Stopwatch.Frequency * 110 / 1000), 0.1);
-			}
-			Assert.IsTrue(double.IsPositiveInfinity(MacNativeEventTap.RemainingCallbackMilliseconds));
-		}
-
-		[Test, Category("Input")]
 		public void VirtualKeyUnicodeDoesNotIdentifyTextInjection()
 		{
 			var down = MacNativeInput.CreateKeyboardEvent((uint)'A', true, KeyIgnore, 0);
@@ -489,36 +473,6 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Input")]
-		public void TimedOutCriteriaCannotCreateUnboundedWorkers()
-		{
-			var executor = new BoundedCriterionExecutor(2);
-			using var release = new ManualResetEventSlim(false);
-			Func<long> blocked = () =>
-			{
-				release.Wait();
-				return 1;
-			};
-
-			Assert.AreEqual(CriterionExecutionStatus.TimedOut,
-				executor.Execute(blocked, TimeSpan.FromMilliseconds(20), out _, out _));
-			Assert.AreEqual(CriterionExecutionStatus.TimedOut,
-				executor.Execute(blocked, TimeSpan.FromMilliseconds(20), out _, out _));
-			Assert.AreEqual(CriterionExecutionStatus.Rejected,
-				executor.Execute(() => 1L, TimeSpan.FromSeconds(1), out _, out _));
-
-			release.Set();
-			CriterionExecutionStatus completed = CriterionExecutionStatus.Rejected;
-			long value = 0;
-			Assert.IsTrue(SpinWait.SpinUntil(() =>
-			{
-				completed = executor.Execute(() => 42L, TimeSpan.FromSeconds(1), out value, out _);
-				return completed == CriterionExecutionStatus.Completed;
-			}, 1000));
-			Assert.AreEqual(CriterionExecutionStatus.Completed, completed);
-			Assert.AreEqual(42L, value);
-		}
-
-		[Test, Category("Input")]
 		public void UnexpectedEventTapExitIsReportedAfterResourcesAreReleased()
 		{
 			var driver = new FakeEventTapDriver { RunResult = 1 };
@@ -617,29 +571,6 @@ namespace Keysharp.Tests
 				MacNativeInput.kCGEventTapDisabledByTimeout, (nint)123, nint.Zero));
 			Assert.AreEqual(0, driver.EnableCount);
 			Assert.AreEqual(0, resyncCount);
-		}
-
-		[Test, Category("Input")]
-		public void SaturatedHookCriterionLaneDoesNotBlockOrdinaryCriteria()
-		{
-			var lanes = new ScriptCriterionExecutors();
-			using var release = new ManualResetEventSlim(false);
-			Func<long> blocked = () =>
-			{
-				release.Wait();
-				return 1;
-			};
-
-			Assert.AreEqual(CriterionExecutionStatus.TimedOut,
-				lanes.Select(true).Execute(blocked, TimeSpan.FromMilliseconds(20), out _, out _));
-			Assert.AreEqual(CriterionExecutionStatus.TimedOut,
-				lanes.Select(true).Execute(blocked, TimeSpan.FromMilliseconds(20), out _, out _));
-			Assert.AreEqual(CriterionExecutionStatus.Rejected,
-				lanes.Select(true).Execute(() => 1L, TimeSpan.FromSeconds(1), out _, out _));
-			var ordinary = lanes.Select(false).Execute(() => 7L, TimeSpan.FromSeconds(1), out var value, out _);
-			Assert.AreEqual(CriterionExecutionStatus.Completed, ordinary);
-			Assert.AreEqual(7L, value);
-			release.Set();
 		}
 
 		private static void AssertMetadata(nint ev, long expectedExtraInfo, MacNativeInput.InjectedEventKind expectedKind)

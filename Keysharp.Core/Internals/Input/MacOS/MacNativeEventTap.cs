@@ -39,16 +39,11 @@ namespace Keysharp.Internals.Input.MacOS
 	internal sealed class MacNativeEventTap : IDisposable
 	{
 		private const int StopTimeoutMs = 3000;
-		internal const double CallbackBudgetMilliseconds = 100;
 		private const int MaxRecoveryAttempts = 3;
 		private const long RecoveryWindowMs = 5000;
 		private const double RunLoopPollSeconds = 0.5;
 		private const int RunLoopFinished = 1;
 		private const int RunLoopStopped = 2;
-		[ThreadStatic]
-		private static bool isEventTapThread;
-		[ThreadStatic]
-		private static long callbackDeadline;
 		private readonly Func<uint, nint, bool> processEvent;
 		private readonly Action tapReenabled;
 		private readonly Action<MacNativeEventTap, string> tapTerminated;
@@ -84,8 +79,6 @@ namespace Keysharp.Internals.Input.MacOS
 			callback = OnEvent;
 		}
 
-		internal static bool IsEventTapThread => isEventTapThread;
-		internal static double RemainingCallbackMilliseconds => RemainingCallbackMillisecondsAt(Stopwatch.GetTimestamp());
 		internal ulong EventMask => eventMask;
 		internal bool IsRunning => State == MacEventTapState.Running;
 		internal MacEventTapState State => (MacEventTapState)Volatile.Read(ref state);
@@ -156,7 +149,6 @@ namespace Keysharp.Internals.Input.MacOS
 
 		private void Run()
 		{
-			isEventTapThread = true;
 			string terminalFailure = null;
 			var everStarted = false;
 			var recoveryAttempts = 0;
@@ -210,7 +202,6 @@ namespace Keysharp.Internals.Input.MacOS
 					failed = State != MacEventTapState.Stopping && terminalFailure != null;
 					SetState(failed ? MacEventTapState.Faulted : MacEventTapState.Stopped);
 				}
-				isEventTapThread = false;
 				if (failed && everStarted)
 					tapTerminated(this, terminalFailure);
 			}
@@ -318,7 +309,7 @@ namespace Keysharp.Internals.Input.MacOS
 				if (State != MacEventTapState.Running || cgEvent == nint.Zero)
 					return cgEvent;
 
-				using var callbackBudget = BeginCallbackBudget(CallbackBudgetMilliseconds, Stopwatch.GetTimestamp());
+				using var callbackBudget = HookThread.BeginHotIfCallback(HookThread.HotIfCallbackBudgetMilliseconds);
 				return processEvent(type, cgEvent) ? nint.Zero : cgEvent;
 			}
 			catch (Exception ex)
@@ -331,23 +322,6 @@ namespace Keysharp.Internals.Input.MacOS
 		}
 
 		private void SetState(MacEventTapState value) => Volatile.Write(ref state, (int)value);
-
-		internal static CallbackBudget BeginCallbackBudget(double milliseconds, long now)
-		{
-			var previous = callbackDeadline;
-			var requested = now + (long)Math.Max(0, milliseconds * Stopwatch.Frequency / 1000.0);
-			callbackDeadline = previous == 0 ? requested : Math.Min(previous, requested);
-			return new(previous);
-		}
-
-		internal static double RemainingCallbackMillisecondsAt(long now)
-			=> callbackDeadline == 0 ? double.PositiveInfinity
-				: Math.Max(0, (callbackDeadline - now) * 1000.0 / Stopwatch.Frequency);
-
-		internal readonly struct CallbackBudget(long previous) : IDisposable
-		{
-			public void Dispose() => callbackDeadline = previous;
-		}
 
 		public void Dispose()
 		{

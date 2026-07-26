@@ -27,7 +27,6 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal const uint NO_SUPPRESS_SUFFIX_VARIES = AT_LEAST_ONE_VARIANT_HAS_TILDE | AT_LEAST_ONE_VARIANT_LACKS_TILDE;
 		[ThreadStatic] private static long hotExprLastFoundHwnd;
 		[ThreadStatic] private static bool evaluatingCriterion;
-		private static readonly ConditionalWeakTable<Script, ScriptCriterionExecutors> criterionExecutors = new();
 		internal static string COMPOSITE_DELIMITER = " & ";
 		internal bool allowExtraModifiers = false;
 		internal bool constructedOK;
@@ -1413,7 +1412,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				return 1L;
 
 			var criterionType = GetHotCriterionType(criterion);
-			if (evaluatingCriterion)
+			if (evaluatingCriterion || !HookThread.TryGetHotIfCallbackDeadline(out var hookDeadline))
 			{
 				try
 				{
@@ -1426,47 +1425,19 @@ namespace Keysharp.Internals.Input.Keyboard
 				}
 			}
 
-			var hotIfTimeoutMs = A_HotIfTimeout.Ad();
-			var isHookCallback = false;
-
-#if LINUX
-			isHookCallback = Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.IsInHookCallback;
-			if (isHookCallback)
-			{
-				// Every criterion in this native callback shares one budget below inputd's
-				// one-second hook deadline; repeated variant checks cannot multiply it.
-				var remaining = Keysharp.Internals.Input.Hooks.Linux.LinuxHookThread.RemainingHotIfMilliseconds;
-				if (remaining <= 0.0)
-					return 0L;
-				hotIfTimeoutMs = Math.Min(hotIfTimeoutMs, remaining);
-			}
-#elif OSX
-			isHookCallback = Keysharp.Internals.Input.MacOS.MacNativeEventTap.IsEventTapThread;
-			if (isHookCallback)
-			{
-				// Core Graphics applies its watchdog to the native callback, not to each HotIf.
-				// Every variant and both wheel axes therefore consume the same event deadline.
-				var remaining = Keysharp.Internals.Input.MacOS.MacNativeEventTap.RemainingCallbackMilliseconds;
-				if (remaining <= 0)
-					return 0L;
-				hotIfTimeoutMs = Math.Min(hotIfTimeoutMs,
-					Math.Min(Keysharp.Internals.Input.MacOS.MacNativeEventTap.CallbackBudgetMilliseconds, remaining));
-			}
-#endif
-
 			var script = Script.TheScript;
-			var executors = criterionExecutors.GetValue(script, static _ => new ScriptCriterionExecutors());
-			var status = executors.Select(isHookCallback).Execute(
-				() => EvaluateCriterion(criterion, criterionType, hotkeyName, eventInfo),
-				TimeSpan.FromMilliseconds(Math.Max(0, hotIfTimeoutMs)), out var value, out var error);
+			var executor = script.HookThread.HotCriterionExecutor;
+			var deadline = GetHotCriterionDeadline(hookDeadline, A_HotIfTimeout.Ad());
+			var status = executor.Execute(criterion, criterionType, hotkeyName, eventInfo,
+				deadline, out var value, out var error);
 
 			if (status == CriterionExecutionStatus.Rejected)
 			{
-				var rejected = executors.RecordRejection(isHookCallback);
+				var rejected = executor.RecordRejection();
 				// Log the first and exponentially-spaced subsequent rejections. This makes a stuck
 				// user criterion observable without flooding the debug UI from an input callback.
-				if ((rejected & (rejected - 1)) == 0)
-					_ = Ks.OutputDebugLine($"HotIf { (isHookCallback ? "hook" : "ordinary") } worker lane is saturated; " +
+				if (rejected != 0 && (rejected & (rejected - 1)) == 0)
+					_ = Ks.OutputDebugLine($"HotIf worker capacity is saturated; " +
 						$"failing input open (rejection {rejected}).");
 				return 0L;
 			}
@@ -1483,7 +1454,23 @@ namespace Keysharp.Internals.Input.Keyboard
 			return value;
 		}
 
-		private static long EvaluateCriterion(IFuncObj criterion, HotCriterionEnum criterionType,
+		private static long GetHotCriterionDeadline(long hookDeadline, double timeoutMilliseconds)
+		{
+			var now = Stopwatch.GetTimestamp();
+			var remainingTicks = hookDeadline - now;
+
+			if (remainingTicks <= 0L || double.IsNaN(timeoutMilliseconds) || timeoutMilliseconds <= 0.0)
+				return now;
+
+			var remainingMilliseconds = remainingTicks * 1000.0 / Stopwatch.Frequency;
+
+			if (double.IsPositiveInfinity(timeoutMilliseconds) || timeoutMilliseconds >= remainingMilliseconds)
+				return hookDeadline;
+
+			return now + (long)(timeoutMilliseconds * Stopwatch.Frequency / 1000.0);
+		}
+
+		internal static long EvaluateCriterion(IFuncObj criterion, HotCriterionEnum criterionType,
 			string hotkeyName, object eventInfo)
 		{
 			var previousEvaluation = evaluatingCriterion;

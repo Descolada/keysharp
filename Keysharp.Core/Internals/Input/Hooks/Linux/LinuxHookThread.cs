@@ -13,8 +13,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 	{
 		private sealed record CallbackContext(
 			KeysharpInputdClient Client,
-			ulong EventId,
-			long HotIfDeadline);
+			ulong EventId);
 
 		// A hook-originated Send belongs to this native callback thread. ThreadStatic
 		// deliberately keeps queued hotkey work and bounded #HotIf tasks off this
@@ -27,18 +26,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		private Task inputdHookTask;
 		private HookType inputdHookKinds;
 		private bool usingInputdHooks;
-		internal const int HotIfCallbackBudgetMilliseconds = 500;
-		private static readonly long hotIfCallbackBudgetTicks =
-			Stopwatch.Frequency * HotIfCallbackBudgetMilliseconds / 1000;
 		internal static bool IsInHookCallback => callbackContext != null;
-		internal static double RemainingHotIfMilliseconds
-		{
-			get
-			{
-				var remaining = (callbackContext?.HotIfDeadline ?? 0L) - Stopwatch.GetTimestamp();
-				return remaining > 0L ? remaining * 1000.0 / Stopwatch.Frequency : 0.0;
-			}
-		}
 		internal static KeysharpInputdClient CurrentHookClient
 			=> callbackContext?.Client;
 		internal static ulong CurrentHookEventId
@@ -436,10 +424,8 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			var block = false;
 			Exception callbackError = null;
 
-			callbackContext = new(
-				client,
-				hookEvent.EventId,
-				Stopwatch.GetTimestamp() + hotIfCallbackBudgetTicks);
+			callbackContext = new(client, hookEvent.EventId);
+			using var hotIfBudget = BeginHotIfCallback(HotIfCallbackBudgetMilliseconds);
 
 			try
 			{

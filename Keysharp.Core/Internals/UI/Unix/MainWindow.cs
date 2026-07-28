@@ -37,8 +37,8 @@ namespace Keysharp.Internals.UI.Unix
 
 		internal FormWindowState lastWindowState = FormWindowState.Normal;
 		private AboutBox about;
-		private bool callingInternalVars = false;
 		private bool clipboardMonitoringEnabled;
+		private bool selectingTab;
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
 		public bool IsClosing { get; private set; }
@@ -73,16 +73,21 @@ namespace Keysharp.Internals.UI.Unix
 			BuildMenus();
 			tpDebug.Content = txtDebug;
 			tpVars.Content = txtVars;
-			tpVars.Click += variablesAndTheirContentsToolStripMenuItem_Click;
 			tpHotkeys.Content = txtHotkeys;
-			tpHotkeys.Click += hotkeysAndTheirMethodsToolStripMenuItem_Click;
 			tpHistory.Content = txtHistory;
-			tpHistory.Click += keyHistoryAndScriptInfoToolStripMenuItem_Click;
 
 			tcMain.Pages.Add(tpDebug);
 			tcMain.Pages.Add(tpVars);
 			tcMain.Pages.Add(tpHotkeys);
 			tcMain.Pages.Add(tpHistory);
+			//Every tab shows a snapshot of live data (variables, hotkeys, key history, buffered debug output),
+			//so it's regenerated whenever the user brings that tab into view, not just when a View menu item
+			//is clicked. Without this, switching tabs in a freshly opened window shows empty text boxes.
+			tcMain.SelectedIndexChanged += (_, _) =>
+			{
+				if (!selectingTab)
+					RefreshSelectedTab();
+			};
 
 			Content = tcMain;
 		}
@@ -176,12 +181,7 @@ namespace Keysharp.Internals.UI.Unix
 			{
 				GetText(tab).Append($"{s.ReplaceLineEndings(Environment.NewLine)}");//This should scroll to the bottom, if not, try this:
 				if (focus)
-				{
-					var sel = GetTab(tab);
-
-					if (sel != null)
-						tcMain.SelectedTab = sel;
-				}
+					SelectTab(GetTab(tab));
 			});
 		}
 
@@ -194,12 +194,7 @@ namespace Keysharp.Internals.UI.Unix
 				GetText(tab).Text = s.ReplaceLineEndings(Environment.NewLine);
 
 				if (focus)
-				{
-					var sel = GetTab(tab);
-
-					if (sel != null)
-						tcMain.SelectedTab = sel;
-				}
+					SelectTab(GetTab(tab));
 			});
 		}
 
@@ -218,7 +213,7 @@ namespace Keysharp.Internals.UI.Unix
 			_ = QueueUiUpdate(() =>
 			{
 				ShowIfNeeded();
-				tcMain.SelectedTab = tpDebug;
+				SelectTab(tpDebug);
 
 				// Flush any OutputDebug text accumulated while the window was hidden/not yet
 				// shown -- otherwise it only appears once another OutputDebug call comes in.
@@ -239,28 +234,63 @@ namespace Keysharp.Internals.UI.Unix
 
 		internal object ShowInternalVars(bool showTab)
 		{
-			callingInternalVars = true;//Gets called twice if called before first showing.
 			// Snapshot the running function's locals on THIS (script) thread before the async UI hop; the scope is
 			// [ThreadStatic], so the UI thread has its own (null) value and would otherwise see no executing-function scope.
 			var execScope = Script.executingUserFunc;
 			var execLocals = execScope?.Enumerate().ToList();
 			var execName = execScope?.Name;
-
-			if (!QueueUiUpdate(() =>
+			_ = QueueUiUpdate(() =>
 			{
-				try
-				{
-					ShowIfNeeded();
-					SetTextInternal(Builtins.Debug.GetVars(null, execLocals, execName), MainFocusedTab.Vars, showTab);
-				}
-				finally
-				{
-					callingInternalVars = false;
-				}
-			}))
-				callingInternalVars = false;
-
+				ShowIfNeeded();
+				SetTextInternal(Builtins.Debug.GetVars(null, execLocals, execName), MainFocusedTab.Vars, showTab);
+			});
 			return DefaultObject;
+		}
+
+		/// <summary>
+		/// Regenerates a tab's contents from the live data it mirrors.
+		/// </summary>
+		internal void RefreshTab(MainFocusedTab tab)
+		{
+			switch (tab)
+			{
+				case MainFocusedTab.Vars: _ = ShowInternalVars(false); break;
+
+				case MainFocusedTab.Hotkeys: _ = ListHotkeys(); break;
+
+				case MainFocusedTab.History: _ = ShowHistory(); break;
+
+				//Flush any OutputDebug text accumulated while the window was hidden/not yet
+				//shown -- otherwise it only appears once another OutputDebug call comes in.
+				default: AppendDebugOutput(string.Empty, false); break;
+			}
+		}
+
+		/// <summary>
+		/// Regenerates the contents of the tab the user is currently looking at.
+		/// </summary>
+		internal void RefreshSelectedTab() => RefreshTab(GetFocusedTab(tcMain.SelectedTab));
+
+		/// <summary>
+		/// Brings a tab into view on behalf of the code that is filling it in, rather than on behalf of the
+		/// user. Refreshing it again here would immediately overwrite the text being shown -- and for the
+		/// Vars tab it would also drop the calling function's locals, which only the script thread can see.
+		/// </summary>
+		private void SelectTab(TabPage page)
+		{
+			if (page == null)
+				return;
+
+			selectingTab = true;
+
+			try
+			{
+				tcMain.SelectedTab = page;
+			}
+			finally
+			{
+				selectingTab = false;
+			}
 		}
 
 		private void clearDebugLogToolStripMenuItem_Click(object sender, EventArgs e)
@@ -272,6 +302,15 @@ namespace Keysharp.Internals.UI.Unix
 		private void editScriptToolStripMenuItem_Click(object sender, EventArgs e) => Builtins.Debug.Edit();
 
 		private void exitToolStripMenuItem_Click(object sender, EventArgs e) => _ = Keysharp.Internals.Flow.ExitAppInternal(Keysharp.Builtins.Flow.ExitReasons.Menu, null, false);
+
+		private MainFocusedTab GetFocusedTab(TabPage page)
+		{
+
+			return page == tpVars ? MainFocusedTab.Vars
+				 : page == tpHotkeys ? MainFocusedTab.Hotkeys
+				 : page == tpHistory ? MainFocusedTab.History
+				 : MainFocusedTab.Debug;
+		}
 
 		private TabPage GetTab(MainFocusedTab tab)
 		{
@@ -334,7 +373,7 @@ namespace Keysharp.Internals.UI.Unix
 				}
 
 			if (AllowShowDisplay && Visible)
-				_ = ShowInternalVars(false);
+				RefreshSelectedTab();
 		}
 
 		private void MainWindow_SizeChanged(object sender, EventArgs e)
@@ -369,15 +408,7 @@ namespace Keysharp.Internals.UI.Unix
 			}
 		}
 
-		private void refreshToolStripMenuItem_Click(object sender, EventArgs e)
-		{
-			if (tcMain.SelectedTab == tpVars)
-				_ = ShowInternalVars(true);
-			else if (tcMain.SelectedTab == tpHotkeys)
-				_ = ListHotkeys();
-			else if (tcMain.SelectedTab == tpHistory)
-				_ = ShowHistory();
-		}
+		private void refreshToolStripMenuItem_Click(object sender, EventArgs e) => RefreshSelectedTab();
 
 		private void reloadScriptToolStripMenuItem_Click(object sender, EventArgs e) => Keysharp.Builtins.Flow.Reload();
 
@@ -425,13 +456,7 @@ namespace Keysharp.Internals.UI.Unix
 			GetText(tab).Text = s.ReplaceLineEndings(Environment.NewLine);
 
 			if (focus)
-				tcMain.SelectedTab = GetTab(tab);
-		}
-
-		private void TpVars_HandleCreated(object sender, EventArgs e)
-		{
-			if (!callingInternalVars)
-				_ = ShowInternalVars(false);
+				SelectTab(GetTab(tab));
 		}
 
 		private void userManualToolStripMenuItem_Click(object sender, EventArgs e)

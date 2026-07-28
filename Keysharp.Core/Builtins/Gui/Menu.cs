@@ -175,11 +175,9 @@ namespace Keysharp.Builtins
 						mainWindow.Visible = true;
 						mainWindow.BringToFront();
 						mainWindow.Focus();
-						_ = mainWindow.ShowInternalVars(false);
-
-						// Flush any OutputDebug text accumulated while the window was hidden/not yet
-						// shown -- otherwise it only appears once another OutputDebug call comes in.
-						MainWindow.AppendDebugOutput(string.Empty, false);
+						// The tab that comes back into view holds a snapshot taken the last time it was
+						// refreshed (nothing at all, on a first open), so regenerate it now.
+						mainWindow.RefreshSelectedTab();
 					});
 				}
 

@@ -30,9 +30,8 @@ namespace Keysharp.Internals.Threading
 		internal uint message;
 		internal object obj;
 
-		// Mouse cursor coordinates for AHK_INPUT_MOUSEDOWN/UP/MOVE. Stored as plain ints rather than
-		// bit-packed into lParam so negative/multi-monitor coordinates survive on any pointer width.
-		internal int mouseX, mouseY;
+		// Mouse coordinates for DOWN/UP; signed deltas for MOVE.
+		internal long mouseX, mouseY;
 
 		//internal System.Drawing.Point pt;
 		//internal uint time;

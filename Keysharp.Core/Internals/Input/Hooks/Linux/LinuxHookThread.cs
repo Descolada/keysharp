@@ -200,7 +200,8 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			if (extraInfo == (ulong)KeyboardMouseSender.KeyBlockThis)
 				return true;
 
-			var result = LowLevelCommon(args, vk, sc, ev.ScanCode, keyUp, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, ev.DeviceId);
+			var result = LowLevelCommon(args, vk, sc, ev.ScanCode, keyUp, extraInfo,
+				isInjected ? HOOK_EVENT_INJECTED : 0, ev.DeviceId);
 			ApplyKeyStateAfterKeyboardDecision(vk, keyUp, isInjected, result);
 			return result != 0;
 		}
@@ -665,56 +666,6 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 				_ = Task.Run(RunCursorClipCorrectionAsync);
 		}
 
-		private int absNormWidth;
-		private int absNormHeight;
-		private long absNormDimsTicks;
-
-		private void NormalizeAbsoluteToScreen(ref int x, ref int y)
-		{
-			if (!TryGetVirtualDesktopSize(out var width, out var height) || width <= 0 || height <= 0)
-				return;
-
-			x = (int)((long)Math.Clamp(x, 0, 65535) * (width - 1) / 65535);
-			y = (int)((long)Math.Clamp(y, 0, 65535) * (height - 1) / 65535);
-		}
-
-		private bool TryGetVirtualDesktopSize(out int width, out int height)
-		{
-			var now = Environment.TickCount64;
-
-			if (absNormWidth > 0 && absNormHeight > 0 && now - absNormDimsTicks < 1000)
-			{
-				width = absNormWidth;
-				height = absNormHeight;
-				return true;
-			}
-
-			width = height = 0;
-
-			try
-			{
-				var display = Keysharp.Internals.Window.Linux.Proxies.XDisplay.Default;
-
-				if (display == null || display.Handle == 0)
-					return false;
-
-				var root = Keysharp.Internals.Window.Linux.X11.Xlib.XDefaultRootWindow(display.Handle);
-
-				if (!Keysharp.Internals.Window.Linux.X11.Xlib.XGetGeometry(display.Handle, (long)root,
-						out _, out _, out _, out var w, out var h, out _, out _))
-					return false;
-
-				absNormWidth = width = w;
-				absNormHeight = height = h;
-				absNormDimsTicks = now;
-				return true;
-			}
-			catch
-			{
-				return false;
-			}
-		}
-
 		private bool ProcessInputdMouseHook(KeysharpInputdClient.MouseHookEvent ev)
 		{
 			if (!mouseEnabled)
@@ -733,6 +684,15 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			{
 				case 0x0200u:
 				{
+					var isAbsolute = (ev.MouseData & (uint)MOUSEEVENTF.ABSOLUTE) != 0;
+					var moveBlocked = !isInjected && Script.TheScript.KeyboardData.blockMouseMove;
+
+					if (Script.TheScript.input != null
+						&& !CollectMouseMove(ev.DeltaX, ev.DeltaY, ev.ExtraInfo, isInjected,
+							ev.TimeMs is > 0 and <= long.MaxValue ? (long)ev.TimeMs : Environment.TickCount64,
+							deviceId: ev.DeviceId, isAbsolute: isAbsolute))
+						moveBlocked = true;
+
 					if (!isInjected && CursorClipActive && TryGetCursorPosThrottled(out var clipPos))
 					{
 						int cx = clipPos.X, cy = clipPos.Y;
@@ -742,19 +702,6 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 							_ = Platform.Mouse.TryMoveAbsolute(cx, cy);
 							return true;
 						}
-					}
-
-					var moveBlocked = !isInjected && Script.TheScript.KeyboardData.blockMouseMove;
-
-					if (AnyInputWantsMouseMove())
-					{
-						int moveX = ev.X, moveY = ev.Y;
-
-						if ((ev.MouseData & (uint)MOUSEEVENTF.ABSOLUTE) != 0)
-							NormalizeAbsoluteToScreen(ref moveX, ref moveY);
-
-						if (!CollectMouseMove(ev.ExtraInfo, moveX, moveY, null))
-							moveBlocked = true;
 					}
 
 					return moveBlocked;
@@ -816,7 +763,8 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			{
 				HasPosition = haveClickPos
 			};
-			var result = LowLevelCommon(args, vk, 0, 0, keyUp, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, ev.DeviceId);
+			var result = LowLevelCommon(args, vk, 0, 0, keyUp, ev.ExtraInfo,
+				isInjected ? HOOK_EVENT_INJECTED : 0, ev.DeviceId);
 			return result != 0;
 		}
 
@@ -839,7 +787,8 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			{
 				HasPosition = false
 			};
-			var result = LowLevelCommon(args, vk, sc, sc, keyUp: false, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, deviceId: ev.DeviceId);
+			var result = LowLevelCommon(args, vk, sc, sc, keyUp: false, ev.ExtraInfo,
+				isInjected ? HOOK_EVENT_INJECTED : 0, deviceId: ev.DeviceId);
 			return result != 0;
 		}
 

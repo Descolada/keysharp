@@ -27,7 +27,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Misc")]
-		public async Task IdleTimeQueryAcceptsCurrentPayloadAndRejectsOldDaemonStatus()
+		public async Task IdleTimeQueryAcceptsPayloadAndRejectsStatus()
 		{
 			var path = $"/tmp/keysharp-inputd-test-{Environment.ProcessId}-{Guid.NewGuid():N}.sock";
 			var previous = Environment.GetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable);
@@ -229,17 +229,31 @@ namespace Keysharp.Tests
 
 					// The reply to a request that already timed out, then a real event.
 					SendStatus(socket, KeysharpInputdClient.MessageType.SynthesisResult, 99, 0, 0);
-					var hookPayload = new byte[56];
+					var hookPayload = new byte[72];
 					BinaryPrimitives.WriteUInt64LittleEndian(hookPayload, 12);
 					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(8),
-						(uint)KeysharpInputdClient.HookType.KeyboardLowLevel);
+						(uint)KeysharpInputdClient.HookType.MouseLowLevel);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(16), 0x0200);
+					BinaryPrimitives.WriteInt32LittleEndian(hookPayload.AsSpan(20), 123);
+					BinaryPrimitives.WriteInt32LittleEndian(hookPayload.AsSpan(24), 456);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(28), 0x8000);
+					BinaryPrimitives.WriteUInt32LittleEndian(hookPayload.AsSpan(56), 42);
+					BinaryPrimitives.WriteInt32LittleEndian(hookPayload.AsSpan(64), -3);
+					BinaryPrimitives.WriteInt32LittleEndian(hookPayload.AsSpan(68), 4);
 					SendFrame(socket, KeysharpInputdClient.MessageType.HookEvent, 12, hookPayload);
 					await Task.Delay(50);
 				});
 
 				using var client = KeysharpInputdClient.Connect(
 					role: KeysharpInputdClient.ConnectionRole.HookStream);
-				Assert.AreEqual(12ul, client.ReadHookEvent().EventId);
+				var hookEvent = client.ReadHookEvent();
+				Assert.AreEqual(12ul, hookEvent.EventId);
+				Assert.AreEqual(KeysharpInputdClient.HookType.MouseLowLevel, hookEvent.HookType);
+				Assert.AreEqual(123, hookEvent.Mouse.X);
+				Assert.AreEqual(456, hookEvent.Mouse.Y);
+				Assert.AreEqual(42u, hookEvent.Mouse.DeviceId);
+				Assert.AreEqual(-3, hookEvent.Mouse.DeltaX);
+				Assert.AreEqual(4, hookEvent.Mouse.DeltaY);
 				await server.WaitAsync(TimeSpan.FromSeconds(5));
 			}
 			finally
@@ -259,7 +273,7 @@ namespace Keysharp.Tests
 			var header = ReceiveExact(socket, 24);
 			var size = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header));
 			Assert.AreEqual(1, BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(4)));
-			Assert.AreEqual(0, BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(6)));
+			Assert.AreEqual(1, BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(6)));
 			return new(
 				(KeysharpInputdClient.MessageType)BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(8)),
 				BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(16)),
@@ -288,7 +302,7 @@ namespace Keysharp.Tests
 			Span<byte> header = stackalloc byte[24];
 			BinaryPrimitives.WriteUInt32LittleEndian(header, checked((uint)(24 + payload.Length)));
 			BinaryPrimitives.WriteUInt16LittleEndian(header[4..], 1);
-			BinaryPrimitives.WriteUInt16LittleEndian(header[6..], 0);
+			BinaryPrimitives.WriteUInt16LittleEndian(header[6..], 1);
 			BinaryPrimitives.WriteUInt32LittleEndian(header[8..], (uint)type);
 			BinaryPrimitives.WriteUInt64LittleEndian(header[16..], correlationId);
 			SendAll(socket, header);

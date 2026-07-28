@@ -1051,6 +1051,8 @@ break_twice:;
 					script.KeyboardData.blockMouseMove = false;
 					break;
 			}
+
+			script.HookThread.RefreshPlatformKeyGrabs();
 	#endif
 
 			return ResultType.Ok;//By design, it never returns FAIL.

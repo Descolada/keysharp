@@ -6390,6 +6390,16 @@
                  },
                  {
                      "category":  "Input/Automation",
+                     "feature":  "InputHook.OnMouseMove",
+                     "syntax":  "",
+                     "windows":  "full",
+                     "linux_x11":  "partial",
+                     "linux_wayland":  "partial",
+                     "macos":  "unknown",
+                     "notes":  "OnMouseMove(hook, dx, dy) queues every move report, including (0, 0). Windows derives deltas from desktop-clamped hook positions, so outward movement at an edge can be zero; macOS uses Quartz deltas. Linux requires a matching keysharp-inputd 1.1 daemon and mouse-hook permission (without either, no moves are reported): relative values are raw device-specific evdev counts, while physical absolute values are changes in normalized [0,65535] axes. Linux A_EventInfo includes DeviceId (0 synthetic, positive physical) and IsAbsolute; synthetic absolute deltas are zero because no relative sample exists. Windows and macOS instead provide global-screen X/Y when available and omit DeviceId; X/Y need not equal the prior position plus dx/dy, and macOS reports the frozen cursor position while movement is suppressed."
+                 },
+                 {
+                     "category":  "Input/Automation",
                      "feature":  "InputHook.Start()",
                      "syntax":  "",
                      "windows":  "full",

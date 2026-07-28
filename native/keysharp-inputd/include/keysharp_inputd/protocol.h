@@ -4,15 +4,11 @@
 #include <stdint.h>
 
 #define KSI_PROTOCOL_MAJOR 1u
-#define KSI_PROTOCOL_MINOR 0u
+#define KSI_PROTOCOL_MINOR 1u
 #define KSI_PROTOCOL_NAME "keysharp-inputd/windows-input-v1"
 
-/* Human-readable build identity for this daemon binary. Derived from the C
- * compiler's build date/time so a stale daemon is identifiable in logs even
- * when the wire protocol version still negotiates successfully (an older daemon
- * whose minor is <= the client's is accepted, then silently lacks newer
- * behavior). Informational only — this string is never placed on the wire or
- * parsed; the wire version remains KSI_PROTOCOL_MAJOR/MINOR. */
+/* Human-readable build identity for diagnostics. Informational only: the wire
+ * version is KSI_PROTOCOL_MAJOR/MINOR and both components must match exactly. */
 #define KSI_BUILD_VERSION ("built " __DATE__ " " __TIME__)
 #define KSI_MAX_MESSAGE_SIZE 65536u
 #define KSI_SYNTH_DEVICE_NAME "Keysharp Virtual Input"
@@ -70,11 +66,8 @@ typedef enum ksi_message_type {
     KSI_MESSAGE_GET_POINTER_BUTTONS    = 46,
     KSI_MESSAGE_POINTER_BUTTONS_RESULT = 47,
     /* Milliseconds since the daemon last observed upstream user activity.
-     * Request and response deliberately share type 48. A pre-idle-query 1.0
-     * daemon replies to the unknown request with an 8-byte status payload;
-     * current clients require the 16-byte ksi_idle_time_payload and therefore
-     * fail fast and compatibly instead of waiting for a response type the old
-     * daemon can never send. */
+     * Request and response share type 48; the response carries a 16-byte
+     * ksi_idle_time_payload. */
     KSI_MESSAGE_IDLE_TIME              = 48,
     /* Trust-store administration scoped to input capabilities.
      * LIST streams one ENTRY per stored record that has any input capability
@@ -289,14 +282,16 @@ typedef struct ksi_mouse_hook_event {
     uint64_t extra_info;
     uint32_t device_id;
     uint32_t reserved;
+    int32_t delta_x;
+    int32_t delta_y;
 } ksi_mouse_hook_event;
 
 /* Sentinel reported in x/y when a mouse hook event carries no cursor position. Button and wheel events have
  * none: their evdev reports don't include coordinates, and the daemon does not query the compositor from the
  * hook path (a relative mouse has no absolute position to give). Consumers must treat this as "position
  * unknown" -- NOT a real point at INT32_MIN -- and resolve the cursor themselves if they need it. Move events
- * still carry a position (absolute for an absolute pointer, relative deltas for a relative mouse). Value
- * matches the C# KeyboardMouseSender.CoordUnspecified (== int.MinValue). */
+ * still carry replay coordinates in x/y and per-report movement in delta_x/delta_y. Value matches the C#
+ * KeyboardMouseSender.CoordUnspecified (== int.MinValue). */
 #define KSI_MOUSE_COORD_UNSPECIFIED INT32_MIN
 
 typedef struct ksi_keybdinput {

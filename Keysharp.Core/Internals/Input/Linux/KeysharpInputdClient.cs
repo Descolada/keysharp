@@ -14,7 +14,7 @@ namespace Keysharp.Internals.Input.Linux
 		internal const string DefaultSocketPathValue = "/run/keysharp-inputd/keysharp-inputd.sock";
 
 		private const uint ProtocolMajor = 1;
-		private const uint ProtocolMinor = 0;
+		private const uint ProtocolMinor = 1;
 		private const int HeaderSize = 24;
 		private const int MaxMessageSize = 65536;
 		private const int InputSize = 40;
@@ -183,7 +183,9 @@ namespace Keysharp.Internals.Input.Linux
 			uint Flags,
 			ulong TimeMs,
 			ulong ExtraInfo,
-			uint DeviceId);
+			uint DeviceId,
+			int DeltaX,
+			int DeltaY);
 
 		internal readonly record struct HookEvent(
 			ulong EventId,
@@ -542,8 +544,6 @@ namespace Keysharp.Internals.Input.Linux
 			milliseconds = 0;
 			var response = SendRequest(MessageType.IdleTime, MessageType.IdleTime);
 
-			// Older protocol-1.0 daemons return an 8-byte unknown-message status. Requiring
-			// the complete payload makes that a quick unsupported result instead of a bogus duration.
 			if (response.Payload.Length != 16 || response.Payload[0] == 0)
 				return false;
 
@@ -608,7 +608,7 @@ namespace Keysharp.Internals.Input.Linux
 
 			if (hookType == HookType.MouseLowLevel)
 			{
-				if (frame.Payload.Length != 64)
+				if (frame.Payload.Length != 72)
 					throw new InvalidDataException($"Mouse hook event has invalid size {frame.Payload.Length}.");
 
 				var mouse = ReadMouseHookEvent(frame.Payload[16..]);
@@ -1040,7 +1040,9 @@ namespace Keysharp.Internals.Input.Linux
 				BinaryPrimitives.ReadUInt32LittleEndian(payload[16..]),
 				BinaryPrimitives.ReadUInt64LittleEndian(payload[24..]),
 				BinaryPrimitives.ReadUInt64LittleEndian(payload[32..]),
-				BinaryPrimitives.ReadUInt32LittleEndian(payload[40..]));
+				BinaryPrimitives.ReadUInt32LittleEndian(payload[40..]),
+				BinaryPrimitives.ReadInt32LittleEndian(payload[48..]),
+				BinaryPrimitives.ReadInt32LittleEndian(payload[52..]));
 
 		private void ThrowIfDisposed()
 		{

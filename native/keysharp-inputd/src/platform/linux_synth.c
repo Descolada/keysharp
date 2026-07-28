@@ -1064,6 +1064,9 @@ static bool mouse_input_to_hook_event(
 
         if ((input->flags & KSI_MOUSEEVENTF_ABSOLUTE) != 0) {
             event->mouse_data = KSI_MOUSEEVENTF_ABSOLUTE;
+        } else {
+            event->delta_x = input->dx;
+            event->delta_y = input->dy;
         }
 
         return true;

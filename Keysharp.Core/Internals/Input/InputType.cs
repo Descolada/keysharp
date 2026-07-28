@@ -777,6 +777,8 @@ namespace Keysharp.Internals.Input
 				if (beforeHotkeys)
 					--script.inputBeforeHotkeysCount;
 
+				hook.RefreshPlatformKeyGrabs();
+
 				// It's done this way rather than calling InputRelease() directly...
 				// ...so that we can rely on MsgSleep() to create a new thread for the OnEnd event.
 				// ...because InputRelease() can't be called by the hook thread.

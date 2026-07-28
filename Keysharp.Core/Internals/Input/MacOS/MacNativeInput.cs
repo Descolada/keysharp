@@ -129,6 +129,9 @@ namespace Keysharp.Internals.Input.MacOS
 		internal static partial CGPoint CGEventGetLocation(nint cgEvent);
 
 		[LibraryImport(ApplicationServices)]
+		internal static partial int CGWarpMouseCursorPosition(CGPoint point);
+
+		[LibraryImport(ApplicationServices)]
 		internal static partial void CGEventSetFlags(nint cgEvent, ulong flags);
 
 		[LibraryImport(ApplicationServices)]

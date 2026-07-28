@@ -17,9 +17,7 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 		private MacNativeEventTap nativeEventTap;
 		private readonly MacKeyboardState keyboardState = new();
 		private readonly MacMouseEventStream mouseStream = new();
-		private bool cursorDisassociated;
-		private int suppressedPhysicalX;
-		private int suppressedPhysicalY;
+		private volatile bool cursorDisassociated;
 
 		[DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static extern int CGAssociateMouseAndMouseCursorPosition(int connected);
@@ -37,32 +35,55 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			return active;
 		}
 
+		protected override void MoveCursorForClip(int x, int y)
+		{
+			lock (moveSuppressionLock)
+			{
+				_ = MacNativeInput.CGWarpMouseCursorPosition(new MacNativeInput.CGPoint(x, y));
+
+				if (!cursorDisassociated)
+					_ = CGAssociateMouseAndMouseCursorPosition(1);
+			}
+		}
+
 		// Freeze/unfreeze physical cursor movement for BlockInput's mouse-move block and an InputHook with
-		// VisibleMouseMove := false. libuiohook taps at kCGSessionEventTap, which is downstream of the OS
+		// VisibleMouseMove := false. The session event tap is downstream of the OS
 		// cursor mover, so setting SuppressEvent on a move only hides it from applications -- the visible
 		// cursor has already moved. Disassociating the cursor from the mouse is what actually stops it;
 		// move events keep flowing to the tap (so callbacks still fire and we can re-associate on release).
 		// macOS restores the association automatically when the process exits, and DeregisterHooks resets
 		// it, so a decoupled cursor can't outlive the script.
-		protected override void OnMoveSuppressionChanged(bool active)
+		protected override bool OnMoveSuppressionChanged(bool active)
 		{
 			if (!active && !cursorDisassociated)
-				return;
+				return true;
 
 			var error = CGAssociateMouseAndMouseCursorPosition(active ? 0 : 1);
 			if (error == 0)
 			{
 				cursorDisassociated = active;
-				if (active && Platform.Mouse.TryGetCursorPos(out var x, out var y))
-				{
-					suppressedPhysicalX = x;
-					suppressedPhysicalY = y;
-				}
+				return true;
+			}
+
+			Ks.OutputDebugLine($"macOS cursor {(active ? "disassociation" : "reassociation")} failed with CGError {error}.");
+			return false;
+		}
+
+		internal override void RefreshPlatformKeyGrabs()
+		{
+			if (!HasMouseHook())
+			{
+				SetMoveSuppression(false);
 				return;
 			}
 
-			cursorDisassociated = false;
-			Ks.OutputDebugLine($"macOS cursor association change failed with CGError {error}; mouse-move suppression will be application-only.");
+			var script = Script.TheScript;
+			var suppress = script.KeyboardData.blockMouseMove || script.KeyboardData.blockInput;
+
+			for (var input = script.input; !suppress && input != null; input = input.prev)
+				suppress = input.InProgress() && !input.visibleMouseMove;
+
+			SetMoveSuppression(suppress);
 		}
 
 		protected override KeyboardMouseSender CreateKbdMsSender()
@@ -258,17 +279,27 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			var x = (int)Math.Round(loc.X);
 			var y = (int)Math.Round(loc.Y);
 			var wasCursorDisassociated = cursorDisassociated;
-			if (wasCursorDisassociated && !isInjected && isMoveEvent)
+			var wantsMove = isMoveEvent && script.input != null;
+			long rawDeltaX = 0, rawDeltaY = 0;
+
+			if (wantsMove)
 			{
-				suppressedPhysicalX += (int)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGMouseEventDeltaX);
-				suppressedPhysicalY += (int)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGMouseEventDeltaY);
-				x = suppressedPhysicalX;
-				y = suppressedPhysicalY;
+				rawDeltaX = MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGMouseEventDeltaX);
+				rawDeltaY = MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGMouseEventDeltaY);
 			}
+
 			if (isMoveEvent)
 			{
 				lastHookEventWasKeyboard = false;
-				var suppressMove = false;
+				var suppressMove = !isInjected
+					&& (script.KeyboardData.blockMouseMove || script.KeyboardData.blockInput);
+
+				if (wantsMove)
+				{
+					if (!CollectMouseMove(rawDeltaX, rawDeltaY, extraInfo, isInjected,
+							DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), new POINT(x, y)))
+						suppressMove = true;
+				}
 
 				if (!isInjected)
 				{
@@ -282,19 +313,11 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 						if (ClampToCursorClip(ref cx, ref cy))
 						{
 							mouseStream.InvalidatePosition();
-							_ = Platform.Mouse.TryMoveAbsolute(cx, cy);
+							MoveCursorForClip(cx, cy);
 							return true;
 						}
 					}
-
-					suppressMove = script.KeyboardData.blockMouseMove || script.KeyboardData.blockInput;
 				}
-
-				if (script.input != null && !CollectMouseMove(extraInfo, x, y, null))
-					suppressMove = true;
-
-				if (!isInjected)
-					SetMoveSuppression(suppressMove);
 
 				if (suppressMove || wasCursorDisassociated)
 					mouseStream.InvalidatePosition();
@@ -448,6 +471,8 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 		}
 
 		protected override string PlatformHookDisabledMessage => "macOS hook disabled via KEYSHARP_DISABLE_HOOK=1.";
+
+		protected override void OnPlatformHookStartFailed(string message) => SetMoveSuppression(false);
 
 		protected override bool StartPlatformHookCore(bool wantKeyboard, bool wantMouse, out string message)
 		{

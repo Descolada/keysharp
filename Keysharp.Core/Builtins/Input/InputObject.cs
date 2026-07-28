@@ -193,8 +193,13 @@ namespace Keysharp.Builtins
 				input.visibleMouseMove = value.Ab();
 
 				// Suppressing movement requires the mouse hook; install it if collection is already running.
-				if (input.InProgress() && input.MouseIsNeeded)
-					HotkeyDefinition.InstallMouseHook();
+				if (input.InProgress())
+				{
+					if (input.MouseIsNeeded)
+						HotkeyDefinition.InstallMouseHook();
+
+					Script.TheScript.HookThread.RefreshPlatformKeyGrabs();
+				}
 			}
 		}
 

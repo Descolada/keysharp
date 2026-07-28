@@ -405,24 +405,21 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return mods;
 		}
 
-		// Whether physical mouse movement is currently being suppressed (BlockInput mouse-move / blockInput,
-		// or an InputHook with VisibleMouseMove := false). Toggling it lets a platform actively stop the
-		// cursor when suppressing the move event alone doesn't (macOS -- see OnMoveSuppressionChanged).
-		// Touched only on the single native hook thread, so no synchronization is needed.
 		private bool moveSuppressionActive;
+		protected readonly object moveSuppressionLock = new();
 
-		// Called when physical move suppression turns on/off. macOS decouples the cursor from the mouse so
-		// it actually stops moving (its session-level event tap can't stop the OS-driven cursor); the base
-			// is a no-op (Windows uses its own hook thread and Linux blocks at the device level).
-		protected virtual void OnMoveSuppressionChanged(bool active) { }
+		protected virtual bool OnMoveSuppressionChanged(bool active) => true;
 
 		protected void SetMoveSuppression(bool active)
 		{
-			if (active == moveSuppressionActive)
-				return;
+			lock (moveSuppressionLock)
+			{
+				if (active == moveSuppressionActive)
+					return;
 
-			moveSuppressionActive = active;
-			OnMoveSuppressionChanged(active);
+				if (OnMoveSuppressionChanged(active))
+					moveSuppressionActive = active;
+			}
 		}
 
 		private void SuppressHotkeyRelease(uint vk)

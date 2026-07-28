@@ -2,6 +2,7 @@ using Keysharp.Builtins;
 using Keysharp.Internals.Input;
 using Keysharp.Internals.Input.Hooks;
 using Keysharp.Internals.Threading;
+using Keysharp.Internals.Window;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
@@ -93,18 +94,64 @@ namespace Keysharp.Tests
 		[Test, Category("InputHook")]
 		public void MouseEventInfoCarriesScreenPositionOnlyForMouseEvents()
 		{
-			var mouse = new HookEventInfo(123, false, false, 0, null, 7, 321, 654);
+			var mouse = new HookEventInfo(123, false, false, 0, null, 7, new POINT(321, 654));
 			s.Threads.CurrentThread.eventInfo = (Func<object>)mouse.BuildEventInfo;
 
 			var visible = ThreadAccessors.A_EventInfo;
 			Assert.AreEqual(321L, Script.GetPropertyValue(visible, "X"));
 			Assert.AreEqual(654L, Script.GetPropertyValue(visible, "Y"));
+			Assert.IsFalse(Script.GetPropertyValue(visible, "IsAutoRepeat").Ab());
 
 			var keyboard = new HookEventInfo(456, false, false, 0, null, 8);
 			s.Threads.CurrentThread.eventInfo = (Func<object>)keyboard.BuildEventInfo;
 			visible = ThreadAccessors.A_EventInfo;
 			Assert.AreEqual(0L, KeysharpObject.HasOwnProp(visible, "X"));
 			Assert.AreEqual(0L, KeysharpObject.HasOwnProp(visible, "Y"));
+		}
+
+		[Test, Category("InputHook"), Category("Misc")]
+		public void MouseMoveReportsAreQueuedIndividually()
+		{
+			var context = UseQueuedMainContext();
+			var calls = new List<(long dx, long dy, object info)>();
+			var io = (InputObject)Input.InputHook("");
+			io.OnMouseMove = new FuncObj((Func<object, object, object, object>)((_, dx, dy) =>
+			{
+				calls.Add((dx.Al(), dy.Al(), ThreadAccessors.A_EventInfo));
+				return 0L;
+			}));
+
+			var previous = s.input;
+			io.input.Start();
+			io.input.prev = previous;
+			s.input = io.input;
+
+			try
+			{
+				Assert.IsTrue(s.HookThread.CollectMouseMove(0, 0, 0, false, 10, new POINT(20, 30)));
+				Assert.IsTrue(s.HookThread.CollectMouseMove(4, -2, 0, true, 11, deviceId: 2, isAbsolute: false));
+				Assert.IsTrue(s.HookThread.CollectMouseMove(0, 0, 0, true, 12, deviceId: 0, isAbsolute: true));
+				Assert.IsEmpty(calls);
+				context.DrainAll();
+
+				Assert.That(calls.Select(c => (c.dx, c.dy)), Is.EqualTo(new[] { (0L, 0L), (4L, -2L), (0L, 0L) }));
+				Assert.AreEqual(20L, Script.GetPropertyValue(calls[0].info, "X"));
+				Assert.AreEqual(30L, Script.GetPropertyValue(calls[0].info, "Y"));
+				Assert.AreEqual(0L, KeysharpObject.HasOwnProp(calls[0].info, "DeviceId"));
+				Assert.AreEqual(0L, KeysharpObject.HasOwnProp(calls[0].info, "IsAbsolute"));
+				Assert.AreEqual(0L, KeysharpObject.HasOwnProp(calls[1].info, "X"));
+				Assert.AreEqual(2L, Script.GetPropertyValue(calls[1].info, "DeviceId"));
+				Assert.IsFalse(Script.GetPropertyValue(calls[1].info, "IsAbsolute").Ab());
+				Assert.AreEqual(0L, Script.GetPropertyValue(calls[2].info, "DeviceId"));
+				Assert.IsTrue(Script.GetPropertyValue(calls[2].info, "IsAbsolute").Ab());
+				Assert.AreEqual(12L, Script.GetPropertyValue(calls[2].info, "Timestamp"));
+				Assert.IsTrue(Script.GetPropertyValue(calls[2].info, "IsInjected").Ab());
+			}
+			finally
+			{
+				s.input = previous;
+				io.input.prev = null;
+			}
 		}
 	}
 }

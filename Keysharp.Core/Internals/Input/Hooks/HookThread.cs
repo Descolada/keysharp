@@ -33,11 +33,11 @@ namespace Keysharp.Internals.Input.Hooks
 		private readonly ulong extraInfo;
 		private readonly object extra;
 		private readonly uint? deviceId;
-		private readonly int? mouseX;
-		private readonly int? mouseY;
+		private readonly POINT? screenPosition;
+		private readonly bool? isAbsolute;
 
 		internal HookEventInfo(long timestamp, bool isInjected, bool isAutoRepeat, ulong extraInfo, object extra,
-			uint? deviceId, int? mouseX = null, int? mouseY = null)
+			uint? deviceId, POINT? screenPosition = null, bool? isAbsolute = null)
 		{
 			this.timestamp = timestamp;
 			this.isInjected = isInjected;
@@ -45,16 +45,8 @@ namespace Keysharp.Internals.Input.Hooks
 			this.extraInfo = extraInfo;
 			this.extra = extra;
 			this.deviceId = deviceId;
-			this.mouseX = mouseX;
-			this.mouseY = mouseY;
-		}
-
-		/// <summary>Returns the screen-coordinate snapshot carried by a mouse hook event. Keyboard events have none.</summary>
-		private bool TryGetMousePosition(out int x, out int y)
-		{
-			x = mouseX.GetValueOrDefault();
-			y = mouseY.GetValueOrDefault();
-			return mouseX.HasValue && mouseY.HasValue;
+			this.screenPosition = screenPosition;
+			this.isAbsolute = isAbsolute;
 		}
 
 		/// <summary>
@@ -76,13 +68,15 @@ namespace Keysharp.Internals.Input.Hooks
 			if (deviceId.HasValue)
 				obj.DefinePropInternal("DeviceId", new OwnPropsDesc(obj, (long)deviceId.Value));
 
-			// Mouse hook coordinates are already a compositor-consistent screen snapshot. Exposing them lets a
-			// #HotIf predicate hit-test the event which is actually awaiting its suppress/pass decision, without a
-			// second global-cursor query (an IPC round trip on Wayland). Keyboard events intentionally omit X/Y.
-			if (TryGetMousePosition(out var x, out var y))
+			if (isAbsolute.HasValue)
+				obj.DefinePropInternal("IsAbsolute", new OwnPropsDesc(obj, isAbsolute.Value));
+
+			// X/Y are an inseparable global-screen snapshot. Events which do not carry that coordinate space
+			// omit both properties rather than publishing device axes or a queried, later cursor position.
+			if (screenPosition is POINT position)
 			{
-				obj.DefinePropInternal("X", new OwnPropsDesc(obj, (long)x));
-				obj.DefinePropInternal("Y", new OwnPropsDesc(obj, (long)y));
+				obj.DefinePropInternal("X", new OwnPropsDesc(obj, (long)position.X));
+				obj.DefinePropInternal("Y", new OwnPropsDesc(obj, (long)position.Y));
 			}
 
 			if (extra != null)
@@ -1414,18 +1408,13 @@ namespace Keysharp.Internals.Input.Hooks
 		// flags; suppression is governed per-input by VisibleMouseMove. Returns true if movement
 		// should pass through to the system.
 		//
-		// Coordinate contract: callers must NEVER query the cursor position (e.g. GetCursorPos) to fill
-		// x/y in on this move hot path, because a query is comparatively slow and can lag behind /
-		// disagree with the event being reported. As a result the meaning of x/y is platform- and
-		// device-dependent: absolute screen coordinates on Windows, macOS; on Linux
-		// via the inputd daemon they are absolute screen coordinates for an absolute pointer (VMware's
-		// virtual mouse, tablets, touchpads -- normalised arithmetically from the daemon's [0,65535], no
-		// query), but RELATIVE movement deltas for a relative mouse (the daemon reports relative motion).
-		// Scripts that need cross-platform absolute coordinates for a relative mouse should track the
-		// running position themselves rather than assume x/y are absolute.
-		internal bool CollectMouseMove(ulong extraInfo, int x, int y, object eventInfo)
+		// OnMouseMove reports signed movement (dx, dy); absolute coordinates, when available,
+		// are carried by A_EventInfo. Each native event is posted separately.
+		internal bool CollectMouseMove(long dx, long dy, ulong extraInfo, bool isInjected, long timestamp,
+			POINT? screenPosition = null, uint? deviceId = null, bool? isAbsolute = null)
 		{
 			var allow = true;
+			Func<object> eventInfo = null;
 
 			for (var input = Script.TheScript.input; input != null; input = input.prev)
 			{
@@ -1434,13 +1423,15 @@ namespace Keysharp.Internals.Input.Hooks
 
 				if (input.scriptObject?.GetCallbackSlot(UserMessages.AHK_INPUT_MOUSEMOVE)?.Callback != null)
 				{
+					eventInfo ??= new HookEventInfo(timestamp, isInjected, false, extraInfo, null,
+												   deviceId, screenPosition, isAbsolute).BuildEventInfo;
 					_ = PostMessage(new KeysharpMsg()
 					{
 						message = (uint)UserMessages.AHK_INPUT_MOUSEMOVE,
 						eventInfo = eventInfo,
 						obj = input,
-						mouseX = x,
-						mouseY = y
+						mouseX = dx,
+						mouseY = dy
 					});
 				}
 
@@ -1449,28 +1440,6 @@ namespace Keysharp.Internals.Input.Hooks
 			}
 
 			return allow;
-		}
-
-		// Cheap pre-check for the Linux inputd mouse-move hot path: true only when some
-		// in-progress InputHook actually cares about movement -- it suppresses moves
-		// (VisibleMouseMove:=false) or has an OnMouseMove callback. Lets the inputd mouse
-		// reader skip coordinate normalization and the CollectMouseMove call (which run
-		// inside the shared callback gate) when nothing is listening, so a high-frequency
-		// move stream doesn't needlessly hold the gate. The scan is over active InputHooks
-		// (usually none or one), far cheaper than the work it guards.
-		internal bool AnyInputWantsMouseMove()
-		{
-			for (var input = Script.TheScript.input; input != null; input = input.prev)
-			{
-				if (!input.InProgress())
-					continue;
-
-				if (!input.visibleMouseMove
-						|| input.scriptObject?.GetCallbackSlot(UserMessages.AHK_INPUT_MOUSEMOVE)?.Callback != null)
-					return true;
-			}
-
-			return false;
 		}
 
 		internal abstract bool EarlyCollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
@@ -1694,7 +1663,7 @@ namespace Keysharp.Internals.Input.Hooks
 				int x = p.X, y = p.Y;
 
 				if (ClampToCursorClip(ref x, ref y))
-					_ = Platform.Mouse.TryMoveAbsolute(x, y);
+					MoveCursorForClip(x, y);
 			}
 		}
 
@@ -1722,6 +1691,8 @@ namespace Keysharp.Internals.Input.Hooks
 			x = nx; y = ny;
 			return moved;
 		}
+
+		protected virtual void MoveCursorForClip(int x, int y) => _ = Platform.Mouse.TryMoveAbsolute(x, y);
 
 		/// <summary>Requests permissions needed to monitor and enforce cursor clipping.</summary>
 		protected virtual void EnsureCursorClipPermissions()
@@ -1997,24 +1968,18 @@ namespace Keysharp.Internals.Input.Hooks
 		// factory flows untouched through the dispatch path and is resolved by ThreadAccessors.A_EventInfo.
 		private static Func<object> CreateEventInfo(HookEventArgs e, ulong extraInfo, uint eventFlags, object extra, uint? deviceId)
 		{
-			int? mouseX = null, mouseY = null;
+			POINT? screenPosition = null;
 
 			// Only surface X/Y when the event actually carries a position. On Linux inputd, button/wheel events
 			// don't (HasPosition == false), so they leave A_EventInfo without X/Y rather than reporting a bogus
 			// (0,0) -- callers that need the location query it themselves off the hook thread.
 			if (e is MouseHookEventArgs mouse && mouse.HasPosition)
-			{
-				mouseX = mouse.Data.X;
-				mouseY = mouse.Data.Y;
-			}
+				screenPosition = new POINT(mouse.Data.X, mouse.Data.Y);
 			else if (e is MouseWheelHookEventArgs wheel && wheel.HasPosition)
-			{
-				mouseX = wheel.Data.X;
-				mouseY = wheel.Data.Y;
-			}
+				screenPosition = new POINT(wheel.Data.X, wheel.Data.Y);
 
 			return new HookEventInfo(EventTimestamp(e), e.IsEventSimulated || (eventFlags & HOOK_EVENT_INJECTED) != 0,
-				e.IsAutoRepeat, extraInfo, extra, deviceId, mouseX, mouseY).BuildEventInfo;
+				e.IsAutoRepeat, extraInfo, extra, deviceId, screenPosition).BuildEventInfo;
 		}
 
 		private static long EventTimestamp(HookEventArgs e)
@@ -4082,8 +4047,8 @@ namespace Keysharp.Internals.Input.Hooks
 
 					var message = msg.message;
 					var vkVal = (uint)msg.wParam.ToInt64();
-					var mx = (long)msg.mouseX;
-					var my = (long)msg.mouseY;
+					var mx = msg.mouseX;
+					var my = msg.mouseY;
 					var eventInfo = msg.eventInfo;
 
 					return targetScheduler.EnqueueThreadLaunch(0, false, false, () => _ = Keysharp.Internals.Flow.TryCatch(() =>
@@ -4103,7 +4068,6 @@ namespace Keysharp.Internals.Input.Hooks
 						if (callback == null)
 							return;
 
-						// OnMouseMove(ih, x, y); OnMouseDown/OnMouseUp(ih, button, x, y) with AHK button names.
 						var args = message == (uint)UserMessages.AHK_INPUT_MOUSEMOVE
 							? new object[] { inputHook.scriptObject, mx, my }
 							: [inputHook.scriptObject, VKtoKeyName(vkVal, true), mx, my];

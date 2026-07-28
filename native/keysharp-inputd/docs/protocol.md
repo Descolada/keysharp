@@ -16,6 +16,10 @@ Every message has a `ksi_message_header` carrying:
 - correlation id (for request/response pairs)
 - payload byte size
 
+The current wire version is `1.1`; major and minor must both match. Version 1.1
+adds explicit mouse-move deltas, so Keysharp and an installed daemon must be
+updated together.
+
 Frames arrive over a stream socket and may be split or coalesced. The daemon
 buffers per-client input and disconnects clients that send invalid versions,
 invalid sizes, or oversized frames.
@@ -51,14 +55,13 @@ physical snapshot with Keysharp's queued synthetic button state. It requires
 and milliseconds since the daemon last observed upstream user activity. It
 requires an authenticated `CLIENT_HELLO` but no privileged input capability, so
 reading `A_TimeIdle` never causes a permission prompt. Until the daemon observes
-its first activity event, the validity flag is false. Sharing the request and
-response type keeps the addition compatible with older 1.0 daemons: their
-8-byte unknown-message status is distinguishable from the 16-byte idle payload.
+its first activity event, the validity flag is false. The response uses the same
+message type and carries a 16-byte idle payload.
 
 `LIST_PERMISSIONS` and `RESET_PERMISSIONS` back the `keysharp-inputd trust`
 subcommand (see below).
 
-Protocol `1.0` permits a `HEARTBEAT` with correlation id `0` as a one-way grab
+The protocol permits a `HEARTBEAT` with correlation id `0` as a one-way grab
 lease renewal. The daemon sends no response for that form, so hook-reader
 connections can renew without introducing an unexpected receive frame. Other
 heartbeat correlation ids retain request/response behavior.
@@ -69,7 +72,7 @@ Clients connect through the systemd socket at
 `/run/keysharp-inputd/keysharp-inputd.sock`. The daemon authenticates via
 `SO_PEERCRED` plus a hash of the peer's executable and argument vector.
 
-Protocol 1.0 is intentionally incompatible with 0.2. `CLIENT_HELLO` carries
+Protocol 1.x is intentionally incompatible with 0.2. `CLIENT_HELLO` carries
 requested capabilities, optional flags, and one authenticated connection role:
 
 - `HOOK_STREAM` receives hook events, returns decisions, and carries synchronous
@@ -237,12 +240,13 @@ Modelled after `MSLLHOOKSTRUCT` + low-level hook `wParam`:
 | Field | Description |
 |---|---|
 | `message` | `WM_MOUSEMOVE`, `WM_LBUTTONDOWN`, `WM_MOUSEWHEEL`, etc. |
-| `x`, `y` | Pointer coordinates where available |
+| `x`, `y` | Original replay values: relative counts or a normalized absolute target |
 | `mouse_data` | Wheel delta or X-button value |
 | `flags` | `LLMHF_INJECTED`-style flags |
 | `time_ms` | Event timestamp |
 | `extra_info` | Equivalent of `dwExtraInfo` |
-| `device_id` | Daemon-assigned physical device id |
+| `device_id` | Zero for synthetic input; daemon-assigned positive id for physical input |
+| `delta_x`, `delta_y` | Relative counts, or a physical absolute report's change in normalized `[0,65535]` axes; synthetic absolute reports use zero |
 
 ### evdev translation
 
@@ -254,8 +258,8 @@ BTN_SIDE     → WM_XBUTTONDOWN/UP + XBUTTON1-compatible mouse_data
 BTN_EXTRA    → WM_XBUTTONDOWN/UP + XBUTTON2-compatible mouse_data
 ```
 
-Relative X/Y motion is coalesced at `SYN_REPORT` boundaries so one hardware
-packet normally becomes one `WM_MOUSEMOVE` event.
+Axis records are grouped only to the evdev `SYN_REPORT` boundary; each resulting
+relative or absolute movement report is forwarded once.
 
 ## Synthesis model
 

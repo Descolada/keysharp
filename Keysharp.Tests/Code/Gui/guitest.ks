@@ -3904,14 +3904,17 @@ MouseHookUp(hook, button, x, y) {
 	UpdateMouseHookReadout("Up " button " @ " x "," y)
 }
 
-MouseHookMove(hook, x, y) {
+MouseHookMove(hook, dx, dy) {
 	global gMouseMoveCount
 
 	gMouseMoveCount++
 
 	; Movement fires continuously; refresh the readout only periodically so the GUI stays responsive.
-	if (Mod(gMouseMoveCount, 10) = 0)
-		UpdateMouseHookReadout("Move @ " x "," y)
+	if (Mod(gMouseMoveCount, 10) = 0) {
+		ei := A_EventInfo
+		pos := (IsObject(ei) && ei.HasProp("X")) ? "  @ " ei.X "," ei.Y : "  (no position)"
+		UpdateMouseHookReadout("Move: " dx "," dy pos)
+	}
 }
 
 UpdateMouseHookReadout(lastEvent) {

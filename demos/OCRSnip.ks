@@ -59,7 +59,7 @@ class OCRSnip {
     static SelFill := ""               ; translucent fill of the drag box — a tiny tile the overlay stretches to size
     static SelBars := ""               ; the four border edges of the drag box — thin tiles, stretched to size
     static selShown := false           ; whether the selection overlays are visible yet (Show once, then cheap Move)
-    static curX := 0, curY := 0        ; latest pointer position reported by OnMouseMove
+    static curX := 0, curY := 0        ; latest pointer position sampled by SyncTracking
     static Dragging := false           ; true between button-down and button-up (gates the selection box)
     static moveDirty := false          ; a pointer move is pending — SelectRect's loop applies it once per tick
     static AnchorX := 0, AnchorY := 0  ; where the drag started (screen px)
@@ -189,8 +189,8 @@ class OCRSnip {
     }
 
     static SelectRect(immediate := false) {
-        ; ALL overlay moves happen here, coalesced: OnMouseMove only records the newest pointer position and
-        ; flags it, and this loop applies it at most once per tick. That way a fast flick — which can fire far
+        ; ALL overlay moves happen here, coalesced: OnMouseMove only flags movement, and this loop samples and
+        ; applies the newest pointer position at most once per tick. That way a fast flick — which can fire far
         ; more move events than the compositor can process window-moves for — can never back up a queue of
         ; stale moves behind the cursor (each guide/reticle/box move is a compositor round-trip on Wayland).
         ; Phase 1: keep the crosshair on the pointer until the left button goes down. Skipped on the hold-drag
@@ -245,11 +245,11 @@ class OCRSnip {
 
     static CancelPressed() => GetKeyState("Esc", "P") || GetKeyState("RButton", "P")
 
-    ; Called by the InputHook the instant the pointer moves — a change SIGNAL only; the reported x/y are
-    ; ignored. Mouse-hook coordinates aren't a reliable absolute position on Linux (the inputd daemon delivers
-    ; evdev motion, i.e. relative deltas for a normal mouse), so the true position is read from MouseGetPos in
-    ; SyncTracking instead. Coalescing via moveDirty still collapses hundreds of move events during a fast flick
-    ; into a single position read + overlay update on the next SelectRect tick.
+    ; Called by the InputHook the instant the pointer moves — a change SIGNAL only; the reported dx/dy are
+    ; ignored. OnMouseMove reports movement rather than a position, and the optional A_EventInfo.X/.Y is absent
+    ; on Linux, so the true absolute position is read from MouseGetPos in SyncTracking instead. Coalescing via
+    ; moveDirty still collapses hundreds of move events during a fast flick into a single position read +
+    ; overlay update on the next SelectRect tick.
     static OnMove(*) {
         this.moveDirty := true
     }
@@ -432,7 +432,7 @@ class OCRSnip {
 
         ; Event-driven tracking: OnMouseMove flags a pending update the instant the pointer moves, so the
         ; crosshair keeps up with no Sleep/SetTimer polling (the previous poll is what made it lag). The move's
-        ; coordinates are ignored (unreliable on Linux — see OnMove); SyncTracking reads the position itself.
+        ; dx/dy are ignored (it reports movement, not a position — see OnMove); SyncTracking reads the position.
         this.ih := InputHook("V")
         this.ih.OnMouseMove := (*) => this.OnMove()
         this.ih.Start()

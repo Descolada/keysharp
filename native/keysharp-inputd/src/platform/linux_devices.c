@@ -73,8 +73,8 @@ typedef struct ksi_linux_tracked_device {
     uint64_t pending_rel_extra_info;
     bool pending_rel_injected;
     bool has_pending_abs;
-    int32_t pending_abs_x;
-    int32_t pending_abs_y;
+    int32_t pending_abs_start_x;
+    int32_t pending_abs_start_y;
     int32_t current_abs_x;
     int32_t current_abs_y;
     int32_t current_abs_x_raw;
@@ -1451,6 +1451,8 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         hook_event.message = KSI_WM_MOUSEMOVE;
         hook_event.x = device->pending_rel_x;
         hook_event.y = device->pending_rel_y;
+        hook_event.delta_x = hook_event.x;
+        hook_event.delta_y = hook_event.y;
         hook_event.flags = mouse_injected_flags(device->pending_rel_injected);
         hook_event.time_ms = device->pending_rel_time_ms;
         hook_event.extra_info = device->pending_rel_extra_info;
@@ -1483,8 +1485,10 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
     if (device->has_pending_abs) {
         memset(&hook_event, 0, sizeof(hook_event));
         hook_event.message = KSI_WM_MOUSEMOVE;
-        hook_event.x = device->pending_abs_x;
-        hook_event.y = device->pending_abs_y;
+        hook_event.x = device->current_abs_x;
+        hook_event.y = device->current_abs_y;
+        hook_event.delta_x = hook_event.x - device->pending_abs_start_x;
+        hook_event.delta_y = hook_event.y - device->pending_abs_start_y;
         hook_event.mouse_data = KSI_MOUSEEVENTF_ABSOLUTE;
         hook_event.flags = mouse_injected_flags(device->pending_abs_injected);
         hook_event.time_ms = device->pending_abs_time_ms;
@@ -1492,9 +1496,8 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         hook_event.device_id = device->device_id;
 
         if (g_verbose && should_dispatch_hook_input(device)) {
-            printf("inputd: mouse move abs x=%d y=%d time=%llu device=\"%s\"\n",
-                hook_event.x,
-                hook_event.y,
+            printf("inputd: mouse move abs x=%d y=%d dx=%d dy=%d time=%llu device=\"%s\"\n",
+                hook_event.x, hook_event.y, hook_event.delta_x, hook_event.delta_y,
                 (unsigned long long)hook_event.time_ms,
                 device->name);
         }
@@ -1607,16 +1610,12 @@ static void queue_absolute_motion(
         device->current_abs_y = scale_abs_axis(event->value, device->abs_y_min, device->abs_y_max);
     }
 
-    if (device->current_abs_x == previous_abs_x && device->current_abs_y == previous_abs_y) {
-        return;
+    /* Keep the report's starting point; dispatch emits both its delta and the final
+     * [0,65535] position needed to replay it through the absolute uinput device. */
+    if (!device->has_pending_abs) {
+        device->pending_abs_start_x = previous_abs_x;
+        device->pending_abs_start_y = previous_abs_y;
     }
-
-    /* Report the scaled [0, 65535] absolute position.  The replay path sends
-     * this as EV_ABS on the dedicated absolute uinput device whose ABS range
-     * is also [0, 65535], so the compositor maps it correctly to screen
-     * coordinates regardless of the physical device's native range. */
-    device->pending_abs_x = device->current_abs_x;
-    device->pending_abs_y = device->current_abs_y;
     device->pending_abs_time_ms = event_time_ms(event);
     device->pending_abs_extra_info = extra_info;
     device->pending_abs_injected = is_injected;

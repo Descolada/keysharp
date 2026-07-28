@@ -200,6 +200,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 	{
 		private readonly LowLevelKeyboardProc kbdHandlerDel;
 		private readonly LowLevelMouseProc mouseHandlerDel;
+		private POINT? mouseMovePosition;
 		private StaThreadWithMessageQueue thread;
 		private bool uwpAppFocused;
 		private nint uwpHwndChecked = 0;
@@ -966,6 +967,16 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 
 			if (iwParam == WM_MOUSEMOVE) // Only after updating for physical input, above, is this checked.
 			{
+				var suppressMove = script.KeyboardData.blockMouseMove && !isArtificial;
+				var previous = mouseMovePosition ?? lParam.pt;
+				var dx = (long)lParam.pt.X - previous.X;
+				var dy = (long)lParam.pt.Y - previous.Y;
+				var timestamp = lParam.time != 0 ? unchecked((uint)lParam.time) : unchecked((uint)Environment.TickCount);
+
+				if (script.input != null && !CollectMouseMove(dx, dy, lParam.dwExtraInfo, isArtificial,
+						timestamp, lParam.pt))
+					suppressMove = true;
+
 				// Confine the cursor to the active ClipCursor rectangle. Only physical movement is
 				// clamped; our own SetCursorPos re-enters here as artificial and passes through.
 				if (CursorClipActive && !isArtificial)
@@ -974,19 +985,26 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 
 					if (ClampToCursorClip(ref x, ref y))
 					{
-						_ = Platform.Mouse.TryMoveAbsolute(x, y);
+						// The physical proposal is blocked; the clamped warp is the accepted position.
+						if (Platform.Mouse.TryMoveAbsolute(x, y))
+							mouseMovePosition = new POINT(x, y);
+
 						return new nint(1);
 					}
 				}
 
-				var suppressMove = script.KeyboardData.blockMouseMove && !isArtificial;
+				if (suppressMove)
+					return new nint(1);
 
-				// Notify any active InputHook(s) of movement; CollectMouseMove returns false to suppress
-				// (VisibleMouseMove:=false). Gated on script.input so idle scripts pay nothing here.
-				if (script.input != null && !CollectMouseMove(lParam.dwExtraInfo, lParam.pt.X, lParam.pt.Y, null))
-					suppressMove = true;
+				// A later low-level hook can still suppress the event. Commit only after the entire chain
+				// accepts it, otherwise the next sample would be measured from a position never applied.
+				var acceptedPosition = lParam.pt;
+				var downstreamResult = CallNextHookEx(mouseHook, code, param, ref lParam);
 
-				return suppressMove ? new nint(1) : CallNextHookEx(mouseHook, code, param, ref lParam);
+				if (downstreamResult == 0)
+					mouseMovePosition = acceptedPosition;
+
+				return downstreamResult;
 			}
 
 			using var hotIfBudget = BeginHotIfCallback(HotIfCallbackBudgetMilliseconds);
@@ -1169,6 +1187,8 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 														  //GetModuleHandle(Process.GetCurrentProcess().MainModule.ModuleName), 0)) == 0)
 														  Marshal.GetHINSTANCE(typeof(Script).Module), 0)) == 0)
 							problem_activating_hooks = true;
+						else
+							mouseMovePosition = Platform.Mouse.TryGetCursorPos(out var x, out var y) ? new POINT(x, y) : null;
 					}
 				}
 				else // Caller specified that the mouse hook is to be deactivated (if it isn't already).

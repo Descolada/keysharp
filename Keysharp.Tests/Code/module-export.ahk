@@ -7,6 +7,7 @@
 
 #import D as DDefault
 #import "D" { Named as DNamed }
+#import E
 #import V as ModV
 
 ; quoted module import should not add module name unless alias is given
@@ -22,6 +23,13 @@ else
 ; ---- named export callable via explicit import
 a := DNamed()
 if (a == 5)
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"
+
+; ---- a bare import binds an explicit default under the module name
+a := E()
+if (a == 321)
     FileAppend "pass", "*"
 else
     FileAppend "fail", "*"
@@ -58,6 +66,9 @@ else
 #Module D
 export default DefaultFunc() => 123
 export Named() => 5
+
+#Module E
+export default ExplicitDefaultBare() => 321
 
 #Module V
 export Var := 1

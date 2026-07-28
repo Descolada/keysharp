@@ -230,7 +230,7 @@ namespace Keysharp.Parsing.Syntax
 			// bodies) — drives file loading and execution order, which stay eager and scope-blind. Superset of the above.
 			public List<ImportDirective> AllImports = new();
 			public Dictionary<string, ExportK> Exports = new(System.StringComparer.OrdinalIgnoreCase);
-			public string DefaultName;          // user name of the `export default` member (or null)
+			public string DefaultName;          // user name of the explicit or same-name implicit default (or null)
 			public bool HasExplicitExports;
 		}
 
@@ -450,7 +450,8 @@ namespace Keysharp.Parsing.Syntax
 		}
 
 		// Collects a module's exports. Explicit `export` declarations win; a module with none implicitly exports all of
-		// its top-level functions/classes/variables (matching the AHK module semantics).
+		// its top-level functions/classes/variables. In that implicit form, a function or class matching the module's
+		// leaf name is also its default export (`OCR.ks` containing `class OCR`), regardless of additional helpers.
 		private static void ScanExports(ModInfo m)
 		{
 			foreach (var s in m.Body)
@@ -474,6 +475,13 @@ namespace Keysharp.Parsing.Syntax
 					case ExpressionStmt { Expr: AssignExpr { Target: NameExpr n } }: m.Exports[n.Name] = ExportK.Variable; break;
 				}
 			}
+			var leaf = ImportBindingName(m.Name);
+			foreach (var ex in m.Exports)
+				if (ex.Value != ExportK.Variable && ex.Key.Equals(leaf, System.StringComparison.OrdinalIgnoreCase))
+				{
+					m.DefaultName = ex.Key;
+					break;
+				}
 		}
 
 		// Execution order: a module runs after the modules it imports (topological); ties/cycles fall back to declaration
@@ -549,8 +557,8 @@ namespace Keysharp.Parsing.Syntax
 		private static ExpressionSyntax ModuleMemberField(string modName, string memberName) =>
 			Member(Member(Id("Program"), NameMangler.ModuleClass(modName)), NameMangler.Global(memberName));
 
-		// The value a whole-module import (`#import Mod` / `#import Mod as X`) binds the name to: a fresh MODULE
-		// INSTANCE. Script modules → `new Program.<Mod>()`; the built-in catch-all AHK module → the Ahk meta-object;
+		// The fallback value of a whole-module import with no default export: a fresh MODULE INSTANCE.
+		// Script modules → `new Program.<Mod>()`; the built-in catch-all AHK module → the Ahk meta-object;
 		// a built-in Module type (Ks, …) → `new <Type>()`. All derive from Module and implement IMetaObject, so member
 		// access and method calls (`Ks.Cosh(0)`) dispatch through Get/Call — a Statics *class* singleton would not.
 		// Returns null if the name is not a known module. Shared by the single- and multi-module binding paths.
@@ -627,13 +635,15 @@ namespace Keysharp.Parsing.Syntax
 				bool isAhk = modName.Equals("AHK", System.StringComparison.OrdinalIgnoreCase);
 				bool isScript = byName.ContainsKey(modName);
 
-				// `as Alias`: bind the module's default export if it has one, else the module object.
+				// `as Alias`: bind the module's default export if it has one, else the module object. Use the same named
+				// binding path as `{ Name as Alias }` so type defaults stay lazy and variable defaults write through.
 				if (alias != null && !localNames.Contains(alias))
 				{
-					ExpressionSyntax val = isScript && byName[modName].DefaultName != null
-						? ModuleMemberField(modName, byName[modName].DefaultName)
-						: ModuleObjectExpr(modName, isAhk, isScript);
-					if (val != null) RegisterImportField(alias, val);
+					var script = isScript ? byName[modName] : null;
+					if (script?.DefaultName != null && script.Exports.TryGetValue(script.DefaultName, out var defaultKind))
+						BindNamedImport(modName, script.DefaultName, alias, defaultKind, props);
+					else if (ModuleObjectExpr(modName, isAhk, isScript) is { } val)
+						RegisterImportField(alias, val);
 				}
 				// Named imports `{ a, b as c, * }`.
 				if (named != null)
@@ -670,12 +680,17 @@ namespace Keysharp.Parsing.Syntax
 							Diag($"{im.Line}:{im.Column}: #Import: module '{modName}' has no exported member named '{impName}'");
 					}
 				}
-				// A bare `#import Mod` (no alias, no braces) adds the module NAME as the module object — but a quoted
-				// `#import "Mod"` does NOT introduce the name unless aliased.
+				// A bare `#import Mod` (no alias/braces) binds its default export under the module leaf name when one
+				// exists, otherwise the module object. A quoted `#import "Mod"` introduces no name unless aliased.
 				var bareName = ImportBindingName(modName);
-				if (alias == null && named == null && !quoted && !localNames.Contains(bareName)
-					&& ModuleObjectExpr(modName, isAhk, isScript) is { } bareObj)
-					RegisterImportField(bareName, bareObj);
+				if (alias == null && named == null && !quoted && !localNames.Contains(bareName))
+				{
+					var script = isScript ? byName[modName] : null;
+					if (script?.DefaultName != null && script.Exports.TryGetValue(script.DefaultName, out var defaultKind))
+						BindNamedImport(modName, script.DefaultName, bareName, defaultKind, props);
+					else if (ModuleObjectExpr(modName, isAhk, isScript) is { } bareObj)
+						RegisterImportField(bareName, bareObj);
+				}
 			}
 			// Emit the surviving wildcard bindings (those not shadowed by an explicit import or local declaration).
 			foreach (var (lower, w) in wild)
@@ -996,7 +1011,7 @@ namespace Keysharp.Parsing.Syntax
 					continue;
 				}
 
-				// The module object for a bare/aliased whole-module import. `#import __Main` in the single-module path
+				// The fallback module object for a bare/aliased whole-module import with no default. `#import __Main` in the single-module path
 				// (no _modulesByName) is a fresh `new __Main()` proxy over the current module's statics, matching the
 				// existing self-import alias; in the multi-module path __Main is a normal script module (`new Program.__Main()`).
 				System.Func<ExpressionSyntax> ModuleObj = (isMain && !isScript)
@@ -1008,7 +1023,7 @@ namespace Keysharp.Parsing.Syntax
 				{
 					var a = alias.ToLowerInvariant();
 					if (isScript && script.DefaultName != null)
-						Frame().Named[a] = new ImportBinding { Read = () => ModuleMemberField(modName, script.DefaultName) };
+						Frame().Named[a] = ScopedMemberBinding(modName, isAhk, isScript, script, builtinType, script.DefaultName, im);
 					else
 						Frame().Named[a] = new ImportBinding { Read = ModuleObj };
 				}
@@ -1027,9 +1042,14 @@ namespace Keysharp.Parsing.Syntax
 						if (b != null) Frame().Named[impAlias.ToLowerInvariant()] = b;
 					}
 				}
-				// Bare `#import Mod` (unquoted, no alias/list) introduces the module name itself as the module object.
+				// Bare `#import Mod` binds the default export under the module leaf when present, else the module object.
 				if (alias == null && named == null && !quoted)
-					Frame().Named[ImportBindingName(modName).ToLowerInvariant()] = new ImportBinding { Read = ModuleObj };
+				{
+					var bare = ImportBindingName(modName).ToLowerInvariant();
+					Frame().Named[bare] = isScript && script.DefaultName != null
+						? ScopedMemberBinding(modName, isAhk, isScript, script, builtinType, script.DefaultName, im)
+						: new ImportBinding { Read = ModuleObj };
+				}
 			}
 			return scope;
 		}

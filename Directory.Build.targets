@@ -1,4 +1,8 @@
 <Project>
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) AND ('$(MSBuildProjectName)' == 'Keysharp' OR '$(MSBuildProjectName)' == 'Keyview' OR '$(MSBuildProjectName)' == 'Keysharp.OutputTest')">
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
+  </PropertyGroup>
+
   <Import Project="../Eto/src/Eto.Mac/build/Mac.targets"
           Condition="$([MSBuild]::IsOSPlatform('OSX')) AND ('$(MSBuildProjectName)' == 'Keysharp' OR '$(MSBuildProjectName)' == 'Keyview' OR '$(MSBuildProjectName)' == 'Keysharp.OutputTest') AND Exists('../Eto/src/Eto.Mac/build/Mac.targets')" />
 </Project>

@@ -49,16 +49,24 @@ jobs:
         shell: pwsh
         run: |
           switch ('${{ inputs.target_platform }}') {
-            'windows' { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"}]}' }
-            'linux'   { $matrix = '{"include":[{"os":"ubuntu-latest","platform":"linux"}]}' }
-            'macos'   { $matrix = '{"include":[{"os":"macos-latest","platform":"macos"}]}' }
-            default   { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"},{"os":"ubuntu-latest","platform":"linux"},{"os":"macos-latest","platform":"macos"}]}' }
+            'windows' {
+              $matrix = '{"include":[{"name":"Windows x64","os":"windows-latest","platform":"windows","rid":"win-x64"}]}'
+            }
+            'linux' {
+              $matrix = '{"include":[{"name":"Linux x64","os":"ubuntu-latest","platform":"linux","rid":"linux-x64"}]}'
+            }
+            'macos' {
+              $matrix = '{"include":[{"name":"macOS 15 arm64","os":"macos-15","platform":"macos","rid":"osx-arm64","macos_version":"15","arch":"arm64"},{"name":"macOS 26 arm64","os":"macos-26","platform":"macos","rid":"osx-arm64","macos_version":"26","arch":"arm64"},{"name":"macOS 15 Intel","os":"macos-15-intel","platform":"macos","rid":"osx-x64","macos_version":"15","arch":"x64"},{"name":"macOS 26 Intel","os":"macos-26-intel","platform":"macos","rid":"osx-x64","macos_version":"26","arch":"x64"}]}'
+            }
+            default {
+              $matrix = '{"include":[{"name":"Windows x64","os":"windows-latest","platform":"windows","rid":"win-x64"},{"name":"Linux x64","os":"ubuntu-latest","platform":"linux","rid":"linux-x64"},{"name":"macOS 15 arm64","os":"macos-15","platform":"macos","rid":"osx-arm64","macos_version":"15","arch":"arm64"},{"name":"macOS 26 arm64","os":"macos-26","platform":"macos","rid":"osx-arm64","macos_version":"26","arch":"arm64"},{"name":"macOS 15 Intel","os":"macos-15-intel","platform":"macos","rid":"osx-x64","macos_version":"15","arch":"x64"},{"name":"macOS 26 Intel","os":"macos-26-intel","platform":"macos","rid":"osx-x64","macos_version":"26","arch":"x64"}]}'
+            }
           }
           "matrix=$matrix" >> $env:GITHUB_OUTPUT
 
   test:
     needs: prepare
-    name: Curated Tests (${{ matrix.platform }})
+    name: Curated Tests (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -96,7 +104,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ runner.workspace }}/Eto
-          key: eto-${{ runner.os }}-${{ steps.eto-ref.outputs.sha }}
+          key: eto-${{ matrix.os }}-${{ matrix.rid }}-${{ steps.eto-ref.outputs.sha }}
 
       - name: Checkout Eto (non-Windows, cache miss)
         if: ${{ matrix.platform != 'windows' && steps.eto-cache.outputs.cache-hit != 'true' }}
@@ -134,8 +142,28 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "Platform: ${{ matrix.platform }}"
+          Write-Host "Runner: ${{ matrix.os }}"
+          Write-Host "RID: ${{ matrix.rid }}"
           Write-Host "Configuration: $env:BUILD_CONFIGURATION"
           Write-Host "Filter: $env:CURATED_TEST_FILTER"
+
+      - name: Verify macOS version and architecture
+        if: ${{ matrix.platform == 'macos' }}
+        shell: pwsh
+        run: |
+          $actualVersion = (& sw_vers -productVersion).Trim()
+          $actualArch = (& uname -m).Trim()
+          $expectedVersion = '${{ matrix.macos_version }}'
+          $expectedArch = if ('${{ matrix.arch }}' -eq 'x64') { 'x86_64' } else { 'arm64' }
+
+          if (-not $actualVersion.StartsWith("$expectedVersion.")) {
+            throw "Expected macOS $expectedVersion.x, but runner reported $actualVersion."
+          }
+          if ($actualArch -ne $expectedArch) {
+            throw "Expected architecture $expectedArch, but runner reported $actualArch."
+          }
+
+          Write-Host "Verified macOS $actualVersion on $actualArch."
 
       - name: Install Linux UI deps
         if: ${{ matrix.platform == 'linux' }}
@@ -149,10 +177,15 @@ jobs:
           if ('${{ matrix.platform }}' -eq 'linux') {
             $cfg = $env:BUILD_CONFIGURATION
             $filter = $env:CURATED_TEST_FILTER
-            $cmd = "export GDK_BACKEND=x11; export NO_AT_BRIDGE=1; export GTK_A11Y=none; export GSETTINGS_BACKEND=memory; xvfb-run -a -s `"-screen 0 1920x1080x24 -ac +extension RANDR`" dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $cfg --nologo --logger `"console;verbosity=normal`" --filter `"$filter`" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1"
+            $cmd = "export GDK_BACKEND=x11; export NO_AT_BRIDGE=1; export GTK_A11Y=none; export GSETTINGS_BACKEND=memory; xvfb-run -a -s `"-screen 0 1920x1080x24 -ac +extension RANDR`" dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $cfg -r `"${{ matrix.rid }}`" --nologo --logger `"console;verbosity=normal`" --filter `"$filter`" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1"
             dbus-run-session -- bash -lc $cmd
           } else {
-            dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION --nologo --logger "console;verbosity=normal" --filter "$env:CURATED_TEST_FILTER" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1
+            $filter = $env:CURATED_TEST_FILTER
+            if ('${{ matrix.platform }}' -eq 'macos') {
+              # These tests exercise Quartz keyboard/mouse event construction without requiring interactive TCC grants.
+              $filter = "($filter)|FullyQualifiedName~MacInputTests"
+            }
+            dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION -r "${{ matrix.rid }}" --nologo --logger "console;verbosity=normal" --filter "$filter" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1
           }
 
       - name: Dump test output diagnostics on failure

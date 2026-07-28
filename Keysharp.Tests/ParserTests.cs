@@ -270,6 +270,7 @@ namespace Keysharp.Tests
 			foreach (var ok in new[]
 			{
 				"#import __Main\n", "#import Other as O\n", "#import \"Ks\" { * }\n",
+				"#import Lib/module_import_path_target\n", "#import Lib/module_import_path_target as M { * }\n",
 				"#import \"D\" { Named as DNamed }\n",
 				"#import \"Mixed\" {\n\ta as b,\n\tc\n}\n",   // multi-line named list
 			})

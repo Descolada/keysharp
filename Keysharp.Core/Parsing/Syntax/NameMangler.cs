@@ -26,9 +26,22 @@ namespace Keysharp.Parsing.Syntax
 		/// slot), disambiguated if it would shadow a framework/structural root (see <see cref="AvoidReserved"/>).</summary>
 		public static string ClassType(string name) => AvoidReserved(TitleCase(name));
 
-		/// <summary>Module C# class name: the module name verbatim (module names are case-sensitive identifiers),
-		/// disambiguated if it shadows a reserved root. The synthesized default module <c>__Main</c> is exempt.</summary>
-		public static string ModuleClass(string moduleName) => moduleName == "__Main" ? "__Main" : AvoidReserved(moduleName);
+		/// <summary>Module C# class name: identifier module names are preserved, while path specifiers are encoded into
+		/// valid, collision-resistant identifiers. The synthesized default module <c>__Main</c> is exempt.</summary>
+		public static string ModuleClass(string moduleName)
+		{
+			if (moduleName == "__Main") return "__Main";
+			const string pathPrefix = "__KSPath";
+			if (!moduleName.Contains('/') && !moduleName.Contains('\\') && !moduleName.StartsWith(pathPrefix, System.StringComparison.Ordinal))
+				return AvoidReserved(moduleName);
+
+			// Encode every UTF-16 code unit so path separators never reach Roslyn identifiers. Identifier modules using
+			// the reserved prefix are encoded too, preventing a literal module name from colliding with a path module.
+			var encoded = new System.Text.StringBuilder(pathPrefix);
+			foreach (var c in moduleName)
+				encoded.Append('_').Append(((int)c).ToString("X4", CultureInfo.InvariantCulture));
+			return encoded.ToString();
+		}
 
 		// Framework namespace roots (System, Keysharp) and generated structural identifiers (Program, MainScript, __Main)
 		// that the lowered code references by bare name. A user class/module of the same C# name would SHADOW them, so

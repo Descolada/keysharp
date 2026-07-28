@@ -600,7 +600,19 @@ namespace Keysharp.Parsing.Syntax
 			if (toks.Count == 0)
 				return new ImportDirective(args, module, alias, named, quoted);   // nameless `#import` — a no-op for the lowerer
 			if (toks[i].Kind == TokenKind.String) { quoted = true; module = Unquote(toks[i++].Text); }
-			else if (toks[i].Kind == TokenKind.Identifier) module = toks[i++].Text;
+			else if (toks[i].Kind == TokenKind.Identifier)
+			{
+				module = toks[i++].Text;
+				// An unquoted module specifier may be a slash-separated relative path (`Lib/OCR`). Require adjacency
+				// around each slash so ordinary trailing expressions such as `Mod / value` remain invalid directives.
+				while (i + 1 < toks.Count
+					&& toks[i].Kind == TokenKind.Slash && !toks[i].LeadingWhitespace
+					&& toks[i + 1].Kind == TokenKind.Identifier && !toks[i + 1].LeadingWhitespace)
+				{
+					module += toks[i++].Text;
+					module += toks[i++].Text;
+				}
+			}
 			else ErrorAt(toks[i], $"expected a module name after #import but found '{toks[i].Text}'");
 			if (i < toks.Count && toks[i].Kind == TokenKind.Identifier && toks[i].Text.Equals("as", System.StringComparison.OrdinalIgnoreCase))
 			{

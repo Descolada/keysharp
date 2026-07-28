@@ -283,6 +283,14 @@ namespace Keysharp.Parsing.Syntax
 		private static readonly string[] moduleInitNames = { "__Init.ks", "__Init.ahk" };
 		private List<string> _moduleSearchPath;
 
+		// The local name introduced by a bare unquoted import. A path import such as `#import Lib/OCR` binds its leaf
+		// (`OCR`), while the full specifier remains the module identity used for file lookup and generated type mapping.
+		private static string ImportBindingName(string modName)
+		{
+			var sep = System.Math.Max(modName.LastIndexOf('/'), modName.LastIndexOf('\\'));
+			return sep >= 0 ? modName.Substring(sep + 1) : modName;
+		}
+
 		// The #import search path, mirroring AutoHotkey's InitModuleSearchPath: the AhkImportPath environment variable
 		// (a ';'-delimited list) or, when unset, the default below. Built-in %vars% are expanded (environment variables
 		// are NOT, matching AHK); relative items resolve against A_ScriptDir; nonexistent directories are dropped. It is
@@ -539,7 +547,7 @@ namespace Keysharp.Parsing.Syntax
 
 		// References an exported member field of another module: `Program.<Mod>.<escapedName>`.
 		private static ExpressionSyntax ModuleMemberField(string modName, string memberName) =>
-			Member(Member(Id("Program"), modName), NameMangler.Global(memberName));
+			Member(Member(Id("Program"), NameMangler.ModuleClass(modName)), NameMangler.Global(memberName));
 
 		// The value a whole-module import (`#import Mod` / `#import Mod as X`) binds the name to: a fresh MODULE
 		// INSTANCE. Script modules → `new Program.<Mod>()`; the built-in catch-all AHK module → the Ahk meta-object;
@@ -664,9 +672,10 @@ namespace Keysharp.Parsing.Syntax
 				}
 				// A bare `#import Mod` (no alias, no braces) adds the module NAME as the module object — but a quoted
 				// `#import "Mod"` does NOT introduce the name unless aliased.
-				if (alias == null && named == null && !quoted && !localNames.Contains(modName)
+				var bareName = ImportBindingName(modName);
+				if (alias == null && named == null && !quoted && !localNames.Contains(bareName)
 					&& ModuleObjectExpr(modName, isAhk, isScript) is { } bareObj)
-					RegisterImportField(modName, bareObj);
+					RegisterImportField(bareName, bareObj);
 			}
 			// Emit the surviving wildcard bindings (those not shadowed by an explicit import or local declaration).
 			foreach (var (lower, w) in wild)
@@ -906,7 +915,7 @@ namespace Keysharp.Parsing.Syntax
 				// object, so `Mod.Member` dispatches through IMetaObject (Get/Call) — matching the multi-module and
 				// function-scope paths. Members still resolve unqualified through the wildcard below (existing behavior).
 				if (named == null && alias == null && !d.Quoted && ModuleObjectExpr(modName, isAhk, false) is { } bareObj)
-					RegisterImportField(modName, bareObj);
+					RegisterImportField(ImportBindingName(modName), bareObj);
 				if (!isAhk && Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var wildType)
 					&& !_wildcardModules.Contains(wildType))   // `#import "Mod"` / `#import "Mod" { * }`: resolve members on demand
 					_wildcardModules.Add(wildType);
@@ -1020,7 +1029,7 @@ namespace Keysharp.Parsing.Syntax
 				}
 				// Bare `#import Mod` (unquoted, no alias/list) introduces the module name itself as the module object.
 				if (alias == null && named == null && !quoted)
-					Frame().Named[modName.ToLowerInvariant()] = new ImportBinding { Read = ModuleObj };
+					Frame().Named[ImportBindingName(modName).ToLowerInvariant()] = new ImportBinding { Read = ModuleObj };
 			}
 			return scope;
 		}
@@ -1234,7 +1243,7 @@ namespace Keysharp.Parsing.Syntax
 						into.Add((asIdx >= 0 ? part.Substring(asIdx + 4).Trim() : part).ToLowerInvariant());
 					}
 				}
-				if (alias == null && named == null && !quoted) into.Add(modName.ToLowerInvariant());
+				if (alias == null && named == null && !quoted) into.Add(ImportBindingName(modName).ToLowerInvariant());
 			}
 		}
 

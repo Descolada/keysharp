@@ -675,8 +675,8 @@ namespace Keysharp.Parsing.Syntax
 			return props;
 		}
 
-		// A method export binds as a cached field (`alias = Mod.name`); a variable/type export binds as a get/set
-		// property delegating to the source module (so writes propagate) — matching the canonical AddImportMemberCore.
+		// A method export binds as a cached field (`alias = Mod.name`); a type export binds as a getter-only property
+		// (preserving lazy class initialization); and a variable export binds as a get/set property so writes propagate.
 		private void BindNamedImport(string modName, string name, string alias, ExportK kind, List<MemberDeclarationSyntax> props)
 		{
 			if (kind == ExportK.Function)
@@ -687,11 +687,14 @@ namespace Keysharp.Parsing.Syntax
 				if (_fields.ContainsKey(lower)) return;
 				_fields[lower] = NameMangler.Escape(lower);
 				var src = ModuleMemberField(modName, name);
-				props.Add(SyntaxFactory.PropertyDeclaration(ObjType, NameMangler.Escape(lower))
-					.AddModifiers(PublicTok, StaticTok)
-					.AddAccessorListAccessors(
-						SyntaxFactory.AccessorDeclaration(SyntaxKind.GetAccessorDeclaration).WithExpressionBody(SyntaxFactory.ArrowExpressionClause(src)).WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken)),
-						SyntaxFactory.AccessorDeclaration(SyntaxKind.SetAccessorDeclaration).WithExpressionBody(SyntaxFactory.ArrowExpressionClause(Assign(src, Id("value")))).WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken))));
+				if (kind == ExportK.Type)
+					props.Add(ObjArrowProp(NameMangler.Escape(lower), src));
+				else
+					props.Add(SyntaxFactory.PropertyDeclaration(ObjType, NameMangler.Escape(lower))
+						.AddModifiers(PublicTok, StaticTok)
+						.AddAccessorListAccessors(
+							SyntaxFactory.AccessorDeclaration(SyntaxKind.GetAccessorDeclaration).WithExpressionBody(SyntaxFactory.ArrowExpressionClause(src)).WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken)),
+							SyntaxFactory.AccessorDeclaration(SyntaxKind.SetAccessorDeclaration).WithExpressionBody(SyntaxFactory.ArrowExpressionClause(Assign(src, Id("value")))).WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken))));
 			}
 		}
 

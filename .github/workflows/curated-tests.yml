@@ -177,7 +177,7 @@ jobs:
           if ('${{ matrix.platform }}' -eq 'linux') {
             $cfg = $env:BUILD_CONFIGURATION
             $filter = $env:CURATED_TEST_FILTER
-            $cmd = "export GDK_BACKEND=x11; export NO_AT_BRIDGE=1; export GTK_A11Y=none; export GSETTINGS_BACKEND=memory; xvfb-run -a -s `"-screen 0 1920x1080x24 -ac +extension RANDR`" dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $cfg -r `"${{ matrix.rid }}`" --nologo --logger `"console;verbosity=normal`" --filter `"$filter`" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1"
+            $cmd = "export GDK_BACKEND=x11; export NO_AT_BRIDGE=1; export GTK_A11Y=none; export GSETTINGS_BACKEND=memory; xvfb-run -a -s `"-screen 0 1920x1080x24 -ac +extension RANDR`" dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $cfg --nologo --logger `"console;verbosity=normal`" --filter `"$filter`" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1"
             dbus-run-session -- bash -lc $cmd
           } else {
             $filter = $env:CURATED_TEST_FILTER
@@ -185,7 +185,7 @@ jobs:
               # These tests exercise Quartz keyboard/mouse event construction without requiring interactive TCC grants.
               $filter = "($filter)|FullyQualifiedName~MacInputTests"
             }
-            dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION -r "${{ matrix.rid }}" --nologo --logger "console;verbosity=normal" --filter "$filter" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1
+            dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION --nologo --logger "console;verbosity=normal" --filter "$filter" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1
           }
 
       - name: Dump test output diagnostics on failure

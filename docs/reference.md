@@ -105,7 +105,7 @@ Permissions are requested automatically when first needed, or up front with `#Re
 
 ### Installing on macOS
 
-Two packages are available on the [Releases](https://github.com/Descolada/keysharp/releases) page.
+macOS 15 or later is required. Separate `osx-arm64` assets for Apple Silicon and `osx-x64` assets for Intel Macs are available on the [Releases](https://github.com/Descolada/keysharp/releases) page.
 
 #### DMG — user install, no administrator password required
 
@@ -146,7 +146,7 @@ The `.pkg` installer places both apps in `/Applications/`. After copying the app
 
 Install from Finder by double-clicking the `.pkg` and following the installer prompts (you will be asked for your administrator password), or from Terminal:
 ```sh
-sudo installer -pkg Keysharp-osx-arm64.pkg -target /
+sudo installer -pkg Keysharp-osx-<architecture>.pkg -target /
 ```
 
 Apply the same first-launch Gatekeeper workaround as above for each app after installation.
@@ -199,13 +199,13 @@ tccutil reset All org.keysharp.keyview
   ```sh
   bash ./Keysharp.Install/package-macos.sh
   ```
-  Output is written to `dist/`:
-  - `Keysharp-osx-arm64.dmg` — drag-and-drop user install
-  - `Keysharp-osx-arm64.pkg` — system install with terminal commands
+  The script selects `osx-arm64` or `osx-x64` from the host architecture. Set `RID` explicitly to cross-publish, for example `RID=osx-x64 bash ./Keysharp.Install/package-macos.sh`. Output is written to `dist/`:
+  - `Keysharp-<rid>.dmg` — drag-and-drop user install
+  - `Keysharp-<rid>.pkg` — system install with terminal commands
 * For a quick debug run without packaging, build and run directly:
   ```sh
   dotnet build Keyview/Keyview.csproj -c Debug
-  open bin/Debug/net10.0/osx-arm64/Keyview.app
+  open bin/Debug/net10.0/<rid>/Keyview.app
   ```
 * The signing and notarization steps are skipped by default (no developer account required). To enable ad-hoc signing for local testing: `ADHOC_SIGN=true bash ./Keysharp.Install/package-macos.sh`.
 

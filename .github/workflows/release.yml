@@ -87,10 +87,18 @@ jobs:
             platform: linux
             os: ubuntu-24.04-arm
             rid: linux-arm64
-          - name: macOS arm64
+          - name: macOS 15 arm64
             platform: macos
-            os: macos-latest
+            os: macos-15
             rid: osx-arm64
+            macos_version: '15'
+            arch: arm64
+          - name: macOS 15 Intel
+            platform: macos
+            os: macos-15-intel
+            rid: osx-x64
+            macos_version: '15'
+            arch: x64
 
     steps:
       - name: Checkout keysharp
@@ -124,7 +132,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ runner.workspace }}/Eto
-          key: eto-${{ runner.os }}-${{ steps.eto-ref.outputs.sha }}
+          key: eto-${{ matrix.os }}-${{ matrix.rid }}-${{ steps.eto-ref.outputs.sha }}
 
       - name: Checkout Eto (non-Windows, cache miss)
         if: ${{ matrix.platform != 'windows' && steps.eto-cache.outputs.cache-hit != 'true' }}
@@ -157,6 +165,24 @@ jobs:
             Write-Host "MonoMac submodule present."
           }
           git -C $etoDir submodule update --init --recursive
+
+      - name: Verify macOS release runner
+        if: ${{ matrix.platform == 'macos' }}
+        shell: pwsh
+        run: |
+          $actualVersion = (& sw_vers -productVersion).Trim()
+          $actualArch = (& uname -m).Trim()
+          $expectedVersion = '${{ matrix.macos_version }}'
+          $expectedArch = if ('${{ matrix.arch }}' -eq 'x64') { 'x86_64' } else { 'arm64' }
+
+          if (-not $actualVersion.StartsWith("$expectedVersion.")) {
+            throw "Expected macOS $expectedVersion.x, but runner reported $actualVersion."
+          }
+          if ($actualArch -ne $expectedArch) {
+            throw "Expected architecture $expectedArch, but runner reported $actualArch."
+          }
+
+          Write-Host "Verified release host macOS $actualVersion on $actualArch for ${{ matrix.rid }}."
 
       - name: Install Linux package dependencies
         if: ${{ matrix.platform == 'linux' }}

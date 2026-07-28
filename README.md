@@ -58,11 +58,12 @@ Prebuilt packages are on the [Releases](https://github.com/Descolada/keysharp/re
 
 ### macOS
 
+- **Requirements:** macOS 15 or later. Download `osx-arm64` for Apple Silicon or `osx-x64` for an Intel Mac.
 - **Install:** Keysharp is not signed or notarized, so macOS Gatekeeper blocks the download — the DMG may refuse to open and the apps may report that the file **"is damaged and can't be opened"** (it isn't). Clear the download's quarantine flag first, then install:
 
   ```bash
   # Use the actual file you downloaded (the .pkg works the same way).
-  xattr -dr com.apple.quarantine ~/Downloads/keysharp-*-osx-arm64.dmg
+  xattr -dr com.apple.quarantine ~/Downloads/keysharp-*-osx-*.dmg
   ```
 
   Then open the **DMG** and double-click `Install.command` (copies the apps and optionally adds the `keysharp`/`keyview` terminal commands and VS Code shim), or run the **PKG** for a system-wide install. If an installed app still won't launch, clear it there too:

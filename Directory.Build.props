@@ -45,7 +45,7 @@
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(IsKeysharpShippingProject)' == 'true' AND $([MSBuild]::IsOSPlatform('OSX'))">
-    <RuntimeIdentifiers>osx-arm64</RuntimeIdentifiers>
+    <RuntimeIdentifiers>osx-arm64;osx-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(IsKeysharpShippingProject)' == 'true' AND '$(RuntimeIdentifier)' != '' AND '$(PublishDir)' == ''">
@@ -57,10 +57,6 @@
           Condition="'$(IsKeysharpShippingProject)' == 'true' AND '$(RuntimeIdentifier)' == ''">
     <Error Text="Keysharp and Keyview publish output is always RID-specific. Publish with a runtime identifier, for example: dotnet publish $(MSBuildProjectName)/$(MSBuildProjectName).csproj -c Release -r win-x64" />
   </Target>
-
-  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) AND ('$(MSBuildProjectName)' == 'Keysharp' OR '$(MSBuildProjectName)' == 'Keyview' OR '$(MSBuildProjectName)' == 'Keysharp.OutputTest')">
-    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">osx-arm64</RuntimeIdentifier>
-  </PropertyGroup>
 
   <Import Project="../Eto/src/Eto.Mac/build/Mac.props"
           Condition="$([MSBuild]::IsOSPlatform('OSX')) AND ('$(MSBuildProjectName)' == 'Keysharp' OR '$(MSBuildProjectName)' == 'Keyview' OR '$(MSBuildProjectName)' == 'Keysharp.OutputTest') AND Exists('../Eto/src/Eto.Mac/build/Mac.props')" />

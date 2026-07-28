@@ -62,16 +62,24 @@ jobs:
         run: |
           $target = '${{ github.event_name == 'workflow_dispatch' && inputs.target_platform || 'all' }}'
           switch ($target) {
-            'windows' { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"}]}' }
-            'linux'   { $matrix = '{"include":[{"os":"ubuntu-latest","platform":"linux"}]}' }
-            'macos'   { $matrix = '{"include":[{"os":"macos-latest","platform":"macos"}]}' }
-            default   { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"},{"os":"ubuntu-latest","platform":"linux"},{"os":"macos-latest","platform":"macos"}]}' }
+            'windows' {
+              $matrix = '{"include":[{"name":"Windows x64","os":"windows-latest","platform":"windows","rid":"win-x64"}]}'
+            }
+            'linux' {
+              $matrix = '{"include":[{"name":"Linux x64","os":"ubuntu-latest","platform":"linux","rid":"linux-x64"}]}'
+            }
+            'macos' {
+              $matrix = '{"include":[{"name":"macOS 15 arm64","os":"macos-15","platform":"macos","rid":"osx-arm64","macos_version":"15","arch":"arm64"},{"name":"macOS 26 arm64","os":"macos-26","platform":"macos","rid":"osx-arm64","macos_version":"26","arch":"arm64"},{"name":"macOS 15 Intel","os":"macos-15-intel","platform":"macos","rid":"osx-x64","macos_version":"15","arch":"x64"},{"name":"macOS 26 Intel","os":"macos-26-intel","platform":"macos","rid":"osx-x64","macos_version":"26","arch":"x64"}]}'
+            }
+            default {
+              $matrix = '{"include":[{"name":"Windows x64","os":"windows-latest","platform":"windows","rid":"win-x64"},{"name":"Linux x64","os":"ubuntu-latest","platform":"linux","rid":"linux-x64"},{"name":"macOS 15 arm64","os":"macos-15","platform":"macos","rid":"osx-arm64","macos_version":"15","arch":"arm64"},{"name":"macOS 26 arm64","os":"macos-26","platform":"macos","rid":"osx-arm64","macos_version":"26","arch":"arm64"},{"name":"macOS 15 Intel","os":"macos-15-intel","platform":"macos","rid":"osx-x64","macos_version":"15","arch":"x64"},{"name":"macOS 26 Intel","os":"macos-26-intel","platform":"macos","rid":"osx-x64","macos_version":"26","arch":"x64"}]}'
+            }
           }
           "matrix=$matrix" >> $env:GITHUB_OUTPUT
 
   build:
     needs: prepare
-    name: Build (${{ matrix.platform }})
+    name: Build (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -109,7 +117,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ runner.workspace }}/Eto
-          key: eto-${{ runner.os }}-${{ steps.eto-ref.outputs.sha }}
+          key: eto-${{ matrix.os }}-${{ matrix.rid }}-${{ steps.eto-ref.outputs.sha }}
 
       - name: Checkout Eto (non-Windows, cache miss)
         if: ${{ matrix.platform != 'windows' && steps.eto-cache.outputs.cache-hit != 'true' }}
@@ -147,23 +155,43 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "Platform: ${{ matrix.platform }}"
+          Write-Host "Runner: ${{ matrix.os }}"
+          Write-Host "RID: ${{ matrix.rid }}"
           Write-Host "Configuration: $env:BUILD_CONFIGURATION"
           Write-Host "Project scope: $env:BUILD_PROJECT"
+
+      - name: Verify macOS version and architecture
+        if: ${{ matrix.platform == 'macos' }}
+        shell: pwsh
+        run: |
+          $actualVersion = (& sw_vers -productVersion).Trim()
+          $actualArch = (& uname -m).Trim()
+          $expectedVersion = '${{ matrix.macos_version }}'
+          $expectedArch = if ('${{ matrix.arch }}' -eq 'x64') { 'x86_64' } else { 'arm64' }
+
+          if (-not $actualVersion.StartsWith("$expectedVersion.")) {
+            throw "Expected macOS $expectedVersion.x, but runner reported $actualVersion."
+          }
+          if ($actualArch -ne $expectedArch) {
+            throw "Expected architecture $expectedArch, but runner reported $actualArch."
+          }
+
+          Write-Host "Verified macOS $actualVersion on $actualArch."
 
       - name: Build Keysharp.Core
         if: ${{ env.BUILD_PROJECT == 'core' || env.BUILD_PROJECT == 'all' }}
         shell: pwsh
         run: |
-          dotnet build Keysharp.Core/Keysharp.Core.csproj -c $env:BUILD_CONFIGURATION --nologo
+          dotnet build Keysharp.Core/Keysharp.Core.csproj -c $env:BUILD_CONFIGURATION -r "${{ matrix.rid }}" --nologo
 
       - name: Build Keysharp (secondary)
         if: ${{ env.BUILD_PROJECT == 'all' || env.BUILD_PROJECT == 'keysharp' }}
         shell: pwsh
         run: |
-          dotnet build Keysharp/Keysharp.csproj -c $env:BUILD_CONFIGURATION --nologo
+          dotnet build Keysharp/Keysharp.csproj -c $env:BUILD_CONFIGURATION -r "${{ matrix.rid }}" --nologo
 
       - name: Build Keyview (secondary)
         if: ${{ env.BUILD_PROJECT == 'all' || env.BUILD_PROJECT == 'keyview' }}
         shell: pwsh
         run: |
-          dotnet build Keyview/Keyview.csproj -c $env:BUILD_CONFIGURATION --nologo
+          dotnet build Keyview/Keyview.csproj -c $env:BUILD_CONFIGURATION -r "${{ matrix.rid }}" --nologo

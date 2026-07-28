@@ -199,7 +199,7 @@ set_bundle_metadata() {
 
   set_plist_value "${plist}" "CFBundleShortVersionString" string "${VERSION}"
   set_plist_value "${plist}" "CFBundleVersion" string "${VERSION}"
-  set_plist_value "${plist}" "LSMinimumSystemVersion" string "10.15"
+  set_plist_value "${plist}" "LSMinimumSystemVersion" string "15.0"
   set_plist_value "${plist}" "NSHumanReadableCopyright" string "Copyright 2020-Present Keysharp contributors"
   plutil -lint "${plist}" >/dev/null
 }

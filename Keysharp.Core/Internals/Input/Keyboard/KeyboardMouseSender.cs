@@ -2345,6 +2345,10 @@ namespace Keysharp.Internals.Input.Keyboard
 
 				// Put any modifiers in sModifiersLR_remapped back into effect, as if they were physically down.
 				modsDownPhysically |= modifiersLRRemapped;
+				// Re-read the logical state after processing the send. In particular, {key DownR} can have
+				// changed it since modsCurrent was captured at entry. Filtering against that stale snapshot
+				// would immediately undo the DownR in SendEvent mode.
+				var modsCurrentAfterSend = GetModifierLRState();
 				// Restore the state of the modifiers to be those the user is physically holding down right now.
 				// Any modifiers that are logically "persistent", as detected upon entrance to this function
 				// (e.g. due to something such as a prior "Send, {LWinDown}"), are also pushed down if they're not already.
@@ -2354,7 +2358,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				// user resumes typing.
 				// v1.0.42.04: Now that SendKey() is lazy about releasing Ctrl and/or Shift (but not Win/Alt),
 				// the section below also releases Ctrl/Shift if appropriate.  See SendKey() for more details.
-				modsToSet = persistentModifiersForThisSendKeys & modsCurrent; // Set default.
+				modsToSet = persistentModifiersForThisSendKeys & modsCurrentAfterSend; // Set default.
 
 				if (inBlindMode) // This section is not needed for the array-sending modes because they exploit uninterruptibility to perform a more reliable restoration.
 				{
@@ -2417,7 +2421,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				// which in turn causes the Shift key to stick down.  If non-zero, the Shift key is currently "up"
 				// but should be "released" anyway, since the system will inject Shift-down either before the next
 				// keyboard event or after the Numpad key is released.  Find "fake shift" for more details.
-				SetModifierLRState(modsToSet, GetModifierLRState() | modifiersLRNumpadMask, targetWindow, true, true); // It also does DoKeyDelay(g->PressDuration).
+				SetModifierLRState(modsToSet, modsCurrentAfterSend | modifiersLRNumpadMask, targetWindow, true, true); // It also does DoKeyDelay(g->PressDuration).
 			} // End of non-array Send.
 
 			// For peace of mind and because that's how it was tested originally, the following is done

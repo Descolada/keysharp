@@ -1984,7 +1984,19 @@ namespace Keysharp.Internals.Input.Keyboard
 							// explicit modifiers are one-shot for the keystroke (see mappedModifiersForHold below).
 							var explicitModsForNextKey = modsForNextKey ?? 0u;
 #endif
-							_ = ht.TextToVKandSC(keyTokenSpan, ref vk, ref sc, ref keySource, ref modsForNextKey, targetKeybdLayoutRef);
+							// A chord key names a combination rather than a single key, so it resolves to its trigger
+							// plus the modifiers the firmware would assert. Expressing it as modifiers-for-this-key
+							// lets the normal path handle Blind mode, {Copilot down}, repeat counts and restoration,
+							// exactly as if the script had written the combination out by hand.
+							if (ChordKeyDefinition.TryGet(keyTokenSpan, out var chordKey))
+							{
+								vk = chordKey.VK;
+								sc = 0;
+								keySource = KeySource.Name;
+								modsForNextKey = (modsForNextKey ?? 0u) | chordKey.HotkeyModifiersLR();
+							}
+							else
+								_ = ht.TextToVKandSC(keyTokenSpan, ref vk, ref sc, ref keySource, ref modsForNextKey, targetKeybdLayoutRef);
 
 							if (repeatCount < 1L)
 								goto bracecaseend; // Gets rid of one level of indentation. Well worth it.

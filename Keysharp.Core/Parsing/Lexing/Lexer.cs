@@ -613,6 +613,11 @@ namespace Keysharp.Parsing.Lexing
 			if (Keysharp.Internals.Input.Keyboard.HotkeyDefinition.ConvertAltTab(keyName.ToString(), false) != 0)
 				return true;
 
+			// Chord keys (Copilot, Office) deliberately stay out of the vk/sc tables, but they are valid remap
+			// targets: Send knows how to emit the combination they stand for.
+			if (Keysharp.Internals.Input.Keyboard.ChordKeyDefinition.TryGet(keyName, out _))
+				return true;
+
 			var ht = Keysharp.Runtime.Script.TheScript?.HookThread;
 			if (ht == null)
 				return true;

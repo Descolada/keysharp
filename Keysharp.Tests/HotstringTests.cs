@@ -542,6 +542,25 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Hotstring")]
+		public void ChordKeyIsUsableAsRemapDestinationAndSendToken()
+		{
+			// Send resolves a chord name to its trigger plus the modifiers the firmware would assert, so the
+			// ordinary token machinery ({Blind}, Down/Up, repeat counts) applies unchanged.
+			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("a::Copilot");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			var generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			// Previously this silently lexed as a hotkey body calling Copilot(), with no diagnostic at all.
+			Assert.IsTrue(generated.Contains("__Remap_"), generated);
+			Assert.IsTrue(generated.Contains("{Copilot DownR}"), generated);
+			Assert.IsTrue(generated.Contains("{Copilot Up}"), generated);
+
+			// A name that is neither a key nor a chord still lexes as a hotkey body, not a remap.
+			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("a::NotAKeyName");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			Assert.IsFalse(new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString().Contains("__Remap_"));
+		}
+
+		[Test, Category("Hotstring")]
 		public void OfficeHotkeyAliasesLeftModifierChord()
 		{
 			var office = new HotkeyDefinition(1002, null, (uint)HotkeyTypeEnum.Normal, "Office", 0);

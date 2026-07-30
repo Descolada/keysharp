@@ -163,6 +163,71 @@ namespace Keysharp.Parsing.Syntax
 					access(Id(t)))));
 		}
 
+		private static bool IsUnsetKeyword(Expr expr) =>
+			expr is NameExpr name && name.Name.Equals("unset", System.StringComparison.OrdinalIgnoreCase);
+
+		// The variable of an unset test written as a comparison against the `unset` keyword — `x = unset`, `x == unset`,
+		// `x is unset`, their negations, and the same with the operands reversed. This is a Keysharp extension (AutoHotkey
+		// rejects it) which means exactly what IsSet(x) means, so it gets IsSet's treatment in the VarUnset analysis:
+		// testing a variable for unset is not a read of it, and counts as accounting for it. Null when expr is not one.
+		private static NameExpr UnsetTestOperand(BinaryExpr binary)
+		{
+			// `is` is a verbal operator, so it carries whatever casing the source used.
+			var isTypeTest = binary.Op.Equals("is", System.StringComparison.OrdinalIgnoreCase);
+
+			if (!isTypeTest && binary.Op is not ("=" or "==" or "!=" or "!=="))
+				return null;
+
+			if (IsUnsetKeyword(binary.Right) && binary.Left is NameExpr left)
+				return left;
+
+			// `unset is x` asks about x's type, not whether it is set, so only the equality forms reverse.
+			return !isTypeTest && IsUnsetKeyword(binary.Left) && binary.Right is NameExpr right ? right : null;
+		}
+
+		// Whether the maybe operator (or an optional chain) makes this expression able to yield unset, in which case
+		// the operators applied to it short-circuit instead of raising. [v2.1-alpha.29+]
+		// Short-circuiting is a property of `?` alone. A bare `unset` keyword operand is deliberately excluded:
+		// Keysharp accepts `x = unset` as a way to test for unset (which AutoHotkey rejects), so the keyword has to
+		// stay a comparable operand there rather than propagating unset out of the comparison.
+		private static bool MayYieldUnset(Expr expr) => expr switch
+		{
+			null => false,
+			UnaryExpr { Op: "?" } => true,
+			UnaryExpr unary => MayYieldUnset(unary.Operand),
+			BinaryExpr binary when binary.Op == "??" => MayYieldUnset(binary.Right),
+			BinaryExpr binary => MayYieldUnset(binary.Left) || MayYieldUnset(binary.Right),
+			AssignExpr assign => MayYieldUnset(assign.Value),
+			TernaryExpr ternary => MayYieldUnset(ternary.Cond) || MayYieldUnset(ternary.Then) || MayYieldUnset(ternary.Else),
+			MemberExpr member => member.NullConditional || MayYieldUnset(member.Target),
+			DynMemberExpr member => member.NullConditional || MayYieldUnset(member.Target),
+			IndexExpr index => index.NullConditional || MayYieldUnset(index.Target),
+			CallExpr call => call.NullConditional || MayYieldUnset(call.Callee),
+			GroupExpr group => MayYieldUnset(group.Inner),
+			SequenceExpr sequence => sequence.Items.Count > 0 && MayYieldUnset(sequence.Items[^1]),
+			_ => false
+		};
+
+		private ExpressionSyntax PropagateBinary(BinaryExpr binary, string method)
+		{
+			var left = NewTemp();
+			var right = NewTemp();
+			var operation = Op(method, Id(left), Id(right));
+			var rightPart = Op("MultiStatement",
+				Assign(Id(right), LowerExpr(binary.Right)),
+				SyntaxFactory.ParenthesizedExpression(SyntaxFactory.ConditionalExpression(
+					SyntaxFactory.BinaryExpression(SyntaxKind.EqualsExpression, Id(right), Null),
+					Null, operation)));
+			return Op("MultiStatement",
+				Assign(Id(left), LowerExpr(binary.Left)),
+				SyntaxFactory.ParenthesizedExpression(SyntaxFactory.ConditionalExpression(
+					SyntaxFactory.BinaryExpression(SyntaxKind.EqualsExpression, Id(left), Null),
+					Null, rightPart)));
+		}
+
+		private ExpressionSyntax PropagateUnary(Expr operand, System.Func<ExpressionSyntax, ExpressionSyntax> operation) =>
+			NullCondWrap(operand, operation);
+
 		// Case-insensitive so verbal operators carry any source casing (Is, AND, Or).
 		private static readonly Dictionary<string, string> BinOps = new(System.StringComparer.OrdinalIgnoreCase)
 		{
@@ -1512,6 +1577,9 @@ namespace Keysharp.Parsing.Syntax
 			{
 				case ExpressionStmt es:
 					if (es.Expr is CallExpr call) return ExprStmt(LowerCall(call, statement: true));
+					// A comma list as a statement (`a(), b()`) discards every item's value, the last one included.
+					if (es.Expr is SequenceExpr stmtSeq)
+						return ExprStmt(Op("MultiStatement", stmtSeq.Items.Select(LowerAllowingUnset).ToArray()));
 					var le = LowerExpr(es.Expr);
 					// C# only allows call/assignment/new as a statement; wrap anything else (bare value, ternary, …).
 					return ExprStmt(le is InvocationExpressionSyntax or AssignmentExpressionSyntax ? le : Op("MultiStatement", le));
@@ -1877,7 +1945,10 @@ namespace Keysharp.Parsing.Syntax
 						&& c.Args.Count == 1 && c.Args[0].Value is NameExpr iv) provided.Add(iv.Name.ToLowerInvariant());   // IsSet(var)
 					CollectProvidedExpr(c.Callee, provided, declaredGlobal); foreach (var ar in c.Args) if (ar.Value != null) CollectProvidedExpr(ar.Value, provided, declaredGlobal);
 					break;
-				case BinaryExpr b: CollectProvidedExpr(b.Left, provided, declaredGlobal); CollectProvidedExpr(b.Right, provided, declaredGlobal); break;
+				case BinaryExpr b:
+					// `x = unset` (and friends) tests x the same way IsSet(x) does, so it counts as a provide too.
+					if (UnsetTestOperand(b) is NameExpr uv) provided.Add(uv.Name.ToLowerInvariant());
+					CollectProvidedExpr(b.Left, provided, declaredGlobal); CollectProvidedExpr(b.Right, provided, declaredGlobal); break;
 				case TernaryExpr t: CollectProvidedExpr(t.Cond, provided, declaredGlobal); CollectProvidedExpr(t.Then, provided, declaredGlobal); CollectProvidedExpr(t.Else, provided, declaredGlobal); break;
 				case GroupExpr g: CollectProvidedExpr(g.Inner, provided, declaredGlobal); break;
 				case SequenceExpr sq: foreach (var it in sq.Items) CollectProvidedExpr(it, provided, declaredGlobal); break;
@@ -1945,6 +2016,8 @@ namespace Keysharp.Parsing.Syntax
 					if (!isIsSet) foreach (var ar in c.Args) if (ar.Value != null) CheckReadsExpr(ar.Value, provided, warned);
 					break;
 				case BinaryExpr b:
+					// `x = unset` and friends test for unset rather than reading x, so they never warn (like IsSet()).
+					if (UnsetTestOperand(b) != null) break;
 					// `a ?? b`: the left operand is a maybe-unset (guarded) read — a bare unset variable there is
 					// intentional (it falls back to the right), so AHK does not warn (like IsSet()). Still check the right
 					// operand, and sub-reads of a non-bare left (e.g. `obj.p ?? x` still needs `obj` to be set).
@@ -2160,7 +2233,11 @@ namespace Keysharp.Parsing.Syntax
 					}
 					return NameRef(n.Name);
 				case GroupExpr g: return SyntaxFactory.ParenthesizedExpression(LowerExpr(g.Inner));
-				case SequenceExpr seq: return Op("MultiStatement", seq.Items.Select(LowerExpr).ToArray());
+				// Only the last item is the sequence's value; the rest are evaluated for their side effects alone,
+				// so they are lowered as statements — a discarded unset return must not raise.
+				case SequenceExpr seq:
+					return Op("MultiStatement", seq.Items.Select((item, i) =>
+						i == seq.Items.Count - 1 ? LowerExpr(item) : LowerAllowingUnset(item)).ToArray());
 				case AssignExpr a: return LowerAssign(a);
 				case BinaryExpr b:
 					// && / and and || / or short-circuit and yield an operand (not a bool), so they can't be plain calls.
@@ -2177,23 +2254,28 @@ namespace Keysharp.Parsing.Syntax
 						return Op("Is", RewriteToOrNull(LowerExpr(b.Left)), Null);
 					if (BinOps.TryGetValue(b.Op, out var m))
 					{
+						if (MayYieldUnset(b.Left) || MayYieldUnset(b.Right))
+							return PropagateBinary(b, m);
 						var le = LowerExpr(b.Left); var re = LowerExpr(b.Right);
 						return TryFoldBinary(b.Op, le, re) ?? Op(m, le, re);   // constant-fold literal operands (1+2 -> 3L)
 					}
 					Diag($"operator not yet lowerable: '{b.Op}'"); return Str("");
 				case UnaryExpr u: return LowerUnary(u);
 				case TernaryExpr t:
-					return SyntaxFactory.ParenthesizedExpression(
-						SyntaxFactory.ConditionalExpression(IfTest(LowerExpr(t.Cond)), LowerExpr(t.Then), LowerExpr(t.Else)));
+					return MayYieldUnset(t.Cond)
+						? NullCondWrap(t.Cond, cond => SyntaxFactory.ParenthesizedExpression(
+							SyntaxFactory.ConditionalExpression(IfTest(cond), LowerExpr(t.Then), LowerExpr(t.Else))))
+						: SyntaxFactory.ParenthesizedExpression(
+							SyntaxFactory.ConditionalExpression(IfTest(LowerExpr(t.Cond)), LowerExpr(t.Then), LowerExpr(t.Else)));
 				// `?.` chains are unset-lenient: the base is guarded non-null by NullCondWrap, and the access itself uses
 				// the *OrNull form so an unset-VALUED member yields null (which short-circuits the next `?.`) rather than
 				// raising (e.g. `optObj?.prop?.inner` when `prop` is unset).
 				case MemberExpr mem:
-					return mem.NullConditional
+					return mem.NullConditional || MayYieldUnset(mem.Target)
 						? NullCondWrap(mem.Target, tt => Op("GetPropertyValueOrNull", tt, Str(mem.Name)))
 						: Op("GetPropertyValue", LowerExpr(mem.Target), Str(mem.Name));
 				case DynMemberExpr dmem:
-					return dmem.NullConditional
+					return dmem.NullConditional || MayYieldUnset(dmem.Target)
 						? NullCondWrap(dmem.Target, tt => Op("GetPropertyValueOrNull", tt, LowerExpr(dmem.NameExpr)))
 						: Op("GetPropertyValue", LowerExpr(dmem.Target), LowerExpr(dmem.NameExpr));
 				case IndexExpr ix:
@@ -2201,10 +2283,14 @@ namespace Keysharp.Parsing.Syntax
 					// so the runtime routes the args to an index-property getter (`Prop[i] { get }`) — or indexes the
 					// member's value when it is a plain field. A bare `name[args]` / `expr[args]` stays a GetIndex.
 					if (!ix.NullConditional && ix.Target is MemberExpr { NullConditional: false } im)
-						return Op("GetPropertyValue", new[] { LowerExpr(im.Target), Str(im.Name) }.Concat(LowerArgs(ix.Args)).ToArray());
+						return MayYieldUnset(im.Target)
+							? NullCondWrap(im.Target, tt => Op("GetPropertyValue", new[] { tt, Str(im.Name) }.Concat(LowerArgs(ix.Args)).ToArray()))
+							: Op("GetPropertyValue", new[] { LowerExpr(im.Target), Str(im.Name) }.Concat(LowerArgs(ix.Args)).ToArray());
 					if (!ix.NullConditional && ix.Target is DynMemberExpr { NullConditional: false } idm)
-						return Op("GetPropertyValue", new[] { LowerExpr(idm.Target), LowerExpr(idm.NameExpr) }.Concat(LowerArgs(ix.Args)).ToArray());
-					return ix.NullConditional
+						return MayYieldUnset(idm.Target)
+							? NullCondWrap(idm.Target, tt => Op("GetPropertyValue", new[] { tt, LowerExpr(idm.NameExpr) }.Concat(LowerArgs(ix.Args)).ToArray()))
+							: Op("GetPropertyValue", new[] { LowerExpr(idm.Target), LowerExpr(idm.NameExpr) }.Concat(LowerArgs(ix.Args)).ToArray());
+					return ix.NullConditional || MayYieldUnset(ix.Target)
 						? NullCondWrap(ix.Target, tt => Op("GetIndexOrNull", Cons(tt, LowerArgs(ix.Args))))
 						: Op("GetIndex", Cons(LowerExpr(ix.Target), LowerArgs(ix.Args)));
 				case ArrayExpr ar:
@@ -2245,7 +2331,15 @@ namespace Keysharp.Parsing.Syntax
 			if (a.Target is MemberExpr me)
 			{
 				if (a.Op == ":=")   // target evaluated once — no temp needed
-					return Op("SetPropertyValue", LowerExpr(me.Target), Str(me.Name), LowerExpr(a.Value));
+					return me.NullConditional || MayYieldUnset(me.Target)
+						? NullCondWrap(me.Target, target => Op("SetPropertyValue", target, Str(me.Name), LowerExpr(a.Value)))
+						: Op("SetPropertyValue", LowerExpr(me.Target), Str(me.Name), LowerExpr(a.Value));
+				if (me.NullConditional || MayYieldUnset(me.Target))
+					return NullCondWrap(me.Target, target =>
+					{
+						var value = CompoundValue(a.Op[..^1], Op("GetPropertyValue", target, Str(me.Name)), LowerExpr(a.Value));
+						return value == null ? Str("") : Op("SetPropertyValue", target, Str(me.Name), value);
+					});
 				// Compound: capture the target once so a side-effecting target expression runs a single time.
 				var t = NewTemp();
 				var mval = CompoundValue(a.Op[..^1], Op("GetPropertyValue", Id(t), Str(me.Name)), LowerExpr(a.Value));
@@ -2256,7 +2350,18 @@ namespace Keysharp.Parsing.Syntax
 			if (a.Target is DynMemberExpr dme)   // obj.%x% := v / obj.%x% op= v — capture target and the computed name once
 			{
 				if (a.Op == ":=")
-					return Op("SetPropertyValue", LowerExpr(dme.Target), LowerExpr(dme.NameExpr), LowerExpr(a.Value));
+					return dme.NullConditional || MayYieldUnset(dme.Target)
+						? NullCondWrap(dme.Target, target => Op("SetPropertyValue", target, LowerExpr(dme.NameExpr), LowerExpr(a.Value)))
+						: Op("SetPropertyValue", LowerExpr(dme.Target), LowerExpr(dme.NameExpr), LowerExpr(a.Value));
+				if (dme.NullConditional || MayYieldUnset(dme.Target))
+					return NullCondWrap(dme.Target, target =>
+					{
+						var name = NewTemp();
+						var value = CompoundValue(a.Op[..^1], Op("GetPropertyValue", target, Id(name)), LowerExpr(a.Value));
+						return value == null ? Str("") : Op("MultiStatement",
+							Assign(Id(name), LowerExpr(dme.NameExpr)),
+							Op("SetPropertyValue", target, Id(name), value));
+					});
 				var dmt = NewTemp(); var dmn = NewTemp();
 				var dmval = CompoundValue(a.Op[..^1], Op("GetPropertyValue", Id(dmt), Id(dmn)), LowerExpr(a.Value));
 				if (dmval == null) { Diag($"compound assignment to a member ('{a.Op}') not yet lowerable"); return Str(""); }
@@ -2267,11 +2372,35 @@ namespace Keysharp.Parsing.Syntax
 			{
 				if (a.Op == ":=")
 				{
-					var argv = new List<ExpressionSyntax> { LowerExpr(ie.Target) };
-					argv.AddRange(LowerArgs(ie.Args));
-					argv.Add(LowerExpr(a.Value));
-					return Op("SetObject", argv.ToArray());
+					ExpressionSyntax SetIndex(ExpressionSyntax target)
+					{
+						var argv = new List<ExpressionSyntax> { target };
+						argv.AddRange(LowerArgs(ie.Args));
+						argv.Add(LowerExpr(a.Value));
+						return Op("SetObject", argv.ToArray());
+					}
+					return ie.NullConditional || MayYieldUnset(ie.Target)
+						? NullCondWrap(ie.Target, SetIndex)
+						: SetIndex(LowerExpr(ie.Target));
 				}
+				if (ie.NullConditional || MayYieldUnset(ie.Target))
+					return NullCondWrap(ie.Target, target =>
+					{
+						var lowered = LowerArgs(ie.Args);
+						var temps = lowered.Select(_ => NewTemp()).ToList();
+						var ops = new List<ExpressionSyntax>();
+						for (var k = 0; k < temps.Count; ++k)
+							ops.Add(Assign(Id(temps[k]), lowered[k]));
+						var ids = temps.Select(name => (ExpressionSyntax)Id(name)).ToList();
+						var newValue = CompoundValue(a.Op[..^1], Op("GetIndex", Cons(target, ids)), LowerExpr(a.Value));
+						if (newValue == null)
+							return Str("");
+						var set = new List<ExpressionSyntax> { target };
+						set.AddRange(ids);
+						set.Add(newValue);
+						ops.Add(Op("SetObject", set.ToArray()));
+						return Op("MultiStatement", ops.ToArray());
+					});
 				// Compound: capture the target and each index once.
 				var tt = NewTemp();
 				var loweredArgs = LowerArgs(ie.Args);
@@ -2385,9 +2514,13 @@ namespace Keysharp.Parsing.Syntax
 			var tmp = NewTemp();
 			var assign = Assign(Id(tmp), LowerExpr(b.Left));
 			var cond = IfTest(Id(tmp));
-			var ternary = SyntaxFactory.ParenthesizedExpression(andOp
+			ExpressionSyntax ternary = SyntaxFactory.ParenthesizedExpression(andOp
 				? SyntaxFactory.ConditionalExpression(cond, LowerExpr(b.Right), Id(tmp))
 				: SyntaxFactory.ConditionalExpression(cond, Id(tmp), LowerExpr(b.Right)));
+			if (MayYieldUnset(b.Left))
+				ternary = SyntaxFactory.ParenthesizedExpression(SyntaxFactory.ConditionalExpression(
+					SyntaxFactory.BinaryExpression(SyntaxKind.EqualsExpression, Id(tmp), Null),
+					Null, ternary));
 			return Op("MultiStatement", assign, ternary);
 		}
 
@@ -2401,13 +2534,14 @@ namespace Keysharp.Parsing.Syntax
 				if (u.Op == "?") return RewriteToOrNull(LowerExpr(u.Operand));
 				Diag($"postfix '{u.Op}' not yet lowerable"); return Str("");
 			}
+			var propagate = MayYieldUnset(u.Operand);
 			switch (u.Op)
 			{
-				case "!": case "not": return Op("LogicalNot", LowerExpr(u.Operand));
-				case "-": return Op("Subtract", Num("0"), LowerExpr(u.Operand));
-				case "+": return LowerExpr(u.Operand);
+				case "!": case "not": return propagate ? PropagateUnary(u.Operand, value => Op("LogicalNot", value)) : Op("LogicalNot", LowerExpr(u.Operand));
+				case "-": return propagate ? PropagateUnary(u.Operand, value => Op("Subtract", Num("0"), value)) : Op("Subtract", Num("0"), LowerExpr(u.Operand));
+				case "+": return propagate ? PropagateUnary(u.Operand, value => value) : LowerExpr(u.Operand);
 				case "&": return MakeRefFor(u.Operand);
-				case "~": return Op("BitwiseNot", LowerExpr(u.Operand));
+				case "~": return propagate ? PropagateUnary(u.Operand, value => Op("BitwiseNot", value)) : Op("BitwiseNot", LowerExpr(u.Operand));
 				default: Diag($"unary '{u.Op}' not yet lowerable"); return Str("");
 			}
 		}
@@ -2485,6 +2619,13 @@ namespace Keysharp.Parsing.Syntax
 			return e;
 		}
 
+		// An expression whose unset result must not raise, either because the value is discarded (a statement, or a
+		// non-final item of a sequence) or because it becomes this function's own no-value return (a tail call, which
+		// propagates an implicit blank-unset return). Lowering a call the way a call-as-statement is lowered yields
+		// null rather than raising. [v2.1-alpha.29+]
+		private ExpressionSyntax LowerAllowingUnset(Expr e) =>
+			e is CallExpr call ? LowerCall(call, statement: true) : LowerExpr(e);
+
 		private ExpressionSyntax LowerCall(CallExpr c, bool statement)
 		{
 			// IsSet(member/index/call) must not throw on an unset target — rewrite the arg to its *OrNull form.
@@ -2499,11 +2640,11 @@ namespace Keysharp.Parsing.Syntax
 
 			// `obj?.M(args)` (null-conditional method) / `obj?.()` (null-conditional call): evaluate the target once;
 			// if unset, short-circuit to null without evaluating the call (or its args). Matches the canonical chain.
-			if (c.Callee is MemberExpr mc && mc.NullConditional)
+			if (c.Callee is MemberExpr mc && (mc.NullConditional || MayYieldUnset(mc.Target)))
 				return NullCondWrap(mc.Target, tt => Op("Invoke", Cons2(tt, Str(mc.Name), CallArgs())));
-			if (c.Callee is DynMemberExpr dmc && dmc.NullConditional)
+			if (c.Callee is DynMemberExpr dmc && (dmc.NullConditional || MayYieldUnset(dmc.Target)))
 				return NullCondWrap(dmc.Target, tt => Op("Invoke", Cons2(tt, LowerExpr(dmc.NameExpr), CallArgs())));
-			if (c.NullConditional)
+			if (c.NullConditional || MayYieldUnset(c.Callee))
 				return NullCondWrap(c.Callee, tt => Op("Invoke", Cons2(tt, Str("Call"), CallArgs())));
 
 			List<ExpressionSyntax> args;
@@ -3012,9 +3153,15 @@ namespace Keysharp.Parsing.Syntax
 			var statFields = c.Fields.Where(f => f.Static && f.Init != null).ToList();
 			// A struct's typed fields are registered on the prototype (DefineStructFieldOnPrototype with the field's .NET type) in the
 			// static initializer, so the runtime knows the struct layout.
-			var typedFields = c.Fields.Where(f => f.TypeName != null).ToList();
+			var typedFields = c.Fields.Where(f => f.TypeExpr != null).ToList();
 			_structTypeName = typeName;
+			var savedInMethod = _inMethod;
+			var savedMethodStatic = _currentMethodStatic;
+			_inMethod = true;
+			_currentMethodStatic = true;
 			var staticPre = typedFields.Select(StructFieldDefineProp).Where(s => s != null).ToList();
+			_inMethod = savedInMethod;
+			_currentMethodStatic = savedMethodStatic;
 			if (statFields.Count > 0 || staticPre.Count > 0 || c.StaticInit.Count > 0)
 				members.Add(InitMethod(NameMangler.StaticInit(), null, statFields, staticPre, c.StaticInit, staticCtx: true));
 
@@ -3036,44 +3183,18 @@ namespace Keysharp.Parsing.Syntax
 			return decl;
 		}
 
-		// Registers a typed struct field on the prototype: `Objects.DefineStructFieldOnPrototype(Prototypes[typeof(Struct)], "x", typeof(FieldType))`.
+		// Registers a typed struct field on the prototype. The type expression is evaluated at runtime in the
+		// class's static initializer, as required by v2.1-alpha.30.
 		private StatementSyntax StructFieldDefineProp(ClassField f)
 		{
 			var proto = SyntaxFactory.ElementAccessExpression(Access("MainScript.Vars.Prototypes"))
 				.WithArgumentList(SyntaxFactory.BracketedArgumentList(SyntaxFactory.SingletonSeparatedList(Arg(SyntaxFactory.TypeOfExpression(Ty(_structTypeName))))));
-			ExpressionSyntax typeOf;
-			var bracket = f.TypeName.IndexOf('[');
-
-			if (bracket >= 0)
-			{
-				// Structured-array field `ElementType[N]`: the array class is created at runtime, so resolve it via
-				// Struct.MakeArrayType(typeof(ElementType), N) rather than a compile-time typeof.
-				var elemName = f.TypeName.Substring(0, bracket);
-				var lenStr = f.TypeName.Substring(bracket + 1, f.TypeName.Length - bracket - 2);
-				var elemType = ResolveStructFieldType(elemName);
-				if (elemType == null) { Diag($"unknown struct array element type '{elemName}'"); return null; }
-				typeOf = Inv(Access("Keysharp.Builtins.Struct.MakeArrayType"), SyntaxFactory.TypeOfExpression(Ty(elemType)), Num(lenStr));
-			}
-			else
-			{
-				var fieldType = ResolveStructFieldType(f.TypeName);
-				if (fieldType == null) { Diag($"unknown struct field type '{f.TypeName}'"); return null; }
-				typeOf = SyntaxFactory.TypeOfExpression(Ty(fieldType));
-			}
+			var typeValue = LowerExpr(f.TypeExpr);
 
 			// Pass the #StructPack alignment as a 4th argument when one is in effect (0 = default packing).
 			return f.Pack != 0
-				? ExprStmt(Inv(Access("Keysharp.Builtins.Objects.DefineStructFieldOnPrototype"), proto, Str(f.Name), typeOf, Num(f.Pack.ToString())))
-				: ExprStmt(Inv(Access("Keysharp.Builtins.Objects.DefineStructFieldOnPrototype"), proto, Str(f.Name), typeOf));
-		}
-
-		// Resolves a struct field/base type name to its C# type: a user struct/class, or a builtin (Int32 -> StructInt32).
-		private string ResolveStructFieldType(string raw)
-		{
-			var lower = raw.ToLowerInvariant();
-			if (_userClassByLower.TryGetValue(lower, out var un)) return un;
-			if (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(lower, out var bt)) return bt.FullName.Replace('+', '.');
-			return null;
+				? ExprStmt(Inv(Access("Keysharp.Builtins.Objects.DefineStructFieldOnPrototype"), proto, Str(f.Name), typeValue, Num(f.Pack.ToString())))
+				: ExprStmt(Inv(Access("Keysharp.Builtins.Objects.DefineStructFieldOnPrototype"), proto, Str(f.Name), typeValue));
 		}
 
 		// __Init / static__Init: optionally chain the base prototype's __Init, then run extra prologue statements

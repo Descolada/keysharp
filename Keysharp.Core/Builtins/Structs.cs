@@ -86,7 +86,15 @@ namespace Keysharp.Builtins
 
 		public long Ptr => ownedHandle?.DangerousGetHandle().ToInt64() ?? borrowedPtr;
 
-		public object Size => GetCurrentLayoutInfo().Size;
+		// Resolved from the receiver rather than declared as an instance property, so that it also answers on a
+		// struct class's Prototype: the prototype defines the layout but is not itself a Struct. A prototype
+		// reports the struct size rather than the allocated size. [v2.1-alpha.23+]
+		public static object get_Size(object @this) => @this switch
+		{
+			Struct st => st.GetCurrentLayoutInfo().Size,
+			Any any when GetStructType(any) is Type structType => GetLayoutInfo(structType, true).Size,
+			_ => Errors.TypeErrorOccurred(@this, typeof(Struct))
+		};
 
 		[PublicHiddenFromUser]
 		[UserDeclaredName("Ptr")]
@@ -510,6 +518,18 @@ namespace Keysharp.Builtins
 			return structType != null;
 		}
 
+		// Whether value carries typed properties, i.e. a non-empty struct layout. A prototype carries the layout of
+		// the struct class it belongs to, while an instance carries its own, so both forms have to be considered.
+		internal static bool HasTypedProperties(Any value)
+		{
+			if (value == null)
+				return false;
+
+			var structType = value.isPrototype ? GetStructType(value)
+							 : IsStructType(value.GetType()) ? value.GetType() : null;
+			return structType != null && GetLayoutInfo(structType, true).Size != 0;
+		}
+
 		internal static bool TryResolvePointerClass(object value, out Type pointerType, out Type targetType)
 		{
 			pointerType = null;
@@ -524,6 +544,188 @@ namespace Keysharp.Builtins
 		internal static long GetSize(Type structType) => GetLayoutInfo(structType, true).Size;
 
 		internal static bool IsPrimitive(Type structType) => GetLayoutInfo(structType, true).IsPrimitive;
+
+		// The built-in DllCall type name a numeric type class is equivalent to, or null if structType is not one.
+		// Used as a DllCall type, such a class "is not instantiated" and converts directly, so it can simply be
+		// handled as the built-in type it mirrors. Pointer classes are primitive too, but must keep their own
+		// dereferencing behaviour, so they are excluded. [v2.1-alpha.23+]
+		internal static string GetPrimitiveTypeTag(Type structType)
+		{
+			var info = GetLayoutInfo(structType, true);
+
+			if (!info.IsPrimitive || pointerTargets.ContainsKey(structType))
+				return null;
+
+			return info.PrimitiveKind switch
+			{
+				StructPrimitiveKind.Int8 => "char",
+				StructPrimitiveKind.UInt8 => "uchar",
+				StructPrimitiveKind.Int16 => "short",
+				StructPrimitiveKind.UInt16 => "ushort",
+				StructPrimitiveKind.Int32 => "int",
+				StructPrimitiveKind.UInt32 => "uint",
+				StructPrimitiveKind.Int64 => "int64",
+				StructPrimitiveKind.Ptr => "ptr",
+				StructPrimitiveKind.Float32 => "float",
+				StructPrimitiveKind.Float64 => "double",
+				_ => null
+			};
+		}
+
+		// Which register file a typed callback value travels in, which is all the native signature of a callback
+		// has to distinguish: every integer-like value of 8 bytes or less arrives in an integer register (or a
+		// stack slot) and so can be declared as a long regardless of its width, while a floating-point value
+		// arrives in its own register and has to be declared at its exact width. [v2.1-alpha.24+]
+		internal enum CallbackSlot : byte { Integer, Float32, Float64 }
+
+		/// <summary>
+		/// Everything a typed callback needs to know about one parameter or return value, decided once when the
+		/// callback is created. An invocation must not consult the layout tables, because those live behind a
+		/// process-global lock which a native callback has no business acquiring on every call.
+		///
+		/// Two known costs remain per invocation, both on the aggregate path only (scalars are allocation-free):
+		/// converting an aggregate argument constructs a Struct, whose storage is native memory reclaimed by
+		/// finalization, so a struct-by-value callback in a tight loop holds a footprint the GC decides when to
+		/// release; and the constructed Struct is handed to the script, which may retain it, so it cannot be
+		/// pooled or reused between invocations. Giving small structs inline storage would remove both.
+		///
+		/// One platform caveat: reading any integer-like value out of a long-wide slot assumes stack arguments
+		/// are promoted to 8 bytes, which holds on Win64, SysV x64 and Linux AArch64 but not on Apple arm64,
+		/// which packs them at their natural size. A narrow integer parameter past the eighth would therefore be
+		/// misread there. Expressing exact widths would push signatures that need no code generation today onto
+		/// the emitted path, so this is left as a documented limitation.
+		/// </summary>
+		internal readonly struct CallbackConversion(StructPrimitiveKind kind, Type aggregate)
+		{
+			internal readonly StructPrimitiveKind Kind = kind;   // None for an aggregate.
+			internal readonly Type Aggregate = aggregate;        // Non-null only when Kind is None.
+
+			// Which register file the value travels in, and so whether it needs a native signature of its own.
+			internal CallbackSlot Slot => Kind switch
+			{
+				StructPrimitiveKind.Float32 => CallbackSlot.Float32,
+				StructPrimitiveKind.Float64 => CallbackSlot.Float64,
+				_ => CallbackSlot.Integer
+			};
+		}
+
+		// Resolves how a declared callback type is passed and converted, rejecting the shapes whose passing
+		// convention is not the same on every supported ABI. Returns false and sets error if unsupported.
+		internal static bool TryGetCallbackConversion(Type structType, bool isReturn, out CallbackConversion conversion, out string error)
+		{
+			var info = GetLayoutInfo(structType, true);
+			error = null;
+
+			if (info.IsPrimitive)
+			{
+				conversion = new(info.PrimitiveKind, null);
+				return true;
+			}
+
+			conversion = default;
+			var what = isReturn ? "return value" : "parameter";
+
+			// An aggregate can only be declared as one long-wide integer slot where every ABI agrees to pass it
+			// in a single integer register. The ABIs diverge outside 1/2/4/8 bytes: Win64 substitutes a pointer,
+			// AArch64 splits 9..16 bytes across two registers, and SysV x64 copies it onto the stack. DllCall
+			// refuses the same shapes in the outgoing direction.
+			if (info.Size is not (1 or 2 or 4 or 8))
+			{
+				error = $"A callback {what} of type {structType.Name} must be 1, 2, 4 or 8 bytes.";
+				return false;
+			}
+
+			// They also diverge on aggregates made only of floating-point fields: SysV x64 classifies such an
+			// eightbyte as SSE and passes it in an XMM register, and AArch64 treats it as a homogeneous float
+			// aggregate spread over several float registers. Neither is a single integer slot, so rather than
+			// silently reading the wrong register these are refused. A mix of integer and floating-point fields
+			// is an integer slot on both, so only the all-floating-point case has to go.
+			if (IsAllFloatingPoint(structType))
+			{
+				error = $"A callback {what} of type {structType.Name} contains only floating-point fields, which is not supported.";
+				return false;
+			}
+
+			conversion = new(StructPrimitiveKind.None, structType);
+			return true;
+		}
+
+		// Whether every leaf field of an aggregate is a floating-point value. Vacuously false for an empty one.
+		// Inherited fields have to be walked explicitly: a base contributes to a derived struct's layout through
+		// its size rather than through the derived type's own field list, so a struct which merely inherits
+		// floating-point fields would otherwise look empty and be wrongly accepted, and one which adds an integer
+		// field to a floating-point base would look all-floating-point and be wrongly refused.
+		private static bool IsAllFloatingPoint(Type structType)
+		{
+			var info = GetLayoutInfo(structType, true);
+
+			if (info.IsPrimitive)
+				return info.PrimitiveKind is StructPrimitiveKind.Float32 or StructPrimitiveKind.Float64;
+
+			if (info.IsArray)
+				return IsAllFloatingPoint(info.ArrayElementType);
+
+			var anyFields = false;
+
+			for (var type = structType; IsStructType(type); type = GetBaseStructType(type))
+				foreach (var field in GetLayoutInfo(type, true).Fields)
+				{
+					anyFields = true;
+
+					if (!IsAllFloatingPoint(field.FieldType))
+						return false;
+				}
+
+			return anyFields;
+		}
+
+		// Converts one incoming argument from the raw bits it arrived in to the script value for its declared
+		// type. Reading the declared width out of the slot is what makes a single long-wide native parameter
+		// able to carry any integer-like type.
+		internal static object ConvertCallbackArgument(in CallbackConversion conversion, long slot)
+		{
+			switch (conversion.Kind)
+			{
+				case StructPrimitiveKind.Int8: return (long)(sbyte)slot;
+				case StructPrimitiveKind.UInt8: return (long)(byte)slot;
+				case StructPrimitiveKind.Int16: return (long)(short)slot;
+				case StructPrimitiveKind.UInt16: return (long)(ushort)slot;
+				case StructPrimitiveKind.Int32: return (long)(int)slot;
+				case StructPrimitiveKind.UInt32: return (long)(uint)slot;
+				case StructPrimitiveKind.Float32: return (double)BitConverter.Int32BitsToSingle((int)slot);
+				case StructPrimitiveKind.Float64: return BitConverter.Int64BitsToDouble(slot);
+				case StructPrimitiveKind.Int64:
+				case StructPrimitiveKind.Ptr: return slot;// Already the whole slot.
+			}
+
+			// An aggregate, which TryGetCallbackConversion has restricted to a single integer slot.
+			var result = CreateInstance(conversion.Aggregate);
+			WriteArgumentSlot(result, slot);
+			return GetOutputValue(result);
+		}
+
+		// Converts a callback's return value to the raw bits its declared type leaves in the return register.
+		internal static long ConvertCallbackReturn(in CallbackConversion conversion, object value)
+		{
+			switch (conversion.Kind)
+			{
+				case StructPrimitiveKind.Int8: return (sbyte)value.Al();
+				case StructPrimitiveKind.UInt8: return (byte)value.Al();
+				case StructPrimitiveKind.Int16: return (short)value.Al();
+				case StructPrimitiveKind.UInt16: return (ushort)value.Al();
+				case StructPrimitiveKind.Int32: return value.Ai();
+				case StructPrimitiveKind.UInt32: return value.Aui();
+				case StructPrimitiveKind.Float32: return BitConverter.SingleToInt32Bits((float)value.Ad());
+				case StructPrimitiveKind.Float64: return BitConverter.DoubleToInt64Bits(value.Ad());
+				case StructPrimitiveKind.Int64:
+				case StructPrimitiveKind.Ptr: return value.Al();
+			}
+
+			if (!IsStructInstance(value, conversion.Aggregate))
+				return (long)Errors.TypeErrorOccurred(value, conversion.Aggregate, 0L);
+
+			return ReadArgumentSlot((Struct)value);
+		}
 
 		internal static object ReadPrimitiveValue(Type structType, long address)
 		{

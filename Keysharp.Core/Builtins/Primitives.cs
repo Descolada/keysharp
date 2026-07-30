@@ -20,8 +20,10 @@ namespace Keysharp.Builtins
 		/// Converts a value to a string.
 		/// </summary>
 		/// <param name="value">The value to convert.</param>
-		/// <returns>The result of converting value to a string, or value itself if it was a string.</returns>
-		public static string staticCall(object @this, object value) => value.As();
+		/// <returns>The result of converting value to a string, or value itself if it was a string.<br/>
+		/// If value's ToString() returns no value, so does this. [v2.1-alpha.30+]
+		/// </returns>
+		public static object staticCall(object @this, object value) => value.As(DefaultObject);
 
 		/// <summary>
 		/// Determines if a string starts with a given string, using the current culture.

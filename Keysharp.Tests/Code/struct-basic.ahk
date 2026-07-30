@@ -91,6 +91,16 @@ struct INIT_CHILD extends INIT_BASE {
 struct MY_INT extends Int32 {
 }
 
+; A type specifier may be a parenthesized expression, or an expression starting with an identifier
+; followed by calls/property access. It is evaluated in static __Init(), so `this` is the class object.
+; [v2.1-alpha.30]
+struct DYNAMIC_TYPES {
+    static PickType() => Int16
+    a : (Int32)
+    b : this.PickType()
+    c : Int8[3]
+}
+
 class CLASS_GET_BASE {
     a {
         get {
@@ -321,6 +331,60 @@ catch
 
 if !threw
     FileAppend "fail field assignment", "*"
+
+; Type specifiers as expressions: (Int32), this.PickType() and an array type. [v2.1-alpha.30]
+dynamic := DYNAMIC_TYPES()
+dynamic.a := 0x12345678
+dynamic.b := 0x1234
+dynamic.c[1] := 7
+dynamic.c[2] := 8
+dynamic.c[3] := 9
+
+if dynamic.a != 0x12345678 || dynamic.b != 0x1234
+    || dynamic.c[1] != 7 || dynamic.c[2] != 8 || dynamic.c[3] != 9
+    FileAppend "fail dynamic type specifiers", "*"
+
+; A prototype reports the struct size of the class it belongs to, matching its instances. [v2.1-alpha.23]
+if POINT.Prototype.Size != 8 || POINT.Prototype.Size != POINT().Size
+    || DYNAMIC_TYPES.Prototype.Size != dynamic.Size
+    FileAppend "fail prototype size", "*"
+
+; Base is read-only on both a prototype and an instance carrying typed properties. [v2.1-alpha.27]
+threw := false
+try
+    POINT.Prototype.Base := Struct.Prototype
+catch ValueError
+    threw := true
+
+if !threw
+    FileAppend "fail typed prototype base", "*"
+
+threw := false
+try
+    POINT().Base := Object.Prototype
+catch ValueError
+    threw := true
+
+if !threw
+    FileAppend "fail typed instance base", "*"
+
+; A prototype with no typed properties still accepts Base assignment. [v2.1-alpha.29]
+try
+    CLASS_FIELD_ASSIGN.Prototype.Base := CLASS_GET_BASE.Prototype
+catch
+    FileAppend "fail untyped prototype base", "*"
+
+; Property type strings and typeless (byte-count) types were both removed. [v2.1-alpha.30]
+for badType in ["i32", 4] {
+    threw := false
+    try
+        dp(LATE_POINT.Prototype, "bad", {type: badType})
+    catch ValueError
+        threw := true
+
+    if !threw
+        FileAppend "fail removed type form", "*"
+}
 
 #if WINDOWS
 {

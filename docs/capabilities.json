@@ -3536,7 +3536,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "unknown",
                      "macos":  "unknown",
-                     "notes":  "The CallbackCreate function creates a machine-code address that when called, redirects the call to a function in the script.",
+                     "notes":  "The CallbackCreate function creates a machine-code address that when called, redirects the call to a function in the script. ParamCount may instead be an array of parameter types followed by the return type, in which case the callback receives and returns natively typed values; a return type of 'void' means it returns no value.",
                      "tested-by":  "external-callbackcreate.ahk"
                  },
                  {
@@ -3788,7 +3788,7 @@
                      "linux_x11":  "unsupported",
                      "linux_wayland":  "unknown",
                      "macos":  "unknown",
-                     "notes":  "The ComCall function calls a native COM interface method by index.",
+                     "notes":  "The ComCall function calls a native COM interface method by index. A return type of 'void' means the call returns no value.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -4517,7 +4517,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "unknown",
                      "macos":  "unknown",
-                     "notes":  "The DllCall function calls a function inside a DLL, such as a standard Windows API function.",
+                     "notes":  "The DllCall function calls a function inside a DLL, such as a standard Windows API function. A numeric type class such as Int32 can be used in place of the equivalent built-in type name, and converts directly rather than being instantiated. A return type of 'void' means the call returns no value.",
                      "tested-by":  "external-callbackcreate.ahk"
                  },
                  {
@@ -7964,13 +7964,13 @@
                  {
                      "category":  "Core Language",
                      "feature":  "ObjSetBase()",
-                     "syntax":  "arr.ObjSetBase(obj)",
-                     "windows":  "unsupported",
-                     "linux_x11":  "unsupported",
-                     "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "Getting or setting an object\u0027s base class is not supported in C#.",
-                     "tested-by":  "collections-object.ahk"
+                     "syntax":  "ObjSetBase(obj, baseObj)",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Sets an object\u0027s base object. The native type cannot change and the base chain may not become circular. Neither object may have typed properties, since those fix the memory layout; a prototype which has none is writable.",
+                     "tested-by":  "class-prototype.ahk"
                  },
                  {
                      "category":  "Core Language",
@@ -8629,7 +8629,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Searches a string for a regular expression match.",
+                     "notes":  "Searches a string for a regular expression match. When there is no match the output variable is left unset (blank in v2.0 compatibility mode).",
                      "tested-by":  "external-dllcall.ahk"
                  },
                  {
@@ -9329,7 +9329,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "unknown",
                      "macos":  "unknown",
-                     "notes":  "Converts a value to a string.",
+                     "notes":  "Converts a value to a string. For an object, the result is whatever its ToString() returned, so a ToString() which returns no value makes String() return no value too rather than raising.",
                      "tested-by":  "assign-multiline.ahk"
                  },
                  {

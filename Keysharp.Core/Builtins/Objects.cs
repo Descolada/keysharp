@@ -137,6 +137,16 @@ namespace Keysharp.Builtins
 			var baseObj = object1 as KeysharpObject;
 			var objectProto = script.Vars.Prototypes[typeof(KeysharpObject)];
 
+			// Typed properties fix the object's memory layout, so neither side may carry any: reassigning the base
+			// would change the layout out from under the existing data. Checked before the Object test below,
+			// since a Struct extends Any rather than Object and so would otherwise be rejected as a non-Object.
+			// [v2.1-alpha.27+]
+			if (Struct.HasTypedProperties(object0 as Any))
+				return Errors.ValueErrorOccurred("Property is read-only.");
+
+			if (Struct.HasTypedProperties(object1 as Any))
+				return Errors.ValueErrorOccurred("Invalid base.");
+
 			if (obj == null || Types.HasBase(obj, objectProto) == 0)
 				return Errors.ErrorOccurred($"Object of type {object0?.GetType().ToString() ?? "null"} was not of type Object.");
 
@@ -172,12 +182,12 @@ namespace Keysharp.Builtins
 		public static object ObjGetBase(object object0)
 		{
 			if (object0 is Any obj)
-				return (object)obj._base ?? "";
+				return (object)obj._base ?? DefaultObject;
 
 			if (Primitive.IsNative(object0))
 				return Script.TheScript.Vars.Prototypes[Primitive.MapPrimitiveToNativeType(object0)];
 
-			return "";
+			return DefaultObject;
 		}
 
 		public static object DefineProp(object obj0, object obj1, object obj2)
@@ -238,6 +248,17 @@ namespace Keysharp.Builtins
 			return result ?? Errors.ValueErrorOccurred("Type is only valid for struct fields.");
 		}
 
+		[PublicHiddenFromUser]
+		public static object DefineStructFieldOnPrototype(object obj0, object obj1, object type)
+		{
+			if (obj0 is not Any target)
+				return Errors.ArgumentErrorOccurred(obj0, 1);
+
+			var result = Struct.DefineFieldOnPrototype(target, obj1.As(),
+						 Struct.TryResolveClass(type, out var resolved) ? resolved : null, 0, null, true);
+			return result ?? Errors.ValueErrorOccurred("Type is only valid for struct fields.");
+		}
+
 		// Typed-field registration with an explicit #StructPack alignment (emitted by the lowerer for packed struct fields).
 		[PublicHiddenFromUser]
 		public static object DefineStructFieldOnPrototype(object obj0, object obj1, Type type, long pack)
@@ -249,13 +270,24 @@ namespace Keysharp.Builtins
 			return result ?? Errors.ValueErrorOccurred("Type is only valid for struct fields.");
 		}
 
+		[PublicHiddenFromUser]
+		public static object DefineStructFieldOnPrototype(object obj0, object obj1, object type, long pack)
+		{
+			if (obj0 is not Any target)
+				return Errors.ArgumentErrorOccurred(obj0, 1);
+
+			var result = Struct.DefineFieldOnPrototype(target, obj1.As(),
+						 Struct.TryResolveClass(type, out var resolved) ? resolved : null, pack, null, true);
+			return result ?? Errors.ValueErrorOccurred("Type is only valid for struct fields.");
+		}
+
 		/// <summary>Returns the address of the object's structured data (typed properties). [v2.1-alpha.3+]</summary>
 		public static object ObjGetDataPtr(object obj) =>
 			obj is Struct st ? st.Ptr : Errors.TypeErrorOccurred(obj, typeof(Struct));
 
 		/// <summary>Returns the size of the object's structure (typed properties), in bytes. [v2.1-alpha.3+]</summary>
 		public static object ObjGetDataSize(object obj) =>
-			obj is Struct st ? st.Size : Errors.TypeErrorOccurred(obj, typeof(Struct));
+			obj is Struct st ? Struct.get_Size(st) : Errors.TypeErrorOccurred(obj, typeof(Struct));
 
 		/// <summary>Sets the address of the object's structured data (typed properties). [v2.1-alpha.3+]
 		/// (Slated for removal in AHK; prefer Struct.At.)</summary>

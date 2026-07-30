@@ -154,7 +154,7 @@ namespace Keysharp.Builtins
 				long pos = match.Success ? match.Index + 1 : 0;
 				if (outputVar != null)
 				{
-					Script.SetPropertyValue(outputVar, "__Value", pos > 0 ? new RegExMatchInfo(match, exp) : "");
+					Script.SetPropertyValue(outputVar, "__Value", pos > 0 ? new RegExMatchInfo(match, exp) : DefaultObject);
 				}
 				return pos;
 			}

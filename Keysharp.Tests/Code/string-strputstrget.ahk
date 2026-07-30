@@ -42,3 +42,11 @@ if (SubStr(s, 1, StrLen(s) - 2) == gotten)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+; A length of 0 yields an empty string, not a number. [v2.1-alpha.30]
+gotten := StrGet(buf, 0, "UTF-8")
+
+if (gotten == "" && gotten is String)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"

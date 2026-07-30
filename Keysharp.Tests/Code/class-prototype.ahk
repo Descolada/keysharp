@@ -122,3 +122,25 @@ if Class.Base == Object
     FileAppend "pass", "*"
 else
     FileAppend "fail", "*"
+
+; A Class object accepts Base assignment. [v2.1-alpha.30]
+class BaseAssignA {
+}
+
+class BaseAssignB {
+}
+
+oldBase := BaseAssignB.Base
+BaseAssignB.Base := BaseAssignA
+
+if BaseAssignB.Base == BaseAssignA
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"
+
+BaseAssignB.Base := oldBase
+
+if BaseAssignB.Base == oldBase
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"

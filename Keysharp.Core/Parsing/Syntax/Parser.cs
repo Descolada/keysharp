@@ -1151,18 +1151,16 @@ namespace Keysharp.Parsing.Syntax
 						else if (At(TokenKind.Colon))   // typed struct field `name : Type [:= init]`
 						{
 							Advance();
-							var tn = ExpectIdentifier("struct field type");
-							while (At(TokenKind.Dot)) { Advance(); tn += "." + ExpectIdentifier("struct field type"); }
-							// Structured-array element type `ElementType[N]` (a fixed-size array of N elements).
-							if (At(TokenKind.LBracket))
-							{
-								Advance();
-								var len = Expect(TokenKind.Number, "struct array length").Text;
-								Expect(TokenKind.RBracket, "']' after struct array length");
-								tn += "[" + len + "]";
-							}
+							// v2.1-alpha.30 permits a parenthesized expression, or a name followed by calls,
+							// property access and indexing. It is evaluated in the class's static initializer
+							// with `this` bound to the class object.
+							Expr typeExpr;
+							if (At(TokenKind.LParen))
+								typeExpr = ParsePostfix(ParsePrimary());
+							else
+								typeExpr = ParsePostfix(new NameExpr(ExpectIdentifier("struct field type")));
 							Expr tinit = Match(TokenKind.Assign) ? ParseExpression(1) : null;
-							fields.Add(new ClassField(fname, tinit, isStatic, tn, structPack));
+							fields.Add(new ClassField(fname, tinit, isStatic, typeExpr, structPack));
 						}
 						else
 						{
@@ -1572,12 +1570,10 @@ namespace Keysharp.Parsing.Syntax
 				if (t.Kind == TokenKind.QuestionDot)
 				{
 					Advance();
-					// `obj?.[i]` optional element access and `obj?.()` optional call — the `?.` guards the access
-					// that follows, rather than a member name.
 					if (At(TokenKind.LBracket))
-					{ e = new IndexExpr(e, ParseArgs(TokenKind.LBracket, TokenKind.RBracket), nullConditional: true); continue; }
+						Error("`a?.[]` was removed in v2.1-alpha.30; use `(a?)[]`.");
 					if (At(TokenKind.LParen))
-					{ e = new CallExpr(e, ParseArgs(TokenKind.LParen, TokenKind.RParen), nullConditional: true); continue; }
+						Error("`a?.()` was removed in v2.1-alpha.30; use `(a?)()`.");
 					e = MakeMember(e, true); continue;
 				}
 				if (t.Kind == TokenKind.LParen && !t.LeadingWhitespace)

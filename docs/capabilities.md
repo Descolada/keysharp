@@ -339,7 +339,7 @@ Status legend:
 | Buffer.ToBase64() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns Buffer contents as a Base64 string. |
 | Buffer.ToByteArray() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns Buffer contents as a byte array. |
 | Buffer.ToHex() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns Buffer contents as a hexadecimal string. |
-| CallbackCreate() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The CallbackCreate function creates a machine-code address that when called, redirects the call to a function in the script. |
+| CallbackCreate() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The CallbackCreate function creates a machine-code address that when called, redirects the call to a function in the script. ParamCount may instead be an array of parameter types followed by the return type, in which case the callback receives and returns natively typed values; a return type of 'void' means it returns no value. |
 | CallbackFree() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The CallbackCreate function creates a machine-code address that when called, redirects the call to a function in the script. |
 | CaretGetPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The CaretGetPos function retrieves the current position of the caret (text insertion point). |
 | Case | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Case branch label used by switch. |
@@ -363,7 +363,7 @@ Status legend:
 | ClrManagedType | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Wrapper describing a managed type for reflection/invocation. |
 | Collect() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Forces garbage collection and finalizer processing. |
 | COM APIs | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | COM is available on Windows only. |
-| ComCall() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComCall function calls a native COM interface method by index. |
+| ComCall() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComCall function calls a native COM interface method by index. A return type of 'void' means the call returns no value. |
 | ComObjActive() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjActive function retrieves a registered COM object. |
 | ComObjArray() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjArray function creates a SafeArray for use with COM. |
 | ComObjConnect() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjConnect function connects a COM object's event source to the script, enabling events to be handled. |
@@ -430,7 +430,7 @@ Status legend:
 | DirExist() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Checks for the existence of a folder and returns its attributes. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
 | DirMove() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Moves a folder along with all its sub-folders and files. It can also rename a folder. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
 | DirSelect() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Displays a standard dialog that allows the user to select a folder. Differs in that it does not support folder access locking, selecting a folder in the tree, showing an edit box because the user can just type in the combo box, option 7, or hiding the New Folder button. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| DllCall() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The DllCall function calls a function inside a DLL, such as a standard Windows API function. |
+| DllCall() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The DllCall function calls a function inside a DLL, such as a standard Windows API function. A numeric type class such as Int32 can be used in place of the equivalent built-in type name, and converts directly rather than being instantiated. A return type of 'void' means the call returns no value. |
 | Download() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The Download function downloads a file from the Internet. |
 | DriveEject() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Ejects or retracts the tray of the specified CD/DVD drive. |
 | DriveGetCapacity() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns the total capacity of the drive which contains the specified path, in megabytes. |
@@ -756,7 +756,7 @@ Status legend:
 | ObjPtr() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Returns the raw pointer address of an object. |
 | ObjPtrAddRef() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Returns object pointer address and increments its reference count. |
 | ObjRelease() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ObjAddRef and ObjRelease functions increment or decrement an object's reference count. |
-| ObjSetBase() | 🔴 Unsupported | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Getting or setting an object's base class is not supported in C#. |
+| ObjSetBase() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets an object's base object. The native type cannot change and the base chain may not become circular. Neither object may have typed properties, since those fix the memory layout; a prototype which has none is writable. |
 | ObjSetCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Unlike AHK doesn't set the exact capacity, but ensures the internal own props objects can hold the requested number of props. |
 | ObjSetDataPtr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the address of the object's structured data. (Slated for removal in AHK; prefer Struct.At.) |
 | OnClipboardChange() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Wires up an event to be called when the clipboard contents are change. |
@@ -804,7 +804,7 @@ Status legend:
 | RegCreateKey() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The RegCreateKey function creates a registry key without writing a value. |
 | RegDelete | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Deletes a value from the registry. |
 | RegDeleteKey() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Deletes a key from the registry. |
-| RegExMatch() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Searches a string for a regular expression match. |
+| RegExMatch() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Searches a string for a regular expression match. When there is no match the output variable is left unset (blank in v2.0 compatibility mode). |
 | RegExMatchCs() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Runs .NET/C# regex match and returns match details. |
 | RegExMatchInfo | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Match object returned by RegExMatch. |
 | RegExReplace() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Replaces text matching a regular expression pattern. |
@@ -869,7 +869,7 @@ Status legend:
 | StatusBarWait() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The StatusBarWait function waits until a window's status bar contains the specified string. |
 | StrCompare() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Compares two strings alphabetically. Note this supports local, human readable comparison as well. |
 | StrGet() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Copies a string from a memory address or buffer, optionally converting it from a given code page. |
-| String() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Converts a value to a string. |
+| String() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Converts a value to a string. For an object, the result is whatever its ToString() returned, so a ToString() which returns no value makes String() return no value too rather than raising. |
 | String.EndsWith() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether a string ends with the specified suffix. |
 | String.StartsWith() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether a string starts with the specified prefix. |
 | StringBuffer() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates a mutable string buffer object. |

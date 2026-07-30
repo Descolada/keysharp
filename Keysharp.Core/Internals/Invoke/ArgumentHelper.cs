@@ -17,6 +17,7 @@ namespace Keysharp.Internals.Invoke
 		private List<GCHandle> _gcHandles;
 		protected List<GCHandle> gcHandles => _gcHandles ??= [];
 		protected bool hasReturn = false;
+		private bool voidReturn;
 		protected Type returnType = typeof(int);
 		private Func<long, object> structReturnConverter;
 		//int is the index in the argument list, and bool specifies if it's a VarRef (false) or Ptr (true)
@@ -84,8 +85,14 @@ namespace Keysharp.Internals.Invoke
 
 				if (tag == null)
 				{
-					if (isReturn && TrySetStructReturn(rawTag))
-						continue;
+					if (isReturn)
+					{
+						if (TrySetStructReturn(rawTag, out var builtinReturnTag))
+							continue;
+
+						// A numeric type class is handled as the built-in type it mirrors.
+						tag = builtinReturnTag;
+					}
 
 					if (!isReturn)
 					{
@@ -96,10 +103,17 @@ namespace Keysharp.Internals.Invoke
 						}
 						else if (Struct.TryResolveClass(rawTag, out var structType))
 						{
-							n++;
-							p = parameters[paramIndex];
-							args[n] = ReadStructValueArg(p, structType);
-							continue;
+							// Ditto, so that e.g. a Float64 argument is passed in a floating-point register
+							// rather than as raw bits in an integer one.
+							if (Struct.GetPrimitiveTypeTag(structType) is string primitiveTag)
+								tag = primitiveTag;
+							else
+							{
+								n++;
+								p = parameters[paramIndex];
+								args[n] = ReadStructValueArg(p, structType);
+								continue;
+							}
 						}
 					}
 
@@ -322,6 +336,19 @@ namespace Keysharp.Internals.Invoke
 				// Numeric and pointer types
 				switch (c0)
 				{
+					case 'v': // VOID is valid only as a return type.
+						if (isReturn && len == 4
+								&& ((span[1] | 0x20) == 'o')
+								&& ((span[2] | 0x20) == 'i')
+								&& ((span[3] | 0x20) == 'd'))
+						{
+							voidReturn = true;
+							type = typeof(void);
+							goto TypeDetermined;
+						}
+
+						break;
+
 					case 'p':
 						if (len == 3
 								&& ((span[1] | 0x20) == 't')
@@ -562,8 +589,12 @@ namespace Keysharp.Internals.Invoke
 			span.Equals("ptr", StringComparison.OrdinalIgnoreCase)
 			|| span.Equals("uptr", StringComparison.OrdinalIgnoreCase);
 
-		private bool TrySetStructReturn(object rawReturnType)
+		// Returns true when the return type was fully handled here. Otherwise builtinTag receives the built-in type
+		// name to parse instead (for a numeric type class), or null when rawReturnType is not a struct class at all.
+		private bool TrySetStructReturn(object rawReturnType, out string builtinTag)
 		{
+			builtinTag = null;
+
 			if (Struct.TryResolvePointerClass(rawReturnType, out _, out var pointerTargetType))
 			{
 				returnType = typeof(nint);
@@ -575,6 +606,14 @@ namespace Keysharp.Internals.Invoke
 
 			if (!Struct.TryResolveClass(rawReturnType, out var structType))
 				return false;
+
+			// A numeric type class converts directly rather than being instantiated, so it behaves exactly like the
+			// built-in type it mirrors — including floats, which are returned in a different register.
+			if (Struct.GetPrimitiveTypeTag(structType) is string primitiveTag)
+			{
+				builtinTag = primitiveTag;
+				return false;
+			}
 
 			returnType = typeof(nint);
 
@@ -644,6 +683,9 @@ namespace Keysharp.Internals.Invoke
 
 		internal unsafe object ConvertReturnValue(object value)
 		{
+			if (voidReturn)
+				return Script.DefaultObject;
+
 			if (structReturnConverter != null)
 				return structReturnConverter(((long)value).Al());
 
@@ -655,13 +697,21 @@ namespace Keysharp.Internals.Invoke
 				int hr32 = unchecked((int)hrLong);   // keep only the low 32 bits
 				return Errors.OSErrorOccurredForHR(hr32);
 			}
-			//Special conversion for the return value.
+			//Special conversion for the return value. Only the declared width of the return register is
+			//meaningful, so narrow types are truncated (and sign- or zero-extended) rather than passed
+			//through raw, since the remaining bits are unspecified.
 			else if (returnType == typeof(int))
-			{
-				long l = (long)value;
-				int ii = *(int*)&l;
-				value = (long)ii;
-			}
+				value = (long)unchecked((int)(long)value);
+			else if (returnType == typeof(uint))
+				value = (long)unchecked((uint)(long)value);
+			else if (returnType == typeof(short))
+				value = (long)unchecked((short)(long)value);
+			else if (returnType == typeof(ushort))
+				value = (long)unchecked((ushort)(long)value);
+			else if (returnType == typeof(sbyte))
+				value = (long)unchecked((sbyte)(long)value);
+			else if (returnType == typeof(byte))
+				value = (long)unchecked((byte)(long)value);
 			else if (returnType == typeof(float))
 			{
 				if (value is not double) return _ = Errors.TypeErrorOccurred(value, typeof(double));

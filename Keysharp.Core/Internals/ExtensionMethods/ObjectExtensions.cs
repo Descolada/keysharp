@@ -111,7 +111,7 @@ namespace Keysharp.Internals.ExtensionMethods
 		/// Converts an object to a string.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
-		/// <param name="def">A default value to use if obj is null.</param>
+		/// <param name="def">A default value to use if obj is null, or its ToString() returns no value.</param>
 		/// <returns>The object as a string if it was not null, else def.</returns>
 		public static string As(this object obj, string def = "")
 		{
@@ -121,7 +121,8 @@ namespace Keysharp.Internals.ExtensionMethods
 			if (obj is double)
 				return Script.ForceString(obj);//Canonical Float formatting, e.g. 380.0 => "380.0" to match AHK, rather than ToString()'s "380".
 
-			return (obj is Any kso && Functions.HasMethod(kso, "ToString") != 0L ? Script.Invoke(kso, "ToString")?.ToString() : obj?.ToString()) ?? def;
+			//A ToString() which returns no value yields def, rather than raising an UnsetError. [v2.1-alpha.30+]
+			return (obj is Any kso && Functions.HasMethod(kso, "ToString") != 0L ? Script.InvokeOrNull(kso, "ToString")?.ToString() : obj?.ToString()) ?? def;
 		}
 
 		/// <summary>

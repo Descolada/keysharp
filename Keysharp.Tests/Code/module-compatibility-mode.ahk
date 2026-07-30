@@ -264,6 +264,93 @@ if !IsSet(x)
 else
 	FileAppend "fail", "*"
 
+; ObjGetBase/Any.Prototype.Base returns unset when there is no base. [v2.1-alpha.29]
+x := (ObjGetBase(Any.Prototype)?)
+if !IsSet(x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+x := (Any.Prototype.Base?)
+if !IsSet(x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; RegExMatch leaves its output var unset when there is no match. [v2.1-alpha.29]
+match := "sentinel"
+RegExMatch("abc", "z", &match)
+if !IsSet(match)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; A match still assigns a RegExMatchInfo.
+RegExMatch("abc", "b", &match)
+if IsSet(match) && match[0] = "b"
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; String(x) passes through ToString()'s return value, including no value at all. [v2.1-alpha.30]
+class NoToStringValue {
+	ToString() {
+	}
+}
+
+x := (String(NoToStringValue())?)
+if !IsSet(x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; Non-final items of a sequence are evaluated for their side effects only, so a no-value result there is
+; discarded rather than raising. The final item's value is consumed, so that one still raises.
+NoValueItem() {
+}
+
+x := (NoValueItem(), 5)
+if x = 5
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+threw := false
+try
+	x := (5, NoValueItem())
+catch UnsetError
+	threw := true
+
+if threw
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; A statement-level comma list discards every item, so it never raises.
+sideCount := 0
+CountSide() {
+	global sideCount += 1
+}
+
+CountSide(), NoValueItem(), CountSide()
+if sideCount = 2
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; A "void" return type yields no value. [v2.1-alpha.30]
+VoidTarget(value) {
+}
+
+voidCb := CallbackCreate(VoidTarget, "Fast", [Int32, "void"])
+x := (DllCall(voidCb, "int", 5, "void")?)
+CallbackFree(voidCb)
+
+if !IsSet(x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
 #Module Compat21
 #Requires AutoHotkey v2.1-alpha
 export NoReturn21() {

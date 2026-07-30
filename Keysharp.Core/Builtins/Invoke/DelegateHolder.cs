@@ -5,59 +5,132 @@ namespace Keysharp.Builtins
 	/// The callback starts from a closed delegate which contains a slot id and forwards the
 	/// arguments to Dispatch, where the arity and slot id are used to get the corresponding
 	/// DelegateHolder, then pushes a new green thread (unless Fast mode is used) and calls
-	/// the target function. The DelegateHolder itself is not bound because GetFunctionPointerForDelegate
-	/// is a heavy operation (performance tests show >10x slowdowns compared to caching it), so instead
-	/// we reserve "slots" for each arity. For example CallbackCreate with argument count 1 gets
-	/// slot id 0 for arity 1, a subsequent CallbackCreate gets slot id 1 etc, and later if the
-	/// pointer is freed with CallbackFree and another CallbackCreate is done then the previously
-	/// created delegate for the slot is reused. The worst case scenario is a lot of CallbackCreate
-	/// calls without any freeing, which the user shouldn't do anyway because it means a memory leak.
+	/// the target function. The delegate is closed over a slot id rather than over the DelegateHolder
+	/// because a pointer can then be cached and reused: GetFunctionPointerForDelegate is a heavy
+	/// operation (performance tests show >10x slowdowns compared to caching it). For example
+	/// CallbackCreate with argument count 1 gets slot id 0 for arity 1, a subsequent CallbackCreate gets
+	/// slot id 1 etc, and later if the pointer is freed with CallbackFree and another CallbackCreate is
+	/// done then the previously created delegate for the slot is reused. The worst case scenario is a lot
+	/// of CallbackCreate calls without any freeing, which the user shouldn't do anyway because it means a
+	/// memory leak.
+	///
+	/// A typed callback (CallbackCreate with an array of parameter types followed by the return type)
+	/// shares all of that machinery. Its declared types decide only how each value is converted, because
+	/// every integer-like value of 8 bytes or less arrives in an integer register or a stack slot and can
+	/// be read at its declared width out of a long. So a typed signature whose values all travel in
+	/// integer registers uses the very same arity delegates and slots, and only a floating-point parameter
+	/// or return value needs a native signature of its own, emitted by TypedCallbackSignature.
 	/// </summary>
 	public class DelegateHolder : KeysharpObject, IPointable, IDisposable
 	{
-		internal Any funcObj;
+		// The most parameters a callback can have, which is how far the pre-declared delegates and slot buckets go.
+		internal const int MaxArity = AritySlots.MaxArity;
+
+		internal readonly Any funcObj;
+		// The target resolved once, so an invocation does not repeat a by-name member lookup for a receiver
+		// which cannot change. Null when funcObj is not directly callable and has to go through Invoke.
+		readonly IFuncObj _fn;
 		readonly bool _fast, _reference;
 		readonly int _arity;
 		readonly SchedulerRegistration _ownerState;
-		private int _slotId;
-		// Used to prevent slot reuse collisions
-		internal int _assignedGeneration;
+		readonly int _slotId;
+		// Non-null only for a typed callback: how to convert each parameter, and the return value (default
+		// when the return type is "void"). These decide conversion only; they do not affect the native
+		// signature beyond which register file each value arrives in (see Struct.CallbackSlot).
+		// All of these are written before AritySlots.Rent publishes the holder, whose lock and Volatile.Write
+		// pair with Get's Volatile.Read, so Dispatch on another thread always sees them fully initialised.
+		readonly Struct.CallbackConversion[] _typedParameters;
+		readonly Struct.CallbackConversion _typedReturn;
+		readonly bool _typedVoid;
+		private long _ptr;
 		internal ScriptEventScheduler OwnerScheduler => _ownerState.OwnerScheduler;
 
 		// Native function pointer to pass into unmanaged code.
-		public long Ptr { get; internal set; }
+		public long Ptr { get => Volatile.Read(ref _ptr); internal set => Volatile.Write(ref _ptr, value); }
 
 		/// <summary>
 		/// Creates a holder and receiving a delegate.
 		/// </summary>
 		public DelegateHolder(Any function, int arity, bool fast, bool reference)
 		{
+			if (arity < 0 || arity > MaxArity)
+				throw new ValueError($"A callback cannot have more than {MaxArity} parameters.");
+
 			funcObj = function;
+			_fn = ResolveDirectTarget(function);
 			_fast = fast;
 			_reference = reference;
 			_arity = arity;
 			_ownerState = new(Script.TheScript?.EventScheduler, true);
 			_ownerState.OwnerScheduler?.RegisterOwnedDelegate(this);
+			_slotId = Publish(id => CallbackPointerCache.GetOrCreateForArity(arity, id));
+		}
 
-			int slotId = AritySlots.Rent(arity, this, out _assignedGeneration);
-			_slotId = slotId;
+		/// <summary>
+		/// Renting the slot is what publishes this holder to Dispatch, so registration has to come first: a stale
+		/// pointer for the same slot could otherwise arrive before _ownerState exists. That leaves a window where
+		/// a failure would strand a registered holder holding a persistence root which Dispose could never
+		/// release, so anything failing after registration unwinds it here.
+		/// </summary>
+		private int Publish(Func<int, nint> createPointer)
+		{
+			var slotId = -1;
 
-			Ptr = AritySlotPointerCache.GetOrCreate(arity, slotId);
+			try
+			{
+				slotId = AritySlots.Rent(_arity, this);
+				Ptr = createPointer(slotId);
+				return slotId;
+			}
+			catch
+			{
+				if (slotId >= 0)
+					AritySlots.Return(_arity, slotId);
+
+				_ownerState.OwnerScheduler?.UnregisterOwnedDelegate(this);
+				_ownerState.Clear();
+				throw;
+			}
+		}
+
+		/// <summary>
+		/// Creates a holder for a typed callback from conversions already resolved by <see cref="Dll.CallbackCreate"/>:
+		/// one per parameter, followed by the return value's (or a default one when the return type is "void").
+		/// The declared types only decide how each value is converted, so a signature whose values all travel in
+		/// integer registers reuses the same arity-based delegates and slots as an untyped callback; only a
+		/// floating-point parameter or return value needs a native signature of its own.
+		/// </summary>
+		internal DelegateHolder(Any function, Struct.CallbackConversion[] conversions, bool typedVoid, bool fast, bool cdecl)
+		{
+			funcObj = function;
+			_fn = ResolveDirectTarget(function);
+			_fast = fast;
+			_reference = false;
+			_arity = conversions.Length - 1;
+			_typedVoid = typedVoid;
+			// Non-null even at arity 0, which is what marks this holder as typed for Dispatch.
+			_typedParameters = conversions[.._arity];
+			_typedReturn = conversions[_arity];
+			_ownerState = new(Script.TheScript?.EventScheduler, true);
+			_ownerState.OwnerScheduler?.RegisterOwnedDelegate(this);
+			_slotId = Publish(id => TypedCallbackSignature.IsAllInteger(conversions)
+								? CallbackPointerCache.GetOrCreateForArity(_arity, id)
+								: TypedCallbackSignature.GetOrCreate(conversions, cdecl, id));
 		}
 
 		// Should only be called in CallbackFree. DelegateHolder shouldn't need a finalizer because
-		// the reference is held in AritySlotPointerCache until it's explicitly freed.
+		// the reference is held in CallbackPointerCache until it's explicitly freed.
 		public void Dispose()
 		{
-			if (Ptr != 0) {
-				var ownerScheduler = OwnerScheduler;
-				AritySlots.Return(_arity, _slotId);
+			// Claim the disposal exactly once: CallbackFree can race another script thread, or the scheduler
+			// teardown in DisposeOwnedByScheduler, and returning the slot twice would hand one id to two holders.
+			if (Interlocked.Exchange(ref _ptr, 0) == 0)
+				return;
 
-				ownerScheduler?.UnregisterOwnedDelegate(this);
-
-				_ownerState.Clear();
-				Ptr = 0;
-			}
+			var ownerScheduler = OwnerScheduler;
+			AritySlots.Return(_arity, _slotId);
+			ownerScheduler?.UnregisterOwnedDelegate(this);
+			_ownerState.Clear();
 		}
 
 		// Delegate definitions for arities 0..32
@@ -170,97 +243,186 @@ namespace Keysharp.Builtins
 
 		/// <summary>
 		/// NativeCallback delegate calls this function with its bound slot id, which we use in combination
-		/// with the arity (args.Length) to query the corresponding DelegateHolder. We then create a new green
-		/// thread an run the target function there with the received arguments.
+		/// with the arity (args.Length) to query the corresponding DelegateHolder. The target function then runs
+		/// on a new green thread, unless Fast mode was used, in which case it runs directly.
 		/// </summary>
 		/// <param name="slotId">Slot id for arity N corresponding to the DelegateHolder.</param>
 		/// <param name="args">Argument list for the target function.</param>
 		/// <returns>Result of the target function converted to a long.</returns>
-		private static long Dispatch(int slotId, params long[] args)
+		internal static long Dispatch(int slotId, params long[] args)
 		{
-			var (dh, gen) = AritySlots.Get(args.Length, slotId);
-			if (dh == null || gen != dh._assignedGeneration)
+			var dh = AritySlots.Get(args.Length, slotId);
+
+			if (dh == null)
 			{
-				if (Script.TheScript.hasExited) return 0L;
+				// Nothing can be dispatched, and there is no return value that would be less wrong than another.
+				// Throwing does unwind through the caller's native frames, which is only safe when that caller is
+				// our own DllCall, but it is what makes calling a freed pointer a catchable script error instead
+				// of the silent corruption or crash it is in AutoHotkey. Exceptions from the callback itself do
+				// not come through here: ExecuteCallback contains those.
+				if (Script.TheScript?.hasExited != false)
+					return 0L;
+
 				throw new Error("Stale callback pointer");
 			}
 
+			// A typed callback interprets the same raw slots according to its declared types instead.
+			return dh._typedParameters != null ? dh.InvokeTyped(args) : dh.InvokeUntyped(args);
+		}
+
+		private long InvokeUntyped(long[] rawArgs)
+		{
+			// In reference mode the script receives a pointer to the raw arguments, so boxing them would be
+			// wasted work. Otherwise box each one, which a loop does without the delegate Array.ConvertAll needs.
+			object[] args = null;
+
+			if (!_reference)
+			{
+				args = new object[rawArgs.Length];
+
+				for (var i = 0; i < args.Length; ++i)
+					args[i] = rawArgs[i];
+			}
+
+			return ConvertResult(InvokeCallback(args, rawArgs));
+		}
+
+		// Converts each raw argument slot per its declared type, then returns the raw bits the declared return
+		// type leaves in the return register (zero for "void", which the native signature ignores).
+		private long InvokeTyped(long[] rawArgs)
+		{
+			var args = new object[_typedParameters.Length];
+
+			for (var i = 0; i < args.Length; ++i)
+				args[i] = Struct.ConvertCallbackArgument(_typedParameters[i], rawArgs[i]);
+
+			var result = InvokeCallback(args, null);
+			// A null result means the callback never ran (the scheduler was disposed, or the thread could not
+			// start), so there is no value to convert; a declared struct return would reject null as a TypeError.
+			return _typedVoid || result == null ? 0L : Struct.ConvertCallbackReturn(_typedReturn, result);
+		}
+
+		/// <summary>
+		/// Decides once whether the target can be called straight through IFuncObj, which saves resolving "Call"
+		/// by name on every single invocation. This applies the same test Script.InvokeOrNull applies per call,
+		/// so that a receiver whose own Call shadows the built-in one keeps going through the by-name path and
+		/// still reaches its override. Returns null when the shortcut does not apply. The decision is fixed for
+		/// the callback's lifetime, so redefining Call on the target after CallbackCreate does not change how an
+		/// already-created callback reaches it.
+		/// </summary>
+		private static IFuncObj ResolveDirectTarget(Any function)
+		{
+			if (function is not IFuncObj direct || !direct.IsValid)
+				return null;
+
+			try
+			{
+				var member = Script.GetMethodOrProperty(function, "Call", -1, checkBase: true, throwIfMissing: false, invokeMeta: false);
+				return member.Item2 is FuncObj fo
+					   && (fo == FuncObj.PrototypeCall || fo.DeclaringType?.IsAssignableFrom(function.GetType()) == true)
+					   ? direct
+					   : null;
+			}
+			catch
+			{
+				return null;
+			}
+		}
+
+		// Calls the target, resolving its result to null when it returned no value so that both the untyped and
+		// the typed caller can apply their own conversion.
+		private object CallTarget(object[] args) =>
+			_fn != null ? _fn.Call(args) : Script.InvokeOrNull(funcObj, "Call", args);
+
+		private object InvokeCallback(object[] args, long[] rawArgs)
+		{
 			var script = Script.TheScript;
-			var targetScheduler = dh.OwnerScheduler ?? script.EventScheduler;
-			var completedNormally = false;
+			var targetScheduler = OwnerScheduler ?? script.EventScheduler;
+			(object value, bool completed) execution;
 
-			long ExecuteCallback()
+			if (_fast)
 			{
-				object val = null;
-				try
-				{
-					if (dh._reference)
-					{
-						var gh = GCHandle.Alloc(args, GCHandleType.Pinned);
-
-						try
-						{
-							unsafe
-							{
-								long* ptr = (long*)gh.AddrOfPinnedObject().ToPointer();
-								val = Script.Invoke(dh.funcObj, "Call", (long)ptr);
-							}
-						}
-						finally
-						{
-							gh.Free();
-						}
-					}
-					else
-						val = Script.Invoke(dh.funcObj, "Call", System.Array.ConvertAll(args, item => (object)item));
-
-					completedNormally = true;
-				}
-				catch (Exception ex)
-				{
-					_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
-				}
-
-				return ConvertResult(val);
+				// On the scheduler's own thread InvokeSynchronous would just call the delegate inline, so run the
+				// body directly there: capturing it would otherwise allocate a closure and a delegate on every
+				// single invocation, which is the case Fast mode exists to keep cheap. This also skips the
+				// disposed check InvokeSynchronous opens with, deliberately: a callback arriving on the owning
+				// thread after disposal queues nothing and is harmless, whereas throwing would cross the native
+				// caller's frames.
+				execution = targetScheduler.OwnsCurrentThread
+							? ExecuteTarget(args, rawArgs)
+							: targetScheduler.InvokeSynchronous(() => ExecuteTarget(args, rawArgs));
 			}
-
-			(ScriptEventExecutionResult status, long result) RunCallbackInPseudoThread(long launchPriority)
-			{
-				using var thread = targetScheduler.StartPseudoThreadScope(launchPriority, true, false, false);
-
-				if (!thread.Started)
-					return (thread.Result, 0L);
-
-				return (ScriptEventExecutionResult.Executed, ExecuteCallback());
-			}
-
-			long result = 0L;
-
-			if (dh._fast)
-				result = targetScheduler.InvokeSynchronous(ExecuteCallback);
 			else
 			{
 				// Match AutoHotkey's callback behavior: incoming native callbacks are treated like
 				// emergency interruptions, so they must not be blocked by the current thread's
 				// critical/uninterruptible state or a higher current priority.
 				if (targetScheduler.IsDisposed)
-					return 0L;
+					return null;
 
 				var launchPriority = script.Threads.CurrentThread.priority;
-				var execution = targetScheduler.OwnsCurrentThread
-					? RunCallbackInPseudoThread(launchPriority)
-					: targetScheduler.InvokeSynchronous(() => RunCallbackInPseudoThread(launchPriority));
+				var launched = targetScheduler.OwnsCurrentThread
+							   ? RunInPseudoThread(targetScheduler, launchPriority, args, rawArgs)
+							   : targetScheduler.InvokeSynchronous(() => RunInPseudoThread(targetScheduler, launchPriority, args, rawArgs));
 
-				if (execution.status != ScriptEventExecutionResult.Executed)
-					return 0L;
+				if (launched.status != ScriptEventExecutionResult.Executed)
+					return null;
 
-				result = execution.result;
+				execution = launched.execution;
 			}
 
-			if (completedNormally)
+			if (execution.completed)
 				script.ExitIfNotPersistent();
 
-			return result;
+			return execution.value;
+		}
+
+		private (object value, bool completed) ExecuteTarget(object[] args, long[] rawArgs)
+		{
+			object val = null;
+			var completed = false;
+
+			try
+			{
+				if (_reference)
+				{
+					var gh = GCHandle.Alloc(rawArgs, GCHandleType.Pinned);
+
+					try
+					{
+						unsafe
+						{
+							long* ptr = (long*)gh.AddrOfPinnedObject().ToPointer();
+							val = CallTarget([(long)ptr]);
+						}
+					}
+					finally
+					{
+						gh.Free();
+					}
+				}
+				else
+					val = CallTarget(args);
+
+				completed = true;
+			}
+			catch (Exception ex)
+			{
+				_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+			}
+
+			return (val, completed);
+		}
+
+		private (ScriptEventExecutionResult status, (object value, bool completed) execution) RunInPseudoThread(
+			ScriptEventScheduler targetScheduler, long launchPriority, object[] args, long[] rawArgs)
+		{
+			using var thread = targetScheduler.StartPseudoThreadScope(launchPriority, true, false, false);
+
+			if (!thread.Started)
+				return (thread.Result, (null, false));
+
+			return (ScriptEventExecutionResult.Executed, ExecuteTarget(args, rawArgs));
 		}
 
 		// A callback coerces its return value to an integer exactly as AutoHotkey's RegisterCallbackCStub
@@ -286,30 +448,181 @@ namespace Keysharp.Builtins
 		}
 	}
 
-	// Thread-safe way to reserve a slot for a given arity. Additionally keeps track of the generation
-	// for the slot to prevent accidental reuses of previous slots.
-	static class AritySlots
+	/// <summary>
+	/// Native entry points for typed callbacks whose values do not all travel in integer registers, which are the
+	/// only ones needing a signature the pre-declared arity delegates cannot express. A signature is reduced to
+	/// its register-file shape (see <see cref="Struct.CallbackSlot"/>), so only floating-point positions and the
+	/// return kind vary; everything integer-like is declared as a long and read at its declared width by
+	/// <see cref="DelegateHolder.Dispatch"/>. The stub reinterprets its floating-point arguments as raw bits and
+	/// hands them to that same dispatcher, so typed and untyped callbacks share one dispatch path.
+	///
+	/// Both the emitted signature and the stub are cached, the latter per slot exactly as
+	/// <see cref="CallbackPointerCache"/> does, since GetFunctionPointerForDelegate is far too costly to repeat
+	/// per callback.
+	/// </summary>
+	internal static class TypedCallbackSignature
 	{
-		private sealed class SlotBucket
+		private static readonly Dictionary<string, Type> _delegateTypes = new();
+		private static ModuleBuilder _module;
+		private static int _nextId;
+
+		private static readonly MethodInfo singleToBits = typeof(BitConverter).GetMethod(nameof(BitConverter.SingleToInt32Bits), [typeof(float)]);
+		private static readonly MethodInfo doubleToBits = typeof(BitConverter).GetMethod(nameof(BitConverter.DoubleToInt64Bits), [typeof(double)]);
+		private static readonly MethodInfo bitsToSingle = typeof(BitConverter).GetMethod(nameof(BitConverter.Int32BitsToSingle), [typeof(int)]);
+		private static readonly MethodInfo bitsToDouble = typeof(BitConverter).GetMethod(nameof(BitConverter.Int64BitsToDouble), [typeof(long)]);
+		private static readonly MethodInfo dispatch = typeof(DelegateHolder).GetMethod(nameof(DelegateHolder.Dispatch),
+				BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public, null, [typeof(int), typeof(long[])], null);
+
+		internal static bool IsAllInteger(Struct.CallbackConversion[] conversions)
 		{
-			public DelegateHolder[] Slots = new DelegateHolder[64];
-			public int[] Generations = new int[64];
-			public Stack<int> Free = new Stack<int>(Enumerable.Range(0, 64).Reverse());
-			public readonly Lock Lock = new();
+			foreach (var conversion in conversions)
+				if (conversion.Slot != Struct.CallbackSlot.Integer)
+					return false;
+
+			return true;
 		}
 
-		private static readonly SlotBucket[] _buckets = Enumerable.Range(0, 33).Select(_ => new SlotBucket()).ToArray();
+		internal static nint GetOrCreate(Struct.CallbackConversion[] conversions, bool cdecl, int slotId)
+		{
+			var shape = (cdecl ? "c" : "s") + string.Concat(conversions.Select(c => (char)('a' + (int)c.Slot)));
+			// Called under the cache's lock, which is also what guards _delegateTypes, _module and _nextId.
+			return CallbackPointerCache.GetOrCreate(shape, slotId, () =>
+			{
+				if (!_delegateTypes.TryGetValue(shape, out var delegateType))
+					_delegateTypes[shape] = delegateType = CreateDelegateType(conversions, cdecl);
 
-		public static int Rent(int arity, DelegateHolder holder, out int genOut)
+				return CreateStub(conversions, slotId, delegateType);
+			});
+		}
+
+		private static Type NativeTypeOf(Struct.CallbackSlot slot) => slot switch
+		{
+			Struct.CallbackSlot.Float32 => typeof(float),
+			Struct.CallbackSlot.Float64 => typeof(double),
+			_ => typeof(long)
+		};
+
+		// The native parameter types of a shape, which is its conversions minus the trailing return value.
+		private static Type[] NativeParameterTypes(Struct.CallbackConversion[] conversions)
+		{
+			var parameterTypes = new Type[conversions.Length - 1];
+
+			for (var i = 0; i < parameterTypes.Length; ++i)
+				parameterTypes[i] = NativeTypeOf(conversions[i].Slot);
+
+			return parameterTypes;
+		}
+
+		// Emits the stub body: pack every argument into a long[] of raw bits, call the shared dispatcher, then
+		// reinterpret its result as the declared return type.
+		private static Delegate CreateStub(Struct.CallbackConversion[] conversions, int slotId, Type delegateType)
+		{
+			var arity = conversions.Length - 1;
+			var returnSlot = conversions[arity].Slot;
+			var dm = new DynamicMethod("TypedCallbackStub", NativeTypeOf(returnSlot), NativeParameterTypes(conversions),
+									   typeof(DelegateHolder).Module, skipVisibility: true);
+			var il = dm.GetILGenerator();
+			il.Emit(OpCodes.Ldc_I4, slotId);
+			il.Emit(OpCodes.Ldc_I4, arity);
+			il.Emit(OpCodes.Newarr, typeof(long));
+
+			for (var i = 0; i < arity; ++i)
+			{
+				il.Emit(OpCodes.Dup);
+				il.Emit(OpCodes.Ldc_I4, i);
+				// Ldarg takes a 2-byte operand, so the index has to be passed as a short: the int overload
+				// would write 4 bytes and leave two stray bytes in the instruction stream.
+				il.Emit(OpCodes.Ldarg, (short)i);
+
+				if (conversions[i].Slot == Struct.CallbackSlot.Float32)
+				{
+					il.Emit(OpCodes.Call, singleToBits);
+					il.Emit(OpCodes.Conv_U8);// The reader only looks at the low 32 bits, so keep them unpolluted.
+				}
+				else if (conversions[i].Slot == Struct.CallbackSlot.Float64)
+					il.Emit(OpCodes.Call, doubleToBits);
+
+				il.Emit(OpCodes.Stelem_I8);
+			}
+
+			il.Emit(OpCodes.Call, dispatch);
+
+			if (returnSlot == Struct.CallbackSlot.Float32)
+			{
+				il.Emit(OpCodes.Conv_I4);
+				il.Emit(OpCodes.Call, bitsToSingle);
+			}
+			else if (returnSlot == Struct.CallbackSlot.Float64)
+				il.Emit(OpCodes.Call, bitsToDouble);
+
+			il.Emit(OpCodes.Ret);
+			return dm.CreateDelegate(delegateType);
+		}
+
+		// A delegate type is the one thing DynamicMethod cannot express, so the shape's signature is emitted once.
+		private static Type CreateDelegateType(Struct.CallbackConversion[] conversions, bool cdecl)
+		{
+			_module ??= AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("Keysharp.TypedCallbacks"),
+						AssemblyBuilderAccess.Run).DefineDynamicModule("Keysharp.TypedCallbacks");
+			var parameterTypes = NativeParameterTypes(conversions);
+			var builder = _module.DefineType("TypedCallback_" + (++_nextId),
+											 TypeAttributes.Class | TypeAttributes.Public | TypeAttributes.Sealed,
+											 typeof(MulticastDelegate));
+			builder.SetCustomAttribute(new CustomAttributeBuilder(
+										   typeof(UnmanagedFunctionPointerAttribute).GetConstructor([typeof(CallingConvention)]),
+										   [cdecl ? CallingConvention.Cdecl : CallingConvention.Winapi]));
+			var ctor = builder.DefineConstructor(
+						   MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.RTSpecialName,
+						   CallingConventions.Standard, [typeof(object), typeof(nint)]);
+			ctor.SetImplementationFlags(MethodImplAttributes.Runtime | MethodImplAttributes.Managed);
+			var invoke = builder.DefineMethod("Invoke",
+											  MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual,
+											  NativeTypeOf(conversions[^1].Slot), parameterTypes);
+			invoke.SetImplementationFlags(MethodImplAttributes.Runtime | MethodImplAttributes.Managed);
+			return builder.CreateType();
+		}
+	}
+
+	/// <summary>
+	/// Reserves a slot per arity, so a callback's native entry point can be a delegate closed over nothing but a
+	/// small integer. Renting and returning are serialised per arity, while Dispatch reads without a lock.
+	///
+	/// An empty slot is what tells Dispatch that a pointer belongs to a rental which has since ended. That can
+	/// only be detected while the slot sits free: once it is rented again the old pointer becomes a live entry
+	/// point for the new holder, because a pointer is cached per (signature, slot) and deliberately outlives any
+	/// one CallbackFree. Calling a freed callback pointer is undefined in AutoHotkey too.
+	/// </summary>
+	static class AritySlots
+	{
+		// The largest arity there is a bucket (and a pre-declared delegate type) for.
+		internal const int MaxArity = 32;
+		private const int PageShift = 6;
+		private const int PageLength = 1 << PageShift;
+
+		private sealed class SlotBucket
+		{
+			// Paged so that growing only appends: a page object is never replaced, so a reader which raced the
+			// growth and is still holding the previous page array nevertheless reaches the live slot. Resizing a
+			// flat array instead would let a reader see the new array before the copied elements, or keep reading
+			// a stale copy, and report a live callback as stale.
+			internal DelegateHolder[][] Pages = [new DelegateHolder[PageLength]];
+			internal readonly Stack<int> Free = new(Enumerable.Range(0, PageLength).Reverse());
+			internal readonly Lock Lock = new();
+		}
+
+		private static readonly SlotBucket[] _buckets = Enumerable.Range(0, MaxArity + 1).Select(_ => new SlotBucket()).ToArray();
+
+		public static int Rent(int arity, DelegateHolder holder)
 		{
 			var b = _buckets[arity];
+
 			lock (b.Lock)
 			{
 				if (b.Free.Count == 0)
 					Grow(b);
-				int id = b.Free.Pop();
-				genOut = b.Generations[id];
-				Volatile.Write(ref b.Slots[id], holder);
+
+				var id = b.Free.Pop();
+				Volatile.Write(ref b.Pages[id >> PageShift][id & (PageLength - 1)], holder);
 				return id;
 			}
 		}
@@ -317,256 +630,68 @@ namespace Keysharp.Builtins
 		public static void Return(int arity, int id)
 		{
 			var b = _buckets[arity];
+
 			lock (b.Lock)
 			{
-				Volatile.Write(ref b.Slots[id], null);
-				unchecked { b.Generations[id]++; }
+				Volatile.Write(ref b.Pages[id >> PageShift][id & (PageLength - 1)], null);
 				b.Free.Push(id);
 			}
 		}
 
-		public static (DelegateHolder holder, int gen) Get(int arity, int id)
+		public static DelegateHolder Get(int arity, int id)
 		{
-			var b = _buckets[arity];
-			var h = Volatile.Read(ref b.Slots[id]);
-			var g = Volatile.Read(ref b.Generations[id]);
-			return (h, g);
+			var pages = Volatile.Read(ref _buckets[arity].Pages);
+			var page = id >> PageShift;
+			return page >= pages.Length ? null : Volatile.Read(ref pages[page][id & (PageLength - 1)]);
 		}
 
 		private static void Grow(SlotBucket b)
 		{
-			int oldLen = b.Slots.Length;
-			System.Array.Resize(ref b.Slots, oldLen * 2);
-			System.Array.Resize(ref b.Generations, oldLen * 2);
-			for (int i = b.Slots.Length - 1; i >= oldLen; --i)
-				b.Free.Push(i);
-		}
-	}
+			var pages = b.Pages;
+			var oldCount = pages.Length;
+			var grown = new DelegateHolder[oldCount + 1][];
+			System.Array.Copy(pages, grown, oldCount);
+			grown[oldCount] = new DelegateHolder[PageLength];
+			Volatile.Write(ref b.Pages, grown);
 
-	// Thread-safe cache to store delegates for a given arity-slotId combination
-	static class AritySlotPointerCache
-	{
-		private static readonly Lock _lock = new();
-		private static readonly Dictionary<long, (Delegate keepAlive, nint ptr)> _map = new();
-
-		public static nint GetOrCreate(int arity, int slotId)
-		{
-			long key = ((long)arity << 40) | (uint)slotId;
-			lock (_lock)
-			{
-				if (_map.TryGetValue(key, out var hit))
-					return hit.ptr;
-
-				var del = DelegateHolder.CreateDelegateFor(arity, slotId);
-				RuntimeHelpers.PrepareDelegate(del);
-				var ptr = Marshal.GetFunctionPointerForDelegate(del);
-				_map[key] = (del, ptr);
-				return ptr;
-			}
+			for (var id = (oldCount + 1) * PageLength - 1; id >= oldCount * PageLength; --id)
+				b.Free.Push(id);
 		}
 	}
 
 	/// <summary>
-	/// Manages executable memory in 512-byte pages, providing fixed 64-byte chunks for DelegateHolder.
-	/// Automatically allocates new pages when needed and reuses freed chunks.
-	/// This is needed because VirtualAlloc is quite a heavy function, best called as few times as possible.
-	///
-	/// The implementation uses a Treiber stack to keep it mostly lock-free.
+	/// Thread-safe cache of native callback pointers, keyed by signature and slot id. Both the pre-declared
+	/// arity delegates and the emitted typed signatures go through here, because the invariant that matters is
+	/// the same for either source: GetFunctionPointerForDelegate is far too costly to repeat per callback, so a
+	/// pointer is created once per (signature, slot) and then reused for the lifetime of the process, including
+	/// across CallbackFree followed by another CallbackCreate landing on the same slot. Holding the delegate
+	/// here is also what keeps it alive, which is why DelegateHolder needs no finalizer.
 	/// </summary>
-	public sealed class ExecutableMemoryPoolManager
+	static class CallbackPointerCache
 	{
-		private const int PageSize = 512;
-		private const int ChunkSize = 64;
-		private readonly Lock _lock = new();
+		private static readonly Lock _lock = new();
+		private static readonly Dictionary<(string signature, int slotId), (Delegate keepAlive, nint ptr)> _map = new();
 
-		// Treiber‑stack head of free chunks (0 == empty)
-		private nint _freeList;
-
-		// All allocated pages
-		private readonly List<nint> _pages = new List<nint>();
-
-		// Current page and offset
-		private nint _currentPage;
-		private int _currentOffset = 0;
-
-#if !WINDOWS
-		[DllImport("libc", SetLastError = true)]
-		private static extern nint mmap(nint addr, nint length, int prot, int flags, int fd, nint offset);
-		[DllImport("libc", SetLastError = true)]
-		private static extern int munmap(nint addr, nint length);
-
-		private const int PROT_READ = 1;
-		private const int PROT_WRITE = 2;
-		private const int PROT_EXEC = 4;
-		private const int MAP_PRIVATE = 2;
-#if LINUX
-		private const int MAP_ANONYMOUS = 0x20;
-#elif OSX
-		private const int MAP_ANONYMOUS = 0x1000; // MAP_ANON / MAP_ANONYMOUS on macOS
-#else
-#error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
-#endif
-#endif
-
-		public ExecutableMemoryPoolManager()
+		public static nint GetOrCreate(string signature, int slotId, Func<Delegate> create)
 		{
 			lock (_lock)
 			{
-				// eagerly allocate first page so _currentPage != 0
-				var page = AllocatePage();
-				Volatile.Write(ref _currentPage, page);
-				// leave _currentOffset == 0
-				_pages.Add(page);
+				if (_map.TryGetValue((signature, slotId), out var hit))
+					return hit.ptr;
+
+				var del = create();
+				RuntimeHelpers.PrepareDelegate(del);
+				var ptr = Marshal.GetFunctionPointerForDelegate(del);
+				_map[(signature, slotId)] = (del, ptr);
+				return ptr;
 			}
 		}
 
-		/// <summary>
-		/// Rents a 32-byte executable chunk.
-		/// </summary>
-		public nint Rent()
-		{
-			// 1) Try lock‑free pop from the free list
-			if (TryPopFree(out var recycled))
-				return recycled;
-
-			// 2) Fast bump‑pointer carve
-			FastCarve:
-
-			while (true)
-			{
-				// use CAS to bump _currentOffset, and we use the old offset as our memory
-				int oldOffset = Volatile.Read(ref _currentOffset);
-				int newOffset = oldOffset + ChunkSize;
-
-				if (newOffset <= PageSize) // this means we wouldn't fit inside the current page
-				{
-					// try to claim [oldOffset, newOffset)
-					if (Interlocked.CompareExchange(ref _currentOffset, newOffset, oldOffset) == oldOffset)
-					{
-						var page = Volatile.Read(ref _currentPage);
-						return page + oldOffset;
-					}
-
-					// else another thread won the CAS — retry
-					continue;
-				}
-
-				// fall through to slow‑path to grab lock and allocate a fresh page
-				break;
-			}
-
-			// 3) Slow path: need a new page
-			lock (_lock)
-			{
-				// it's possible another thread already replaced the page,
-				// so check one more time if there's room on the current page:
-				if (_currentOffset + ChunkSize <= PageSize)
-				{
-					goto FastCarve;
-				}
-
-				// allocate brand‑new page, reset offset
-				var page = AllocatePage();
-				Volatile.Write(ref _currentPage, page);
-				Volatile.Write(ref _currentOffset, ChunkSize);
-				_pages.Add(page);
-				// return the first chunk
-				return page;
-			}
-		}
-
-		private bool TryPopFree(out nint ptr)
-		{
-			while (true)
-			{
-				var head = Volatile.Read(ref _freeList);
-
-				if (head == 0)
-				{
-					// no reusable chunks available
-					ptr = 0;
-					return false;
-				}
-
-				// read the next pointer stored at address head
-				var next = Marshal.ReadIntPtr(head);
-
-				// try to swing _freeList from head → next
-				if (Interlocked.CompareExchange(ref _freeList, next, head) == head)
-				{
-					ptr = head;
-					return true;
-				}
-
-				// else retry
-			}
-		}
-
-		private void PushFree(nint ptr)
-		{
-			while (true)
-			{
-				var head = Volatile.Read(ref _freeList);
-				// write the old head into the first pointer‑sized bytes of the freed chunk,
-				// using the chunk as a node in the Treiber stack
-				Marshal.WriteIntPtr(ptr, head);
-
-				// try to swing _freeList from head → ptr
-				if (Interlocked.CompareExchange(ref _freeList, ptr, head) == head)
-					return;
-
-				// else another thread modified it — retry
-			}
-		}
-
-
-		public void Return(nint ptr)
-		{
-			if (ptr == 0) return;
-
-			PushFree(ptr);
-		}
-
-		/// <summary>
-		/// Releases all allocated pages.
-		/// </summary>
-		public void Dispose()
-		{
-			lock (_lock)
-			{
-#if WINDOWS
-
-				foreach (var page in _pages)
-					WindowsAPI.VirtualFree(page, 0, (uint)VirtualAllocExTypes.MEM_RELEASE);
-
-#elif !WINDOWS
-
-				foreach (var page in _pages)
-					munmap(page, (nint)PageSize);
-
-#endif
-				_pages.Clear();
-				_currentPage = 0;
-				_currentOffset = 0;
-			}
-		}
-
-		private nint AllocatePage()
-		{
-#if WINDOWS
-			var ptr = WindowsAPI.VirtualAlloc(0, (nint)PageSize, (uint)VirtualAllocExTypes.MEM_COMMIT, (uint)AccessProtectionFlags.PAGE_EXECUTE_READWRITE);
-			return ptr == 0 ? throw new InvalidOperationException($"VirtualAlloc failed: {Marshal.GetLastWin32Error()}") : ptr;
-#elif !WINDOWS
-			var ptr = mmap(0, (nint)PageSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-
-			if (ptr == new nint(-1))
-				throw new InvalidOperationException("mmap failed");
-
-			return ptr;
-#else
-#error Unsupported OS for AllocatePage
-			return 0;
-#endif
-		}
+		// The pre-declared all-long delegate for an arity, which is the signature of an untyped callback and of
+		// any typed callback whose values all travel in integer registers. Its "a" prefix cannot collide with an
+		// emitted shape's key, which always begins with the calling convention's "s" or "c".
+		public static nint GetOrCreateForArity(int arity, int slotId) =>
+			GetOrCreate("a" + arity, slotId, () => DelegateHolder.CreateDelegateFor(arity, slotId));
 	}
+
 }

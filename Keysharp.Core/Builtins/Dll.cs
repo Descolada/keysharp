@@ -359,33 +359,23 @@ namespace Keysharp.Builtins
 				unsafe
 				{
 					byte* ptr = (byte*)shim;
-					// Emit MOVQ rcx←xmm0, rdx←xmm1, r8←xmm2, r9←xmm3 as needed
+
+					// Emit MOVQ rcx←xmm0, rdx←xmm1, r8←xmm2, r9←xmm3 as needed. MOVQ from an XMM register to a
+					// 64-bit GPR is `66 REX.W 0F 7E /r`: the 0x66 prefix and REX.W are both required, since
+					// without REX.W the same opcode is MOVD and copies only the low 32 bits, and without the
+					// 0x66 prefix it is the MMX MOVQ instead. ModRM is mod=11, reg=the XMM, rm=the GPR, with
+					// REX.B extending rm to reach r8/r9.
 					for (int i = 0; i < 4; i++)
 					{
 						if ((mask & (1UL << i)) == 0 || i == n) continue;
 
-						switch (i)
-						{
-							case 0:
-								// MOVQ RCX <- XMM0  (66 0F 7E C1)
-								*ptr++ = 0x66; *ptr++ = 0x0F; *ptr++ = 0x7E; *ptr++ = 0xC1;
-								break;
-
-							case 1:
-								// MOVQ RDX <- XMM1  (66 0F 7E CA)
-								*ptr++ = 0x66; *ptr++ = 0x0F; *ptr++ = 0x7E; *ptr++ = 0xCA;
-								break;
-
-							case 2:
-								// MOVQ R8  <- XMM2  (REX.B + 0F 7E C0)
-								*ptr++ = 0x49; *ptr++ = 0x0F; *ptr++ = 0x7E; *ptr++ = 0xC0;
-								break;
-
-							case 3:
-								// MOVQ R9  <- XMM3  (REX.B + 0F 7E C9)
-								*ptr++ = 0x49; *ptr++ = 0x0F; *ptr++ = 0x7E; *ptr++ = 0xC9;
-								break;
-						}
+						// rcx, rdx, r8, r9 as the low 3 bits of rm, the last two needing REX.B.
+						const string rm = "\x01\x02\x00\x01";
+						*ptr++ = 0x66;
+						*ptr++ = (byte)(i < 2 ? 0x48 : 0x49);
+						*ptr++ = 0x0F;
+						*ptr++ = 0x7E;
+						*ptr++ = (byte)(0xC0 | (i << 3) | rm[i]);
 					}
 
 					// Emit: JMP [RIP + 0]  => FF 25 00 00 00 00
@@ -448,9 +438,61 @@ namespace Keysharp.Builtins
 			var o = options.As();
 			bool fast = o.Contains('f', StringComparison.OrdinalIgnoreCase);
 			bool reference = o.Contains('&');
+			bool cdecl = o.Contains('c', StringComparison.OrdinalIgnoreCase);
+
+			// A non-numeric ParamCount is an array of the parameter types followed by the return type, which makes
+			// this a typed callback. [v2.1-alpha.24+]
+			if (paramCount != null && !Script.IsNumeric(paramCount))
+			{
+				// A string is enumerable, so exclude it explicitly rather than letting it be walked character
+				// by character and reported as an unresolvable type name.
+				if (paramCount is string || paramCount is not (Keysharp.Builtins.Array or IEnumerable))
+					return Errors.TypeErrorOccurred(paramCount, typeof(Keysharp.Builtins.Array));
+
+				if (reference)
+					return Errors.ValueErrorOccurred("The & option cannot be combined with typed callback parameters.");
+
+				var typeSpecs = new List<object>();
+
+				foreach (var item in Loops.MakeEnumerable(paramCount))
+					typeSpecs.Add(item);
+
+				if (typeSpecs.Count == 0)
+					return Errors.ValueErrorOccurred("A typed callback requires a return type.");
+
+				// Everything is resolved and validated up front, because constructing the holder registers it with
+				// the scheduler and takes a persistence root which a failed construction could never give back.
+				var typedArity = typeSpecs.Count - 1;
+
+				if (typedArity > DelegateHolder.MaxArity)
+					return Errors.ValueErrorOccurred($"A callback cannot have more than {DelegateHolder.MaxArity} parameters.");
+
+				var conversions = new Struct.CallbackConversion[typeSpecs.Count];
+				// "void" means the callback returns no value, so nothing is converted back. [v2.1-alpha.30+]
+				var typedVoid = typeSpecs[^1] is string text && text.Equals("void", StringComparison.OrdinalIgnoreCase);
+
+				for (var i = 0; i < typeSpecs.Count; ++i)
+				{
+					var isReturn = i == typedArity;
+
+					if (isReturn && typedVoid)
+						break;
+
+					if (!Struct.TryResolveClass(typeSpecs[i], out var structType))
+						return Errors.ValueErrorOccurred(isReturn
+														 ? "Invalid callback return type."
+														 : $"Invalid callback parameter type at position {i + 1}.");
+
+					if (!Struct.TryGetCallbackConversion(structType, isReturn, out conversions[i], out var error))
+						return Errors.ValueErrorOccurred(error);
+				}
+
+				return new DelegateHolder(fo, conversions, typedVoid, fast, cdecl);
+			}
+
 			int arity = Math.Clamp(paramCount.Ai(-1) < 0
-								   ? (!reference && fo is FuncObj f ? (int)f.MinParams : 32)
-								   : paramCount.Ai(-1), 0, 32);
+								   ? (!reference && fo is FuncObj f ? (int)f.MinParams : DelegateHolder.MaxArity)
+								   : paramCount.Ai(-1), 0, DelegateHolder.MaxArity);
 
 			return new DelegateHolder(fo, arity, fast, reference);
 		}

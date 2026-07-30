@@ -193,11 +193,11 @@ namespace Keysharp.Internals.Input.Linux
 		}
 
 		/// <summary>Live logical state of one mouse button (Wayland path for GetKeyState(button)).</summary>
-		internal static bool TryQueryButtonStateLogical(uint vk, out bool down)
+		internal static bool TryGetButtonStateLogical(uint vk, out bool down)
 			=> TryQueryButtonState(vk, physical: false, out down);
 
 		/// <summary>Live physical state of one mouse button.</summary>
-		internal static bool TryQueryButtonStatePhysical(uint vk, out bool down)
+		internal static bool TryGetButtonStatePhysical(uint vk, out bool down)
 			=> TryQueryButtonState(vk, physical: true, out down);
 
 		private static bool TryQueryButtonState(uint vk, bool physical, out bool down)

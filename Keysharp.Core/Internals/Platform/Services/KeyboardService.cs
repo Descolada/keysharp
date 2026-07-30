@@ -6,25 +6,25 @@ namespace Keysharp.Internals
 {
 	internal sealed class DefaultKeyboard : IKeyboard
 	{
-		public bool TryQueryModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null)
+		public bool TryGetModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null)
 		{
 			mods = 0u;
 			return false;
 		}
 
-		public bool TryQueryModifierLRStatePhysical(out uint mods)
+		public bool TryGetModifierLRStatePhysical(out uint mods)
 		{
 			mods = 0u;
 			return false;
 		}
 
-		public bool TryQueryKeyStateLogical(uint vk, out bool isDown)
+		public bool TryGetKeyStateLogical(uint vk, out bool isDown)
 		{
 			isDown = false;
 			return false;
 		}
 
-		public bool TryQueryKeyStatePhysical(uint vk, out bool isDown)
+		public bool TryGetKeyStatePhysical(uint vk, out bool isDown)
 		{
 			isDown = false;
 			return false;
@@ -40,28 +40,28 @@ namespace Keysharp.Internals
 #if WINDOWS
 	internal sealed class WindowsKeyboard : IKeyboard
 	{
-		public bool TryQueryModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null)
+		public bool TryGetModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null)
 		{
 			mods = 0u;
 
-			if (TryQueryKeyStateLogical(VK_LSHIFT, out var down) && down) mods |= MOD_LSHIFT;
-			if (TryQueryKeyStateLogical(VK_RSHIFT, out down) && down) mods |= MOD_RSHIFT;
-			if (TryQueryKeyStateLogical(VK_LCONTROL, out down) && down) mods |= MOD_LCONTROL;
-			if (TryQueryKeyStateLogical(VK_RCONTROL, out down) && down) mods |= MOD_RCONTROL;
-			if (TryQueryKeyStateLogical(VK_LMENU, out down) && down) mods |= MOD_LALT;
-			if (TryQueryKeyStateLogical(VK_RMENU, out down) && down) mods |= MOD_RALT;
-			if (TryQueryKeyStateLogical(VK_LWIN, out down) && down) mods |= MOD_LWIN;
-			if (TryQueryKeyStateLogical(VK_RWIN, out down) && down) mods |= MOD_RWIN;
+			if (TryGetKeyStateLogical(VK_LSHIFT, out var down) && down) mods |= MOD_LSHIFT;
+			if (TryGetKeyStateLogical(VK_RSHIFT, out down) && down) mods |= MOD_RSHIFT;
+			if (TryGetKeyStateLogical(VK_LCONTROL, out down) && down) mods |= MOD_LCONTROL;
+			if (TryGetKeyStateLogical(VK_RCONTROL, out down) && down) mods |= MOD_RCONTROL;
+			if (TryGetKeyStateLogical(VK_LMENU, out down) && down) mods |= MOD_LALT;
+			if (TryGetKeyStateLogical(VK_RMENU, out down) && down) mods |= MOD_RALT;
+			if (TryGetKeyStateLogical(VK_LWIN, out down) && down) mods |= MOD_LWIN;
+			if (TryGetKeyStateLogical(VK_RWIN, out down) && down) mods |= MOD_RWIN;
 			return true;
 		}
 
-		public bool TryQueryModifierLRStatePhysical(out uint mods)
+		public bool TryGetModifierLRStatePhysical(out uint mods)
 		{
 			mods = 0u;
 			return false;
 		}
 
-		public bool TryQueryKeyStateLogical(uint vk, out bool isDown)
+		public bool TryGetKeyStateLogical(uint vk, out bool isDown)
 		{
 			isDown = false;
 
@@ -72,7 +72,7 @@ namespace Keysharp.Internals
 			return true;
 		}
 
-		public bool TryQueryKeyStatePhysical(uint vk, out bool isDown)
+		public bool TryGetKeyStatePhysical(uint vk, out bool isDown)
 		{
 			isDown = false;
 			return false;
@@ -107,10 +107,10 @@ namespace Keysharp.Internals
 		private static bool indicatorSnapshotNum;
 		private static bool indicatorSnapshotScroll;
 
-		public bool TryQueryModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null)
+		public bool TryGetModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null)
 			=> Keysharp.Internals.Input.Linux.KeysharpInputdManager.TryGetKeyState(out mods, out _, out _, out _);
 
-		public bool TryQueryModifierLRStatePhysical(out uint mods)
+		public bool TryGetModifierLRStatePhysical(out uint mods)
 		{
 			mods = 0u;
 
@@ -131,7 +131,7 @@ namespace Keysharp.Internals
 			return success;
 		}
 
-		public bool TryQueryKeyStateLogical(uint vk, out bool isDown)
+		public bool TryGetKeyStateLogical(uint vk, out bool isDown)
 		{
 			isDown = false;
 
@@ -158,7 +158,7 @@ namespace Keysharp.Internals
 			return TryGetEvdevBit(logicalKeys, evdev, out isDown);
 		}
 
-		public bool TryQueryKeyStatePhysical(uint vk, out bool isDown)
+		public bool TryGetKeyStatePhysical(uint vk, out bool isDown)
 		{
 			isDown = false;
 
@@ -254,7 +254,7 @@ namespace Keysharp.Internals
 
 	internal sealed class X11Keyboard : IKeyboard
 	{
-		public bool TryQueryModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null)
+		public bool TryGetModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null)
 		{
 			mods = 0u;
 
@@ -286,13 +286,13 @@ namespace Keysharp.Internals
 			return true;
 		}
 
-		public bool TryQueryModifierLRStatePhysical(out uint mods)
+		public bool TryGetModifierLRStatePhysical(out uint mods)
 		{
 			mods = 0u;
 			return false;
 		}
 
-		public bool TryQueryKeyStateLogical(uint vk, out bool isDown)
+		public bool TryGetKeyStateLogical(uint vk, out bool isDown)
 		{
 			isDown = false;
 
@@ -329,7 +329,7 @@ namespace Keysharp.Internals
 			return true;
 		}
 
-		public bool TryQueryKeyStatePhysical(uint vk, out bool isDown)
+		public bool TryGetKeyStatePhysical(uint vk, out bool isDown)
 		{
 			isDown = false;
 			return false;
@@ -381,16 +381,16 @@ namespace Keysharp.Internals
 		private static bool indicatorSnapshotNum;
 		private static bool indicatorSnapshotScroll;
 
-		public bool TryQueryModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null)
+		public bool TryGetModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null)
 			=> TryQueryModifierLRStateForSource(Keysharp.Internals.Input.MacOS.MacNativeInput.kCGEventSourceStateCombinedSessionState, out mods);
 
-		public bool TryQueryModifierLRStatePhysical(out uint mods)
+		public bool TryGetModifierLRStatePhysical(out uint mods)
 			=> TryQueryModifierLRStateForSource(Keysharp.Internals.Input.MacOS.MacNativeInput.kCGEventSourceStateHIDSystemState, out mods);
 
-		public bool TryQueryKeyStateLogical(uint vk, out bool isDown)
+		public bool TryGetKeyStateLogical(uint vk, out bool isDown)
 			=> TryQueryMacKeyState(vk, Keysharp.Internals.Input.MacOS.MacNativeInput.kCGEventSourceStateCombinedSessionState, useIndicators: true, out isDown);
 
-		public bool TryQueryKeyStatePhysical(uint vk, out bool isDown)
+		public bool TryGetKeyStatePhysical(uint vk, out bool isDown)
 			=> TryQueryMacKeyState(vk, Keysharp.Internals.Input.MacOS.MacNativeInput.kCGEventSourceStateHIDSystemState, useIndicators: false, out isDown);
 
 		public bool TryGetIndicatorStatesLogical(out bool capsOn, out bool numOn, out bool scrollOn)

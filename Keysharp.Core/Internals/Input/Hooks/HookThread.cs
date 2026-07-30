@@ -1712,9 +1712,9 @@ namespace Keysharp.Internals.Input.Hooks
 			if (!HasKbdHook())
 			{
 				if (MouseUtils.IsMouseVK(vk))
-					return Keysharp.Internals.Platform.Mouse.TryQueryButtonStatePhysical(vk, out var mouseDown) && mouseDown;
+					return Keysharp.Internals.Platform.Mouse.TryGetButtonStatePhysical(vk, out var mouseDown) && mouseDown;
 
-				return Keysharp.Internals.Platform.Keyboard.TryQueryKeyStatePhysical(vk, out var keyDown) && keyDown;
+				return Keysharp.Internals.Platform.Keyboard.TryGetKeyStatePhysical(vk, out var keyDown) && keyDown;
 			}
 
 			if (vk == 0 || vk >= physicalKeyState.Length)
@@ -1725,8 +1725,8 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal virtual bool IsKeyDownLogical(uint vk)
 			=> MouseUtils.IsMouseVK(vk)
-				? Keysharp.Internals.Platform.Mouse.TryQueryButtonStateLogical(vk, out var mouseDown) && mouseDown
-				: Keysharp.Internals.Platform.Keyboard.TryQueryKeyStateLogical(vk, out var keyDown) && keyDown;
+				? Keysharp.Internals.Platform.Mouse.TryGetButtonStateLogical(vk, out var mouseDown) && mouseDown
+				: Keysharp.Internals.Platform.Keyboard.TryGetKeyStateLogical(vk, out var keyDown) && keyDown;
 
 		internal abstract bool IsKeyToggledOn(uint vk);
 

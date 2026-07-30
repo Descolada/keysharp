@@ -1107,7 +1107,7 @@ break_twice:;
 					// process to install a hook (inputd and macOS HID state). If they do not, explicitly
 					// fall through to the logical/live query below, as AutoHotkey does without a hook.
 					if (!isMouse
-						&& Keysharp.Internals.Platform.Keyboard.TryQueryKeyStatePhysical(vk, out var physicalDown))
+						&& Keysharp.Internals.Platform.Keyboard.TryGetKeyStatePhysical(vk, out var physicalDown))
 						return physicalDown;
 
 					break;

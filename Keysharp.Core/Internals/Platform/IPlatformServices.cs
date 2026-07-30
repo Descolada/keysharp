@@ -140,14 +140,14 @@ namespace Keysharp.Internals
 
 		/// <summary>Live LOGICAL state of a mouse button (VK_LBUTTON/RBUTTON/MBUTTON/XBUTTON1/2), matching the
 		/// current OS/session button state used by <c>GetKeyState(button)</c> without the physical option.</summary>
-		bool TryQueryButtonStateLogical(uint vk, out bool down);
+		bool TryGetButtonStateLogical(uint vk, out bool down);
 
 		/// <summary>Live PHYSICAL state of a mouse button (VK_LBUTTON/RBUTTON/MBUTTON/XBUTTON1/2), for
 		/// GetKeyState(.., "P") when no mouse hook is tracking it — the cross-platform analogue of Win32
 		/// GetAsyncKeyState (X11 <c>XQueryPointer</c> mask, macOS <c>CGEventSourceButtonState</c>, Wayland via
 		/// the inputd daemon's evdev read). Returns false if this platform cannot answer, so the caller falls
 		/// back to the hook-tracked state.</summary>
-		bool TryQueryButtonStatePhysical(uint vk, out bool down);
+		bool TryGetButtonStatePhysical(uint vk, out bool down);
 	}
 
 	/// <summary>Monitors, work area, screen/window capture.</summary>
@@ -284,21 +284,21 @@ namespace Keysharp.Internals
 	internal interface IKeyboard
 	{
 		/// <summary>Current logical modifier state, represented with Keysharp MOD_* left/right bits.</summary>
-		bool TryQueryModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null);
+		bool TryGetModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null);
 
 		/// <summary>Current authoritative physical/device modifier state, represented with Keysharp MOD_*
 		/// left/right bits. Returns false when the platform cannot distinguish physical from logical state, or
 		/// when only some keys could be probed; mods is then partial rather than meaningful, so callers must
 		/// discard it and fall back rather than treat the missing bits as "up".</summary>
-		bool TryQueryModifierLRStatePhysical(out uint mods);
+		bool TryGetModifierLRStatePhysical(out uint mods);
 
 		/// <summary>Current OS/session logical down/up state for the given VK. On Windows this intentionally
 		/// models Win32 GetAsyncKeyState-style current state, not GetKeyState's thread-message-queue state.</summary>
-		bool TryQueryKeyStateLogical(uint vk, out bool isDown);
+		bool TryGetKeyStateLogical(uint vk, out bool isDown);
 
 		/// <summary>Current authoritative physical/device down/up state for the given VK.
 		/// Returns false when the platform cannot distinguish physical from logical state.</summary>
-		bool TryQueryKeyStatePhysical(uint vk, out bool isDown);
+		bool TryGetKeyStatePhysical(uint vk, out bool isDown);
 
 		/// <summary>Current lock/toggle states when the platform exposes them.</summary>
 		bool TryGetIndicatorStatesLogical(out bool capsOn, out bool numOn, out bool scrollOn);

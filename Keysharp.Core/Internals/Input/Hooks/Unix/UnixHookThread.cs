@@ -389,7 +389,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			}
 
 			// With no hook, fall back to the resolved platform keyboard state service.
-			if (Platform.Keyboard.TryQueryModifierLRStateLogical(out var logicalMods))
+			if (Platform.Keyboard.TryGetModifierLRStateLogical(out var logicalMods))
 				return logicalMods;
 
 			// Last resort: use physical snapshot.

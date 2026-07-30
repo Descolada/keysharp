@@ -30,13 +30,13 @@ namespace Keysharp.Internals
 		public abstract bool TryMoveAbsolute(int x, int y);
 
 		// Default: unknown. X11 answers via XQueryPointer, Wayland via the inputd daemon.
-		public virtual bool TryQueryButtonStateLogical(uint vk, out bool down)
+		public virtual bool TryGetButtonStateLogical(uint vk, out bool down)
 		{
 			down = false;
 			return false;
 		}
 
-		public virtual bool TryQueryButtonStatePhysical(uint vk, out bool down)
+		public virtual bool TryGetButtonStatePhysical(uint vk, out bool down)
 		{
 			down = false;
 			return false;
@@ -77,10 +77,10 @@ namespace Keysharp.Internals
 		// (left/middle/right). Works with no grab/hook — the daemon only grabs the mouse when a mouse hook is
 		// subscribed, so whenever this fallback is reached the pointer state X reports is authoritative.
 		// XButton1/2 (side buttons) aren't in the core pointer mask, so they return false (caller falls back).
-		public override bool TryQueryButtonStateLogical(uint vk, out bool down)
+		public override bool TryGetButtonStateLogical(uint vk, out bool down)
 			=> TryQueryX11ButtonState(vk, out down);
 
-		public override bool TryQueryButtonStatePhysical(uint vk, out bool down)
+		public override bool TryGetButtonStatePhysical(uint vk, out bool down)
 			=> TryQueryX11ButtonState(vk, out down);
 
 		private static bool TryQueryX11ButtonState(uint vk, out bool down)
@@ -213,13 +213,13 @@ namespace Keysharp.Internals
 
 		public override bool TryMoveAbsolute(int x, int y) => backend?.TrySendMouseMoveAbsolute(x, y) == true;
 
-		public override bool TryQueryButtonStateLogical(uint vk, out bool down)
-			=> KeysharpInputdManager.TryQueryButtonStateLogical(vk, out down);
+		public override bool TryGetButtonStateLogical(uint vk, out bool down)
+			=> KeysharpInputdManager.TryGetButtonStateLogical(vk, out down);
 
 		// Wayland forbids clients from querying global pointer state, so ask the inputd daemon: it reads evdev
 		// and can snapshot the current button state (EVIOCGKEY) without grabbing the mouse or installing a hook.
-		public override bool TryQueryButtonStatePhysical(uint vk, out bool down)
-			=> KeysharpInputdManager.TryQueryButtonStatePhysical(vk, out down);
+		public override bool TryGetButtonStatePhysical(uint vk, out bool down)
+			=> KeysharpInputdManager.TryGetButtonStatePhysical(vk, out down);
 	}
 #elif WINDOWS
 	internal sealed class WindowsMouse : IMouse
@@ -240,10 +240,10 @@ namespace Keysharp.Internals
 		public bool TryMoveAbsolute(int x, int y)
 			=> Keysharp.Internals.Os.Windows.WindowsAPI.SetCursorPos(x, y);
 
-		public bool TryQueryButtonStateLogical(uint vk, out bool down)
+		public bool TryGetButtonStateLogical(uint vk, out bool down)
 			=> TryQueryWin32ButtonState(vk, out down);
 
-		public bool TryQueryButtonStatePhysical(uint vk, out bool down)
+		public bool TryGetButtonStatePhysical(uint vk, out bool down)
 			=> TryQueryWin32ButtonState(vk, out down);
 
 		private static bool TryQueryWin32ButtonState(uint vk, out bool down)
@@ -285,10 +285,10 @@ namespace Keysharp.Internals
 		[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I1)]
 		private static extern bool CGEventSourceButtonState(int sourceState, uint button);
 
-		public bool TryQueryButtonStateLogical(uint vk, out bool down)
+		public bool TryGetButtonStateLogical(uint vk, out bool down)
 			=> TryQueryButtonState(vk, Keysharp.Internals.Input.MacOS.MacNativeInput.kCGEventSourceStateCombinedSessionState, out down);
 
-		public bool TryQueryButtonStatePhysical(uint vk, out bool down)
+		public bool TryGetButtonStatePhysical(uint vk, out bool down)
 			=> TryQueryButtonState(vk, Keysharp.Internals.Input.MacOS.MacNativeInput.kCGEventSourceStateHIDSystemState, out down);
 
 		// Live mouse-button state via CoreGraphics (no hook/tap needed).

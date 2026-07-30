@@ -1707,20 +1707,24 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal virtual bool IsHotstringWordChar(char ch) => char.IsLetterOrDigit(ch) ? true : !char.IsWhiteSpace(ch);
 
-		internal bool IsKeyDownPhysical(uint vk)
+		/// <summary>
+		/// The physical left/right modifier state, taken from this hook's own tracking where a hook is
+		/// installed and from the platform otherwise. Distinct from the platform query of a similar name in
+		/// that it prefers — and first repairs — the state the hook maintains.
+		/// </summary>
+		internal bool TryGetTrackedModifierLRStatePhysical(out uint modifiersLR)
 		{
-			if (!HasKbdHook())
+			if (HasKbdHook())
 			{
-				if (MouseUtils.IsMouseVK(vk))
-					return Keysharp.Internals.Platform.Mouse.TryGetButtonStatePhysical(vk, out var mouseDown) && mouseDown;
-
-				return Keysharp.Internals.Platform.Keyboard.TryGetKeyStatePhysical(vk, out var keyDown) && keyDown;
+				// The hook already maintains all left/right physical modifier bits as one snapshot, but it can
+				// have missed an up-event (see GetModifierLRState()), so correct it first exactly as the
+				// per-key physical path in ScriptGetKeyState() does before reading physicalKeyState.
+				_ = kbdMsSender.GetModifierLRState(true);
+				modifiersLR = kbdMsSender.modifiersLRPhysical;
+				return true;
 			}
 
-			if (vk == 0 || vk >= physicalKeyState.Length)
-				return false;
-
-			return (physicalKeyState[vk] & StateDown) != 0;
+			return Keysharp.Internals.Platform.Keyboard.TryGetModifierLRStatePhysical(out modifiersLR);
 		}
 
 		internal virtual bool IsKeyDownLogical(uint vk)

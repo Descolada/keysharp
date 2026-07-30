@@ -1718,6 +1718,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			var tempVk = 0u;
 			var tempSc = 0u;
 			uint? modifiersLR = 0u;
+			var isChordKey = false;
 			var isMouse = false;
 			uint? joystickId = 0u;
 			var script = Script.TheScript;
@@ -1755,7 +1756,18 @@ namespace Keysharp.Internals.Input.Keyboard
 			var hotkeyTypeTemp = HotkeyTypeEnum.Normal;
 			ref var hotkeyType = ref (thisHotkey != null ? ref thisHotkey.type : ref hotkeyTypeTemp);//Simplifies and reduces code size below.
 			var keySource = KeySource.None;
-			_ = ht.TextToVKandSC(text, ref tempVk, ref tempSc, ref keySource, ref modifiersLR, layout: null, allowVkScPair: false);
+			if (ChordKeyDefinition.TryGet(text, out var chordKey))
+			{
+				if (isModifier)
+					return (ResultType)Errors.ValueErrorOccurred("Unsupported prefix key.", text, ResultType.Fail);
+
+				isChordKey = true;
+				tempVk = chordKey.VK;
+				modifiersLR |= chordKey.HotkeyModifiersLR();
+				keySource = KeySource.Name;
+			}
+			else
+				_ = ht.TextToVKandSC(text, ref tempVk, ref tempSc, ref keySource, ref modifiersLR, layout: null, allowVkScPair: false);
 
 			if (tempVk != 0)
 			{
@@ -1850,8 +1862,15 @@ namespace Keysharp.Internals.Input.Keyboard
 					// modifiers from left-right to neutral.  But exclude right-side modifiers (except RWin) so that
 					// things like AltGr are more precisely handled (the implications of this policy could use
 					// further review).  Currently, right-Alt (via AltGr) is the only possible right-side key.
-					thisHotkey.modifiers |= ConvertModifiersLR(modifiersLR.Value & (MOD_RWIN | MOD_LWIN | MOD_LCONTROL | MOD_LALT | MOD_LSHIFT));
-					thisHotkey.modifiersLR |= modifiersLR.Value & (MOD_RSHIFT | MOD_RALT | MOD_RCONTROL); // Not MOD_RWIN since it belongs above.
+					// A chord key's firmware-generated modifiers are inherently side-specific.
+					// Character keys retain the neutralization policy described above.
+					if (isChordKey)
+						thisHotkey.modifiersLR |= modifiersLR.Value;
+					else
+					{
+						thisHotkey.modifiers |= ConvertModifiersLR(modifiersLR.Value & (MOD_RWIN | MOD_LWIN | MOD_LCONTROL | MOD_LALT | MOD_LSHIFT));
+						thisHotkey.modifiersLR |= modifiersLR.Value & (MOD_RSHIFT | MOD_RALT | MOD_RCONTROL); // Not MOD_RWIN since it belongs above.
+					}
 				}
 			}
 
@@ -2065,6 +2084,13 @@ namespace Keysharp.Internals.Input.Keyboard
 				{
 					properties.suffixText = properties.suffixText.OmitTrailingWhitespace(tempIndex);//Omit " Up" from suffix_text since caller wants that.
 					properties.isKeyUp = true; // Override the default set earlier.
+				}
+
+				// Canonicalize a chord key's name to the same true nature as the event chord it stands for.
+				if (ChordKeyDefinition.TryGet(properties.suffixText, out var chordKey))
+				{
+					properties.modifiersLR |= chordKey.HotkeyModifiersLR();
+					properties.suffixText = chordKey.KeyName;
 				}
 			}
 

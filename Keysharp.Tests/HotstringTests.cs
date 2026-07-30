@@ -453,6 +453,140 @@ namespace Keysharp.Tests
 			}
 		}
 
+		[Test, Category("Hotstring")]
+		public void ModifiedSourceToModifierRemapSpansBothHotkeyCallbacks()
+		{
+			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(">!.::RCtrl");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+
+			var lowerer = new Keysharp.Parsing.Syntax.Lowerer();
+			var unit = lowerer.Build(prog, "Test");
+			var generated = unit.ToFullString();
+			Assert.IsTrue(generated.Contains("{Blind}{RAlt up}{RCtrl DownR}"), generated);
+			Assert.IsFalse(generated.Contains("{Blind>!}{RCtrl DownR}"), generated);
+			Assert.IsTrue(generated.Contains("{Blind}{RCtrl Up}"), generated);
+			Assert.IsTrue(generated.Contains("GetKeyState(\"RAlt\",\"P\")"), generated);
+			Assert.IsTrue(generated.Contains("{RAlt DownR}"), generated);
+			Assert.IsTrue(generated.Contains("System.String.Concat("), generated);
+
+			var upCallback = unit.DescendantNodes()
+				.OfType<Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax>()
+				.Single(method => method.Identifier.ValueText == "__Remap_2");
+			var upSendCount = upCallback.DescendantNodes()
+				.OfType<Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax>()
+				.Count(invocation => invocation.Expression.ToString() == "Keysharp.Builtins.Keyboard.Send");
+			Assert.AreEqual(1, upSendCount, generated);
+
+			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(">!.::b");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			Assert.IsTrue(generated.Contains("{Blind>!}{b DownR}"), generated);
+
+			// A wheel has no up event, so its up hotkey never fires; holding the destination with DownR would
+			// leave the modifier stuck down. Such a remap must keep the plain press-and-release form.
+			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("^WheelUp::LShift");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			Assert.IsTrue(generated.Contains("{Blind<^>^}{LShift}"), generated);
+			Assert.IsFalse(generated.Contains("{LShift DownR}"), generated);
+		}
+
+		[Test, Category("Hotstring")]
+		public void CopilotHotkeyAliasesLeftWinShiftF23()
+		{
+			var copilot = new HotkeyDefinition(999, null, (uint)HotkeyTypeEnum.Normal, "Copilot", 0);
+			Assert.IsTrue(copilot.constructedOK);
+			Assert.AreEqual(Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_F23, copilot.vk);
+			Assert.AreEqual(
+				Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT,
+				copilot.modifiersConsolidatedLR);
+			Assert.IsFalse(copilot.allowExtraModifiers);
+			Assert.IsTrue(copilot.keybdHookMandatory);
+			Assert.AreEqual(0L, Keyboard.GetKeyVK("Copilot"));
+			Assert.AreEqual(0L, Keyboard.GetKeySC("Copilot"));
+
+			var wildcardDown = new HotkeyDefinition(1000, null, (uint)HotkeyTypeEnum.Normal, "*Copilot", 0);
+			var wildcardUp = new HotkeyDefinition(1001, null, (uint)HotkeyTypeEnum.Normal, "*Copilot Up", 0);
+			Assert.IsTrue(wildcardDown.constructedOK);
+			Assert.IsTrue(wildcardUp.constructedOK);
+			Assert.AreEqual(wildcardDown.vk, wildcardUp.vk);
+			Assert.AreEqual(wildcardDown.modifiersConsolidatedLR, wildcardUp.modifiersConsolidatedLR);
+			Assert.IsTrue(wildcardDown.allowExtraModifiers);
+			Assert.IsTrue(wildcardUp.allowExtraModifiers);
+			Assert.IsTrue(wildcardUp.keyUp);
+
+			var properties = new HotkeyProperties();
+			_ = HotkeyDefinition.TextToModifiers("Copilot Up", null, properties);
+			Assert.AreEqual("F23", properties.suffixText);
+			Assert.AreEqual(copilot.modifiersConsolidatedLR, properties.modifiersLR);
+			Assert.IsTrue(properties.isKeyUp);
+
+			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("Copilot::RCtrl");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			var generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			Assert.IsTrue(generated.Contains("{Blind}{LShift up}{LWin up}{RCtrl DownR}"), generated);
+			// The chord's modifiers are firmware-fabricated and released microseconds after the trigger, so the
+			// up hotkey must not re-press them; only genuinely user-held modifiers are restored (see >!.::RCtrl).
+			Assert.IsTrue(generated.Contains("{Blind}{RCtrl Up}"), generated);
+			Assert.IsFalse(generated.Contains("GetKeyState(\"LShift\",\"P\")"), generated);
+			Assert.IsFalse(generated.Contains("GetKeyState(\"LWin\",\"P\")"), generated);
+			Assert.IsFalse(generated.Contains("System.String.Concat("), generated);
+			Assert.IsTrue(generated.Contains("\"*Copilot\""), generated);
+			Assert.IsTrue(generated.Contains("\"*Copilot up\""), generated);
+
+			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("Copilot::a");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			Assert.IsTrue(generated.Contains("{Blind<+<#}{a DownR}"), generated);
+			Assert.IsFalse(generated.Contains("{Blind>+"), generated);
+		}
+
+		[Test, Category("Hotstring")]
+		public void OfficeHotkeyAliasesLeftModifierChord()
+		{
+			var office = new HotkeyDefinition(1002, null, (uint)HotkeyTypeEnum.Normal, "Office", 0);
+			Assert.IsTrue(office.constructedOK);
+			Assert.AreEqual(Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LWIN, office.vk);
+			Assert.AreEqual(
+				Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LCONTROL
+				| Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT
+				| Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LALT,
+				office.modifiersConsolidatedLR);
+			Assert.IsTrue(office.keybdHookMandatory);
+			Assert.AreEqual(0L, Keyboard.GetKeyVK("Office"));
+			Assert.AreEqual(0L, Keyboard.GetKeySC("Office"));
+
+			var properties = new HotkeyProperties();
+			_ = HotkeyDefinition.TextToModifiers("Office Up", null, properties);
+			Assert.AreEqual("LWin", properties.suffixText);
+			Assert.AreEqual(office.modifiersConsolidatedLR, properties.modifiersLR);
+			Assert.IsTrue(properties.isKeyUp);
+
+			Assert.IsTrue(ChordKeyDefinition.TryGet("Office", out var chord));
+			var down = new HashSet<uint>
+			{
+				Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LCONTROL,
+				Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LSHIFT,
+				Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LMENU,
+				Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LWIN
+			};
+			var modifiersLR = down.Aggregate(0u,
+				(mask, vk) => mask | Keysharp.Internals.Input.Keyboard.KeyboardUtils.ModifierLRMaskFromVK(vk));
+			Assert.IsTrue(chord.IsDown(modifiersLR, true));
+			down.Remove(Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LMENU);
+			modifiersLR = down.Aggregate(0u,
+				(mask, vk) => mask | Keysharp.Internals.Input.Keyboard.KeyboardUtils.ModifierLRMaskFromVK(vk));
+			Assert.IsFalse(chord.IsDown(modifiersLR, true));
+
+			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("Office::RCtrl");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			var generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			Assert.IsTrue(generated.Contains(
+				"{Blind}{LCtrl up}{LAlt up}{LShift up}{LWin up}{RCtrl DownR}"), generated);
+			Assert.IsTrue(generated.Contains("\"*Office\""), generated);
+			Assert.IsTrue(generated.Contains("\"*Office up\""), generated);
+		}
+
 #if OSX
 		[Test, Category("Hotstring")]
 		public void MacRemapPropagatesNativeAutoRepeatMetadata()

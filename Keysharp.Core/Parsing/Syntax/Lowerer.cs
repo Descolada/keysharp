@@ -3355,7 +3355,10 @@ namespace Keysharp.Parsing.Syntax
 			ht.TextToVKandSC(remapName, ref remapDestVk, ref remapDestSc, ref remapDestSource, ref modLR, kbLayout);
 
 			var tempcp1 = HotkeyDefinition.TextToModifiers(hotName, null);
-			var remapSourceVk = ht.TextToVK(tempcp1, ref modifiersLR, kbLayout);
+			var remapSourceIsChord = ChordKeyDefinition.TryGet(tempcp1, out var remapSourceChord);
+			var remapSourceVk = remapSourceIsChord
+				? remapSourceChord.VK
+				: ht.TextToVK(tempcp1, ref modifiersLR, kbLayout);
 			var remapSourceIsCombo = tempcp1.Contains(HotkeyDefinition.COMPOSITE_DELIMITER);
 			var remapSourceIsMouse = MouseUtils.IsMouseVK(remapSourceVk);
 			var remapDestIsMouse = MouseUtils.IsMouseVK(remapDestVk);
@@ -3380,11 +3383,45 @@ namespace Keysharp.Parsing.Syntax
 
 			var blindMods = "";
 			var temphk = new HotkeyDefinition(999, null, (uint)HotkeyTypeEnum.Normal, hotName, 0);
-			for (var i = 0; i < 8; ++i)
-				if ((temphk.modifiersConsolidatedLR & (1 << i)) != 0 && !remapDestModifiers.Contains(KeyboardMouseSender.ModLRString[i * 2 + 1]))
-				{ blindMods += KeyboardMouseSender.ModLRString[i * 2]; blindMods += KeyboardMouseSender.ModLRString[i * 2 + 1]; }
+			var chordModifiersLR = remapSourceIsChord ? remapSourceChord.ModifiersLR : 0u;
+			var remapSourceModifiersLR = temphk.modifiersConsolidatedLR | chordModifiersLR;
+			bool? remapDestIsNeutral = null;
+			var remapDestModifierLR = ht.KeyToModifiersLR(remapDestVk, remapDestSc, ref remapDestIsNeutral);
+			var releasedSourceModifiers = new List<string>();
+			var restoredSourceModifiers = new List<string>();
+			string[] modifierNames = ["LCtrl", "RCtrl", "LAlt", "RAlt", "LShift", "RShift", "LWin", "RWin"];
 
-			var p = $"{{Blind{blindMods}}}{remapDestModifiers}{{{remapDest}{(remapWheel ? "" : " DownR")}}}";
+			for (var i = 0; i < 8; ++i)
+				if ((remapSourceModifiersLR & (1 << i)) != 0 && !remapDestModifiers.Contains(KeyboardMouseSender.ModLRString[i * 2 + 1]))
+				{
+					blindMods += KeyboardMouseSender.ModLRString[i * 2];
+					blindMods += KeyboardMouseSender.ModLRString[i * 2 + 1];
+
+					// Selective Blind only releases a source modifier for the duration of one Send. If the remap
+					// destination is itself a modifier, its useful lifetime extends through the separate up hotkey,
+					// so explicitly release source-only modifiers there.
+					if ((remapDestModifierLR & (1u << i)) == 0)
+					{
+						releasedSourceModifiers.Add(modifierNames[i]);
+
+						// Restore it in the up hotkey only if the user could still be holding it. A chord key's
+						// modifiers are fabricated by firmware, which releases them microseconds after the trigger
+						// (verified on Copilot: F23 up, then LShift up, then LWin up). Re-pressing one there could
+						// only produce an undisguised bare Alt/Win tap that the firmware's own up then closes.
+						if ((chordModifiersLR & (1u << i)) == 0)
+							restoredSourceModifiers.Add(modifierNames[i]);
+					}
+				}
+
+			// A wheel source has no up event, so its up hotkey never fires and must not be relied upon to
+			// release the destination; such a remap keeps the plain press-and-release form below.
+			var explicitlyReleaseSourceModifiers = !remapWheel && remapDestModifierLR != 0 && releasedSourceModifiers.Count != 0;
+			var downExtra = explicitlyReleaseSourceModifiers
+				? string.Concat(releasedSourceModifiers.Select(mod => $"{{{mod} up}}"))
+				: "";
+			var p = explicitlyReleaseSourceModifiers
+				? $"{{Blind}}{downExtra}{remapDestModifiers}{{{remapDest} DownR}}"
+				: $"{{Blind{blindMods}}}{remapDestModifiers}{{{remapDest}{(remapWheel ? "" : " DownR")}}}";
 
 #if OSX
 			StatementSyntax RemapDownSend()
@@ -3415,8 +3452,22 @@ namespace Keysharp.Parsing.Syntax
 				downStatements.Add(RemapDownSend());
 			downStatements.Add(SyntaxFactory.ReturnStatement(Str("")));
 			_hotMembers.Add(RemapCallback(downName, downStatements));
+
+			var upSendParts = new List<ExpressionSyntax> { Str($"{{Blind}}{{{remapDest} Up}}") };
+
+			if (explicitlyReleaseSourceModifiers)
+				foreach (var mod in restoredSourceModifiers)
+					upSendParts.Add(
+						SyntaxFactory.ParenthesizedExpression(SyntaxFactory.ConditionalExpression(
+							IfTest(Inv(Access("Keysharp.Builtins.Keyboard.GetKeyState"), Str(mod), Str("P"))),
+							Str($"{{{mod} DownR}}"), Str(""))));
+
+			var upSendText = upSendParts.Count == 1
+				? upSendParts[0]
+				: Inv(Access("System.String.Concat"), upSendParts.ToArray());
+
 			_hotMembers.Add(RemapCallback(upName, new List<StatementSyntax>
-				{ SetDelay(remapDestIsMouse), SendStmt($"{{Blind}}{{{remapDest} Up}}"), SyntaxFactory.ReturnStatement(Str("")) }));
+				{ SetDelay(remapDestIsMouse), SendStmt(upSendText), SyntaxFactory.ReturnStatement(Str("")) }));
 
 			_dhhr.Add(ExprStmt(Inv(Access("Keysharp.Runtime.Keyboard.HotkeyDefinition.AddHotkey"),
 				FuncBind("__Main." + downName), UintZero, Str(remapSource))));

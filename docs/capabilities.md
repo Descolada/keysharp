@@ -411,6 +411,7 @@ Status legend:
 | ControlShow() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlShow function shows a control if it was previously hidden. |
 | ControlShowDropDown() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlShowDropDown function shows the popup list of a combo box or drop-down list. |
 | CoordMode() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The CoordMode function sets coordinate mode for various built-in functions to be relative to either the active window or the screen. |
+| Copilot / Office keys | 🟢 Full | ⚪ Unknown | ⚪ Unknown | ⚪ Unknown | Keysharp extension: the Copilot (LWin+LShift+F23) and Office (LCtrl+LShift+LAlt+LWin) keys, which firmware emits as ordinary key combinations, can be used as hotkeys, as composite-hotkey prefixes (`Copilot & x::`, gated on the whole chord so a bare F23 or Win press never matches), as remap sources and destinations, in Send as `{Copilot}`, and with GetKeyState/KeyWait. Still rejected where a single VK/SC is required, so GetKeyVK, GetKeySC, GetKeyName and GetKeyInfo return 0/blank. |
 | CopyImageToClipboard() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Built-in function. |
 | Cos() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the cosine of a number. |
 | Cosh() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the hyperbolic cosine of a number. |

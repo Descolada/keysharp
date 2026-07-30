@@ -39,6 +39,12 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal uint modifiers = 0u;
 		internal uint modifierSC;
 		internal uint modifiersConsolidatedLR;
+		/// <summary>
+		/// When this hotkey's prefix is a chord key (`Copilot &amp; x::`), which chord — otherwise -1. The prefix
+		/// only counts as down while that chord is active, which is what separates it from a plain combo on the
+		/// chord's trigger key.
+		/// </summary>
+		internal int chordPrefixIndex = -1;
 		internal uint modifiersLR;
 		internal uint modifierVK;
 		internal uint nextHotkey;
@@ -1613,6 +1619,12 @@ namespace Keysharp.Internals.Input.Keyboard
 						|| hk.IsCompletelyDisabled())
 					continue; // This hotkey isn't enabled or it doesn't use the specified key as a prefix.  No further checking for it.
 
+				// A chord prefix only counts while its chord is active. Gating here — where the hook decides
+				// whether this key is acting as a prefix on this press at all — is what keeps `Office & x::`
+				// from turning every bare Win press into a prefix (suppressed, then replayed on release).
+				if (hk.chordPrefixIndex >= 0 && !ht.ChordPrefixActive(hk.chordPrefixIndex))
+					continue;
+
 				if (hk.hookAction != 0)
 				{
 					if (A_IsSuspended)
@@ -1756,15 +1768,27 @@ namespace Keysharp.Internals.Input.Keyboard
 			var hotkeyTypeTemp = HotkeyTypeEnum.Normal;
 			ref var hotkeyType = ref (thisHotkey != null ? ref thisHotkey.type : ref hotkeyTypeTemp);//Simplifies and reduces code size below.
 			var keySource = KeySource.None;
-			if (ChordKeyDefinition.TryGet(text, out var chordKey))
-			{
-				if (isModifier)
-					return (ResultType)Errors.ValueErrorOccurred("Unsupported prefix key.", text, ResultType.Fail);
 
-				isChordKey = true;
+			if (ChordKeyDefinition.TryGet(text.AsSpan(), out var chordKey, out var chordIndex))
+			{
 				tempVk = chordKey.VK;
-				modifiersLR |= chordKey.HotkeyModifiersLR();
 				keySource = KeySource.Name;
+
+				if (isModifier)
+				{
+					// As a prefix, a chord is recognised once — when its trigger goes down with the rest of the
+					// chord already held — and from then until the trigger's release it behaves as a single key.
+					// Only the trigger's VK becomes modifierVK; the chord condition rides separately so that
+					// `Office & x` never matches a plain Win+x, and so a bare Win press is not treated as a
+					// prefix at all.
+					if (thisHotkey != null)
+						thisHotkey.chordPrefixIndex = chordIndex;
+				}
+				else
+				{
+					isChordKey = true;
+					modifiersLR |= chordKey.HotkeyModifiersLR();
+				}
 			}
 			else
 				_ = ht.TextToVKandSC(text, ref tempVk, ref tempSc, ref keySource, ref modifiersLR, layout: null, allowVkScPair: false);

@@ -3929,6 +3929,17 @@
                      "tested-by":  "misc-object.ahk"
                  },
                  {
+                     "category":  "Input/Automation",
+                     "feature":  "Copilot / Office keys",
+                     "syntax":  "Copilot::AppsKey",
+                     "windows":  "full",
+                     "linux_x11":  "unknown",
+                     "linux_wayland":  "unknown",
+                     "macos":  "unknown",
+                     "notes":  "Keysharp extension: the Copilot (LWin+LShift+F23) and Office (LCtrl+LShift+LAlt+LWin) keys, which firmware emits as ordinary key combinations, can be used as hotkeys, as composite-hotkey prefixes (`Copilot & x::`, gated on the whole chord so a bare F23 or Win press never matches), as remap sources and destinations, in Send as `{Copilot}`, and with GetKeyState/KeyWait. Still rejected where a single VK/SC is required, so GetKeyVK, GetKeySC, GetKeyName and GetKeyInfo return 0/blank.",
+                     "tested-by":  "HotstringTests.CopilotHotkeyAliasesLeftWinShiftF23"
+                 },
+                 {
                      "category":  "Core Language",
                      "feature":  "Continue",
                      "syntax":  "",

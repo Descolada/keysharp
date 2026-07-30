@@ -561,6 +561,109 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Hotstring")]
+		public void ChordKeyAsCompositePrefixIsGatedOnTheWholeChord()
+		{
+			var ht = s.HookThread;
+			const uint f23 = Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_F23;
+			const uint lwin = Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LWIN;
+			const uint lshift = Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LSHIFT;
+
+			// The prefix is the chord's trigger, but carries the chord's identity so it is not the same hotkey
+			// as a plain combo on that trigger.
+			var copilotCombo = new HotkeyDefinition(1100, null, (uint)HotkeyTypeEnum.Normal, "Copilot & x", 0);
+			Assert.IsTrue(copilotCombo.constructedOK);
+			Assert.AreEqual(f23, copilotCombo.modifierVK);
+			Assert.AreNotEqual(-1, copilotCombo.chordPrefixIndex);
+
+			var officeCombo = new HotkeyDefinition(1101, null, (uint)HotkeyTypeEnum.Normal, "Office & x", 0);
+			Assert.IsTrue(officeCombo.constructedOK);
+			Assert.AreEqual(lwin, officeCombo.modifierVK);
+			Assert.AreNotEqual(-1, officeCombo.chordPrefixIndex);
+			Assert.AreNotEqual(copilotCombo.chordPrefixIndex, officeCombo.chordPrefixIndex);
+
+			// A plain combo on the same trigger is a different hotkey and is never chord-gated.
+			var plainCombo = new HotkeyDefinition(1102, null, (uint)HotkeyTypeEnum.Normal, "F23 & x", 0);
+			Assert.IsTrue(plainCombo.constructedOK);
+			Assert.AreEqual(f23, plainCombo.modifierVK);
+			Assert.AreEqual(-1, plainCombo.chordPrefixIndex);
+
+			var savedPhysical = ht.kbdMsSender.modifiersLRPhysical;
+			var savedAnyChordPrefix = ht.AnyChordPrefixHotkey;
+
+			try
+			{
+				// Nothing is tracked at all unless a chord-prefix hotkey is actually registered, so a script that
+				// never mentions these keys cannot be affected by the chord machinery.
+				ht.AnyChordPrefixHotkey = false;
+				ht.kbdMsSender.modifiersLRPhysical = Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN
+													 | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT;
+				ht.SimulateChordPrefixEvent(f23, false);
+				Assert.IsFalse(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex), "tracked with no chord-prefix hotkey registered");
+				Assert.AreEqual(0u, ht.ActiveChordModifiersLR(f23));
+				ht.SimulateChordPrefixEvent(f23, true);
+				ht.AnyChordPrefixHotkey = true;
+
+				// Trigger alone: not the chord, so the prefix must stay inactive.
+				ht.kbdMsSender.modifiersLRPhysical = 0;
+				ht.SimulateChordPrefixEvent(f23, false);
+				Assert.IsFalse(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex), "a bare F23 activated the Copilot prefix");
+				ht.SimulateChordPrefixEvent(f23, true);
+
+				// Whole chord present when the trigger goes down: active.
+				ht.kbdMsSender.modifiersLRPhysical = Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN
+													 | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT;
+				ht.SimulateChordPrefixEvent(f23, false);
+				Assert.IsTrue(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex));
+
+				// It latches: the firmware re-sends the whole chord while held, and a modifier going away
+				// mid-hold must not drop the prefix.
+				ht.kbdMsSender.modifiersLRPhysical = 0;
+				ht.SimulateChordPrefixEvent(f23, false);
+				Assert.IsTrue(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex), "prefix dropped during the hold");
+
+				// Released by the trigger's own up, which is unambiguous.
+				ht.SimulateChordPrefixEvent(f23, true);
+				Assert.IsFalse(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex));
+
+				// Office is gated on its own chord, and a plain Win press must not activate it — that is what
+				// keeps `Office & x::` from turning every bare Win press into a prefix key.
+				ht.kbdMsSender.modifiersLRPhysical = 0;
+				ht.SimulateChordPrefixEvent(lwin, false);
+				Assert.IsFalse(ht.ChordPrefixActive(officeCombo.chordPrefixIndex), "a bare Win press activated the Office prefix");
+				ht.SimulateChordPrefixEvent(lwin, true);
+
+				ht.kbdMsSender.modifiersLRPhysical = Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LCONTROL
+													 | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT
+													 | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LALT;
+				ht.SimulateChordPrefixEvent(lwin, false);
+				Assert.IsTrue(ht.ChordPrefixActive(officeCombo.chordPrefixIndex));
+				// Copilot's chord is not satisfied by Office's modifiers, so the two never cross-activate.
+				Assert.IsFalse(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex));
+				ht.SimulateChordPrefixEvent(lwin, true);
+
+				// While a chord prefix is active its own modifiers are part of pressing the key, not the user
+				// modifying it. The hook discounts them so that a chord which is both a suffix hotkey and a
+				// combo prefix (Copilot::a plus Copilot & a::) still postpones its suffix until release.
+				Assert.AreEqual(0u, ht.ActiveChordModifiersLR(f23));
+				ht.kbdMsSender.modifiersLRPhysical = Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN
+													 | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT;
+				ht.SimulateChordPrefixEvent(f23, false);
+				Assert.AreEqual(Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN
+								| Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT,
+								ht.ActiveChordModifiersLR(f23));
+				// It describes only that trigger, and nothing at all once released.
+				Assert.AreEqual(0u, ht.ActiveChordModifiersLR(lshift));
+				ht.SimulateChordPrefixEvent(f23, true);
+				Assert.AreEqual(0u, ht.ActiveChordModifiersLR(f23));
+			}
+			finally
+			{
+				ht.kbdMsSender.modifiersLRPhysical = savedPhysical;
+				ht.AnyChordPrefixHotkey = savedAnyChordPrefix;
+			}
+		}
+
+		[Test, Category("Hotstring")]
 		public void OfficeHotkeyAliasesLeftModifierChord()
 		{
 			var office = new HotkeyDefinition(1002, null, (uint)HotkeyTypeEnum.Normal, "Office", 0);

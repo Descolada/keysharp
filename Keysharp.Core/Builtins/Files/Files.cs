@@ -1619,6 +1619,12 @@ namespace Keysharp.Builtins
 		/// <param name="filename">The filename to examine.</param>
 		/// <returns>The full path to filename.</returns>
 		public static string FileFullPath(object filename) => Path.GetFullPath(filename.As());
+
+		/// <summary>
+		/// Creates an empty temporary file and returns its full path.
+		/// </summary>
+		/// <returns>The full path of the newly created temporary file.</returns>
+		public static string FileCreateTemp() => Path.GetTempFileName();
 	}
 
 #if !WINDOWS

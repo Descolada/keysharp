@@ -1055,9 +1055,9 @@ namespace Keysharp.Parsing.Syntax
 		}
 
 		// The binding for one explicit member of a module in a scope, or null (with a diagnostic) when the module has no
-		// such member. Script variable exports are writable (write-through to the source module field); everything else
-		// (functions, types, built-in methods/types/properties, module objects) is read-only — assignment is a later
-		// diagnostic in LowerAssign.
+		// such member. Script variable exports and built-in properties with public setters are writable (write-through
+		// to the source field/property); functions, types, read-only properties and module objects remain read-only, with
+		// assignment diagnosed later in LowerAssign.
 		private ImportBinding ScopedMemberBinding(string modName, bool isAhk, bool isScript, ModInfo script, System.Type builtinType, string member, ImportDirective im)
 		{
 			if (isScript)
@@ -1079,7 +1079,14 @@ namespace Keysharp.Parsing.Syntax
 			}
 			var expr = BindBuiltinMember(modName, isAhk, member);
 			if (expr != null)
-				return new ImportBinding { Read = () => BindBuiltinMember(modName, isAhk, member) };
+			{
+				var writable = BindWritableBuiltinProperty(isAhk, builtinType, member);
+				return new ImportBinding
+				{
+					Read = () => BindBuiltinMember(modName, isAhk, member),
+					Write = writable != null ? () => writable : null,
+				};
+			}
 			// The member is unknown: an error only if the module genuinely lacks it (a member we simply can't bind here
 			// still resolves through ambient global lookup, unchanged).
 			if (!isAhk && builtinType != null && !BuiltinModuleHasMember(builtinType, member))
@@ -1332,6 +1339,29 @@ namespace Keysharp.Parsing.Syntax
 			var prop = modType.GetProperties(flags).FirstOrDefault(Matches);
 			if (prop != null) return Access(prop.DeclaringType.FullName.Replace('+', '.') + "." + prop.Name);
 			return null;
+		}
+
+		// Returns an assignable access expression only when an explicitly imported built-in member is a public static
+		// property with a public setter. The AHK module is the flattened global built-in surface; other built-in modules
+		// (Ks, ...) resolve against their own type.
+		private ExpressionSyntax BindWritableBuiltinProperty(bool isAhk, Type modType, string name)
+		{
+			System.Reflection.PropertyInfo prop = null;
+
+			if (isAhk)
+				_ = Script.TheScript.ReflectionsData.flatPublicStaticProperties.TryGetValue(name.ToLowerInvariant(), out prop);
+			else if (modType != null)
+			{
+				const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy;
+				bool Matches(System.Reflection.MemberInfo m) =>
+					(Script.GetUserDeclaredName(m) ?? m.Name).Equals(name, System.StringComparison.OrdinalIgnoreCase)
+					|| m.Name.Equals(name, System.StringComparison.OrdinalIgnoreCase);
+				prop = modType.GetProperties(flags).FirstOrDefault(Matches);
+			}
+
+			return prop?.SetMethod?.IsPublic == true
+				? Access(prop.DeclaringType.FullName.Replace('+', '.') + "." + prop.Name)
+				: null;
 		}
 
 		// Whether a built-in module type exposes `name` as ANY public static member — method, nested type,

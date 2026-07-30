@@ -10,6 +10,23 @@ namespace Keysharp.Tests
 		private readonly Lock syncroot = new ();
 
 		[Test, Category("FileAndDir")]
+		public void FileCreateTemp()
+		{
+			var filename = Ks.FileCreateTemp();
+
+			try
+			{
+				Assert.IsTrue(Path.IsPathFullyQualified(filename));
+				Assert.IsTrue(File.Exists(filename));
+			}
+			finally
+			{
+				if (File.Exists(filename))
+					File.Delete(filename);
+			}
+		}
+
+		[Test, Category("FileAndDir")]
 		public void DirCopy()
 		{
 			if (Directory.Exists("./DirCopy2"))

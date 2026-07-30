@@ -2470,6 +2470,17 @@
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
+                     "category":  "Keysharp Module (Ks)",
+                     "feature":  "A_PeekFrequency",
+                     "syntax":  "#import KS { A_PeekFrequency }",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Gets or sets the current thread\u0027s message-check interval in milliseconds.",
+                     "tested-by":  "ThreadSemanticsTests.PeekFrequency"
+                 },
+                 {
                      "category":  "Environment/System",
                      "feature":  "A_PriorHotkey",
                      "syntax":  "",
@@ -5001,6 +5012,17 @@
                      "macos":  "unknown",
                      "notes":  "Retrieves the size of a file. Also allows for passing \"t\" to return the size in terms of terrabytes. Platform statuses inherited from curated \u0027File and directory operations\u0027; per-function validation pending.",
                      "tested-by":  "file-filegetsize.ahk"
+                 },
+                 {
+                     "category":  "Keysharp Module (Ks)",
+                     "feature":  "FileCreateTemp()",
+                     "syntax":  "#import KS { FileCreateTemp }",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Creates an empty temporary file and returns its full path.",
+                     "tested-by":  "FileAndDirTests.FileCreateTemp"
                  },
                  {
                      "category":  "FileSystem",

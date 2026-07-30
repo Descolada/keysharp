@@ -469,11 +469,6 @@ namespace Keysharp.Builtins
 		}
 
 		/// <summary>
-		/// Represents the natural logarithmic base, specified by the constant, e.
-		/// </summary>
-		public static double A_E => Math.E;
-
-		/// <summary>
 		/// The ending character that was pressed by the user to trigger the most recent non-auto-replace hotstring. If no ending character was required (due to the * option), this variable will be blank.
 		/// </summary>
 		public static object A_EndChar
@@ -656,24 +651,6 @@ namespace Keysharp.Builtins
 		{
 			get => Script.TheScript.AccessorData.inputLevel;
 			set => Script.TheScript.AccessorData.inputLevel = Math.Clamp(value.ToLong(), 0L, 100L);
-		}
-
-		/// <summary>
-		/// The IP addresses of the network adapters in the computer.
-		/// </summary>
-		public static Array A_IPAddress
-		{
-			get
-			{
-				var addr = Dns.GetHostEntry(Dns.GetHostName()).AddressList;
-				var ips = new Array();
-
-				for (var i = 0; i < addr.Length; i++)
-					if (addr[i].AddressFamily == AddressFamily.InterNetwork)
-						_ = ips.Push(addr[i].ToString());
-
-				return ips;
-			}
 		}
 
 		/// <summary>
@@ -1359,21 +1336,6 @@ namespace Keysharp.Builtins
 		public static string A_OSVersion => $"{Environment.OSVersion.Version.Major}.{Environment.OSVersion.Version.Minor}.{Environment.OSVersion.Version.Build}";
 
 		/// <summary>
-		/// Thread peek frequency in milliseconds.
-		/// Unused because Keysharp is compiled and not interpreted.
-		/// </summary>
-		public static object A_PeekFrequency
-		{
-			get => ThreadAccessors.A_PeekFrequency;
-			set => ThreadAccessors.A_PeekFrequency = value.ToLong();
-		}
-
-		/// <summary>
-		/// Represents the ratio of the circumference of a circle to its diameter, specified by the constant, π.
-		/// </summary>
-		public static double A_PI => Math.PI;
-
-		/// <summary>
 		/// The key name of the previously executed hotkey or hotstring.
 		/// </summary>
 		public static string A_PriorHotkey => Script.TheScript.priorHotkeyName;
@@ -1612,11 +1574,6 @@ namespace Keysharp.Builtins
 		public static string A_Temp => Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
 
 		/// <summary>
-		/// Temporary file name.
-		/// </summary>
-		public static string A_TempFile => Path.GetTempFileName();
-
-		/// <summary>
 		/// The name of the function currently being executed.
 		/// </summary>
 		public static string A_ThisFunc
@@ -1632,21 +1589,6 @@ namespace Keysharp.Builtins
 		/// The key name of the most recently executed hotkey or hotstring.
 		/// </summary>
 		public static string A_ThisHotkey => Script.TheScript.thisHotkeyName;
-
-		/// <summary>
-		/// The name of the menu from which A_ThisMenuItem was selected.
-		/// </summary>
-		public static string A_ThisMenu => null;
-
-		/// <summary>
-		/// The name of the most recently selected custom menu item (blank if none).
-		/// </summary>
-		public static string A_ThisMenuItem => null;
-
-		/// <summary>
-		/// A number indicating the current position of A_ThisMenuItem within A_ThisMenu. The first item in the menu is 1, the second is 2, and so on. Menu separator lines are counted. This variable is blank if A_ThisMenuItem is blank or no longer exists within A_ThisMenu. It is also blank if A_ThisMenu itself no longer exists.
-		/// </summary>
-		public static string A_ThisMenuItemPos => null;
 
 		/// <summary>
 		/// The number of milliseconds since the computer was rebooted.
@@ -1945,6 +1887,15 @@ namespace Keysharp.Builtins
 
 	public partial class Ks
 	{
+		/// <summary>
+		/// Gets or sets the current thread's message-check interval in milliseconds.
+		/// </summary>
+		public static object A_PeekFrequency
+		{
+			get => ThreadAccessors.A_PeekFrequency;
+			set => ThreadAccessors.A_PeekFrequency = value.ToLong();
+		}
+
 		/// <summary>
 		/// A nearly unique 64-bit identifier for the current pseudo-thread.<br/>
 		/// Bits 63-16 contain a script-wide creation sequence and bits 15-0 contain the zero-based index

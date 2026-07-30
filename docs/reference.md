@@ -440,6 +440,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * New file functions:
 	+ `FileDirName(filename) => String` to return the full path to filename, without the actual filename or trailing directory separator character.
 	+ `FileFullPath(filename) => String` to return the full path to filename.
+	+ `FileCreateTemp() => String` to create an empty temporary file and return its full path.
 * New window functions:
 	+ `WinFromPoint(x, y)` to get the window at a specific screen position.
 	+ `WinMaximizeAll()` to maximize all windows.
@@ -517,6 +518,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
   This function returns a `ProcessInfo` object encapsulating info and I/O for the process. Available properties: `HasExited`, `ExitCode`, `ExitTime` (YYYYMMDDHH24MISS), `StdOut`, `StdErr`, `StdIn` (as `KeysharpFile`). Available methods: `Kill()`.
 * New accessors:
 	+ `A_AllowTimers` returns whether timers are allowed or not. It's also easier to set this value rather than call `Thread("NoTimers")`.
+	+ `A_PeekFrequency` gets or sets the current thread's message-check interval in milliseconds. It is available from the `Ks` module.
 	+ `A_CommandLine` returns the command line string. This is preferred over passing `GetCommandLine` to `DllCall()` as noted above.
 	+ `A_DefaultHotstringCaseSensitive` returns the default hotstring case sensitivity mode.
 	+ `A_DefaultHotstringConformToCase` returns the default hotstring case conformity mode.

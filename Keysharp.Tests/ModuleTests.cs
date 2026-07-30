@@ -69,6 +69,16 @@ namespace Keysharp.Tests
 			Assert.IsTrue(System.Array.Exists(wr, d => d.Contains("cannot assign to imported name") && d.Contains("Cosh")),
 				"expected a 'cannot assign to imported name' diagnostic, got: " + string.Join("; ", wr));
 
+			// Built-in properties with public setters write through explicit imports; getter-only properties remain
+			// protected just like imported functions and types.
+			Assert.IsEmpty(Lower("Foo() {\n#import KS { A_PeekFrequency }\nA_PeekFrequency := 10\n}\n"),
+				"a writable KS property import should accept assignment");
+			Assert.IsEmpty(Lower("Foo() {\n#import AHK { A_DetectHiddenWindows }\nA_DetectHiddenWindows := true\n}\n"),
+				"a writable AHK property import should accept assignment");
+			var readOnly = Lower("Foo() {\n#import KS { A_KsVersion }\nA_KsVersion := \"invalid\"\n}\n");
+			Assert.IsTrue(System.Array.Exists(readOnly, d => d.Contains("cannot assign to imported name") && d.Contains("A_KsVersion")),
+				"expected a read-only built-in property assignment diagnostic, got: " + string.Join("; ", readOnly));
+
 			// A bad member name is still rejected eagerly when the import sits inside a function body (nested position).
 			var nested = Lower("Foo() {\n#import \"Ks\" { NotARealKsMember123 }\nreturn NotARealKsMember123\n}\n");
 			Assert.IsTrue(System.Array.Exists(nested, d => d.Contains("has no exported member") && d.Contains("NotARealKsMember123")),

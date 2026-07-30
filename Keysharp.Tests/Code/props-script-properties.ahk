@@ -90,3 +90,14 @@ if (A_IsUnicode == true)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+if (A_KeysharpPath = A_AhkPath && (A_NewLine = "`n" || A_NewLine = "`r`n"))
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+if (!IsSet(A_E) && !IsSet(A_IPAddress) && !IsSet(A_PeekFrequency) && !IsSet(A_PI) && !IsSet(A_TempFile)
+	&& !IsSet(A_ThisMenu) && !IsSet(A_ThisMenuItem) && !IsSet(A_ThisMenuItemPos))
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"

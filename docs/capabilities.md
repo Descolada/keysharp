@@ -238,6 +238,7 @@ Status legend:
 | A_NowUTC | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The current Coordinated Universal Time (UTC) in YYYYMMDDHH24MISS format. |
 | A_NowUtcMs | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets current UTC timestamp including milliseconds. |
 | A_OSVersion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
+| A_PeekFrequency | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the current thread's message-check interval in milliseconds. |
 | A_PriorHotkey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_PriorKey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ProgramFiles | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
@@ -467,6 +468,7 @@ Status legend:
 | FileAppend() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Writes text or binary data to the end of a file (first creating the file, if necessary). Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
 | FileCopy() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Copies one or more files. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
 | FileCreateShortcut() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Creates a shortcut (.lnk) file. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. Shortcut implementations are platform-specific and not fully parity-validated. |
+| FileCreateTemp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates an empty temporary file and returns its full path. |
 | FileDelete() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Deletes one or more files. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
 | FileDirName() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns directory portion of a file path. |
 | FileEncoding() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Sets the default encoding for FileRead, Loop Read, FileAppend, and FileOpen. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |

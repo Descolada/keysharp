@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using static Keysharp.Builtins.Network;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
@@ -5,6 +7,15 @@ namespace Keysharp.Tests
 {
 	public partial class NetworkTests : TestRunner
 	{
+		[Test, Category("Network")]
+		public void GetIPAddresses()
+		{
+			var addresses = SysGetIPAddresses();
+
+			foreach (var address in addresses)
+				Assert.IsTrue(IPAddress.TryParse(address.As(), out var ip) && ip.AddressFamily == AddressFamily.InterNetwork);
+		}
+
 		[Test, Category("Network")]
 		public void NetDownload()
 		{

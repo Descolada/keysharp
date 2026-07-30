@@ -144,6 +144,10 @@ namespace Keysharp.Tests
 			try
 			{
 				_ = Keysharp.Builtins.Flow.Critical(50);
+				Assert.AreEqual(50L, Ks.A_PeekFrequency);
+				Ks.A_PeekFrequency = 40;
+				Assert.AreEqual(40L, Ks.A_PeekFrequency);
+				Ks.A_PeekFrequency = 50;
 				s.RecordMessageCheck();
 
 				Assert.IsFalse(s.IsCurrentThreadPreemptiveCheckDue());

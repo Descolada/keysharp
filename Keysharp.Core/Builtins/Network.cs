@@ -208,7 +208,17 @@ namespace Keysharp.Builtins
 		/// Returns an <see cref="Array"/> of the system's IPv4 addresses.
 		/// </summary>
 		/// <returns>An <see cref="Array"/> where each element is an IPv4 address string such as "192.168.0.1".</returns>
-		public static Array SysGetIPAddresses() => A_IPAddress;
+		public static Array SysGetIPAddresses()
+		{
+			var addresses = Dns.GetHostEntry(Dns.GetHostName()).AddressList;
+			var ips = new Array();
+
+			foreach (var address in addresses)
+				if (address.AddressFamily == AddressFamily.InterNetwork)
+					_ = ips.Push(address.ToString());
+
+			return ips;
+		}
 
 		/// <summary>
 		/// Internal helper which resolves a host name or IP address.

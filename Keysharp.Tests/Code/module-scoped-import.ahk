@@ -12,6 +12,23 @@ Ok(cond) => FileAppend(cond ? "pass" : "fail", "*")
 #import KS
 Ok(Ks.Cosh(0) == 1)
 
+; KS-only functions remain available through the module object.
+tempFile := Ks.FileCreateTemp()
+Ok(FileExist(tempFile) != "")
+FileDelete(tempFile)
+
+FnKsUtilities() {
+    #import KS { A_PeekFrequency, FileCreateTemp }
+    oldFrequency := A_PeekFrequency
+    A_PeekFrequency := 35
+    tempName := FileCreateTemp()
+    result := A_PeekFrequency == 35 && FileExist(tempName) != ""
+    A_PeekFrequency := oldFrequency
+    FileDelete(tempName)
+    return result
+}
+Ok(FnKsUtilities())
+
 ; ---- 1. Function-scoped built-in import: Cosh visible inside, resolves correctly
 FnBuiltin() {
     #import KS { Cosh }

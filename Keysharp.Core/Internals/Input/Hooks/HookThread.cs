@@ -1811,10 +1811,6 @@ namespace Keysharp.Internals.Input.Hooks
 
 						return MOD_LSHIFT;
 
-					case VK_LSHIFT: return MOD_LSHIFT;
-
-					case VK_RSHIFT: return MOD_RSHIFT;
-
 					case VK_CONTROL:
 						if (sc == ScanCodes.RControl)
 							return MOD_RCONTROL;
@@ -1824,10 +1820,6 @@ namespace Keysharp.Internals.Input.Hooks
 							isNeutral = true;
 
 						return MOD_LCONTROL;
-
-					case VK_LCONTROL: return MOD_LCONTROL;
-
-					case VK_RCONTROL: return MOD_RCONTROL;
 
 					case VK_MENU:
 						if (sc == ScanCodes.RAlt)
@@ -1839,16 +1831,8 @@ namespace Keysharp.Internals.Input.Hooks
 
 						return MOD_LALT;
 
-					case VK_LMENU: return MOD_LALT;
-
-					case VK_RMENU: return MOD_RALT;
-
-					case VK_LWIN: return MOD_LWIN;
-
-					case VK_RWIN: return MOD_RWIN;
-
 					default:
-						return 0;
+						return ModifierLRMaskFromVK(vk);
 				}
 			}
 

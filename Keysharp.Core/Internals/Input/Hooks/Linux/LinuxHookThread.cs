@@ -70,21 +70,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		{
 			if (usingInputdHooks)
 			{
-				var modMask = vk switch
-				{
-					VK_LCONTROL => MOD_LCONTROL,
-					VK_RCONTROL => MOD_RCONTROL,
-					VK_CONTROL => MOD_LCONTROL | MOD_RCONTROL,
-					VK_LSHIFT => MOD_LSHIFT,
-					VK_RSHIFT => MOD_RSHIFT,
-					VK_SHIFT => MOD_LSHIFT | MOD_RSHIFT,
-					VK_LMENU => MOD_LALT,
-					VK_RMENU => MOD_RALT,
-					VK_MENU => MOD_LALT | MOD_RALT,
-					VK_LWIN => MOD_LWIN,
-					VK_RWIN => MOD_RWIN,
-					_ => 0u
-				};
+				var modMask = ModifierLRMaskFromVK(vk);
 
 				if (modMask != 0)
 					return (kbdMsSender.modifiersLRLogical & modMask) != 0;

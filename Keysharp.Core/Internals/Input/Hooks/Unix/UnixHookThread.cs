@@ -585,9 +585,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 						if (isNeutral != null) isNeutral = true;
 						return MOD_LSHIFT;
 					}
-					case VK_LSHIFT: return MOD_LSHIFT;
-					case VK_RSHIFT: return MOD_RSHIFT;
-
 					case VK_CONTROL:
 					{
 						if (sc != 0)
@@ -604,9 +601,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 						if (isNeutral != null) isNeutral = true;
 						return MOD_LCONTROL;
 					}
-					case VK_LCONTROL: return MOD_LCONTROL;
-					case VK_RCONTROL: return MOD_RCONTROL;
-
 					case VK_MENU:
 					{
 						if (sc != 0)
@@ -623,28 +617,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 						if (isNeutral != null) isNeutral = true;
 						return MOD_LALT;
 					}
-					case VK_LMENU: return MOD_LALT;
-					case VK_RMENU: return MOD_RALT;
-
-					case VK_LWIN: return MOD_LWIN;
-					case VK_RWIN: return MOD_RWIN;
 					default:
-						return 0;
+						return ModifierLRMaskFromVK(vk);
 				}
 			}
 
-			return KeyCodes.MapScToVk(sc) switch
-			{
-				VK_LSHIFT => MOD_LSHIFT,
-				VK_RSHIFT => MOD_RSHIFT,
-				VK_LCONTROL => MOD_LCONTROL,
-				VK_RCONTROL => MOD_RCONTROL,
-				VK_LMENU => MOD_LALT,
-				VK_RMENU => MOD_RALT,
-				VK_LWIN => MOD_LWIN,
-				VK_RWIN => MOD_RWIN,
-				_ => 0
-			};
+			return ModifierLRMaskFromVK(KeyCodes.MapScToVk(sc));
 		}
 
 		internal override bool EarlyCollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored

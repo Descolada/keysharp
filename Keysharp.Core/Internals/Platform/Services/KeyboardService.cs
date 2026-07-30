@@ -106,19 +106,12 @@ namespace Keysharp.Internals
 				out var mods, out _, out _, out _, out var logicalKeys, out _))
 				return false;
 
-			switch (vk)
+			var modifierMask = ModifierLRMaskFromVK(vk);
+
+			if (modifierMask != 0)
 			{
-				case VK_SHIFT: isDown = (mods & (MOD_LSHIFT | MOD_RSHIFT)) != 0; return true;
-				case VK_LSHIFT: isDown = (mods & MOD_LSHIFT) != 0; return true;
-				case VK_RSHIFT: isDown = (mods & MOD_RSHIFT) != 0; return true;
-				case VK_CONTROL: isDown = (mods & (MOD_LCONTROL | MOD_RCONTROL)) != 0; return true;
-				case VK_LCONTROL: isDown = (mods & MOD_LCONTROL) != 0; return true;
-				case VK_RCONTROL: isDown = (mods & MOD_RCONTROL) != 0; return true;
-				case VK_MENU: isDown = (mods & (MOD_LALT | MOD_RALT)) != 0; return true;
-				case VK_LMENU: isDown = (mods & MOD_LALT) != 0; return true;
-				case VK_RMENU: isDown = (mods & MOD_RALT) != 0; return true;
-				case VK_LWIN: isDown = (mods & MOD_LWIN) != 0; return true;
-				case VK_RWIN: isDown = (mods & MOD_RWIN) != 0; return true;
+				isDown = (mods & modifierMask) != 0;
+				return true;
 			}
 
 			var evdev = KeyCodes.VkToEvdev(vk);

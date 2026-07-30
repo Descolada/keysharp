@@ -74,6 +74,16 @@ done
 
 		internal static string[] SEND_MODES = ["Event", "Input", "Play", "InputThenPlay"]; // Must match the SendModes enum.
 
+		/// <summary>
+		/// Every side-specific modifier VK, in no particular order. Used by the platform services which build a
+		/// full modifiersLR snapshot by probing one key at a time.
+		/// </summary>
+		internal static readonly uint[] ModifierLRVks =
+		[
+			VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL,
+			VK_LMENU, VK_RMENU, VK_LWIN, VK_RWIN
+		];
+
 		internal static uint MakeLong(short lowPart, short highPart) => ((ushort)lowPart) | (uint)(highPart << 16);
 
 		internal static void AdjustKeyState(byte[] keyState, uint modifiersLR)//Unsure if this should be in the base. Can it be cross platform?
@@ -130,14 +140,39 @@ done
 			return modifiers;
 		}
 
-		internal static bool IsModifierVk(uint vk) => vk switch
+		/// <summary>
+		/// Returns the left/right modifier mask represented by a modifier VK.
+		/// Neutral modifier VKs represent either side; non-modifier VKs return zero.
+		/// </summary>
+		internal static uint ModifierLRMaskFromVK(uint vk) => vk switch
 		{
-			VK_LSHIFT or VK_RSHIFT or VK_SHIFT or
-			VK_LCONTROL or VK_RCONTROL or VK_CONTROL or
-			VK_LMENU or VK_RMENU or VK_MENU or
-			VK_LWIN or VK_RWIN => true,
-			_ => false
+			VK_SHIFT => MOD_LSHIFT | MOD_RSHIFT,
+			VK_LSHIFT => MOD_LSHIFT,
+			VK_RSHIFT => MOD_RSHIFT,
+			VK_CONTROL => MOD_LCONTROL | MOD_RCONTROL,
+			VK_LCONTROL => MOD_LCONTROL,
+			VK_RCONTROL => MOD_RCONTROL,
+			VK_MENU => MOD_LALT | MOD_RALT,
+			VK_LMENU => MOD_LALT,
+			VK_RMENU => MOD_RALT,
+			VK_LWIN => MOD_LWIN,
+			VK_RWIN => MOD_RWIN,
+			_ => 0
 		};
+
+		/// <summary>
+		/// Returns the single left/right modifier bit for a side-specific modifier VK, and zero for a neutral
+		/// modifier VK (VK_SHIFT/VK_CONTROL/VK_MENU) as well as for non-modifiers. Callers which maintain
+		/// per-side state use this rather than <see cref="ModifierLRMaskFromVK"/> because a neutral VK does not
+		/// say which side changed, so applying its two-sided mask would set or clear both sides at once.
+		/// </summary>
+		internal static uint SideSpecificModifierLRMaskFromVK(uint vk)
+		{
+			var mask = ModifierLRMaskFromVK(vk);
+			return (mask & (mask - 1)) == 0 ? mask : 0u; // A neutral VK is the only case with two bits set.
+		}
+
+		internal static bool IsModifierVk(uint vk) => ModifierLRMaskFromVK(vk) != 0;
 	}
 
 	[Flags]

@@ -182,7 +182,7 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 					return false;
 
 				keyUp = type == MacNativeInput.kCGEventKeyUp;
-				if (MacKeyboardState.ModifierMask(vk) != 0 || vk == VK_CAPITAL)
+				if (SideSpecificModifierLRMaskFromVK(vk) != 0 || vk == VK_CAPITAL)
 					_ = keyboardState.ApplyFlagsChanged(vk, flags, origin, !keyUp,
 						injectedKind, senderRevisions.Modifiers, senderRevisions.CapsLock);
 			}

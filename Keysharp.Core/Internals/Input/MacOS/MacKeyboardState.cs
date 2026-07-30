@@ -9,11 +9,6 @@ namespace Keysharp.Internals.Input.MacOS
 	internal sealed class MacKeyboardState
 	{
 		internal enum Origin : byte { KeysharpSynthetic, PhysicalHid, ForeignSynthetic, Unknown }
-		private static readonly uint[] modifierVks =
-		[
-			VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL,
-			VK_LMENU, VK_RMENU, VK_LWIN, VK_RWIN
-		];
 		private readonly Lock sync = new();
 		private uint observedModifiers;
 		private bool observedCapsDown;
@@ -36,11 +31,11 @@ namespace Keysharp.Internals.Input.MacOS
 		{
 			lock (sync)
 			{
-				foreach (var vk in modifierVks)
+				foreach (var vk in ModifierLRVks)
 				{
 					if (!TryQuery(vk, sourceState, out var down))
 						continue;
-					var mask = ModifierMask(vk);
+					var mask = ModifierLRMaskFromVK(vk);
 					if (down) observedModifiers |= mask;
 					else observedModifiers &= ~mask;
 				}
@@ -60,7 +55,9 @@ namespace Keysharp.Internals.Input.MacOS
 			lock (sync)
 			{
 				var isCaps = vk == VK_CAPITAL;
-				var mask = ModifierMask(vk);
+				// Side-specific only: observedModifiers tracks each side separately, and AggregateFlag() has no
+				// entry for a neutral VK, so a neutral one would resolve to "up" and clear both sides at once.
+				var mask = SideSpecificModifierLRMaskFromVK(vk);
 				if (mask == 0 && !isCaps)
 					return false;
 
@@ -265,14 +262,6 @@ namespace Keysharp.Internals.Input.MacOS
 			}
 			catch { return false; }
 		}
-
-		internal static uint ModifierMask(uint vk) => vk switch
-		{
-			VK_LSHIFT => MOD_LSHIFT, VK_RSHIFT => MOD_RSHIFT,
-			VK_LCONTROL => MOD_LCONTROL, VK_RCONTROL => MOD_RCONTROL,
-			VK_LMENU => MOD_LALT, VK_RMENU => MOD_RALT,
-			VK_LWIN => MOD_LWIN, VK_RWIN => MOD_RWIN, _ => 0
-		};
 
 		private static ulong AggregateFlag(uint vk) => vk switch
 		{

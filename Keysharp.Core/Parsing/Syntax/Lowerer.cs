@@ -583,7 +583,7 @@ namespace Keysharp.Parsing.Syntax
 				return FuncBind($"{mi.DeclaringType.FullName.Replace('+', '.')}.{mi.Name}");
 			if (rd.flatPublicStaticProperties.TryGetValue(lower, out var prop))
 				return Access(prop.DeclaringType.FullName.Replace('+', '.') + "." + prop.Name);
-			if (rd.stringToTypes.TryGetValue(lower, out var type) && IsAhkClass(type))
+			if (rd.stringToTypes.TryGetValue(lower, out var type) && IsGlobalAhkClass(type))
 				return TypeSingleton(type.FullName.Replace('+', '.'));
 			return null;
 		}
@@ -1350,10 +1350,13 @@ namespace Keysharp.Parsing.Syntax
 				|| modType.GetFields(flags).Any(M);
 		}
 
-		// A type from `stringToTypes` is an AHK-visible class only if it derives from `Keysharp.Builtins.Any`
-		// (Array, Map, Gui, …). Static method-containers (Dir, Files, Maths — their methods are global functions)
-		// are NOT classes; resolving a same-named variable (e.g. `dir`) to `Statics[typeof(Dir)]` would crash at init.
-		private static bool IsAhkClass(System.Type type) => typeof(Keysharp.Builtins.Any).IsAssignableFrom(type);
+		// A type from `stringToTypes` is a global AHK class only if it is a top-level Any-derived type
+		// (Array, Map, Gui, ...). Nested types remain available through their declaring class or module
+		// (Gui.List, an imported Ks.Highlight, Clr.ManagedType), but must not leak into the global namespace.
+		// Static method containers (Dir, Files, Maths -- their methods are global functions) are not classes.
+		private static bool IsGlobalAhkClass(System.Type type) =>
+			!type.IsNested
+			&& typeof(Keysharp.Builtins.Any).IsAssignableFrom(type);
 
 		private string EnsureGlobalField(string lower)
 		{
@@ -1367,7 +1370,7 @@ namespace Keysharp.Parsing.Syntax
 				init = FuncBind(NameMangler.FunctionMethod(orig));
 			else if (Script.TheScript.ReflectionsData.flatPublicStaticMethods.TryGetValue(lower, out var mi))
 				init = FuncBind($"{mi.DeclaringType.FullName.Replace('+', '.')}.{mi.Name}");
-			else if (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(lower, out var type) && IsAhkClass(type))
+			else if (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(lower, out var type) && IsGlobalAhkClass(type))
 				init = TypeSingleton(type.FullName.Replace('+', '.'));
 			// (AHK class-name aliases Object/Func/File are resolved INLINE in NameRef, not as a cached field.)
 			else if (_wildcardModules.Select(t => BindModuleMember(t, lower)).FirstOrDefault(b => b != null) is { } wild)
@@ -1948,7 +1951,8 @@ namespace Keysharp.Parsing.Syntax
 			// A `#import "Mod"` / `#import "Mod" { * }` wildcard (single-module path) resolves member names on demand.
 			if (_wildcardModules.Count > 0 && _wildcardModules.Any(t => BindModuleMember(t, lower) != null)) return false;
 			var rd = Script.TheScript.ReflectionsData;
-			if (rd.flatPublicStaticProperties.ContainsKey(lower) || rd.flatPublicStaticMethods.ContainsKey(lower) || rd.stringToTypes.ContainsKey(lower)) return false;
+			if (rd.flatPublicStaticProperties.ContainsKey(lower) || rd.flatPublicStaticMethods.ContainsKey(lower)) return false;
+			if (rd.stringToTypes.TryGetValue(lower, out var builtinType) && IsGlobalAhkClass(builtinType)) return false;
 			if (Keysharp.Parsing.Keywords.TypeNameAliases.Any(kv => kv.Value.Equals(lower, System.StringComparison.OrdinalIgnoreCase))) return false;
 			return true;
 		}

@@ -38,6 +38,9 @@ namespace Keysharp.Tests
 		public void ClassNested() => Assert.IsTrue(TestScript("class-nested", false));
 
 		[Test, Category("Class")]
+		public void BuiltInTypeVisibility() => Assert.IsTrue(TestScript("class-builtin-visibility", false));
+
+		[Test, Category("Class")]
 		public void StructBasic() => Assert.IsTrue(TestScript("struct-basic", false));
 
 		[Test, Category("Class")]

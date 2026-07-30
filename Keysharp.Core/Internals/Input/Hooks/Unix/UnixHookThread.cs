@@ -389,7 +389,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			}
 
 			// With no hook, fall back to the resolved platform keyboard state service.
-			if (Platform.Keyboard.TryQueryModifierLRState(out var logicalMods))
+			if (Platform.Keyboard.TryQueryModifierLRStateLogical(out var logicalMods))
 				return logicalMods;
 
 			// Last resort: use physical snapshot.
@@ -517,7 +517,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		internal override bool IsKeyToggledOn(uint vk)
 		{
-			if (Platform.Keyboard.TryGetIndicatorStates(out var capsOn, out var numOn, out var scrollOn))
+			if (Platform.Keyboard.TryGetIndicatorStatesLogical(out var capsOn, out var numOn, out var scrollOn))
 			{
 				return vk switch
 				{

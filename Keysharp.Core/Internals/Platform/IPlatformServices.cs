@@ -284,16 +284,23 @@ namespace Keysharp.Internals
 	internal interface IKeyboard
 	{
 		/// <summary>Current logical modifier state, represented with Keysharp MOD_* left/right bits.</summary>
-		bool TryQueryModifierLRState(out uint mods, byte[] keymapBuffer = null);
+		bool TryQueryModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null);
+
+		/// <summary>Current authoritative physical/device modifier state, represented with Keysharp MOD_*
+		/// left/right bits. Returns false when the platform cannot distinguish physical from logical state, or
+		/// when only some keys could be probed; mods is then partial rather than meaningful, so callers must
+		/// discard it and fall back rather than treat the missing bits as "up".</summary>
+		bool TryQueryModifierLRStatePhysical(out uint mods);
 
 		/// <summary>Current OS/session logical down/up state for the given VK. On Windows this intentionally
 		/// models Win32 GetAsyncKeyState-style current state, not GetKeyState's thread-message-queue state.</summary>
 		bool TryQueryKeyStateLogical(uint vk, out bool isDown);
 
-		/// <summary>Current physical/device down/up state for the given VK when the platform exposes it.</summary>
+		/// <summary>Current authoritative physical/device down/up state for the given VK.
+		/// Returns false when the platform cannot distinguish physical from logical state.</summary>
 		bool TryQueryKeyStatePhysical(uint vk, out bool isDown);
 
 		/// <summary>Current lock/toggle states when the platform exposes them.</summary>
-		bool TryGetIndicatorStates(out bool capsOn, out bool numOn, out bool scrollOn);
+		bool TryGetIndicatorStatesLogical(out bool capsOn, out bool numOn, out bool scrollOn);
 	}
 }

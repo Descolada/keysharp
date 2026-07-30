@@ -1078,11 +1078,9 @@ break_twice:;
 				case KeyStateTypes.Physical: // Physical state of key.
 				{
 					// "P" must NEVER install a hook. If the relevant hook is already present, use its tracked
-					// physical state; otherwise fall through to the logical/live query below (IsKeyDownLogical), which
-					// needs no hook — matching AutoHotkey, where "P" degrades to an OS query when the hook is
-					// absent. This makes GetKeyState(key,"P") work with no hook for BOTH keyboard keys (X11
-					// XQueryKeymap) and mouse buttons (XQueryPointer / platform query) — e.g. a click-drag poll
-					// loop's GetKeyState("LButton","P") in a keyboard-only script.
+					// physical state. Otherwise, use an authoritative platform query when available, then
+					// fall back to the logical/live query below. The fallback matches AutoHotkey, where "P"
+					// degrades to an OS query when the hook is absent.
 					var isMouse = MouseUtils.IsMouseVK(vk);
 
 					if (isMouse ? ht.HasMouseHook() : ht.HasKbdHook())
@@ -1105,7 +1103,14 @@ break_twice:;
 						return (ht.physicalKeyState[vk] & KeyboardMouseSender.StateDown) != 0;
 					}
 
-					break; // No hook installed: fall through to the logical/live query (which installs nothing).
+					// Some platforms expose authoritative physical device state without requiring this
+					// process to install a hook (inputd and macOS HID state). If they do not, explicitly
+					// fall through to the logical/live query below, as AutoHotkey does without a hook.
+					if (!isMouse
+						&& Keysharp.Internals.Platform.Keyboard.TryQueryKeyStatePhysical(vk, out var physicalDown))
+						return physicalDown;
+
+					break;
 				}
 			} // switch()
 

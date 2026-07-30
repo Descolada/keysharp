@@ -453,6 +453,21 @@ namespace Keysharp.Tests
 			}
 		}
 
+		/// <summary>
+		/// The down half of a remap is the one piece of generated code which differs by platform: macOS wraps it
+		/// so that only a physical auto-repeat is marked as one, which splits the literal immediately before its
+		/// closing brace (see RemapDownSend in the lowerer). Assertions about a down-send therefore have to
+		/// expect the text the running platform actually emits. The wrapping itself, including the brace this
+		/// drops, is covered by MacRemapPropagatesNativeAutoRepeatMetadata. A wheel remap is never wrapped
+		/// (it has no up event) and so is compared verbatim.
+		/// </summary>
+		private static string RemapDown(string downSend) =>
+#if OSX
+			downSend[..^1];
+#else
+			downSend;
+#endif
+
 		[Test, Category("Hotstring")]
 		public void ModifiedSourceToModifierRemapSpansBothHotkeyCallbacks()
 		{
@@ -462,8 +477,8 @@ namespace Keysharp.Tests
 			var lowerer = new Keysharp.Parsing.Syntax.Lowerer();
 			var unit = lowerer.Build(prog, "Test");
 			var generated = unit.ToFullString();
-			Assert.IsTrue(generated.Contains("{Blind}{RAlt up}{RCtrl DownR}"), generated);
-			Assert.IsFalse(generated.Contains("{Blind>!}{RCtrl DownR}"), generated);
+			Assert.IsTrue(generated.Contains(RemapDown("{Blind}{RAlt up}{RCtrl DownR}")), generated);
+			Assert.IsFalse(generated.Contains(RemapDown("{Blind>!}{RCtrl DownR}")), generated);
 			Assert.IsTrue(generated.Contains("{Blind}{RCtrl Up}"), generated);
 			Assert.IsTrue(generated.Contains("GetKeyState(\"RAlt\",\"P\")"), generated);
 			Assert.IsTrue(generated.Contains("{RAlt DownR}"), generated);
@@ -480,7 +495,7 @@ namespace Keysharp.Tests
 			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(">!.::b");
 			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
 			generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
-			Assert.IsTrue(generated.Contains("{Blind>!}{b DownR}"), generated);
+			Assert.IsTrue(generated.Contains(RemapDown("{Blind>!}{b DownR}")), generated);
 
 			// A wheel has no up event, so its up hotkey never fires; holding the destination with DownR would
 			// leave the modifier stuck down. Such a remap must keep the plain press-and-release form.
@@ -524,7 +539,7 @@ namespace Keysharp.Tests
 			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("Copilot::RCtrl");
 			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
 			var generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
-			Assert.IsTrue(generated.Contains("{Blind}{LShift up}{LWin up}{RCtrl DownR}"), generated);
+			Assert.IsTrue(generated.Contains(RemapDown("{Blind}{LShift up}{LWin up}{RCtrl DownR}")), generated);
 			// The chord's modifiers are firmware-fabricated and released microseconds after the trigger, so the
 			// up hotkey must not re-press them; only genuinely user-held modifiers are restored (see >!.::RCtrl).
 			Assert.IsTrue(generated.Contains("{Blind}{RCtrl Up}"), generated);
@@ -537,7 +552,7 @@ namespace Keysharp.Tests
 			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("Copilot::a");
 			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
 			generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
-			Assert.IsTrue(generated.Contains("{Blind<+<#}{a DownR}"), generated);
+			Assert.IsTrue(generated.Contains(RemapDown("{Blind<+<#}{a DownR}")), generated);
 			Assert.IsFalse(generated.Contains("{Blind>+"), generated);
 		}
 
@@ -551,7 +566,7 @@ namespace Keysharp.Tests
 			var generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
 			// Previously this silently lexed as a hotkey body calling Copilot(), with no diagnostic at all.
 			Assert.IsTrue(generated.Contains("__Remap_"), generated);
-			Assert.IsTrue(generated.Contains("{Copilot DownR}"), generated);
+			Assert.IsTrue(generated.Contains(RemapDown("{Copilot DownR}")), generated);
 			Assert.IsTrue(generated.Contains("{Copilot Up}"), generated);
 
 			// A name that is neither a key nor a chord still lexes as a hotkey body, not a remap.
@@ -703,8 +718,8 @@ namespace Keysharp.Tests
 			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("Office::RCtrl");
 			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
 			var generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
-			Assert.IsTrue(generated.Contains(
-				"{Blind}{LCtrl up}{LAlt up}{LShift up}{LWin up}{RCtrl DownR}"), generated);
+			Assert.IsTrue(generated.Contains(RemapDown(
+				"{Blind}{LCtrl up}{LAlt up}{LShift up}{LWin up}{RCtrl DownR}")), generated);
 			Assert.IsTrue(generated.Contains("\"*Office\""), generated);
 			Assert.IsTrue(generated.Contains("\"*Office up\""), generated);
 		}

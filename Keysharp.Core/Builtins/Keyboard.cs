@@ -472,8 +472,6 @@ break_twice:;
 			return existing;
 		}
 
-		public static object HotstringOptions(object options) => Hotstring(options);
-
 		public static object InstallKeybdHook(object install = null, object force = null) =>
 		InstallHook(HookType.Keyboard, install, force);
 

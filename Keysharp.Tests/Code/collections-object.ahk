@@ -87,3 +87,18 @@ try {
 } catch as err {
 	FileAppend "pass", "*"
 }
+
+o4 := {}
+defined := DefineProp(o4, "answer", {Value: 42})
+if (defined = o4 && o4.answer = 42)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+base4 := {inherited: true}
+ObjSetBase(o4, base4)
+if (ObjHasProp(o4, "answer") && ObjHasProp(o4, "inherited")
+	&& !ObjHasProp(o4, "missing") && !ObjHasProp(0, "Base"))
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"

@@ -271,13 +271,6 @@ namespace Keysharp.Builtins
 		}
 
 		/// <summary>
-		/// Retrieves an object's base object.
-		/// </summary>
-		/// <param name="value">The object to examine.</param>
-		/// <returns>The name of the object's base.</returns>
-		public static string ObjGetBase(object value) => value.GetType().BaseType.Name;
-
-		/// <summary>
 		/// Returns the class name of an object.
 		/// </summary>
 		/// <param name="value">The object to examine.</param>

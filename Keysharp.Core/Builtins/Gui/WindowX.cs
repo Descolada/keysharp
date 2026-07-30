@@ -306,7 +306,7 @@ namespace Keysharp.Builtins
 			return oldVal;
 		}
 
-		public static object SetProcessDPIAware()
+		internal static object SetProcessDPIAware()
 		{
 #if LINUX//Don't have Gtk working on Windows yet, but just in case we ever get it working.//TODO
 			Environment.SetEnvironmentVariable("MONO_VISUAL_STYLES", "gtkplus");//This used to need to come first, but I'm not sure what it does now. It seems to have no effect.

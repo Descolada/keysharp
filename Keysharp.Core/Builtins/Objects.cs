@@ -27,6 +27,12 @@ namespace Keysharp.Builtins
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if obj was not of type KeysharpObject.</exception>
 		public static long ObjHasOwnProp(object obj, object name) => KeysharpObject.HasOwnProp(obj, name);
 
+		/// <summary>
+		/// Returns whether an object or one of its base objects has a property by the specified name.
+		/// </summary>
+		/// <param name="obj">The object to search.</param>
+		/// <param name="name">The property name to search for.</param>
+		/// <returns>1 if the property exists, otherwise 0. Non-object values return 0.</returns>
 		public static long ObjHasProp(object obj, object name) => obj is Any ? Functions.HasProp(obj, name) : 0L;
 
 		/// <summary>
@@ -174,7 +180,7 @@ namespace Keysharp.Builtins
 			return "";
 		}
 
-		public static object ObjDefineProp(object obj0, object obj1, object obj2)
+		public static object DefineProp(object obj0, object obj1, object obj2)
 		{
 			if (obj0 is not Any target)
 				return Errors.ArgumentErrorOccurred(obj0, 1);
@@ -223,7 +229,7 @@ namespace Keysharp.Builtins
 		}
 
 		[PublicHiddenFromUser]
-		public static object ObjDefineProp(object obj0, object obj1, Type type)
+		public static object DefineStructFieldOnPrototype(object obj0, object obj1, Type type)
 		{
 			if (obj0 is not Any target)
 				return Errors.ArgumentErrorOccurred(obj0, 1);
@@ -233,7 +239,8 @@ namespace Keysharp.Builtins
 		}
 
 		// Typed-field registration with an explicit #StructPack alignment (emitted by the lowerer for packed struct fields).
-		public static object ObjDefineProp(object obj0, object obj1, Type type, long pack)
+		[PublicHiddenFromUser]
+		public static object DefineStructFieldOnPrototype(object obj0, object obj1, Type type, long pack)
 		{
 			if (obj0 is not Any target)
 				return Errors.ArgumentErrorOccurred(obj0, 1);

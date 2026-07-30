@@ -2976,7 +2976,7 @@ namespace Keysharp.Parsing.Syntax
 			if (instFields.Count > 0 || c.InstanceInit.Count > 0)
 				members.Add(InitMethod(NameMangler.InstanceInit, baseType, instFields, null, c.InstanceInit, staticCtx: false));
 			var statFields = c.Fields.Where(f => f.Static && f.Init != null).ToList();
-			// A struct's typed fields are registered on the prototype (ObjDefineProp with the field's .NET type) in the
+			// A struct's typed fields are registered on the prototype (DefineStructFieldOnPrototype with the field's .NET type) in the
 			// static initializer, so the runtime knows the struct layout.
 			var typedFields = c.Fields.Where(f => f.TypeName != null).ToList();
 			_structTypeName = typeName;
@@ -3002,7 +3002,7 @@ namespace Keysharp.Parsing.Syntax
 			return decl;
 		}
 
-		// Registers a typed struct field on the prototype: `Objects.ObjDefineProp(Prototypes[typeof(Struct)], "x", typeof(FieldType))`.
+		// Registers a typed struct field on the prototype: `Objects.DefineStructFieldOnPrototype(Prototypes[typeof(Struct)], "x", typeof(FieldType))`.
 		private StatementSyntax StructFieldDefineProp(ClassField f)
 		{
 			var proto = SyntaxFactory.ElementAccessExpression(Access("MainScript.Vars.Prototypes"))
@@ -3029,8 +3029,8 @@ namespace Keysharp.Parsing.Syntax
 
 			// Pass the #StructPack alignment as a 4th argument when one is in effect (0 = default packing).
 			return f.Pack != 0
-				? ExprStmt(Inv(Access("Keysharp.Builtins.Objects.ObjDefineProp"), proto, Str(f.Name), typeOf, Num(f.Pack.ToString())))
-				: ExprStmt(Inv(Access("Keysharp.Builtins.Objects.ObjDefineProp"), proto, Str(f.Name), typeOf));
+				? ExprStmt(Inv(Access("Keysharp.Builtins.Objects.DefineStructFieldOnPrototype"), proto, Str(f.Name), typeOf, Num(f.Pack.ToString())))
+				: ExprStmt(Inv(Access("Keysharp.Builtins.Objects.DefineStructFieldOnPrototype"), proto, Str(f.Name), typeOf));
 		}
 
 		// Resolves a struct field/base type name to its C# type: a user struct/class, or a builtin (Int32 -> StructInt32).
@@ -3401,7 +3401,7 @@ namespace Keysharp.Parsing.Syntax
 				_dhhr.Insert(0, CallStmt("Keysharp.Builtins.Keyboard.Hotstring", Str("EndChars"),
 					Str(Keysharp.Parsing.Parser.EscapedString(args.Substring("EndChars".Length).Trim().Trim('"', '\''), false))));
 			else
-				_dhhr.Add(CallStmt("Keysharp.Builtins.Keyboard.HotstringOptions", Str(args.Trim('"', '\''))));
+				_dhhr.Add(CallStmt("Keysharp.Builtins.Keyboard.Hotstring", Str(args.Trim('"', '\''))));
 		}
 
 		// `#HotIf <expr>` registers a hot-criterion: the condition becomes a callback (called with the hotkey name,

@@ -14,7 +14,7 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="err">The exception object to pass to each callback.</param>
 		/// <returns>True if err.ExcType is not "Return", else false.</returns>
-		public static bool ErrorOccurred(Error err, string excType = Keyword_Return)
+		internal static bool ErrorOccurred(Error err, string excType = Keyword_Return)
 		{
 			var exitThread = true;
 			var script = Script.TheScript;
@@ -79,6 +79,7 @@ namespace Keysharp.Builtins
 		/// with Help/Edit/Reload/ExitApp/Continue buttons). Warnings never halt the script. In the headless/test host
 		/// (where error dialogs are suppressed), the warning is written to stderr instead of a blocking dialog.
 		/// </summary>
+		[PublicHiddenFromUser]
 		public static object ShowWarning(object text)
 		{
 			var script = Script.TheScript;

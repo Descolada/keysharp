@@ -577,7 +577,7 @@ namespace Keysharp.Builtins
 			return files;
 		}
 
-		public static string FixFilters(string filter)
+		internal static string FixFilters(string filter)
 		{
 			if (filter.Length > 0)
 			{

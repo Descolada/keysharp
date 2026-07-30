@@ -56,7 +56,7 @@ namespace Keysharp.Builtins
 			return MemberwiseClone();
 		}
 
-		public static object DefineProp(object @this, object obj0, object obj1) => Objects.ObjDefineProp(@this, obj0, obj1);
+		public static object DefineProp(object @this, object obj0, object obj1) => Objects.DefineProp(@this, obj0, obj1);
 
 		public static object DeleteProp(object @this, object obj) => (@this as Any).DeleteOwnPropInternal(obj.As());
 

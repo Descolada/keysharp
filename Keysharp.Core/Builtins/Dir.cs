@@ -179,7 +179,7 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="path">The path to retrieve the head for.</param>
 		/// <returns>The drive portion of the path without the backslash.</returns>
-		public static string PathHead(string path)
+		internal static string PathHead(string path)
 		{
 			if (path.StartsWith(pathStart))
 			{

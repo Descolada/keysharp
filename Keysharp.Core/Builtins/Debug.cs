@@ -72,7 +72,7 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public static string GetVars(object obj = null, List<KeyValuePair<string, object>> execLocals = null, string execName = null)
+		internal static string GetVars(object obj = null, List<KeyValuePair<string, object>> execLocals = null, string execName = null)
 		{
 			var doInternal = obj.Ab(true);
 			var sb = new StringBuffer();
@@ -142,7 +142,7 @@ namespace Keysharp.Builtins
 			return s;
 		}
 
-		public static string ListKeyHistory()
+		internal static string ListKeyHistory()
 		{
 			var sb = new StringBuilder(2048);
 			var script = Script.TheScript;

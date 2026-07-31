@@ -1343,7 +1343,8 @@ namespace Keysharp.Parsing.Syntax
 		// properties — the members a `#import "Mod" { * }` can bind. Used only by the #Warn provided-name set.
 		private static IEnumerable<string> BuiltinMemberNames(System.Type modType)
 		{
-			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy;
+			// DeclaredOnly to match BindModuleMember: a wildcard binds what the module declares, not what it inherits.
+			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly;
 			foreach (var mi in modType.GetMethods(flags)) if (!mi.IsSpecialName) yield return (Script.GetUserDeclaredName(mi) ?? mi.Name).ToLowerInvariant();
 			foreach (var nt in modType.GetNestedTypes(System.Reflection.BindingFlags.Public)) yield return (Script.GetUserDeclaredName(nt) ?? nt.Name).ToLowerInvariant();
 			foreach (var pr in modType.GetProperties(flags)) yield return (Script.GetUserDeclaredName(pr) ?? pr.Name).ToLowerInvariant();
@@ -1390,7 +1391,10 @@ namespace Keysharp.Parsing.Syntax
 		// Resolves one exported name on a module type to its binding: method->Func, nested type->singleton, property->access.
 		private ExpressionSyntax BindModuleMember(Type modType, string name)
 		{
-			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy;
+			// DeclaredOnly: a module exports what it DECLARES. A module type derives from Module -> Any -> object,
+			// so without this the inherited public statics of those bases (object's Equals/ReferenceEquals, Any's
+			// HasBase/HasProp/HasMethod/GetMethod) would import from every module as if it had declared them.
+			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly;
 			// Match on the AHK-visible name (a [UserDeclaredName], e.g. `Image` for the CLR type KeysharpImage)
 			// as well as the raw CLR name — mirroring how Reflections keys every other built-in member. Without
 			// the user-declared name, a member exposed under a different script name (Image, …) would not resolve.
@@ -1417,7 +1421,7 @@ namespace Keysharp.Parsing.Syntax
 				_ = Script.TheScript.ReflectionsData.flatPublicStaticProperties.TryGetValue(name.ToLowerInvariant(), out prop);
 			else if (modType != null)
 			{
-				const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy;
+				const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly;
 				bool Matches(System.Reflection.MemberInfo m) =>
 					(Script.GetUserDeclaredName(m) ?? m.Name).Equals(name, System.StringComparison.OrdinalIgnoreCase)
 					|| m.Name.Equals(name, System.StringComparison.OrdinalIgnoreCase);
@@ -1435,7 +1439,8 @@ namespace Keysharp.Parsing.Syntax
 		// define (a member it can't bind here still resolves through normal global lookup, as it did before).
 		private static bool BuiltinModuleHasMember(Type modType, string name)
 		{
-			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy;
+			// DeclaredOnly for the same reason as BindModuleMember: inherited base-class statics are not exports.
+			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly;
 			bool M(System.Reflection.MemberInfo m) =>
 				(Script.GetUserDeclaredName(m) ?? m.Name).Equals(name, System.StringComparison.OrdinalIgnoreCase)
 				|| m.Name.Equals(name, System.StringComparison.OrdinalIgnoreCase);
@@ -1561,7 +1566,8 @@ namespace Keysharp.Parsing.Syntax
 		// access to it; otherwise null. Methods/types are fine cached as fields, but properties must be re-read.
 		private ExpressionSyntax WildcardLiveProperty(string lower)
 		{
-			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy;
+			// DeclaredOnly to match BindModuleMember: a wildcard binds what the module declares, not what it inherits.
+			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly;
 			foreach (var modType in _wildcardModules)
 			{
 				if (modType.GetMethods(flags).Any(mi => !mi.IsSpecialName && mi.Name.Equals(lower, System.StringComparison.OrdinalIgnoreCase))) continue;
@@ -1713,7 +1719,7 @@ namespace Keysharp.Parsing.Syntax
 						&& reqParts[1].Trim() is { Length: > 0 } caps)
 						// RequireCapabilities (not RequestCapabilities): a #Requires directive is a hard
 						// requirement, so a denied prompt exits the app. The runtime builtin does not exit.
-						return ExprStmt(Inv(Access("Keysharp.Builtins.Ks.RequireCapabilities"), Str(caps)));
+						return ExprStmt(Inv(Access("Keysharp.Runtime.Script.RequireCapabilities"), Str(caps)));
 					return null;
 				}
 				// #Warn config is applied in a prescan (PrescanWarnDirectives) so it is location-independent (per the

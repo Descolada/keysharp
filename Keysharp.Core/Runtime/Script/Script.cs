@@ -628,6 +628,38 @@ namespace Keysharp.Runtime
 			}
 		}
 
+		/// <summary>
+		/// Backing method for the <c>#Requires capability</c> directive: requests the listed capabilities up
+		/// front and exits the app if any is denied, because the script declared it cannot run without them.
+		/// <para>
+		/// This lives here rather than in <c>Keysharp.Builtins</c> so that it is not part of the script API:
+		/// a directive may terminate the script, but a function a script can call should return status and let
+		/// the script decide. <see cref="Builtins.Ks.RequestCapabilities"/> is the script-facing equivalent and
+		/// deliberately does not exit. It must stay public because the generated script assembly calls it.
+		/// </para>
+		/// </summary>
+		/// <param name="capabilities">The capability names the directive listed.</param>
+		/// <returns>An empty value once every capability is granted.</returns>
+		public static object RequireCapabilities(params object[] capabilities)
+		{
+			var requested = Builtins.Ks.ParseRequestedCapabilities(capabilities);
+			Builtins.Ks.RequestCapabilitiesBatched(requested);
+
+			var denied = new List<string>();
+
+			foreach (var cap in requested)
+				if (!Builtins.Ks.QueryCapabilityStatus(cap).IsGranted)
+					denied.Add(Builtins.Ks.CapabilityName(cap));
+
+			if (denied.Count == 0)
+				return DefaultObject;
+
+			_ = Builtins.Ks.OutputDebugLine(
+				$"Keysharp: required capability/capabilities not granted: {string.Join(", ", denied)}. Exiting. " +
+				"Re-run and choose Allow (or grant it persistently) to continue.");
+			return Builtins.Flow.ExitApp(1L);
+		}
+
 		public static bool HandleSingleInstance(string title, eScriptInstance inst)
 		{
 			if (title.Length == 0 || title == "*")//Happens when running in Keyview.

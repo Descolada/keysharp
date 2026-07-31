@@ -5,7 +5,10 @@ namespace Keysharp.Builtins
 	/// </summary>
 	public partial class Ks
 	{
-		private enum KeysharpCapability
+		// Internal, not private: Keysharp.Runtime.Script.RequireCapabilities - the `#Requires capability`
+		// directive's backing method, which lives outside Keysharp.Builtins so it is not a script API -
+		// works in terms of these values and the helpers below.
+		internal enum KeysharpCapability
 		{
 			AccessibilityAutomation,
 			BlockInput,
@@ -55,7 +58,7 @@ namespace Keysharp.Builtins
 			return result;
 		}
 
-		private static void RequestCapabilitiesBatched(List<KeysharpCapability> requested)
+		internal static void RequestCapabilitiesBatched(List<KeysharpCapability> requested)
 		{
 			var permissions = Script.TheScript.Permissions;
 
@@ -76,33 +79,7 @@ namespace Keysharp.Builtins
 				permissions.RequestScreenCapture(prompt: true, operation: "RequestCapabilities");
 		}
 
-		/// <summary>
-		/// Backing method for the <c>#Requires capability</c> directive: requests the listed
-		/// capabilities up front and EXITS the app if any is denied — the script declared it
-		/// cannot run without them. The runtime <see cref="RequestCapabilities"/> builtin
-		/// deliberately does NOT exit; it returns status for the script to handle instead.
-		/// </summary>
-		public static object RequireCapabilities(params object[] capabilities)
-		{
-			var requested = ParseRequestedCapabilities(capabilities);
-			RequestCapabilitiesBatched(requested);
-
-			var denied = new List<string>();
-
-			foreach (var cap in requested)
-				if (!QueryCapabilityStatus(cap).IsGranted)
-					denied.Add(CapabilityName(cap));
-
-			if (denied.Count == 0)
-				return DefaultObject;
-
-			_ = OutputDebugLine(
-				$"Keysharp: required capability/capabilities not granted: {string.Join(", ", denied)}. Exiting. " +
-				"Re-run and choose Allow (or grant it persistently) to continue.");
-			return Flow.ExitApp(1L);
-		}
-
-		private static PermissionResult QueryCapabilityStatus(KeysharpCapability capability)
+		internal static PermissionResult QueryCapabilityStatus(KeysharpCapability capability)
 		{
 			var permissions = Script.TheScript.Permissions;
 
@@ -133,7 +110,7 @@ namespace Keysharp.Builtins
 #endif
 		}
 
-		private static List<KeysharpCapability> ParseRequestedCapabilities(object[] capabilities)
+		internal static List<KeysharpCapability> ParseRequestedCapabilities(object[] capabilities)
 		{
 			var requested = new List<KeysharpCapability>();
 
@@ -201,7 +178,7 @@ namespace Keysharp.Builtins
 			return builder.ToString();
 		}
 
-		private static string CapabilityName(KeysharpCapability capability)
+		internal static string CapabilityName(KeysharpCapability capability)
 			=> capability switch
 			{
 				KeysharpCapability.AccessibilityAutomation => "AccessibilityAutomation",

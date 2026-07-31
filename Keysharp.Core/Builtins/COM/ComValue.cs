@@ -174,6 +174,7 @@ namespace Keysharp.Builtins.COM
 			return value;
 		}
 
+		[PublicHiddenFromUser]
 		public virtual void Dispose()
 		{
 			if (Ptr == null) return;

@@ -87,7 +87,7 @@ namespace Keysharp.Builtins
 			}
 
 			public bool AltSubmit { get; internal set; } = false;
-			public Forms.Control Ctrl => _control;
+			internal Forms.Control Ctrl => _control;
 
 			public object Enabled
 			{
@@ -104,7 +104,7 @@ namespace Keysharp.Builtins
 				set => _control.Name = value.ToString();
 			}
 
-			public KeysharpForm ParentForm => _control.FindParent<KeysharpForm>();
+			internal KeysharpForm ParentForm => _control.FindParent<KeysharpForm>();
 			public object RichText
 			{
 				get
@@ -369,6 +369,28 @@ namespace Keysharp.Builtins
 			public object SetFormat(object format)
 			{
 				(_control as DateTimePicker)?.SetFormat(format);
+				return DefaultObject;
+			}
+
+			/// <summary>
+			/// The script object standing for a toolkit parent: the wrapping <see cref="Gui.Control"/> when the
+			/// parent is a container control (a GroupBox or Tab page), or the owning <see cref="Gui"/> when it is
+			/// the window itself. Used by the platform <c>Parent</c> property so that reading it yields a value a
+			/// script can use and assign back, rather than the underlying toolkit control.
+			/// </summary>
+			/// <param name="parent">The toolkit parent, which may be null.</param>
+			/// <returns>The Gui.Control or Gui for parent, or an empty value when it maps to neither.</returns>
+			internal static object ParentObject(Forms.Control parent)
+			{
+				if (parent == null)
+					return DefaultObject;
+
+				if (parent.GetGuiControl() is Gui.Control gc)
+					return gc;
+
+				if (parent is KeysharpForm ksf && ksf.Tag is WeakReference<Gui> wr && wr.TryGetTarget(out var gui))
+					return gui;
+
 				return DefaultObject;
 			}
 

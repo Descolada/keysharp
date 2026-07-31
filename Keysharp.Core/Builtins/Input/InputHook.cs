@@ -2,7 +2,11 @@ using Keysharp.Runtime;
 
 namespace Keysharp.Builtins
 {
-	public class InputObject : KeysharpObject
+	/// <summary>
+	/// Collects or intercepts keyboard input. Scripts construct one by calling the class, as AutoHotkey does:
+	/// <c>ih := InputHook("V")</c>.
+	/// </summary>
+	public class InputHook : KeysharpObject
 	{
 		private const int CharCallbackIndex = 0;
 		private const int EndCallbackIndex = 1;
@@ -110,7 +114,7 @@ namespace Keysharp.Builtins
 
 				if (val < 0 || val > 101)
 				{
-					_ = Errors.ValueErrorOccurred($"Cannot set InputObject.MinSendLevel to a value outside of the range 0 - 101 ({value}).");
+					_ = Errors.ValueErrorOccurred($"Cannot set InputHook.MinSendLevel to a value outside of the range 0 - 101 ({value}).");
 					return;
 				}
 
@@ -238,13 +242,48 @@ namespace Keysharp.Builtins
 			}
 		}
 
-		public InputObject(params object[] args) : base(args) { }
+		public InputHook(params object[] args) : base(args) { }
 
+		public new static object staticCall(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
+
+		/// <summary>
+		/// Creates an object which can be used to collect or intercept keyboard input.
+		/// </summary>
+		/// <param name="args">
+		/// Up to three values, each optional:
+		/// <list type="number">
+		/// <item>options: a string of zero or more of the following (in any order, with optional spaces between):
+		/// B: Sets BackspaceIsUndo to 0 (false), which causes Backspace to be ignored.
+		/// C: Sets CaseSensitive to 1 (true), making MatchList case-sensitive.
+		/// I: Sets MinSendLevel to 1 or a given value, causing any input with send level below this value to be ignored.
+		/// For example, I2 would ignore any input with a level of 0 (the default) or 1, but would capture input at level 2.
+		/// L: Length limit (e.g. L5). The maximum allowed length of the input.
+		/// When the text reaches this length, the Input is terminated and EndReason is set to the word Max (unless the text matches one of the MatchList phrases, in which case EndReason is set to the word Match).
+		/// If unspecified, the length limit is 1023.
+		/// M: Allows a greater range of modified keypresses to produce text.
+		/// Normally, a key is treated as non-text if it is modified by any combination other than Shift, Ctrl+Alt (i.e. AltGr) or Ctrl+Alt+Shift (i.e. AltGr+Shift).
+		/// This option causes translation to be attempted for other combinations of modifiers.
+		/// T: Sets Timeout (e.g. T3 or T2.5).
+		/// V: Sets VisibleText and VisibleNonText to 1 (true).
+		/// Normally, the user's input is blocked (hidden from the system).
+		/// Use this option to have the user's keystrokes sent to the active window.
+		/// *: Wildcard. Sets FindAnywhere to 1 (true), allowing matches to be found anywhere within what the user types.
+		/// E: Handle single-character end keys by character code instead of by keycode.
+		/// This provides more consistent results if the active window's keyboard layout is different to the script's keyboard layout.
+		/// It also prevents key combinations which don't actually produce the given end characters from ending input; for example, if @ is an end key, on the US layout Shift+2 will trigger it but Ctrl+Shift+2 will not (if the E option is used).
+		/// If the C option is also used, the end character is case-sensitive.</item>
+		/// <item>endKeys: a list of zero or more keys, any one of which terminates the Input when pressed (the end key itself is not written to the Input buffer). When an Input is terminated this way, EndReason is set to the word EndKey and EndKey is set to the name of the key.</item>
+		/// <item>matchList: a comma-separated list of key phrases, any of which will cause the Input to be terminated (in which case EndReason will be set to the word Match).</item>
+		/// </list>
+		/// </param>
+		/// <returns>An empty value; the constructed object is the instance being initialized.</returns>
 		public override object __New(params object[] args)
 		{
-			var options = args[0].ToString();
-			var endKeys = args[1].ToString();
-			var matchList = args[2].ToString();
+			// Each argument is optional, so read defensively: the class is called directly (InputHook(),
+			// InputHook("V"), ...) rather than through a function with default parameter values.
+			var options = args.Length > 0 ? args[0].As() : "";
+			var endKeys = args.Length > 1 ? args[1].As() : "";
+			var matchList = args.Length > 2 ? args[2].As() : "";
 			input = new InputType(this, options, endKeys, matchList);
 			return DefaultObject;
 		}

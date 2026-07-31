@@ -120,7 +120,7 @@ namespace Keysharp.Builtins
 
 		// Should only be called in CallbackFree. DelegateHolder shouldn't need a finalizer because
 		// the reference is held in CallbackPointerCache until it's explicitly freed.
-		public void Dispose()
+		void IDisposable.Dispose()
 		{
 			// Claim the disposal exactly once: CallbackFree can race another script thread, or the scheduler
 			// teardown in DisposeOwnedByScheduler, and returning the slot twice would hand one id to two holders.
@@ -444,7 +444,7 @@ namespace Keysharp.Builtins
 				return;
 
 			foreach (var holder in scheduler.GetOwnedDelegatesSnapshot())
-				holder?.Dispose();
+				(holder as IDisposable)?.Dispose();
 		}
 	}
 

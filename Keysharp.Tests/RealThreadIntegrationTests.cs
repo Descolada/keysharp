@@ -21,7 +21,7 @@ namespace Keysharp.Tests
 		private sealed class NamedCriterion(string name, Func<object> callback) : KeysharpFunc
 		{
 			public override bool IsBuiltIn => false;
-			public override bool IsValid => true;
+			internal override bool IsValid => true;
 			public override string Name => name;
 			public override KeysharpFunc Bind(params object[] obj) => this;
 			public override object Call(params object[] obj) => callback();

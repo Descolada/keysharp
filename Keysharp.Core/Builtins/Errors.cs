@@ -420,7 +420,7 @@ namespace Keysharp.Builtins
 		/// This is used to determine whether the script should exit or not after an exception is thrown.
 		/// Must be ExcType and not Type, else the reflection dictionary sees it as a dupe from the base.
 		/// </summary>
-		public string ExcType { get; internal set; } = Keyword_Exit;
+		internal string ExcType { get; set; } = Keyword_Exit;
 
 		/// <summary>
 		/// Gets or sets the extra text.
@@ -446,7 +446,7 @@ namespace Keysharp.Builtins
 		/// If true, further error messages will not be shown.
 		/// This should only ever be used internally or by the generated script code.
 		/// </summary>
-		public bool Handled { get; set; }
+		internal bool Handled { get; set; }
 
 		/// <summary>
 		/// Gets or sets the line the exception occured on.
@@ -479,7 +479,7 @@ namespace Keysharp.Builtins
 		/// Note, this is separate from Handled above.
 		/// This should only ever be used internally or by the generated script code.
 		/// </summary>
-		public bool Processed { get; set; }
+		internal bool Processed { get; set; }
 
 		/// <summary>
 		/// Gets or sets the stack trace of where the exception occurred.

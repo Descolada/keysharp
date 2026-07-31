@@ -23,11 +23,16 @@ namespace Keysharp.Builtins
 		/// </summary>
 		public long Count { get; }
 
-		public virtual object Current => currentValue != null ? currentValue() : currentPair != null ? currentPair().Item1 : null;
+		// The single-value form of the current item, shared by both Current implementations below. The
+		// interface members are implemented explicitly so that enumeration plumbing stays off the
+		// script-visible surface; only Call is meant to be reached from a script.
+		internal object CurrentValue => currentValue != null ? currentValue() : currentPair != null ? currentPair().Item1 : null;
+
+		object IEnumerator<object>.Current => CurrentValue;
 
 		(object, object) IEnumerator<(object, object)>.Current => GetCurrentPair();
 
-		object IEnumerator.Current => Current;
+		object IEnumerator.Current => CurrentValue;
 
 		public Enumerator(params object[] args) : base(args)
 		{
@@ -70,7 +75,11 @@ namespace Keysharp.Builtins
 
 		private static MethodPropertyHolder CallMethod() => callMethod ??= Reflections.FindAndCacheMethod(typeof(Enumerator), nameof(Call), 1);
 
-		public virtual bool MoveNext() => moveNext != null && moveNext();
+		// Call below advances the enumerator too, so the step lives here rather than inside the explicit
+		// interface implementation, which could not be called without a cast.
+		internal bool Advance() => moveNext != null && moveNext();
+
+		bool IEnumerator.MoveNext() => Advance();
 
 		protected virtual (object, object) GetCurrentPair() => currentPair != null ? currentPair() : currentValue != null ? (currentValue(), null) : (null, null);
 
@@ -85,7 +94,7 @@ namespace Keysharp.Builtins
 				if (callback != null)
 					return callback.Call(args);
 
-				if (!MoveNext())
+				if (!Advance())
 				{
 					((IDisposable)this).Dispose();
 					return false;
@@ -96,7 +105,7 @@ namespace Keysharp.Builtins
 
 				if (args.Length == 1)
 				{
-					Script.SetPropertyValue(args[0], "__Value", Current);
+					Script.SetPropertyValue(args[0], "__Value", CurrentValue);
 				}
 				else
 				{

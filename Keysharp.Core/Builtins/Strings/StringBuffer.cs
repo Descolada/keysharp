@@ -57,12 +57,18 @@ namespace Keysharp.Builtins
 			public long Ptr => (long)_buffer;
 
 			/// <summary>
+			/// The size in bytes, excluding the null terminator: <see cref="Capacity"/> multiplied by the
+			/// size of a character in the buffer's encoding.
+			/// </summary>
+			public long Size => _capacity * _bytesPerChar;
+
+			/// <summary>
 			/// Gets or sets the current write/read position in character units.
 			/// </summary>
 			public long Pos
 			{
 				get => _position;
-				set => Seek(_position);
+				set => Seek(value);
 			}
 
 			/// <summary>

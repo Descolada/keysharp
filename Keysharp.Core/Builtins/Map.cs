@@ -356,7 +356,7 @@ namespace Keysharp.Builtins
 		/// The implementation for <see cref="IEnumerable{(object, object)}.GetEnumerator()"/> which returns an <see cref="Enumerator"/>.
 		/// </summary>
 		/// <returns>An <see cref="IEnumerator{(object, object)}"/> which is an <see cref="Enumerator"/>.</returns>
-		public IEnumerator<(object, object)> GetEnumerator() => CreateEnumerator(2);
+		IEnumerator<(object, object)> IEnumerable<(object, object)>.GetEnumerator() => CreateEnumerator(2);
 
 		/// <summary>
 		/// Returns true if the specified key has an associated value within a map, otherwise false.

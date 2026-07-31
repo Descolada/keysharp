@@ -23,7 +23,7 @@ namespace Keysharp.Builtins
 
 		public KeysharpFunc __Enum(object count) => CreateEnumerator(count.Ai());
 
-		public IEnumerator<(object, object)> GetEnumerator() => CreateEnumerator(2);
+		IEnumerator<(object, object)> IEnumerable<(object, object)>.GetEnumerator() => CreateEnumerator(2);
 
 		IEnumerator IEnumerable.GetEnumerator() => CreateEnumerator(2);
 

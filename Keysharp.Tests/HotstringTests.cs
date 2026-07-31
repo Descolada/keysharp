@@ -844,7 +844,7 @@ namespace Keysharp.Tests
 		[Test, Category("Hotstring"), NonParallelizable]
 		public void InputHookOptions()
 		{
-			var ih = Input.InputHook("B C H I10 M L1 T2 V * E");
+			var ih = new InputHook("B C H I10 M L1 T2 V * E");
 			Assert.AreEqual(ih.BackspaceIsUndo, false);
 			Assert.AreEqual(ih.CaseSensitive, true);
 			Assert.AreEqual(ih.BeforeHotkeys, true);
@@ -857,7 +857,7 @@ namespace Keysharp.Tests
 			Assert.AreEqual(ih.FindAnywhere, true);
 			Assert.AreEqual(ih.EndCharMode, true);
 			//
-			ih = Input.InputHook("BCHI10ML123T2V*E");
+			ih = new InputHook("BCHI10ML123T2V*E");
 			Assert.AreEqual(ih.BackspaceIsUndo, false);
 			Assert.AreEqual(ih.CaseSensitive, true);
 			Assert.AreEqual(ih.BeforeHotkeys, true);
@@ -875,7 +875,7 @@ namespace Keysharp.Tests
 		public void InputHookKeyOptEnterUsesPlatformScanCode()
 		{
 			const uint VkReturn = 0x0D;
-			var ih = Input.InputHook("V");
+			var ih = new InputHook("V");
 			ih.KeyOpt("{Enter}", "E");
 
 			// VK_RETURN is the one VK backed by two scan codes, so MapVkToSc must report a non-zero *secondary*

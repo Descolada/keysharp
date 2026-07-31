@@ -441,7 +441,7 @@ namespace Keysharp.Builtins
 			set => form.Name = value.ToString();
 		}
 
-		public KeysharpForm ParentForm => form.FindParent<KeysharpForm>();
+		internal KeysharpForm ParentForm => form.FindParent<KeysharpForm>();
 
 		public object Title
 		{
@@ -2441,7 +2441,7 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public IEnumerator<(object, object)> GetEnumerator() => CreateEnumerator(2);
+		IEnumerator<(object, object)> IEnumerable<(object, object)>.GetEnumerator() => CreateEnumerator(2);
 
 		public object GetPos([Optional()][DefaultParameterValue(null)] object outX, [Optional()][DefaultParameterValue(null)] object outY, [Optional()][DefaultParameterValue(null)] object outWidth, [Optional()][DefaultParameterValue(null)] object outHeight)
 		{

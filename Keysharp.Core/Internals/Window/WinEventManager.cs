@@ -6,7 +6,7 @@ namespace Keysharp.Internals.Window
 	/// <summary>
 	/// Engine-side state for a single <c>Ks.WinEvent</c> subscription: the event type, the parsed window-matching
 	/// criteria, the script callback, a remaining-fire counter, and a persistence registration. The script-facing
-	/// <c>Ks.WinEvent</c> object wraps one of these, mirroring how <c>InputObject</c> wraps <c>InputType</c>.
+	/// <c>Ks.WinEvent</c> object wraps one of these, mirroring how <c>InputHook</c> wraps <c>InputType</c>.
 	/// </summary>
 	internal sealed class WinEventRegistration
 	{

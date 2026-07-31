@@ -4044,7 +4044,7 @@ namespace Keysharp.Internals.Input.Hooks
 					return targetScheduler.EnqueueThreadLaunch(0, false, false, () => _ = Keysharp.Internals.Flow.TryCatch(() =>
 					{
 						if (endInput.InputRelease() is InputType releasedInput
-							&& releasedInput.scriptObject is InputObject so)
+							&& releasedInput.scriptObject is InputHook so)
 						{
 							var endCallback = so.GetCallbackSlot(UserMessages.AHK_INPUT_END)?.Callback;
 

@@ -148,7 +148,7 @@ namespace Keysharp.Builtins
 		// Resolves the structured-array type for `element[length]` (created on demand, cached). Used by the lowerer to
 		// register array-typed struct fields, since the array class has no compile-time C# type. The array class is
 		// initialized so its prototype exists for field views and type checks.
-		public static Type MakeArrayType(Type element, long length)
+		internal static Type MakeArrayType(Type element, long length)
 		{
 			var arrType = GetArrayType(element, length);
 			EnsurePointerTypeInitialized(arrType);
@@ -377,7 +377,7 @@ namespace Keysharp.Builtins
 			ownedHandle = new NativeMemoryHandle(handle);
 		}
 
-		public object Dispose(bool disposing)
+		internal object Dispose(bool disposing)
 		{
 			if (disposed)
 				return DefaultObject;

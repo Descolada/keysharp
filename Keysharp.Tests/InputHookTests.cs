@@ -13,7 +13,7 @@ namespace Keysharp.Tests
 		// Joined with '|' so the exact phrase list (including order and embedded commas) is compared.
 		private static string MatchListOf(string matchList)
 		{
-			var io = (InputObject)Input.InputHook("", "", matchList);
+			var io = (InputHook)new InputHook("", "", matchList);
 			return string.Join("|", io.input.match);
 		}
 
@@ -39,14 +39,14 @@ namespace Keysharp.Tests
 		[Test, Category("InputHook")]
 		public void OptionsTrailingNumericDoesNotThrow()
 		{
-			Assert.DoesNotThrow(() => Input.InputHook("I"));
-			Assert.DoesNotThrow(() => Input.InputHook("L"));
-			Assert.DoesNotThrow(() => Input.InputHook("T"));
+			Assert.DoesNotThrow(() => new InputHook("I"));
+			Assert.DoesNotThrow(() => new InputHook("L"));
+			Assert.DoesNotThrow(() => new InputHook("T"));
 
-			var i = (InputObject)Input.InputHook("I");
+			var i = (InputHook)new InputHook("I");
 			Assert.AreEqual(1L, i.MinSendLevel); // 'I' with no number -> level 1
 
-			var l = (InputObject)Input.InputHook("L");
+			var l = (InputHook)new InputHook("L");
 			Assert.AreEqual(0, l.input.bufferLengthMax); // 'L' with no number -> 0
 		}
 
@@ -57,7 +57,7 @@ namespace Keysharp.Tests
 		[Test, Category("InputHook")]
 		public void MouseHookNeedDetection()
 		{
-			var io = (InputObject)Input.InputHook("");
+			var io = (InputHook)new InputHook("");
 			Assert.AreEqual(true, io.VisibleMouseMove); // default: movement passes through
 			Assert.IsFalse(io.input.MouseIsNeeded);     // keyboard-only hook needs no mouse hook
 
@@ -65,7 +65,7 @@ namespace Keysharp.Tests
 			Assert.AreEqual(false, io.VisibleMouseMove);
 			Assert.IsTrue(io.input.MouseIsNeeded);
 
-			var io2 = (InputObject)Input.InputHook("");
+			var io2 = (InputHook)new InputHook("");
 			Assert.IsFalse(io2.input.MouseIsNeeded);
 			io2.KeyOpt("{LButton}", "+E");              // LButton as an end key also needs the mouse hook
 			Assert.IsTrue(io2.input.MouseIsNeeded);
@@ -76,18 +76,18 @@ namespace Keysharp.Tests
 		[Test, Category("InputHook")]
 		public void KeyboardHookNeedDetection()
 		{
-			var def = (InputObject)Input.InputHook("");  // default options suppress typed text
+			var def = (InputHook)new InputHook("");  // default options suppress typed text
 			Assert.IsTrue(def.input.KeyboardIsNeeded);   // ...so the keyboard hook is required
 			Assert.IsFalse(def.input.MouseIsNeeded);
 
-			var vis = (InputObject)Input.InputHook("V"); // visible: no text suppression
+			var vis = (InputHook)new InputHook("V"); // visible: no text suppression
 			Assert.IsTrue(vis.input.KeyboardIsNeeded);   // still a keyboard collector (not mouse-only)
 
 			vis.VisibleMouseMove = false;                // now a pure mouse observer
 			Assert.IsTrue(vis.input.MouseIsNeeded);
 			Assert.IsFalse(vis.input.KeyboardIsNeeded);  // ...so the keyboard hook is no longer needed
 
-			var ek = (InputObject)Input.InputHook("V", "{Enter}"); // visible + a keyboard end key
+			var ek = (InputHook)new InputHook("V", "{Enter}"); // visible + a keyboard end key
 			Assert.IsTrue(ek.input.KeyboardIsNeeded);    // keyboard end key keeps the keyboard hook
 		}
 
@@ -114,7 +114,7 @@ namespace Keysharp.Tests
 		{
 			var context = UseQueuedMainContext();
 			var calls = new List<(long dx, long dy, object info)>();
-			var io = (InputObject)Input.InputHook("");
+			var io = (InputHook)new InputHook("");
 			io.OnMouseMove = new KeysharpFunc((Func<object, object, object, object>)((_, dx, dy) =>
 			{
 				calls.Add((dx.Al(), dy.Al(), ThreadAccessors.A_EventInfo));

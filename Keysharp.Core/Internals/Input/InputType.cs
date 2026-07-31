@@ -41,7 +41,7 @@ namespace Keysharp.Internals.Input
 		internal uint minSendLevel;
 		internal bool notifyNonText;
 		internal InputType prev;
-		internal InputObject scriptObject;
+		internal InputHook scriptObject;
 		internal InputStatusType status = InputStatusType.Off;
 		internal int timeout;
 		internal DateTime timeoutAt;
@@ -106,7 +106,7 @@ namespace Keysharp.Internals.Input
 			}
 		}
 
-		internal InputType(InputObject io, string options, string endKeys, string matchList)
+		internal InputType(InputHook io, string options, string endKeys, string matchList)
 		{
 			scriptObject = io;
 			ParseOptions(options);
@@ -396,7 +396,7 @@ namespace Keysharp.Internals.Input
 				//So just don't do anything here.
 				// The following is not done because this Release() is only to counteract an AddRef() in
 				// InputStart().  ScriptObject != NULL indicates this input_type is actually embedded in
-				// the InputObject and as such the link should never be broken until both are deleted.
+				// the InputHook and as such the link should never be broken until both are deleted.
 				//aInput->ScriptObject = NULL;
 				//Seems extreme to do this, and the script should exit on its own if its not persistent.
 				//script.ExitIfNotPersistent(Keysharp.Builtins.Flow.ExitReasons.Exit); // In case this InputHook was the only thing keeping the script running.

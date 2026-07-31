@@ -196,12 +196,12 @@ namespace Keysharp.Builtins
 
 			while (true)
 			{
-				try { if (!opi.MoveNext()) break; }
+				try { if (!opi.Advance()) break; }
 				catch { break; }//If advancing the enumerator itself fails there's nothing left to do.
 
 				// Enumerator.Current (the single-value form) yields only the key, so the
 				// property name is available even when evaluating its value getter throws.
-				var propName = opi.Current?.ToString() ?? "";
+				var propName = opi.CurrentValue?.ToString() ?? "";
 				object val;
 
 				try { val = ((IEnumerator<(object, object)>)opi).Current.Item2; }

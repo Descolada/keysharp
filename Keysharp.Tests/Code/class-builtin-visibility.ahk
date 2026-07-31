@@ -2,12 +2,12 @@
 
 if IsSet(Array) && IsSet(KeyError) && !IsSet(Dialogs)
 	&& !IsSet(List) && !IsSet(Highlight) && !IsSet(ManagedType)
-	&& IsSet(InputObject) && IsSet(DelegateHolder)
+	&& IsSet(InputHook) && IsSet(DelegateHolder)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
-InputObject.Prototype.DefineProp("ExtensionValue", {Get: (this) => 41})
+InputHook.Prototype.DefineProp("ExtensionValue", {Get: (this) => 41})
 input := InputHook()
 
 if input.ExtensionValue == 41

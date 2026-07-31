@@ -138,7 +138,7 @@ namespace Keysharp.Builtins
 		/// Dispose the object and set a flag so it doesn't get disposed twice.
 		/// </summary>
 		/// <param name="disposing">If true, disposing already, so skip, else dispose.</param>
-		public object Dispose(bool disposing)
+		internal object Dispose(bool disposing)
 		{
 			if (!disposed)
 			{
@@ -183,7 +183,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Returns a mutable Span wrapper for the raw buffer.
 		/// </summary>
-		public unsafe Span<byte> AsSpan() => new Span<byte>((byte*)_ptr.DangerousGetHandle(), (int)(long)Size);
+		internal unsafe Span<byte> AsSpan() => new Span<byte>((byte*)_ptr.DangerousGetHandle(), (int)(long)Size);
 
 		/// <summary>
 		/// Indexer which retrieves or sets the value of an array element.

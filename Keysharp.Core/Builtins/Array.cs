@@ -415,6 +415,11 @@ namespace Keysharp.Builtins
 		/// The implementation for <see cref="IEnumerable{object}.GetEnumerator()"/> which returns an <see cref="Enumerator"/>.
 		/// </summary>
 		/// <returns>An <see cref="IEnumerator{(object, object)}"/> which is an <see cref="Enumerator"/>.</returns>
+		// Not an explicit interface implementation, unlike the sibling below and unlike the other
+		// enumerable built-ins: Array implements two IEnumerable<T> instantiations, and C# resolves
+		// `foreach (var x in arr)` and collection expressions through a public GetEnumerator. Making this
+		// explicit would leave both instantiations equally applicable and break every such call site.
+		[PublicHiddenFromUser]
 		public IEnumerator<object> GetEnumerator() => CreateEnumerator(1);
 		IEnumerator<(object, object)> IEnumerable<(object, object)>.GetEnumerator() => CreateEnumerator(2);
 

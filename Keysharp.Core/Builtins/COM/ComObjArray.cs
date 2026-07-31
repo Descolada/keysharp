@@ -13,7 +13,7 @@ namespace Keysharp.Builtins.COM
 		internal VarEnum _baseType; // element VARTYPE, e.g. VT_VARIANT
 
 		public long Dimensions => _dimensions;
-		public long Vt => (long)_baseType;
+		internal long Vt => (long)_baseType;
 
 		/// <summary>
 		/// Creates a new SafeArray of the specified element type and dimension sizes.
@@ -85,7 +85,7 @@ namespace Keysharp.Builtins.COM
 
 		public KeysharpFunc __Enum(object count) => CreateEnumerator(count.Ai());
 
-		public IEnumerator<object> GetEnumerator() => CreateEnumerator(1);
+		IEnumerator<object> IEnumerable<object>.GetEnumerator() => CreateEnumerator(1);
 
 		IEnumerator IEnumerable.GetEnumerator() => CreateEnumerator(2);
 
@@ -156,6 +156,7 @@ namespace Keysharp.Builtins.COM
 			return copy;
 		}
 
+		[PublicHiddenFromUser]
 		public override void Dispose()
 		{
 			if ((Flags & F_OWNVALUE) != 0 && _psa != 0)

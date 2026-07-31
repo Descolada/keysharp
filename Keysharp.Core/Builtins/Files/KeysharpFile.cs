@@ -18,7 +18,12 @@ namespace Keysharp.Builtins
 
 		private bool disposed = false;
 
-		private FileStream fs;
+		// Any stream, not just a FileStream: a File can also be opened over memory a script already holds.
+		private Stream fs;
+
+		// The object whose memory a memory-backed file is reading and writing. Held so that it cannot be
+		// collected while this File still points into it; null for a path-backed file.
+		private object memorySource;
 
 		private TextReader tr;
 
@@ -28,8 +33,12 @@ namespace Keysharp.Builtins
 		{
 			get
 			{
+				// Compare the position with the length rather than decoding a character: the content may be
+				// binary and therefore not valid text in the current encoding, and the documented meaning of
+				// AtEOF is that the file pointer has reached the end. A non-seekable stream has no meaningful
+				// end, which the documentation already calls out, so it reports 0.
 				if (br != null)
-					return br.PeekChar() == -1 ? 1L : 0L;
+					return br.BaseStream.CanSeek && br.BaseStream.Position >= br.BaseStream.Length ? 1L : 0L;
 				else if (tr != null)
 					return tr.Peek() == -1 ? 1L : 0L;
 				else
@@ -43,7 +52,8 @@ namespace Keysharp.Builtins
 			set => enc = Files.GetEncoding(value);
 		}
 
-		public object Handle => fs != null ? fs.SafeFileHandle.DangerousGetHandle().ToInt64() : 0L;
+		// Only a file on disk has an OS handle; a memory-backed file reports 0, as an unopened one does.
+		public object Handle => fs is FileStream ffs ? ffs.SafeFileHandle.DangerousGetHandle().ToInt64() : 0L;
 
 		public object Length
 		{
@@ -79,10 +89,29 @@ namespace Keysharp.Builtins
 			enc = sr.CurrentEncoding;
 		}
 
+		public new static object staticCall(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
+
+		/// <summary>
+		/// Initializes a File over memory the script already holds.
+		/// </summary>
+		/// <param name="args">
+		/// The source object, which must expose both <c>Ptr</c> and <c>Size</c> - a <see cref="Buffer"/> or a
+		/// <see cref="Struct"/>, or any later type providing the pair - optionally followed by an encoding name
+		/// for the text methods. <see cref="Files.FileOpen"/> supplies a fully resolved parameter set instead,
+		/// which is what opens a path.
+		/// </param>
+		/// <returns>An empty value; the constructed object is the instance being initialized.</returns>
+		/// <exception cref="ValueError">Thrown when no source is given.</exception>
+		/// <exception cref="TypeError">Thrown when the source exposes no usable Ptr and Size.</exception>
 		public override object __New(params object[] args)
 		{
 			if (args == null || args.Length == 0)
-				return DefaultObject;
+				return Errors.ValueErrorOccurred("File requires a source. Use FileOpen to open a path, or pass a Buffer to read and write its memory.");
+
+			// FileOpen routes through here with the open parameters already resolved; anything else is a script
+			// calling File() directly, which means a memory source.
+			if (args.Length < 6 || args[1] is not FileMode)
+				return NewOverMemory(args);
 
 			var filename = args[0].As();
 			var m = (FileMode)args[1];
@@ -167,6 +196,76 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
+		/// <summary>
+		/// Opens this File over the memory of an object exposing Ptr and Size, so that the read, write, seek
+		/// and position members operate on that memory instead of a file on disk.
+		/// </summary>
+		/// <param name="args">The source object, optionally followed by an encoding name.</param>
+		/// <returns>An empty value.</returns>
+		private object NewOverMemory(params object[] args)
+		{
+			var source = args[0];
+
+			// The same Ptr/Size duck typing RawRead and RawWrite already accept, so a Buffer, StringBuffer,
+			// Struct or any future type exposing both works without naming it here.
+			if (source == null
+					|| !Reflections.TryGetPtrProperty(source, out var ptr) || ptr == 0
+					|| !Reflections.TryGetSizeProperty(source, out var size) || size < 0)
+				return Errors.TypeErrorOccurred(source, typeof(Buffer));
+
+			// Qualified: this class has an Encoding property, which shadows the type name here.
+			enc = args.Length > 1 && args[1] != null ? Files.GetEncoding(args[1]) : System.Text.Encoding.UTF8;
+			// Hold the source so its memory cannot be reclaimed while this File still points into it.
+			memorySource = source;
+
+			unsafe
+			{
+				// Fixed capacity: the memory belongs to the source object and cannot be grown, so a write past
+				// the end is refused rather than silently reallocating.
+				fs = new BorrowedMemoryStream((byte*)ptr, size);
+			}
+
+			br = new BinaryReader(fs, enc);
+			bw = new BinaryWriter(fs, enc);
+			return DefaultObject;
+		}
+
+		/// <summary>
+		/// The stream behind a memory-backed File. It borrows memory owned by another object, so it cannot
+		/// grow. Its purpose beyond <see cref="UnmanagedMemoryStream"/> is to refuse an overlong write as a
+		/// script error: the base class raises a .NET exception which would escape a script's try/catch.
+		/// Every write funnels through these three overloads, which is why the bounds check lives here rather
+		/// than in each of the File class's Write methods.
+		/// </summary>
+		private sealed unsafe class BorrowedMemoryStream : UnmanagedMemoryStream
+		{
+			internal BorrowedMemoryStream(byte* pointer, long length) : base(pointer, length, length, FileAccess.ReadWrite) { }
+
+			public override void Write(byte[] buffer, int offset, int count)
+			{
+				EnsureRoom(count);
+				base.Write(buffer, offset, count);
+			}
+
+			public override void Write(ReadOnlySpan<byte> buffer)
+			{
+				EnsureRoom(buffer.Length);
+				base.Write(buffer);
+			}
+
+			public override void WriteByte(byte value)
+			{
+				EnsureRoom(1);
+				base.WriteByte(value);
+			}
+
+			private void EnsureRoom(long count)
+			{
+				if (Position + count > Length)
+					_ = Errors.ErrorOccurred($"Writing {count} byte(s) at position {Position} would pass the end of the {Length}-byte memory this File was opened over.");
+			}
+		}
+
 		internal KeysharpFile(string filename, FileMode mode, FileAccess access, FileShare share, Encoding encoding, long eol) : base(filename, mode, access, share, encoding, eol) { }
 
 		~KeysharpFile() => Dispose(false);
@@ -188,7 +287,7 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public virtual void Dispose(bool disposing)
+		internal virtual void Dispose(bool disposing)
 		{
 			if (!disposed)
 			{

@@ -56,6 +56,7 @@ namespace Keysharp.Builtins
 			}
 		}
 
+		[PublicHiddenFromUser]
 		public override bool Equals(object obj) => ReferenceEquals(this, obj);
 
 		[PublicHiddenFromUser]
@@ -167,7 +168,7 @@ namespace Keysharp.Builtins
 		public bool IsClosure => Inst != null && mi.DeclaringType?.DeclaringType == Inst.GetType();
 		public bool IsMethod => (mi != null && !mi.IsStatic) || (mph != null && mph.parameters?.First().Name == "@this");
 		public virtual bool IsBuiltIn => mi?.DeclaringType.Namespace != TheScript.ProgramType.Namespace;
-		public virtual bool IsValid => (mi != null && mph != null && mph.CallFunc != null) || (Inst is Any && mph.memberInfo == null);
+		internal virtual bool IsValid => (mi != null && mph != null && mph.CallFunc != null) || (Inst is Any && mph.memberInfo == null);
 		public virtual string Name => mph.Name;
 		public bool IsVariadic => mph.variadicParamIndex != -1;
 		public long MaxParams { get; internal set; } = 0;
@@ -333,6 +334,7 @@ namespace Keysharp.Builtins
 			}
 		}
 
+		[PublicHiddenFromUser]
 		public override bool Equals(object obj)
 		{
 			if (obj is BoundFunc)

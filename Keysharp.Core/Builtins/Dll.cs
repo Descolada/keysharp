@@ -504,7 +504,7 @@ namespace Keysharp.Builtins
 		public static object CallbackFree(object address)
 		{
 			if (address is DelegateHolder dh)
-				dh.Dispose();
+				((IDisposable)dh).Dispose();
 
 			return DefaultObject;
 		}

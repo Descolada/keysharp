@@ -26,7 +26,10 @@ namespace Keysharp.Builtins
 
 			public object Parent
 			{
-				get => _control?.Parent;
+				// A control's parent is either the container control holding it (a GroupBox or Tab page) or the
+				// GUI's own form. Return the script object in both cases: handing back the toolkit control would
+				// give a script an object with no script semantics, and it could not be assigned back here.
+				get => ParentObject(_control?.Parent);
 				set
 				{
 					if (_control == null)

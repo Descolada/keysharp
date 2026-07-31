@@ -16,7 +16,6 @@ using static Keysharp.Builtins.GuiHelper;
 using static Keysharp.Builtins.ImageLists;
 using static Keysharp.Builtins.Images;
 using static Keysharp.Builtins.Ini;
-using static Keysharp.Builtins.Input;
 using static Keysharp.Builtins.Keyboard;
 using static Keysharp.Builtins.Maths;
 using static Keysharp.Builtins.Menu;

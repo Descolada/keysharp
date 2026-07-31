@@ -199,7 +199,7 @@ namespace Keysharp.Builtins
 				return DefaultObject;
 			};
 			//Won't be a gui target, so won't be marked as IsGui internally, but it's ok because it's only ever called on the gui thread in response to gui events.
-			script.openMenuItem = (ToolStripMenuItem)Add("&Open", new FuncObj(openfunc.Method, openfunc.Target));
+			script.openMenuItem = (ToolStripMenuItem)Add("&Open", new KeysharpFunc(openfunc.Method, openfunc.Target));
 
 			if (!A_AllowMainWindow.Ab())
 				script.openMenuItem.Visible = false;
@@ -209,7 +209,7 @@ namespace Keysharp.Builtins
 				_ = Processes.Run("https://github.com/Descolada/keysharp/issues");
 				return DefaultObject;
 			};
-			_ = Add("&Help", new FuncObj(helpFunc.Method, helpFunc.Target));
+			_ = Add("&Help", new KeysharpFunc(helpFunc.Method, helpFunc.Target));
 
 			if (menu.Items.Cast<ToolStripItem>().Any(tsi => tsi.Visible))
 				_ = menu.Items.Add(new ToolStripSeparator());
@@ -253,7 +253,7 @@ namespace Keysharp.Builtins
 				Ks.RunScript(spy, true);//Run async so the calling script isn't blocked while Window Spy is open.
 				return DefaultObject;
 			};
-			_ = Add("&Window Spy", new FuncObj(windowSpyFunc.Method, windowSpyFunc.Target));
+			_ = Add("&Window Spy", new KeysharpFunc(windowSpyFunc.Method, windowSpyFunc.Target));
 #if LINUX || OSX
 #if LINUX
 			const string accessibilitySpyName = "AtSpi";
@@ -273,10 +273,10 @@ namespace Keysharp.Builtins
 				Ks.RunScript(spy, true);
 				return DefaultObject;
 			};
-			_ = Add($"&Accessibility Spy", new FuncObj(accessibilitySpyFunc.Method, accessibilitySpyFunc.Target));
+			_ = Add($"&Accessibility Spy", new KeysharpFunc(accessibilitySpyFunc.Method, accessibilitySpyFunc.Target));
 			_ = menu.Items.Add(new ToolStripSeparator());
 #endif
-			_ = Add("&Reload Script", new FuncObj(reloadfunc.Method, reloadfunc.Target));
+			_ = Add("&Reload Script", new KeysharpFunc(reloadfunc.Method, reloadfunc.Target));
 
 			if (!A_IsCompiled)
 			{
@@ -285,12 +285,12 @@ namespace Keysharp.Builtins
 					_ = Debug.Edit();
 					return DefaultObject;
 				};
-				_ = Add("&Edit Script", new FuncObj(editfunc.Method, editfunc.Target));
+				_ = Add("&Edit Script", new KeysharpFunc(editfunc.Method, editfunc.Target));
 			}
 
 			_ = menu.Items.Add(new ToolStripSeparator());
-			script.suspendMenuItem = (ToolStripMenuItem)Add("&Suspend Hotkeys", new FuncObj(suspend.Method, suspend.Target));
-			_ = Add("E&xit", new FuncObj(exitfunc.Method, exitfunc.Target));
+			script.suspendMenuItem = (ToolStripMenuItem)Add("&Suspend Hotkeys", new KeysharpFunc(suspend.Method, suspend.Target));
+			_ = Add("E&xit", new KeysharpFunc(exitfunc.Method, exitfunc.Target));
 			return DefaultObject;
 		}
 
@@ -700,7 +700,7 @@ namespace Keysharp.Builtins
 				{
 					// Create the registration explicitly (not ModifyEventHandlers) so the "Pn" option parsed below can
 					// set its Priority — the priority then travels with the registration to the launch.
-					clickReg = new Keysharp.Internals.Scripting.CallbackRegistration(Functions.GetFuncObj(funcorsub, null, true), Script.TheScript?.EventScheduler, true);
+					clickReg = new Keysharp.Internals.Scripting.CallbackRegistration(Functions.GetKeysharpFunc(funcorsub, null, true), Script.TheScript?.EventScheduler, true);
 					clickHandlers.GetOrAdd(item, static _ => new()).Add(clickReg);
 				}
 

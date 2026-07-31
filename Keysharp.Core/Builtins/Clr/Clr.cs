@@ -325,7 +325,7 @@ namespace Keysharp.Builtins
 				/// argCount >= 1. For 1 var: value. For 2+ vars: decompose (key,value / tuple),
 				/// else (index, value, null…).
 				/// </summary>
-				public IFuncObj __Enum(object argCount)
+				public KeysharpFunc __Enum(object argCount)
 				{
 					var c = argCount.Ai(1);
 					if (c < 1) c = 1;

@@ -146,7 +146,7 @@ namespace Keysharp.Builtins
 		{
 			var e = callback;
 			var i = addRemove.Al(1L);
-			var del = Functions.GetFuncObj(e, null, true);
+			var del = Functions.GetKeysharpFunc(e, null, true);
 			var script = Script.TheScript;
 
 			script.onErrorHandlers.ModifyGlobalEventHandlers(del, i);
@@ -293,7 +293,30 @@ namespace Keysharp.Builtins
 		internal static object TypeErrorOccurred(object sourceValue, Type targetType, object ret = null)
 		{
 			Error err;
-			return ErrorOccurred(err = new TypeError($"Cannot convert an object of type {(sourceValue != null ? sourceValue.GetType() : "no type/unset")} with value {sourceValue ?? "unset"} to type {targetType}.")) ? throw err : ret ?? DefaultObject;
+			return ErrorOccurred(err = new TypeError($"Cannot convert an object of type {(sourceValue != null ? Types.Type(sourceValue) : "no type/unset")} with value {Describe(sourceValue)} to type {Types.TypeName(targetType)}.")) ? throw err : ret ?? DefaultObject;
+		}
+
+		/// <summary>
+		/// Renders a value for an error message: its own text when it has any, else the name the script knows
+		/// its type by. An object that does not override ToString would otherwise print its CLR type name.
+		/// Never throws.
+		/// </summary>
+		/// <param name="value">The value to describe.</param>
+		/// <returns>Text naming the value.</returns>
+		internal static string Describe(object value)
+		{
+			if (value == null)
+				return "unset";
+
+			try
+			{
+				var text = value.ToString();
+				return text == value.GetType().FullName ? Types.Type(value) : text;
+			}
+			catch (Exception)
+			{
+				return Types.Type(value);
+			}
 		}
 
 		/// <summary>
@@ -687,8 +710,8 @@ namespace Keysharp.Builtins
 		}
 
 		private static bool IsFunctionObjectDispatchFrame(Type type, MethodBase method)
-			=> typeof(IFuncObj).IsAssignableFrom(type)
-			   && (method.Name == nameof(IFuncObj.Call) || method.Name == nameof(IFuncObj.CallInst));
+			=> typeof(KeysharpFunc).IsAssignableFrom(type)
+			   && (method.Name == nameof(KeysharpFunc.Call) || method.Name == nameof(KeysharpFunc.CallInst));
 
 		/// <summary>
 		/// Builds a filtered, formatted stack string for an arbitrary exception. Used for plain .NET

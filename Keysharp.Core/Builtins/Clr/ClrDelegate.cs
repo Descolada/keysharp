@@ -292,7 +292,7 @@ namespace Keysharp.Builtins
 
 		private static object InvokeKeysharpFunc(object func, object[] args)
 		{
-			if (func is IFuncObj fo) return fo.Call(args);
+			if (func is KeysharpFunc fo) return fo.Call(args);
 			if (func is Delegate dnet) return dnet.DynamicInvoke(args);
 			return Script.Invoke(func, "Call", args);
 		}

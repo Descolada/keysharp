@@ -83,7 +83,7 @@ namespace Keysharp.Builtins.COM
 			return new ComObjArray(vt, lengths);
 		}
 
-		public IFuncObj __Enum(object count) => CreateEnumerator(count.Ai());
+		public KeysharpFunc __Enum(object count) => CreateEnumerator(count.Ai());
 
 		public IEnumerator<object> GetEnumerator() => CreateEnumerator(1);
 

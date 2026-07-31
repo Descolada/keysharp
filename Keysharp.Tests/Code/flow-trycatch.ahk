@@ -588,7 +588,7 @@ try {
 	f()
 }
 catch Error as err {
-	if InStr(err.Stack, "FuncObj.Call()")
+	if InStr(err.Stack, "KeysharpFunc.Call()")
 		FileAppend "fail", "*"
 	else if InStr(err.Stack, "StackTraceDispatchTarget()")
 		FileAppend "pass", "*"

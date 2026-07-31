@@ -579,8 +579,8 @@ namespace Keysharp.Builtins
 			var h = obj1;
 			var i = obj2.Al(1);
 			e = e.ToLower();
-			var del = Functions.GetFuncObj(h, eventObj, true);
-			if (!((FuncObj)del).IsClosure)
+			var del = Functions.GetKeysharpFunc(h, eventObj, true);
+			if (!((KeysharpFunc)del).IsClosure)
 				del.Inst = null;
 
 			if (e == "close")

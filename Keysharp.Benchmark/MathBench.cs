@@ -3,7 +3,7 @@
 	public class MathBench : BaseTest
 	{
 		private double totalCos;
-		private IFuncObj? fo;
+		private KeysharpFunc? fo;
 		private List<double> vals = [];
 		private List<object> objvals = [];
 

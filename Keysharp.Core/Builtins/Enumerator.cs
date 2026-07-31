@@ -1,6 +1,6 @@
 namespace Keysharp.Builtins
 {
-	public class Enumerator : FuncObj, IEnumerator<object>, IEnumerator<(object, object)>, IDisposable
+	public class Enumerator : KeysharpFunc, IEnumerator<object>, IEnumerator<(object, object)>, IDisposable
 	{
 		private static MethodPropertyHolder callMethod;
 
@@ -9,7 +9,7 @@ namespace Keysharp.Builtins
 		private readonly Func<(object, object)> currentPair;
 		private readonly Action reset;
 		private readonly Action dispose;
-		private readonly IFuncObj callback;
+		private readonly KeysharpFunc callback;
 
 		/// <summary>
 		/// The source object being enumerated.
@@ -62,7 +62,7 @@ namespace Keysharp.Builtins
 			this.dispose = dispose;
 		}
 
-		internal Enumerator(object source, int count, IFuncObj callback)
+		internal Enumerator(object source, int count, KeysharpFunc callback)
 			: this(source, count)
 		{
 			this.callback = callback;

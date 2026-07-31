@@ -133,10 +133,10 @@ namespace Keysharp.Builtins
 
 			private static object Subscribe(WindowEventType type, object callback, object winTitle, object winText, object excludeTitle, object excludeText, object count)
 			{
-				var fo = Functions.GetFuncObj(callback, null, null, true);
+				var fo = Functions.GetKeysharpFunc(callback, null, null, true);
 
 				if (fo == null)
-					return Errors.TypeErrorOccurred(callback, typeof(FuncObj));
+					return Errors.TypeErrorOccurred(callback, typeof(KeysharpFunc));
 
 				var criteria = BuildCriteria(winTitle, winText, excludeTitle, excludeText);
 				var remaining = count.Al(-1L);

@@ -1798,13 +1798,13 @@ BtnControlSendTextFunc(*) {
 ; ┌────────────────────┐
 ; │  Hotkey functions  │
 ; └────────────────────┘
-; (Func.Bind / FuncObj binding is covered by unit tests; only manual hotkey tests live here.)
+; (Func.Bind binding is covered by unit tests; only manual hotkey tests live here.)
 
 StupidTrickTwo(*) {
 	Hotkey("RCtrl & RShift", "AltTab")
 }
 
-; (The AltTab + Toggle buttons cover hotkey on/off; FuncObj binding is covered by unit tests.)
+; (The AltTab + Toggle buttons cover hotkey on/off; Func binding is covered by unit tests.)
 
 ToggleHotkey(*) {
 	Try

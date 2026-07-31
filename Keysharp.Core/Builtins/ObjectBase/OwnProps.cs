@@ -30,7 +30,7 @@ namespace Keysharp.Builtins
 			{
 				if (op.Value != null)
 					return (kv.Key, op.Value);
-				else if (op.Get is FuncObj fo)
+				else if (op.Get is KeysharpFunc fo)
 					return (kv.Key, fo.Call(obj));
 				else if (op.Call != null)
 					return (kv.Key, op.Call);
@@ -38,7 +38,7 @@ namespace Keysharp.Builtins
 
 			if (kv.Value is MethodPropertyHolder mph)
 				return (kv.Key, mph.CallFunc(obj, null));
-			else if (kv.Value is FuncObj fo)//ParamLength was verified when this was created in OwnProps().
+			else if (kv.Value is KeysharpFunc fo)//ParamLength was verified when this was created in OwnProps().
 				return (kv.Key, fo.Call(obj));
 			else
 				return (kv.Key, kv.Value);
@@ -88,7 +88,7 @@ namespace Keysharp.Builtins
 
 				AccessFlags &= ~(OwnPropAccessFlags.NoEnumGet | OwnPropAccessFlags.NoParamGet);
 
-				if (value is FuncObj func)
+				if (value is KeysharpFunc func)
 				{
 					if (func.MinParams > 1)
 						AccessFlags |= OwnPropAccessFlags.NoEnumGet;
@@ -118,7 +118,7 @@ namespace Keysharp.Builtins
 
 				AccessFlags &= ~OwnPropAccessFlags.NoParamSet;
 
-				if (value is FuncObj func && func.MaxParams == 2 && !func.IsVariadic)
+				if (value is KeysharpFunc func && func.MaxParams == 2 && !func.IsVariadic)
 					AccessFlags |= OwnPropAccessFlags.NoParamSet;
 			}
 		}

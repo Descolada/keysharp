@@ -518,7 +518,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// The callback (function object) which represents the current HotIf criteria for the Hotkey and Hotstring functions, or blank if none.
 		/// </summary>
-		public static object A_HotIf => (Script.TheScript.Threads.CurrentThread.hotCriterion as FuncObj) ?? (object)DefaultObject;
+		public static object A_HotIf => (Script.TheScript.Threads.CurrentThread.hotCriterion as KeysharpFunc) ?? (object)DefaultObject;
 
 		/// <summary>
 		/// The maximum time allowed for a #HotIf criterion evaluation.
@@ -1990,7 +1990,7 @@ namespace Keysharp.Builtins
 				var timerData = new List<object>();
 				foreach (var timer in Script.TheScript.FlowData.timers.GetSnapshot())
 				{
-					if (timer.Callback is FuncObj func)
+					if (timer.Callback is KeysharpFunc func)
 					{
 						timerData.AddRange(func, timer.Enabled);
 					}

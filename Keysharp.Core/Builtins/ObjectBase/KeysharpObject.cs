@@ -4,9 +4,15 @@ namespace Keysharp.Builtins
 {
 	internal interface I__Enum
 	{
-		public IFuncObj __Enum(object count);
+		public KeysharpFunc __Enum(object count);
 	}
 
+	/// <summary>
+	/// The base class of every script object. The C# type is named <c>KeysharpObject</c> because
+	/// <c>Object</c> is <see cref="System.Object"/>; scripts see it as <c>Object</c> via
+	/// <see cref="UserDeclaredNameAttribute"/>.
+	/// </summary>
+	[UserDeclaredName("Object")]
 	public class KeysharpObject : Any
 	{
 		public KeysharpObject(params object[] args) : base(args) { }

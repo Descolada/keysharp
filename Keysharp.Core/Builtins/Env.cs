@@ -163,10 +163,10 @@ namespace Keysharp.Builtins
 		/// -1: Call the callback before any previously registered callbacks.<br/>
 		///  0: Do not call the callback.
 		/// </param>
-		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="FuncObj"/>.</exception>
+		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="KeysharpFunc"/>.</exception>
 			public static object OnClipboardChange(object callback, object addRemove = null)
 			{
-				if (callback is IFuncObj fo)
+				if (callback is KeysharpFunc fo)
 				{
 					var script = Script.TheScript;
 					if (script.ClipFunctions.ModifyEventHandlers(fo, addRemove.Al(1)))
@@ -175,7 +175,7 @@ namespace Keysharp.Builtins
 					return DefaultObject;
 				}
 				else
-				return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultObject);
+				return Errors.TypeErrorOccurred(callback, typeof(KeysharpFunc), DefaultObject);
 		}
 
 		/// <summary>
@@ -547,7 +547,7 @@ namespace Keysharp.Builtins
 		public static object RunScript(object obj0, object obj1 = null, object obj2 = null, object obj3 = null)
 		{
 			string script = obj0.As();
-			IFuncObj cb = null;
+			KeysharpFunc cb = null;
 
 			if (obj1 != null)
 				cb = Functions.Func(obj1);

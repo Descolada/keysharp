@@ -18,7 +18,7 @@ namespace Keysharp.Builtins
 		{
 			lock (lockObj)
 			{
-				var funcObj = Functions.GetFuncObj(obj1, null, true);
+				var funcObj = Functions.GetKeysharpFunc(obj1, null, true);
 				return funcObj.Call(funcObj.Inst == null ? args : new[] { funcObj.Inst }.Concat(args));
 			}
 		}
@@ -85,7 +85,7 @@ namespace Keysharp.Builtins
 
 			private static object ReportThreadNotAlive(object ret = null) => Errors.ErrorOccurred("Real thread is no longer alive.", ret);
 
-			private sealed class PostQueuedEvent(ScriptEventScheduler scheduler, IFuncObj callback, object[] args)
+			private sealed class PostQueuedEvent(ScriptEventScheduler scheduler, KeysharpFunc callback, object[] args)
 			{
 				internal ScriptEventExecutionResult Execute()
 					=> RunFunctionObjectOnSchedulerThread(scheduler, callback, args, true, out _);
@@ -131,7 +131,7 @@ namespace Keysharp.Builtins
 			/// <returns>The <see cref="RealThread"/> object.</returns>
 			public static object staticCall(object @this, object obj, params object[] args)
 			{
-				var funcObj = Functions.GetFuncObj(obj, null, true);
+				var funcObj = Functions.GetKeysharpFunc(obj, null, true);
 				return StartRealThread(() => funcObj.Call(args));
 			}
 
@@ -143,7 +143,7 @@ namespace Keysharp.Builtins
 			/// <returns>The new <see cref="RealThread"/> object</returns>
 			public object ContinueWith(object obj, params object[] args)
 			{
-				var fo = Functions.GetFuncObj(obj, null, true);
+				var fo = Functions.GetKeysharpFunc(obj, null, true);
 				var schedulerSource = new TaskCompletionSource<ScriptEventScheduler>(TaskCreationOptions.RunContinuationsAsynchronously);
 				var rt = task.ContinueWith((to) => StartWorkerTask(() => RunWorkerLoop(() => fo.Call(args), schedulerSource)), TaskScheduler.Default).Unwrap();
 				return new RealThread(rt, schedulerSource.Task);
@@ -154,7 +154,7 @@ namespace Keysharp.Builtins
 			/// </summary>
 			public object Post(object obj, params object[] args)
 			{
-				var fo = Functions.GetFuncObj(obj, null, true);
+				var fo = Functions.GetKeysharpFunc(obj, null, true);
 				var scheduler = GetAliveScheduler();
 
 				if (scheduler == null)
@@ -173,7 +173,7 @@ namespace Keysharp.Builtins
 			/// </summary>
 			public object Send(object obj, params object[] args)
 			{
-				var fo = Functions.GetFuncObj(obj, null, true);
+				var fo = Functions.GetKeysharpFunc(obj, null, true);
 				var scheduler = GetAliveScheduler();
 
 				if (scheduler == null)
@@ -208,7 +208,7 @@ namespace Keysharp.Builtins
 				return ScriptEventExecutionResult.Executed;
 			}
 
-			private static ScriptEventExecutionResult RunFunctionObjectOnSchedulerThread(ScriptEventScheduler scheduler, IFuncObj callback, object[] args, bool handleExceptions, out object result)
+			private static ScriptEventExecutionResult RunFunctionObjectOnSchedulerThread(ScriptEventScheduler scheduler, KeysharpFunc callback, object[] args, bool handleExceptions, out object result)
 			{
 				result = DefaultObject;
 				using var thread = scheduler.StartPseudoThreadScope(0, false, false, false);

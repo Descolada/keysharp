@@ -70,7 +70,7 @@ namespace Keysharp.Runtime
 							continue;
 						}
 
-						var obj = v is System.Array || v is Map || v is FuncObj;// Delegate;
+						var obj = v is System.Array || v is Map || v is KeysharpFunc;// Delegate;
 
 						if (!obj)
 							_ = buffer.Append(DoubleQuote);
@@ -103,7 +103,7 @@ namespace Keysharp.Runtime
 					_ = buffer.Append(ArrayClose);
 					return buffer.ToString();
 				}
-				else if (input is FuncObj fo)
+				else if (input is KeysharpFunc fo)
 					return fo.Name;
 				else
 					return input.ToString();

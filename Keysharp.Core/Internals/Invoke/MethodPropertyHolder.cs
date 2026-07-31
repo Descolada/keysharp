@@ -216,21 +216,21 @@ namespace Keysharp.Internals.Invoke
 
 			anyOptional = variadicParamIndex != -1 || MinParams != MaxParams;
 
-			var isFuncObj = typeof(IFuncObj).IsAssignableFrom(mi.DeclaringType);
+			var isKeysharpFunc = typeof(KeysharpFunc).IsAssignableFrom(mi.DeclaringType);
 
-			if (isFuncObj && mi.Name == "Bind")
+			if (isKeysharpFunc && mi.Name == "Bind")
 				IsBind = true;
 
-			if (isFuncObj && mi.Name == "Call" && !mi.IsStatic)
+			if (isKeysharpFunc && mi.Name == "Call" && !mi.IsStatic)
 			{
 				_callFunc = (inst, obj) =>
 				{
-					// When inst is null the FuncObj was obtained as an unbound prototype method
+					// When inst is null the KeysharpFunc was obtained as an unbound prototype method
 					// (e.g. MsgBox.Call.Bind(MsgBox)). The caller has prepended the target as
 					// the first argument, so shift it into the instance role.
-					if (inst == null && obj?.Length > 0 && obj[0] is IFuncObj fo)
+					if (inst == null && obj?.Length > 0 && obj[0] is KeysharpFunc fo)
 						return fo.Call(obj[1..]);
-					return ((IFuncObj)inst).Call(obj);
+					return ((KeysharpFunc)inst).Call(obj);
 				};
 			}
 		}

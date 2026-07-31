@@ -140,10 +140,6 @@ namespace Keysharp.Runtime
 							goto done;
 					}
 
-					var alias = Keywords.TypeNameAliases.FirstOrDefault(kvp => kvp.Value.Equals(test, StringComparison.OrdinalIgnoreCase)).Key;
-					if (alias != null)
-						test = alias;
-
 					if (subject is Any kso)
 					{
 						var protos = TheScript.Vars.Prototypes;
@@ -184,13 +180,15 @@ namespace Keysharp.Runtime
 
 			var script = TheScript;
 
-			// Build "Outer.Inner" from declaring types (namespaces are not included here).
+			// Build "Outer.Inner" from declaring types (namespaces are not included here). A built-in whose CLR
+			// name is not the name scripts use for it contributes the declared name, so `x is Object` matches
+			// while `x is KeysharpObject` - naming the internal type - matches nothing.
 			var names = new List<string>();
 			for (var cur = t; cur != null && cur != script.ProgramType; cur = cur.DeclaringType)
 			{
 				if (IsModuleContainer(cur, script))
 					continue;
-				names.Add(cur.Name);
+				names.Add(Script.GetUserDeclaredName(cur) ?? cur.Name);
 			}
 			names.Reverse();
 			return string.Join('.', names);
@@ -373,7 +371,7 @@ namespace Keysharp.Runtime
 				return (bool)Errors.UnsetErrorOccurred($"Right side operand of concat", false);
 
 			// Guard agains accidental function object concatenation (likely used function call statement in an expression context)
-			if (left is FuncObj)
+			if (left is KeysharpFunc)
 				return Errors.TypeErrorOccurred(left, typeof(string));
 
 			return string.Concat(ForceString(left), ForceString(right));
@@ -861,18 +859,18 @@ namespace Keysharp.Runtime
         }
 
 		// The scope of the user function currently executing on this thread, or null when none publishes one (a
-		// non-deref function, a builtin, or before any function runs). It is a pure call-stack concern: FuncObj.Call
+		// non-deref function, a builtin, or before any function runs). It is a pure call-stack concern: KeysharpFunc.Call
 		// brackets it with a local (clear on entry, restore on return) — which nests exactly like a synchronous
 		// callout or a nested call — and the pseudo-thread push/pop (Threads.TryPushThreadVariables / PopThreadVariables)
 		// resets and restores it across an interrupt boundary. Held [ThreadStatic] rather than on ThreadVariables so the
 		// hot call path needs no CurrentThread lookup; null is the correct default for every thread. Read by RegEx-callout
-		// closure resolution (Functions.GetFuncObj) and ListVars (Debug.GetVars via MainWindow), always on the owning thread.
+		// closure resolution (Functions.GetKeysharpFunc) and ListVars (Debug.GetVars via MainWindow), always on the owning thread.
 		[ThreadStatic] internal static FuncScope executingUserFunc;
 
 		// Installs the executing-function scope for the current thread. Emitted into the prologue of any scope-publishing
 		// function so external code can resolve its locals/closures by name (and ListVars can show them). The Lowerer
 		// passes the function's user-declared name (the scope's only identity detail — used for the ListVars header),
-		// so EnterScope reads nothing from thread state. FuncObj.Call clears the scope on entry to and restores it on
+		// so EnterScope reads nothing from thread state. KeysharpFunc.Call clears the scope on entry to and restores it on
 		// return from every user function, so no matching "leave" call is needed here.
 		public static void EnterScope(FuncScope.Reader reader, Func<string[]> namesFactory, string name) =>
 			executingUserFunc = new FuncScope(name, reader, namesFactory);

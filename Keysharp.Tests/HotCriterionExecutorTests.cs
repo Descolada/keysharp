@@ -3,17 +3,19 @@ namespace Keysharp.Tests
 	[TestFixture, NonParallelizable]
 	public class HotCriterionExecutorTests : TestRunner
 	{
-		private sealed class TestCriterion(Func<object> callback) : IFuncObj
+		// A callable that runs an arbitrary delegate. Derives from KeysharpFunc (rather than implementing an
+		// interface) and overrides every member the executor touches, so none of the base implementation's
+		// reflection state is needed.
+		private sealed class TestCriterion(Func<object> callback) : KeysharpFunc
 		{
-			public object Inst { get; set; }
-			public bool IsBuiltIn => false;
-			public bool IsValid => true;
-			public string Name => nameof(TestCriterion);
-			public IFuncObj Bind(params object[] obj) => this;
-			public object Call(params object[] obj) => callback();
-			public object CallInst(object inst, params object[] obj) => callback();
-			public bool IsByRef(object obj = null) => false;
-			public bool IsOptional(object obj = null) => false;
+			public override bool IsBuiltIn => false;
+			public override bool IsValid => true;
+			public override string Name => nameof(TestCriterion);
+			public override KeysharpFunc Bind(params object[] obj) => this;
+			public override object Call(params object[] obj) => callback();
+			public override object CallInst(object inst, params object[] obj) => callback();
+			public override bool IsByRef(object obj = null) => false;
+			public override bool IsOptional(object obj = null) => false;
 		}
 
 		[Test, Category("Input")]

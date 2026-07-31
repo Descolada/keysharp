@@ -183,8 +183,8 @@ namespace Keysharp.Runtime
 		private static bool currentCompatibilityReturnsUnsetByDefault;
 		internal Semver.SemVersion CurrentCompatibilityVersion => currentCompatibilityVersion ?? DefaultCompatibilityVersion;
 		internal CallbackRegistry<CallbackRegistration> ClipFunctions = new();
-		internal List<IFuncObj> hotCriterions = [];
-		internal List<IFuncObj> hotExprs = [];
+		internal List<KeysharpFunc> hotCriterions = [];
+		internal List<KeysharpFunc> hotExprs = [];
 		internal InputType input;
 		internal int inputBeforeHotkeysCount;
 		internal DateTime inputTimeoutAt = DateTime.UtcNow;

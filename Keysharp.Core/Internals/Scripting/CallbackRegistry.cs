@@ -58,7 +58,7 @@ namespace Keysharp.Internals.Scripting
 			}
 		}
 
-		internal TRegistration Find(IFuncObj callback, ScriptEventScheduler scheduler)
+		internal TRegistration Find(KeysharpFunc callback, ScriptEventScheduler scheduler)
 		{
 			lock (gate)
 				return byCallbackAndScheduler.TryGetValue(new CallbackRegistrationKey(callback, scheduler), out var registrations) && registrations.Count > 0
@@ -66,7 +66,7 @@ namespace Keysharp.Internals.Scripting
 					: null;
 		}
 
-		internal bool Remove(IFuncObj callback, ScriptEventScheduler scheduler, bool matchScheduler = true)
+		internal bool Remove(KeysharpFunc callback, ScriptEventScheduler scheduler, bool matchScheduler = true)
 		{
 			lock (gate)
 			{
@@ -142,7 +142,7 @@ namespace Keysharp.Internals.Scripting
 			}
 		}
 
-		internal bool ModifyEventHandlers(IFuncObj callback, long addRemove, Func<IFuncObj, long, TRegistration> createRegistration = null, bool matchCurrentSchedulerOnRemove = true)
+		internal bool ModifyEventHandlers(KeysharpFunc callback, long addRemove, Func<KeysharpFunc, long, TRegistration> createRegistration = null, bool matchCurrentSchedulerOnRemove = true)
 		{
 			if (callback == null)
 				return false;
@@ -152,7 +152,7 @@ namespace Keysharp.Internals.Scripting
 				if (typeof(TRegistration) != typeof(CallbackRegistration))
 					throw new InvalidOperationException($"A registration factory is required for {typeof(TRegistration).Name}.");
 
-				createRegistration = (Func<IFuncObj, long, TRegistration>)(object)CallbackRegistration.CreateCurrent;
+				createRegistration = (Func<KeysharpFunc, long, TRegistration>)(object)CallbackRegistration.CreateCurrent;
 			}
 
 			if (addRemove > 0)
@@ -170,12 +170,12 @@ namespace Keysharp.Internals.Scripting
 			return Remove(callback, matchCurrentSchedulerOnRemove ? Script.TheScript?.EventScheduler : null, matchCurrentSchedulerOnRemove);
 		}
 
-		internal bool ModifyGlobalEventHandlers(IFuncObj callback, long addRemove)
+		internal bool ModifyGlobalEventHandlers(KeysharpFunc callback, long addRemove)
 		{
 			if (typeof(TRegistration) != typeof(CallbackRegistration))
 				throw new InvalidOperationException($"Global callback registration is only supported for {typeof(CallbackRegistration).Name}.");
 
-			return ModifyEventHandlers(callback, addRemove, (Func<IFuncObj, long, TRegistration>)(object)CallbackRegistration.CreateGlobal, false);
+			return ModifyEventHandlers(callback, addRemove, (Func<KeysharpFunc, long, TRegistration>)(object)CallbackRegistration.CreateGlobal, false);
 		}
 
 		/// <summary>
@@ -220,7 +220,7 @@ namespace Keysharp.Internals.Scripting
 			// tries to launch while it runs is refused at that same gate. Do NOT also pass isCritical: on a veto the
 			// exit is cancelled and the script keeps running, and a leftover Critical scope then wedges later thread
 			// launches (subsequent timers/hotkeys stop firing).
-			ScriptEventExecutionResult RunHandler(ScriptEventScheduler scheduler, IFuncObj handler, long priority)
+			ScriptEventExecutionResult RunHandler(ScriptEventScheduler scheduler, KeysharpFunc handler, long priority)
 			{
 				using var thread = scheduler.StartPseudoThreadScope(priority, skipUninterruptible, false, allowEmergencyOverflow);
 
@@ -377,7 +377,7 @@ namespace Keysharp.Internals.Scripting
 		}
 	}
 
-	internal readonly record struct CallbackRegistrationKey(IFuncObj Callback, ScriptEventScheduler Scheduler)
+	internal readonly record struct CallbackRegistrationKey(KeysharpFunc Callback, ScriptEventScheduler Scheduler)
 	{
 		public bool Equals(CallbackRegistrationKey other)
 			=> Equals(Callback, other.Callback) && ReferenceEquals(Scheduler, other.Scheduler);

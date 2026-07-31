@@ -7,7 +7,7 @@ namespace Keysharp.Tests
 	public class InputSchedulerTests : TestRunner
 	{
 		private static HotkeyDefinition CreateHotkey(string name = "F1")
-			=> new(1, new FuncObj((Func<object, object>)(_ => 0L)), 0, name, 0);
+			=> new(1, new KeysharpFunc((Func<object, object>)(_ => 0L)), 0, name, 0);
 
 		private static HotkeyVariant CreateHotkeyVariant(Action action, int maxThreads = 1, int existingThreads = 0, bool maxThreadsBuffer = false)
 		{
@@ -17,7 +17,7 @@ namespace Keysharp.Tests
 				maxThreadsBuffer = maxThreadsBuffer,
 				priority = 0
 			};
-			var binding = variant.SetBinding(Script.TheScript.EventScheduler, new FuncObj((Func<object, object>)(_ =>
+			var binding = variant.SetBinding(Script.TheScript.EventScheduler, new KeysharpFunc((Func<object, object>)(_ =>
 			{
 				action();
 				return 0L;
@@ -67,7 +67,7 @@ namespace Keysharp.Tests
 			{
 				Name = "abc"
 			};
-			hs.funcObj = new FuncObj((Func<object, object>)(name =>
+			hs.funcObj = new KeysharpFunc((Func<object, object>)(name =>
 			{
 				hotstringCalls++;
 				return 0L;
@@ -143,7 +143,7 @@ namespace Keysharp.Tests
 			var hs = new HotstringDefinition("::abc", "")
 			{
 				Name = "abc",
-				funcObj = new FuncObj((Func<object, object>)(_ =>
+				funcObj = new KeysharpFunc((Func<object, object>)(_ =>
 				{
 					order.Add("hotstring");
 					return 0L;

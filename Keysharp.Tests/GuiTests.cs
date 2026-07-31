@@ -123,7 +123,7 @@ namespace Keysharp.Tests
 
 			try
 			{
-				var callback = new FuncObj((Func<object, object>)(target =>
+				var callback = new KeysharpFunc((Func<object, object>)(target =>
 				{
 					_ = ((Ks.KeysharpOverlay)target).Clear("0xFF204060");
 					return 0L;

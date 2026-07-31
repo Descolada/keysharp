@@ -38,7 +38,7 @@ namespace Keysharp.Runtime
 			var target = TheScript.Vars.GetVariable(moduleType, name);
 			args ??= System.Array.Empty<object>();
 
-			if (target is IFuncObj fn)
+			if (target is KeysharpFunc fn)
 				return fn.Call(args);
 
 			return Keysharp.Runtime.Script.Invoke(target, "Call", args);
@@ -157,15 +157,17 @@ namespace Keysharp.Runtime
 			if (rd.flatPublicStaticProperties.TryGetValue(name, out var prop))
 			{
 				var target = prop.GetValue(null);
-				if (target is IFuncObj fn)
+				if (target is KeysharpFunc fn)
 					return fn.Call(args);
 				return Keysharp.Runtime.Script.Invoke(target, "Call", args);
 			}
 
 			if (rd.stringToTypes.TryGetValue(name, out var type))
 			{
-				var target = Script.TheScript.Vars.Statics[type];
-				if (target is IFuncObj fn)
+				// Statics is typed as Class, which is unrelated to KeysharpFunc, so the test needs an object
+				// operand; a class object whose static side is callable still takes the Invoke path below.
+				object target = Script.TheScript.Vars.Statics[type];
+				if (target is KeysharpFunc fn)
 					return fn.Call(args);
 				return Keysharp.Runtime.Script.Invoke(target, "Call", args);
 			}

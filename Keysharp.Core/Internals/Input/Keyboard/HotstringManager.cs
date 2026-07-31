@@ -37,7 +37,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// any options (e.g. ::ahk:: has a different aName than :c:ahk::).
 		/// Caller has also ensured that aHotstring is not blank.
 		/// </summary>
-		public static object AddHotstring(string _name, IFuncObj _funcObj, ReadOnlySpan<char> _options, string _hotstring
+		public static object AddHotstring(string _name, KeysharpFunc _funcObj, ReadOnlySpan<char> _options, string _hotstring
 										  , string _replacement, bool _hasContinuationSection, int _suspend = 0)
 		{
 			var script = Script.TheScript;
@@ -211,7 +211,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 		internal void ClearBuf() => hsBuf.Clear();
 
-		internal HotstringDefinition FindHotstring(string _hotstring, bool _caseSensitive, bool _detectWhenInsideWord, IFuncObj _hotCriterion)
+		internal HotstringDefinition FindHotstring(string _hotstring, bool _caseSensitive, bool _detectWhenInsideWord, KeysharpFunc _hotCriterion)
 		{
 			if (shsDkt.TryGetValue(_hotstring[0], out var possibleHotstrings))
 				foreach (var hs in possibleHotstrings)

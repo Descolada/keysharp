@@ -1,7 +1,7 @@
 using Keysharp.Builtins;
 namespace Keysharp.Internals.Window
 {
-	internal sealed class MsgMonitorRegistration(IFuncObj callback, int maxInstances, ScriptEventScheduler ownerScheduler)
+	internal sealed class MsgMonitorRegistration(KeysharpFunc callback, int maxInstances, ScriptEventScheduler ownerScheduler)
 		: CallbackRegistration(callback, ownerScheduler, true)
 	{
 		internal int InstanceCount;
@@ -31,7 +31,7 @@ namespace Keysharp.Internals.Window
 				return registrations.GetSnapshot();
 		}
 
-		internal void ModifyRegistration(IFuncObj funcObj, long addRemove)
+		internal void ModifyRegistration(KeysharpFunc funcObj, long addRemove)
 		{
 			lock (gate)
 				registrations.ModifyEventHandlers(funcObj, addRemove, static (callback, value) => new MsgMonitorRegistration(

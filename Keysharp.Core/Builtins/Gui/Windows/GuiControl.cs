@@ -890,7 +890,7 @@ namespace Keysharp.Builtins
 				if (gui == null || !gui.TryGetTarget(out var g))
 					return Errors.ErrorOccurred("GUI control's parent GUI is no longer available.");
 
-				var del = Functions.GetFuncObj(h, g.form.eventObj, true);
+				var del = Functions.GetKeysharpFunc(h, g.form.eventObj, true);
 
 				if (del != null)
 				{
@@ -1605,7 +1605,7 @@ namespace Keysharp.Builtins
 				if (gui == null || !gui.TryGetTarget(out var g))
 					return Errors.ErrorOccurred("GUI control's parent GUI is no longer available.");
 
-				var del = Functions.GetFuncObj(callback, g.form.eventObj, true);
+				var del = Functions.GetKeysharpFunc(callback, g.form.eventObj, true);
 
 				if (handlers == null)
 					handlers = new();

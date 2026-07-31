@@ -19,7 +19,7 @@ namespace Keysharp.Parsing.Syntax
 	/// binds the structural tree directly.
 	///
 	/// Identifier model: in AutoHotkey a name is one case-insensitive slot, and a function name IS a
-	/// variable holding the FuncObj — so every global reference lowers to a single static field named
+	/// variable holding the KeysharpFunc — so every global reference lowers to a single static field named
 	/// by the lowercased identifier. Locals (params + names assigned in a function) become hoisted
 	/// method locals; names go through <see cref="NameMangler"/>.
 	/// </summary>
@@ -64,7 +64,7 @@ namespace Keysharp.Parsing.Syntax
 		// C# local functions emitted for fat-arrows in the current callable scope — flushed into that scope's body so
 		// they capture @this / enclosing locals via normal C# closure semantics (matches the canonical).
 		private List<StatementSyntax> _pendingScopeFuncs = new();
-		// Local FuncObj/Closure var declarations for NAMED nested functions, prepended to the scope body so the name is
+		// Local KeysharpFunc/Closure var declarations for NAMED nested functions, prepended to the scope body so the name is
 		// bound before any (possibly forward-referenced) call — AHK hoists nested functions.
 		private List<StatementSyntax> _pendingScopeClosureInits = new();
 		// Names of bare (non-static) nested functions declared anywhere in the CURRENT scope's body. They become local
@@ -817,7 +817,7 @@ namespace Keysharp.Parsing.Syntax
 			foreach (var s in body)
 			{
 				// Only TOP-LEVEL functions are module-global. Nested functions (static or not) are scoped to their
-				// enclosing function — bound as local FuncObj/Closure vars when that scope is lowered — so same-named
+				// enclosing function — bound as local KeysharpFunc/Closure vars when that scope is lowered — so same-named
 				// nested functions in different scopes don't collide.
 				if (s is FunctionDecl fd) { _userFuncByLower[fd.Name.ToLowerInvariant()] = fd.Name; }
 				else if (s is HotkeyDef { Func: { } hkf }) { _userFuncByLower[hkf.Name.ToLowerInvariant()] = hkf.Name; }
@@ -1536,13 +1536,15 @@ namespace Keysharp.Parsing.Syntax
 			// Built-in variables (A_Index, A_Clipboard, A_TickCount, …) resolve to their accessor property.
 			if (Script.TheScript.ReflectionsData.flatPublicStaticProperties.TryGetValue(lower, out var prop))
 				return Access(prop.DeclaringType.FullName.Replace('+', '.') + "." + prop.Name);
-			// Built-in class names exposed under an AHK alias (Object->KeysharpObject, Func->FuncObj, File->KeysharpFile)
-			// resolve to the class singleton INLINE (lazy — never a cached static field, which for FuncObj would
-			// perturb its init order), so `Object.Prototype`, `x is Func`, `Func("name")` etc. work.
+			// A built-in whose CLR name is not the name scripts use for it (Object->KeysharpObject, Func->KeysharpFunc,
+			// File->KeysharpFile, Int32->StructInt32, ...) resolves to the class singleton INLINE (lazy — never a
+			// cached static field, which for Func would perturb its init order), so `Object.Prototype`,
+			// `x is Func`, `Func("name")` etc. work.
 			if (!_userFuncByLower.ContainsKey(lower)
-				&& Keysharp.Parsing.Keywords.TypeNameAliases.FirstOrDefault(kv => kv.Value.Equals(lower, System.StringComparison.OrdinalIgnoreCase)).Key is { } aliasKey
-				&& Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(aliasKey, out var aliasType))
-				return TypeSingleton(aliasType.FullName.Replace('+', '.'));
+				&& Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(lower, out var renamedType)
+				&& IsGlobalAhkClass(renamedType)
+				&& Script.GetUserDeclaredName(renamedType) != null)
+				return TypeSingleton(renamedType.FullName.Replace('+', '.'));
 			// A scoped `{ * }` WILDCARD import resolves here — below built-in A_* properties (so a wildcard never shadows
 			// a built-in variable) but above module-scope resolution (so a function/class wildcard shadows a module global).
 			if (_importScopes.Count > 0 && TryScopedWildcard(lower, out var wildImp)) return wildImp.Read();
@@ -2056,7 +2058,6 @@ namespace Keysharp.Parsing.Syntax
 			var rd = Script.TheScript.ReflectionsData;
 			if (rd.flatPublicStaticProperties.ContainsKey(lower) || rd.flatPublicStaticMethods.ContainsKey(lower)) return false;
 			if (rd.stringToTypes.TryGetValue(lower, out var builtinType) && IsGlobalAhkClass(builtinType)) return false;
-			if (Keysharp.Parsing.Keywords.TypeNameAliases.Any(kv => kv.Value.Equals(lower, System.StringComparison.OrdinalIgnoreCase))) return false;
 			return true;
 		}
 
@@ -3085,11 +3086,7 @@ namespace Keysharp.Parsing.Syntax
 			if (dotted == null || !dotted.Contains('.')) return null;
 			var parts = dotted.Split('.');
 			var rootLower = parts[0].ToLowerInvariant();
-			if (!Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(rootLower, out var t))
-			{
-				var aliasKey = Keysharp.Parsing.Keywords.TypeNameAliases.FirstOrDefault(kv => kv.Value.Equals(rootLower, System.StringComparison.OrdinalIgnoreCase)).Key;
-				if (aliasKey == null || !Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(aliasKey, out t)) return null;
-			}
+			if (!Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(rootLower, out var t)) return null;
 			for (int i = 1; i < parts.Length && t != null; i++)
 				t = t.GetNestedTypes(System.Reflection.BindingFlags.Public).FirstOrDefault(n => n.Name.Equals(parts[i], System.StringComparison.OrdinalIgnoreCase));
 			return t?.FullName.Replace('+', '.');
@@ -3316,7 +3313,7 @@ namespace Keysharp.Parsing.Syntax
 		// ---- functions ----
 
 		// A fat-arrow used as a value: emit it as a C# LOCAL FUNCTION in the current callable scope and bind it as a
-		// FuncObj via its method group (`Func((Delegate)FN)`). Because it's a local function it captures `@this` and
+		// KeysharpFunc via its method group (`Func((Delegate)FN)`). Because it's a local function it captures `@this` and
 		// the enclosing locals through normal C# closure semantics (matches the canonical — no Functions.Closure /
 		// top-level method needed). The local functions are flushed into the scope body by LowerCallableBody /
 		// InitMethod / the auto-exec assembly (C# hoists local functions, so forward references are fine).
@@ -3346,7 +3343,7 @@ namespace Keysharp.Parsing.Syntax
 		}
 
 		// A bare nested function: emit a capturing C# local function (like a fat-arrow) and bind its name to a local
-		// FuncObj/Closure var (declared at this position) so `name(...)` calls it. Captures `@this`/enclosing locals.
+		// KeysharpFunc/Closure var (declared at this position) so `name(...)` calls it. Captures `@this`/enclosing locals.
 		private StatementSyntax LowerNestedClosure(FunctionDecl fd)
 		{
 			var nameLower = fd.Name.ToLowerInvariant();
@@ -3827,7 +3824,7 @@ namespace Keysharp.Parsing.Syntax
 			if (exposeScope)
 			{
 				// The reader (and writer, if any) lambdas, bound to typed delegates so the in-body %name% access and
-				// the scope external callers read share the one delegate, then publish the scope. FuncObj.Call
+				// the scope external callers read share the one delegate, then publish the scope. KeysharpFunc.Call
 				// clears/restores executingUserFunc around the call, so no matching teardown is emitted here.
 				body.Add(LocalDecl(Ty("Keysharp.Runtime.FuncScope.Reader"), "KS_readVar", BuildReaderLambda()));
 				if (needsWriter) body.Add(LocalDecl(Ty("Keysharp.Runtime.FuncScope.Writer"), "KS_writeVar", BuildWriterLambda()));
@@ -4407,7 +4404,7 @@ namespace Keysharp.Parsing.Syntax
 		private static ExpressionSyntax FuncBind(string methodPath) =>
 			Inv(Access("Keysharp.Builtins.Functions.Func"), SyntaxFactory.CastExpression(Ty("System.Delegate"), Access(methodPath)));
 
-		// Functions.Closure((System.Delegate)<localFn>) — wraps a capturing C# local function as a Closure-typed FuncObj
+		// Functions.Closure((System.Delegate)<localFn>) — wraps a capturing C# local function as a Closure-typed KeysharpFunc
 		// (the captures live in the delegate; the runtime type is Closure so `x is Closure` holds).
 		private static ExpressionSyntax ClosureBind(string methodPath) =>
 			Inv(Access("Keysharp.Builtins.Functions.Closure"), SyntaxFactory.CastExpression(Ty("System.Delegate"), Access(methodPath)));

@@ -1,10 +1,10 @@
 namespace Keysharp.Builtins
 {
 	/// <summary>
-	/// A comparer which uses an <see cref="IFuncObj"/> to compare two objects.
+	/// A comparer which uses an <see cref="KeysharpFunc"/> to compare two objects.
 	/// This is used in <see cref="Array.Sort"/>.
 	/// </summary>
-	internal class FuncObjComparer : IComparer<object>
+	internal class KeysharpFuncComparer : IComparer<object>
 	{
 		/// <summary>
 		/// The function object to use in the comparison.
@@ -12,14 +12,14 @@ namespace Keysharp.Builtins
 		private readonly Any ifo;
 
 		/// <summary>
-		/// Initializes a new instance of the <see cref="FuncObjComparer"/> class.
+		/// Initializes a new instance of the <see cref="KeysharpFuncComparer"/> class.
 		/// </summary>
-		/// <param name="f">The <see cref="IFuncObj"/> to use in the comparison.</param>
-		public FuncObjComparer(Any f) => ifo = f;
+		/// <param name="f">The <see cref="KeysharpFunc"/> to use in the comparison.</param>
+		public KeysharpFuncComparer(Any f) => ifo = f;
 
 		/// <summary>
 		/// The implementation for <see cref="IComparer.Compare"/> which internally calls the
-		/// underlying <see cref="IFuncObj"/> to do the comparison.
+		/// underlying <see cref="KeysharpFunc"/> to do the comparison.
 		/// </summary>
 		/// <param name="left">The left object to compare.</param>
 		/// <param name="right">The right object to compare.</param>
@@ -175,7 +175,7 @@ namespace Keysharp.Builtins
 		///     2: Return the index in the first element, and the value in the second.
 		/// </param>
 		/// <returns><see cref="Enumerator"/></returns>
-		public IFuncObj __Enum(object count)
+		public KeysharpFunc __Enum(object count)
 		{
 			return CreateEnumerator(count.Ai());
 		}
@@ -294,7 +294,7 @@ namespace Keysharp.Builtins
 		/// </param>
 		/// <returns>A new <see cref="Array"/> object consisting of all elements for which the filter callback returned true.</returns>
 		/// <exception cref="ValueError">A <see cref="ValueError"/> exception is thrown if startIndex is out of bounds.</exception>
-		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="FuncObj"/>.</exception>
+		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="KeysharpFunc"/>.</exception>
 		public object Filter(object callback, object startIndex = null)
 		{
 			var index = startIndex.Ai(1);
@@ -321,7 +321,7 @@ namespace Keysharp.Builtins
 				}
 			}
 
-			return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultObject);
+			return Errors.TypeErrorOccurred(callback, typeof(KeysharpFunc), DefaultObject);
 		}
 
 		/// <summary>
@@ -332,7 +332,7 @@ namespace Keysharp.Builtins
 		/// <param name="startIndex">The start index to begin the search at. Default: 1.</param>
 		/// <returns>The index of the first element for which callback returned true, else -1 if not found.</returns>
 		/// <exception cref="IndexError">An <see cref="IndexError"/> exception is thrown if startIndex is out of bounds.</exception>
-		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="FuncObj"/>.</exception>
+		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="KeysharpFunc"/>.</exception>
 		public long FindIndex(object callback, object startIndex = null)
 		{
 			var index = startIndex.Ai(1);
@@ -374,7 +374,7 @@ namespace Keysharp.Builtins
 				}
 			}
 
-			return (long)Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultErrorLong);
+			return (long)Errors.TypeErrorOccurred(callback, typeof(KeysharpFunc), DefaultErrorLong);
 		}
 
 		/// <summary>
@@ -514,10 +514,10 @@ namespace Keysharp.Builtins
 		/// <param name="startIndex">The index to start iterating at. Default: 1.</param>
 		/// <returns>A new <see cref="Array"/> object consisting of the output of callback applied to all elements starting at startIndex.</returns>
 		/// <exception cref="IndexError">An <see cref="IndexError"/> exception is thrown if startIndex is out of bounds.</exception>
-		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="FuncObj"/>.</exception>
+		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="KeysharpFunc"/>.</exception>
 		public object MapTo(object callback, object startIndex = null)
 		{
-			if (callback is IFuncObj ifo)
+			if (callback is KeysharpFunc ifo)
 			{
 				var index = TranslateIndex(startIndex.Ai(1));
 
@@ -532,7 +532,7 @@ namespace Keysharp.Builtins
 					return Errors.IndexErrorOccurred($"Invalid mapping start index of {startIndex.Ai(1)}.");
 			}
 
-			return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultObject);
+			return Errors.TypeErrorOccurred(callback, typeof(KeysharpFunc), DefaultObject);
 		}
 
 		/// <summary>
@@ -662,16 +662,16 @@ namespace Keysharp.Builtins
 		/// It must return -1 if left is less than right, 0 if left equals right, otherwise 1.
 		/// </param>
 		/// <returns>this.</returns>
-		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="FuncObj"/>.</exception>
+		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="KeysharpFunc"/>.</exception>
 		public object Sort(object callback)
 		{
 			if (callback is Any fo)
 			{
-				array.Sort(new FuncObjComparer(fo));
+				array.Sort(new KeysharpFuncComparer(fo));
 				return this;
 			}
 			else
-				return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultObject);
+				return Errors.TypeErrorOccurred(callback, typeof(KeysharpFunc), DefaultObject);
 		}
 
 		/// <summary>

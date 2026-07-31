@@ -304,7 +304,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ Keysharp breaks this and will instead create a variable, initialize it to zero, then increment it.
 	+ For example, a file with nothing but the line `x++` in it, will end with a variable named x which has the value of 1.
 * Function objects behave mostly the same as in AHK.
-	+ The underlying function object class is named `FuncObj`. This was named so, instead of `Func`, because C# already contains a built in class named `Func`. `MsgBox is Func` is still supported though, as is `MsgBox is FuncObj`.
+	+ The underlying function object class is named `KeysharpFunc`, instead of `Func`, because C# already contains a built in class named `Func`. Scripts only ever use the AHK name: `MsgBox is Func` works, `MsgBox is KeysharpFunc` does not.
 	+ Function objects can be created by passing the name of the function as a direct reference or as a string to `Func()`.
 	+ Most built-in functions can also be used as function objects.
 * Error stack traces start from where the error was thrown, not where it was constructed.
@@ -342,7 +342,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * `AddStandard()` detects menu items by string, instead of ID, because WinForms doesn't expose the ID.
 * `ControlMove()` and `ControlSetPos()` operate relative to their immediate parent, which may not be the main window if they are contained in a nested control.
 * Function objects are much slower than direct function calls due to the need to use reflection. So for repeated function calls, such as those involving math, it's best to use the functions directly.
-* The `File` object is internally named `KeysharpFile` so that it doesn't conflict with `System.IO.File`.
+* The `File` object is internally named `KeysharpFile` so that it doesn't conflict with `System.IO.File`. As with `Func` and `Object`, only the AHK name is usable from a script; the internal name appears solely in low-level diagnostics such as stack traces.
 * In `SetTimer()`, the priority is not in the range -2147483648 and 2147483647, instead it is only 0-4.
 * If a `ComObject` with `VarType` of `VT_DISPATCH` and a null pointer value is assigned a non-null pointer value, its type does not change. The `Ptr` member remains available.
 * `A_LineNumber` is not a reliable indicator of the line number because the preprocessor condenses the code before parsing and compiling it.
@@ -716,7 +716,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		}
 	}
 ```
-* `KeysharpObject` has a new method `OwnPropCount()` which corresponds to the global function `ObjOwnPropCount()`.
+* `Object` has a new method `OwnPropCount()` which corresponds to the global function `ObjOwnPropCount()`.
 * `ComObjConnect()` takes an optional third parameter as a boolean (default: `false`) which specifies whether to write additional information to the debug output tab when events are received.
 * Preprocessor directives are supported using the familiar syntax of C#.
 	+ `#if symbol` is used to enable a section of code if symbol is defined.

@@ -398,7 +398,7 @@ namespace Keysharp.Builtins
 
 		private void SetCallback(int index, object value)
 		{
-			var callback = Functions.GetFuncObj(value, null, true);
+			var callback = Functions.GetKeysharpFunc(value, null, true);
 			callbackSlots[index].Set(callback, callback != null ? Script.TheScript?.EventScheduler : null, callbackPersistenceActive && callback != null);
 		}
 

@@ -60,11 +60,11 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal Keys Extra { get; }
 		internal Keys Keys { get; }
 		internal string Name { get; set; }
-		internal IFuncObj Precondition { get; set; }
-		internal IFuncObj Proc { get; set; }
+		internal KeysharpFunc Precondition { get; set; }
+		internal KeysharpFunc Proc { get; set; }
 		internal string Typed { get; set; }
 
-		internal HotkeyDefinition(Keys keys, Keys extra, Options options, IFuncObj proc)
+		internal HotkeyDefinition(Keys keys, Keys extra, Options options, KeysharpFunc proc)
 		{
 			Keys = keys;
 			Extra = extra;
@@ -73,7 +73,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			Enabled = true;
 		}
 
-		internal HotkeyDefinition(uint _id, IFuncObj callback, uint _hookAction, string _name, uint _noSuppress)
+		internal HotkeyDefinition(uint _id, KeysharpFunc callback, uint _hookAction, string _name, uint _noSuppress)
 		{
 			hookAction = _hookAction;
 			var script = Script.TheScript;
@@ -281,7 +281,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			_ = Unregister();
 		}
 
-		public static HotkeyDefinition AddHotkey(IFuncObj _callback, uint _hookAction, string _name)
+		public static HotkeyDefinition AddHotkey(KeysharpFunc _callback, uint _hookAction, string _name)
 		{
 			var b = 0u;
 			return AddHotkey(_callback, _hookAction, _name, ref b);
@@ -717,7 +717,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// Returns the address of the new hotkey on success, or NULL otherwise.
 		/// The caller is responsible for calling ManifestAllHotkeysHotstringsHooks(), if appropriate.
 		/// </summary>
-		internal static HotkeyDefinition AddHotkey(IFuncObj _callback, uint _hookAction, string _name, ref uint _noSuppress)
+		internal static HotkeyDefinition AddHotkey(KeysharpFunc _callback, uint _hookAction, string _name, ref uint _noSuppress)
 		{
 			HotkeyDefinition hk;
 			var hookIsMandatory = false;
@@ -793,9 +793,9 @@ namespace Keysharp.Internals.Input.Keyboard
 			return null;
 		}
 
-		internal static void AddHotkeyCriterion(IFuncObj fo) => Script.TheScript.hotCriterions.Add(fo);
+		internal static void AddHotkeyCriterion(KeysharpFunc fo) => Script.TheScript.hotCriterions.Add(fo);
 
-		internal static void AddHotkeyIfExpr(IFuncObj fo) => Script.TheScript.hotExprs.Add(fo);
+		internal static void AddHotkeyIfExpr(KeysharpFunc fo) => Script.TheScript.hotExprs.Add(fo);
 
 		internal static void AllDestruct()
 		{
@@ -998,14 +998,14 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <param name="hookAction"></param>
 		/// <returns></returns>
 		/// <exception cref="ValueError"></exception>
-		internal static ResultType Dynamic(string hotkeyName, string options, IFuncObj callback, uint hookAction)
+		internal static ResultType Dynamic(string hotkeyName, string options, KeysharpFunc callback, uint hookAction)
 		{
 			// Caller has ensured that aCallback and _hookAction can't both be non-zero. Furthermore,
 			// both can be zero/NULL only when the caller is updating an existing hotkey to have new options
 			// (i.e. it's retaining its current callback).
 			if (callback != null)
 			{
-                if (callback is IFuncObj fc && !fc.IsValid)
+                if (callback is KeysharpFunc fc && !fc.IsValid)
                     return ResultType.Fail;
 			}
 
@@ -1353,9 +1353,9 @@ namespace Keysharp.Internals.Input.Keyboard
 			return null;  // No match found.
 		}
 
-		internal static IFuncObj FindHotkeyCriterion(IFuncObj fo) => FindHotkeyIf(fo, Script.TheScript.hotCriterions);
+		internal static KeysharpFunc FindHotkeyCriterion(KeysharpFunc fo) => FindHotkeyIf(fo, Script.TheScript.hotCriterions);
 
-		internal static IFuncObj FindHotkeyIfExpr(IFuncObj fo) => FindHotkeyIf(fo, Script.TheScript.hotExprs);
+		internal static KeysharpFunc FindHotkeyIfExpr(KeysharpFunc fo) => FindHotkeyIf(fo, Script.TheScript.hotExprs);
 
 		internal static uint FindPairedHotkey(uint firstID, uint modsLR, bool keyUp)
 		{
@@ -1412,7 +1412,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <param name="criterion"></param>
 		/// <param name="hotkeyName"></param>
 		/// <returns></returns>
-		internal static long HotCriterionAllowsFiring(IFuncObj criterion, string hotkeyName, object eventInfo = null)
+		internal static long HotCriterionAllowsFiring(KeysharpFunc criterion, string hotkeyName, object eventInfo = null)
 		{
 			if (criterion == null)
 				return 1L;
@@ -1476,7 +1476,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			return now + (long)(timeoutMilliseconds * Stopwatch.Frequency / 1000.0);
 		}
 
-		internal static long EvaluateCriterion(IFuncObj criterion, HotCriterionEnum criterionType,
+		internal static long EvaluateCriterion(KeysharpFunc criterion, HotCriterionEnum criterionType,
 			string hotkeyName, object eventInfo)
 		{
 			var previousEvaluation = evaluatingCriterion;
@@ -1525,7 +1525,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			=> _ = Script.TheScript.UIEventScheduler.EnqueueThreadLaunch(0, false, false, () =>
 				_ = Keysharp.Internals.Flow.TryCatch(() => ExceptionDispatchInfo.Throw(error)));
 
-		internal static HotCriterionEnum GetHotCriterionType(IFuncObj criterion)
+		internal static HotCriterionEnum GetHotCriterionType(KeysharpFunc criterion)
 			=> criterion?.Name switch
 			{
 				"HotIfWinActivePrivate" => HotCriterionEnum.IfActive,
@@ -1536,10 +1536,10 @@ namespace Keysharp.Internals.Input.Keyboard
 				_ => HotCriterionEnum.IfCallback
 			};
 
-		internal static bool HotCriterionRequiresReceiptReevaluation(IFuncObj criterion)
+		internal static bool HotCriterionRequiresReceiptReevaluation(KeysharpFunc criterion)
 			=> GetHotCriterionType(criterion) is HotCriterionEnum.IfActive or HotCriterionEnum.IfNotActive or HotCriterionEnum.IfExist or HotCriterionEnum.IfNotExist;
 
-		internal static long NormalizeCriterionFoundHwnd(IFuncObj criterion, long foundHwnd)
+		internal static long NormalizeCriterionFoundHwnd(KeysharpFunc criterion, long foundHwnd)
 			=> GetHotCriterionType(criterion) is HotCriterionEnum.NoCriterion or HotCriterionEnum.IfNotActive or HotCriterionEnum.IfNotExist ? 0L : foundHwnd;
 
 		internal static uint HotkeyRequiresModLR(uint hotkeyID, uint modLR)
@@ -2161,7 +2161,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <param name="_callback"></param>
 		/// <param name="_suffixHasTilde"></param>
 		/// <returns></returns>
-		internal HotkeyVariant AddVariant(IFuncObj _callback, uint _noSuppress)
+		internal HotkeyVariant AddVariant(KeysharpFunc _callback, uint _noSuppress)
 		{
 			var vp = new HotkeyVariant
 			{
@@ -2336,7 +2336,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			}
 		}
 
-		private sealed class HotkeyQueuedEvent(HotkeyDefinition definition, ScriptEventScheduler scheduler, HotkeyVariant variant, HotkeyBinding binding, IFuncObj callback, long critFoundHwnd, int lParamVal, object eventInfo)
+		private sealed class HotkeyQueuedEvent(HotkeyDefinition definition, ScriptEventScheduler scheduler, HotkeyVariant variant, HotkeyBinding binding, KeysharpFunc callback, long critFoundHwnd, int lParamVal, object eventInfo)
 		{
 			internal ScriptEventExecutionResult Execute()
 			{
@@ -2605,7 +2605,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			return isRegistered ? ResultType.Ok : ResultType.Fail;//I've see it fail in one rare case.
 		}
 
-		private static IFuncObj FindHotkeyIf(IFuncObj fo, List<IFuncObj> list)
+		private static KeysharpFunc FindHotkeyIf(KeysharpFunc fo, List<KeysharpFunc> list)
 		{
 			if (fo == null)
 				return null;
@@ -2669,7 +2669,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			if (obj0 != null || obj1 != null)
 			{
 				var mi = typeof(HotkeyDefinition).GetMethod(funcname, BindingFlags.NonPublic | BindingFlags.Static);
-				var fo = new FuncObj(mi);
+				var fo = new KeysharpFunc(mi);
 				var bf = fo.Bind(obj0 ?? "", obj1 ?? "");//Must not pass null so that the logic in BoundFunc.Call() works.
 
 				if (FindHotkeyCriterion(bf) == null)
@@ -2885,7 +2885,7 @@ namespace Keysharp.Internals.Input.Keyboard
 	{
 		// Exact-match variants can have one callback registration per scheduler.
 		internal readonly List<HotkeyBinding> bindings = [];
-		internal IFuncObj hotCriterion;
+		internal KeysharpFunc hotCriterion;
 		internal int index;
 		internal long inputLevel;
 		internal long maxThreads = long.MaxValue;//Don't really care about max threads in Keysharp, so just make it a huge number.
@@ -2921,7 +2921,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				return bindings.Find(binding => ReferenceEquals(binding.OwnerScheduler, scheduler));
 		}
 
-		internal HotkeyBinding SetBinding(ScriptEventScheduler scheduler, IFuncObj callback, IFuncObj originalCallback)
+		internal HotkeyBinding SetBinding(ScriptEventScheduler scheduler, KeysharpFunc callback, KeysharpFunc originalCallback)
 		{
 			originalCallback ??= callback;
 
@@ -2982,7 +2982,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 	internal sealed class HotkeyBinding : CallbackRegistration
 	{
-		internal HotkeyBinding(IFuncObj callback, ScriptEventScheduler ownerScheduler, bool active, IFuncObj originalCallback)
+		internal HotkeyBinding(KeysharpFunc callback, ScriptEventScheduler ownerScheduler, bool active, KeysharpFunc originalCallback)
 			: base(callback, ownerScheduler, active)
 		{
 			OriginalCallback = originalCallback;
@@ -2990,7 +2990,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 		internal int ExistingThreads;
 		internal int PendingEvents;
-		internal IFuncObj OriginalCallback { get; set; }
+		internal KeysharpFunc OriginalCallback { get; set; }
 
 		internal bool IsDispatchable => IsActive && Callback != null && OwnerScheduler != null;
 
@@ -3007,7 +3007,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			}
 		}
 
-		internal bool TryReservePending(ScriptEventScheduler scheduler, IFuncObj callback, long maxThreads, bool allowBuffering)
+		internal bool TryReservePending(ScriptEventScheduler scheduler, KeysharpFunc callback, long maxThreads, bool allowBuffering)
 		{
 			if (!IsActive || scheduler == null || callback == null)
 				return false;

@@ -17,7 +17,7 @@ namespace Keysharp.Builtins
 
 		public object __Get(object name, object args) => name is string s && s.TryParseLong(out long l) && l >= 0 && l <= match.Groups.Count ? this[l] : this[name];
 
-		public IFuncObj __Enum(object count) => CreateEnumerator(count.Ai());
+		public KeysharpFunc __Enum(object count) => CreateEnumerator(count.Ai());
 
 		public IEnumerator<(object, object)> GetEnumerator() => CreateEnumerator(2);
 

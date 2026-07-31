@@ -413,7 +413,7 @@ namespace Keysharp.Internals.Invoke
 			if (script.Vars.GlobalVars.TryGetValue(name, out var mph) && mph != null)
 			{
 				var val = mph.CallFunc(null, null);
-				if (val is FuncObj fo)
+				if (val is KeysharpFunc fo)
 					return fo.mph;
 			}
 			if (script.ReflectionsData.flatPublicStaticMethods.TryGetValue(name, out var mi))

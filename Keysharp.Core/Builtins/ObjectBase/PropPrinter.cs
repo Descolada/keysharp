@@ -103,7 +103,7 @@ namespace Keysharp.Builtins
 		/// <summary>Renders a plain object: a header line followed by its own properties, one level in.</summary>
 		private static void PrintObject(KeysharpObject obj, string name, PropPrintContext ctx)
 		{
-			WriteHeader(ctx, name, obj.GetType().Name);
+			WriteHeader(ctx, name, TypeName(obj));
 			ctx.TabLevel++;
 			WriteOwnProps(obj, ctx);
 			ctx.TabLevel--;
@@ -112,7 +112,7 @@ namespace Keysharp.Builtins
 		/// <summary>Renders an array as <c>name: [a, b, ...] (Type)</c> followed by any own properties.</summary>
 		private static void PrintArray(Array arr, string name, PropPrintContext ctx)
 		{
-			var type = arr.GetType().Name;
+			var type = TypeName(arr);
 			var count = arr.Count;
 
 			if (count > 0)
@@ -146,7 +146,7 @@ namespace Keysharp.Builtins
 		/// </summary>
 		private static void PrintMap(Map map, string name, PropPrintContext ctx)
 		{
-			var type = map.GetType().Name;
+			var type = TypeName(map);
 			var count = map.Count;
 
 			if (count > 0)
@@ -271,10 +271,12 @@ namespace Keysharp.Builtins
 				_ = ctx.Sb.AppendLine($"{ctx.Indent}{name}: {value}{suffix}");
 		}
 
-		/// <summary>The display type name: the AHK type for <see cref="Any"/>, otherwise the CLR type name.</summary>
-		private static string TypeName(object val) =>
-			val is Any any ? (any.type?.Name ?? val.GetType().Name)
-			: (val?.GetType().Name ?? "");
+		/// <summary>
+		/// The display type name: the name a script knows the value's type by, so that this listing names
+		/// types the same way <see cref="Types.Type"/> does rather than exposing internal CLR names.
+		/// Empty for an unset value, which drops the type suffix.
+		/// </summary>
+		private static string TypeName(object val) => val == null ? "" : Types.Type(val);
 
 		private static string SafeToString(object val)
 		{

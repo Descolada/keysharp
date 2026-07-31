@@ -29,7 +29,7 @@ namespace Keysharp.Builtins
 		internal readonly Any funcObj;
 		// The target resolved once, so an invocation does not repeat a by-name member lookup for a receiver
 		// which cannot change. Null when funcObj is not directly callable and has to go through Invoke.
-		readonly IFuncObj _fn;
+		readonly KeysharpFunc _fn;
 		readonly bool _fast, _reference;
 		readonly int _arity;
 		readonly SchedulerRegistration _ownerState;
@@ -303,23 +303,23 @@ namespace Keysharp.Builtins
 		}
 
 		/// <summary>
-		/// Decides once whether the target can be called straight through IFuncObj, which saves resolving "Call"
+		/// Decides once whether the target can be called straight through KeysharpFunc, which saves resolving "Call"
 		/// by name on every single invocation. This applies the same test Script.InvokeOrNull applies per call,
 		/// so that a receiver whose own Call shadows the built-in one keeps going through the by-name path and
 		/// still reaches its override. Returns null when the shortcut does not apply. The decision is fixed for
 		/// the callback's lifetime, so redefining Call on the target after CallbackCreate does not change how an
 		/// already-created callback reaches it.
 		/// </summary>
-		private static IFuncObj ResolveDirectTarget(Any function)
+		private static KeysharpFunc ResolveDirectTarget(Any function)
 		{
-			if (function is not IFuncObj direct || !direct.IsValid)
+			if (function is not KeysharpFunc direct || !direct.IsValid)
 				return null;
 
 			try
 			{
 				var member = Script.GetMethodOrProperty(function, "Call", -1, checkBase: true, throwIfMissing: false, invokeMeta: false);
-				return member.Item2 is FuncObj fo
-					   && (fo == FuncObj.PrototypeCall || fo.DeclaringType?.IsAssignableFrom(function.GetType()) == true)
+				return member.Item2 is KeysharpFunc fo
+					   && (fo == KeysharpFunc.PrototypeCall || fo.DeclaringType?.IsAssignableFrom(function.GetType()) == true)
 					   ? direct
 					   : null;
 			}

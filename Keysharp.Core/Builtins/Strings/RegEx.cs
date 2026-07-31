@@ -66,7 +66,7 @@ namespace Keysharp.Builtins
 			var input = haystack.As();
 			var n = needle.As();
 			var index = startingPos.Ai(1);
-			IFuncObj callout = null;
+			KeysharpFunc callout = null;
 			RegexHolder exp;
 			var script = Script.TheScript;
 			var regdkt = script.RegExData.regdkt;
@@ -111,7 +111,7 @@ namespace Keysharp.Builtins
 				{
 					string calloutString = pcre_callout.Number == 0 ? pcre_callout.String : null;
 					string name = calloutString != null && calloutString != "" ? calloutString : "pcre_callout";
-					callout = Functions.GetFuncObj(name, null);
+					callout = Functions.GetKeysharpFunc(name, null);
 				}
 
 				// Expose A_EventInfo as a native PCRE1-layout pcre_callout_block so AHK-compatible callout
@@ -206,11 +206,11 @@ namespace Keysharp.Builtins
 			var input = haystack.As();
 			var needle = needleRegEx.As();
 			var rd = TheScript.RegExData;
-			IFuncObj callout = null;
+			KeysharpFunc callout = null;
 			string replace = null;
 			Func<PcreMatch, string> replaceParser = null;
 
-			if (replacement is IFuncObj ifo)
+			if (replacement is KeysharpFunc ifo)
 				callout = ifo;
 			else
 			{

@@ -42,7 +42,7 @@ namespace Keysharp.Runtime
 
 				if (isModuleType)
 				{
-					if (t != typeof(FuncObj) && t != typeof(Any))
+					if (t != typeof(KeysharpFunc) && t != typeof(Any))
 					{
 						proto.SetBaseInternal(script.Vars.Prototypes[t.BaseType]);
 						staticInst.SetBaseInternal(script.Vars.Statics[t.BaseType]);
@@ -121,9 +121,9 @@ namespace Keysharp.Runtime
 						}
 
 						if (methodName.StartsWith("get_"))
-							propertyMap.Get = new FuncObj(method);
+							propertyMap.Get = new KeysharpFunc(method);
 						else
-							propertyMap.Set = new FuncObj(method);
+							propertyMap.Set = new KeysharpFunc(method);
 
 						if (isStatic)
 							staticInst.DefinePropInternal(userDeclaredName ?? propName, propertyMap);
@@ -135,12 +135,12 @@ namespace Keysharp.Runtime
 
 					if (isStatic)
 					{
-						staticInst.DefinePropInternal(userDeclaredName ?? methodName, new OwnPropsDesc(staticInst, null, null, null, new FuncObj(method)));
+						staticInst.DefinePropInternal(userDeclaredName ?? methodName, new OwnPropsDesc(staticInst, null, null, null, new KeysharpFunc(method)));
 						continue;
 					}
 
-					// Wrap method in FuncObj
-					proto.DefinePropInternal(userDeclaredName ??methodName, new OwnPropsDesc(proto, null, null, null, new FuncObj(method)));
+					// Wrap method in KeysharpFunc
+					proto.DefinePropInternal(userDeclaredName ??methodName, new OwnPropsDesc(proto, null, null, null, new KeysharpFunc(method)));
 				}
 
 				// Get all instance and static properties
@@ -186,12 +186,12 @@ namespace Keysharp.Runtime
 
 						if (prop.GetMethod != null)
 						{
-							propertyMap.Get = new FuncObj(prop.GetMethod);
+							propertyMap.Get = new KeysharpFunc(prop.GetMethod);
 						}
 
 						if (prop.SetMethod != null)
 						{
-							propertyMap.Set = new FuncObj(prop.SetMethod);
+							propertyMap.Set = new KeysharpFunc(prop.SetMethod);
 						}
 
 						if (!propertyMap.IsEmpty)
@@ -207,12 +207,12 @@ namespace Keysharp.Runtime
 
 					if (prop.GetMethod != null)
 					{
-						propertyMap.Get = new FuncObj(prop.GetMethod);
+						propertyMap.Get = new KeysharpFunc(prop.GetMethod);
 					}
 
 					if (prop.SetMethod != null)
 					{
-						propertyMap.Set = new FuncObj(prop.SetMethod);
+						propertyMap.Set = new KeysharpFunc(prop.SetMethod);
 					}
 
 					if (!propertyMap.IsEmpty)
@@ -221,23 +221,22 @@ namespace Keysharp.Runtime
 
 				if (t == typeof(Any))
 				{
-					proto.DefinePropInternal("Props", new OwnPropsDesc(proto, null, null, null, new FuncObj((Func<object, object>)Builtins.Objects.Props)));
+					proto.DefinePropInternal("Props", new OwnPropsDesc(proto, null, null, null, new KeysharpFunc((Func<object, object>)Builtins.Objects.Props)));
 				}
 
-				if (t != typeof(FuncObj) && t != typeof(Any))
+				if (t != typeof(KeysharpFunc) && t != typeof(Any))
 					proto.SetBaseInternal(script.Vars.Prototypes[t.BaseType]);
 
 				if (isBuiltin)
 				{
-					string name = t.Name;
-					if (Keywords.TypeNameAliases.ContainsKey(name))
-						name = Keywords.TypeNameAliases[name];
-					proto.DefinePropInternal("__Class", new OwnPropsDesc(proto, name));
+					// A built-in implemented under a different CLR name (KeysharpObject, StructInt32, ...) declares
+					// the name scripts know it by, and that is the name __Class - and so Type() - must report.
+					proto.DefinePropInternal("__Class", new OwnPropsDesc(proto, GetUserDeclaredName(t) ?? t.Name));
 				}
 
 				staticInst.DefinePropInternal("Prototype", new OwnPropsDesc(staticInst, proto));
 
-				if (t != typeof(FuncObj) && t != typeof(Any))
+				if (t != typeof(KeysharpFunc) && t != typeof(Any))
 					staticInst.SetBaseInternal(script.Vars.Statics[t.BaseType]);
 
 				var nestedTypes = t.GetNestedTypes(BindingFlags.Public);
@@ -249,9 +248,9 @@ namespace Keysharp.Runtime
 
 					staticInst.DefinePropInternal(GetUserDeclaredName(nestedType) ?? nestedType.Name,
 						new OwnPropsDesc(staticInst, null,
-							new FuncObj((params object[] args) => script.Vars.Statics[nestedType]),
+							new KeysharpFunc((params object[] args) => script.Vars.Statics[nestedType]),
 							null,
-							new FuncObj((object @this, params object[] args) => Script.Invoke(script.Vars.Statics[nestedType], "Call", args))
+							new KeysharpFunc((object @this, params object[] args) => Script.Invoke(script.Vars.Statics[nestedType], "Call", args))
 						)
 					);
 				}
@@ -260,7 +259,7 @@ namespace Keysharp.Runtime
 				{
 					if (staticInst.op.TryGetValue("__Static", out var __static) && __static.Set != null)
 					{
-						if (__static.Set is IFuncObj ifo)
+						if (__static.Set is KeysharpFunc ifo)
 							ifo.Call((object)staticInst);
 					}
 
@@ -369,7 +368,7 @@ namespace Keysharp.Runtime
 					{
 						if (opm.Set != null)
 						{
-							if (opm.Set is IFuncObj fset)
+							if (opm.Set is KeysharpFunc fset)
 							{
 								// For index setters, just pass the full arglist to the setter
 								_ = fset.CallInst(kso, args);
@@ -383,7 +382,7 @@ namespace Keysharp.Runtime
 						}
 						if (opm.Call != null)
 						{
-							if (opm.Call is IFuncObj fcall)
+							if (opm.Call is KeysharpFunc fcall)
 								_ = fcall.CallInst(kso, args);
 							else
 								_ = Invoke(opm.Call, "Call", kso, args);
@@ -483,7 +482,7 @@ namespace Keysharp.Runtime
 					{
 						if (opm.Get != null)
 						{
-							if (opm.Get is IFuncObj fget)
+							if (opm.Get is KeysharpFunc fget)
 							{
 								return fget.CallInst(item, index);
 							} else

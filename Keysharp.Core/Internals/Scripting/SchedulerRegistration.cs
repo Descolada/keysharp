@@ -52,23 +52,23 @@ namespace Keysharp.Internals.Scripting
 
 	internal class CallbackRegistration : SchedulerRegistration
 	{
-		private IFuncObj callback;
+		private KeysharpFunc callback;
 
-		internal CallbackRegistration(IFuncObj callback = null, ScriptEventScheduler ownerScheduler = null, bool active = false)
+		internal CallbackRegistration(KeysharpFunc callback = null, ScriptEventScheduler ownerScheduler = null, bool active = false)
 			: base(ownerScheduler, active)
 		{
 			this.callback = callback;
 		}
 
-		internal static CallbackRegistration CreateCurrent(IFuncObj callback, long _)
+		internal static CallbackRegistration CreateCurrent(KeysharpFunc callback, long _)
 			=> new(callback, Script.TheScript?.EventScheduler, true);
 
-		internal static CallbackRegistration CreateGlobal(IFuncObj callback, long _)
+		internal static CallbackRegistration CreateGlobal(KeysharpFunc callback, long _)
 			=> new(callback, null, true);
 
-		internal IFuncObj Callback => callback;
+		internal KeysharpFunc Callback => callback;
 
-		internal void Set(IFuncObj callback, ScriptEventScheduler ownerScheduler, bool active)
+		internal void Set(KeysharpFunc callback, ScriptEventScheduler ownerScheduler, bool active)
 		{
 			this.callback = callback;
 			base.Set(ownerScheduler, active);

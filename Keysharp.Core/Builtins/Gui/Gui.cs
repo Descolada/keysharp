@@ -548,7 +548,7 @@ namespace Keysharp.Builtins
 			Script.TheScript.ExitIfNotPersistent();//May not be necessary, but try anyway.
 		}
 
-		public IFuncObj __Enum(object count) => CreateEnumerator(count.Ai());
+		public KeysharpFunc __Enum(object count) => CreateEnumerator(count.Ai());
 
 		public override object __New(params object[] obj)
 		{

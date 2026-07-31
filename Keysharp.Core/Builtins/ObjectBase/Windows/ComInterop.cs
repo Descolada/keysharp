@@ -43,7 +43,7 @@ namespace Keysharp.Builtins
 			List<MethodInfo> meths = [];
 			Any kso = this;
 
-			if (kso is FuncObj sfo && sfo != null)
+			if (kso is KeysharpFunc sfo && sfo != null)
 			{
 				var mi = sfo.Mph.mi;
 				if (mi.GetParameters()
@@ -63,7 +63,7 @@ namespace Keysharp.Builtins
 				foreach (var prop in props)
 				{
 					var opm = prop.Value;
-					if (opm.Call is FuncObj fo && fo != null)
+					if (opm.Call is KeysharpFunc fo && fo != null)
 					{
 						var mi = fo.Mph.mi;
 						if (mi.GetParameters()
@@ -207,7 +207,7 @@ namespace Keysharp.Builtins
 					 || name.Equals("_Item", StringComparison.OrdinalIgnoreCase)
 					 || name.Equals($"[DISPID={DISPID_VALUE}]", StringComparison.OrdinalIgnoreCase))
 			{
-				if ((invokeAttr & BindingFlags.InvokeMethod) != 0 && (target is not FuncObj))
+				if ((invokeAttr & BindingFlags.InvokeMethod) != 0 && (target is not KeysharpFunc))
 					return Com.ConvertToCOMType(Script.Invoke(target ?? this, "Call", usedArgs));
 
 				if (this is Array)
@@ -218,7 +218,7 @@ namespace Keysharp.Builtins
 					}
 				}
 
-				if (target != null && target is FuncObj fo)
+				if (target != null && target is KeysharpFunc fo)
 				{
 					invokeAttr |= BindingFlags.InvokeMethod;
 					name = "Call";
@@ -291,9 +291,9 @@ namespace Keysharp.Builtins
 			// method call
 			if ((invokeAttr & BindingFlags.InvokeMethod) != 0)
 			{
-				FuncObj fo = null!;
+				KeysharpFunc fo = null!;
 				ParameterInfo[] prms = null!;
-				if (target is FuncObj fo2 && name.Equals("Call", StringComparison.OrdinalIgnoreCase))
+				if (target is KeysharpFunc fo2 && name.Equals("Call", StringComparison.OrdinalIgnoreCase))
 				{
 					fo = fo2;
 				}
@@ -308,7 +308,7 @@ namespace Keysharp.Builtins
 					{
 						mitup = GetMethodOrProperty(target, name, -1);
 					}
-					if (mitup.Item2 is FuncObj fo3)
+					if (mitup.Item2 is KeysharpFunc fo3)
 						fo = fo3;
 				}
 				if (fo != null)

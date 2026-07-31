@@ -200,28 +200,28 @@ namespace Keysharp.Runtime
 			*/
 
 			// Initiate necessary base types in specific order
-			InitClass(typeof(FuncObj));
-			// Need to do this so that FuncObj methods contain themselves in the prototype,
+			InitClass(typeof(KeysharpFunc));
+			// Need to do this so that KeysharpFunc methods contain themselves in the prototype,
 			// meaning a circular reference. This shouldn't prevent garbage collection, but
 			// I haven't verified that.
-			var fop = Prototypes[typeof(FuncObj)];
-			FuncObj.PrototypeCall = fop.op["Call"].Call as FuncObj;
+			var fop = Prototypes[typeof(KeysharpFunc)];
+			KeysharpFunc.PrototypeCall = fop.op["Call"].Call as KeysharpFunc;
 			foreach (var op in fop.op)
 			{
 				var opm = op.Value;
-				if (opm.Value is FuncObj fov && fov != null)
+				if (opm.Value is KeysharpFunc fov && fov != null)
 				{
 					fov.SetBaseInternal(fop);
 				}
-				if (opm.Get is FuncObj fog && fog != null)
+				if (opm.Get is KeysharpFunc fog && fog != null)
 				{
 					fog.SetBaseInternal(fop);
 				}
-				if (opm.Set is FuncObj fos && fos != null)
+				if (opm.Set is KeysharpFunc fos && fos != null)
 				{
 					fos.SetBaseInternal(fop);
 				}
-				if (opm.Call is FuncObj foc && foc != null)
+				if (opm.Call is KeysharpFunc foc && foc != null)
 				{
 					foc.SetBaseInternal(fop);
 				}
@@ -244,9 +244,9 @@ namespace Keysharp.Runtime
 			// Object.Base == Any
 			ksoStatic.SetBaseInternal(Statics[typeof(Any)]);
 
-			//FuncObj was initialized when Object wasn't, so define the bases
-			Prototypes[typeof(FuncObj)].SetBaseInternal(Prototypes[typeof(KeysharpObject)]);
-			Statics[typeof(FuncObj)].SetBaseInternal(Statics[typeof(KeysharpObject)]);
+			//KeysharpFunc was initialized when Object wasn't, so define the bases
+			Prototypes[typeof(KeysharpFunc)].SetBaseInternal(Prototypes[typeof(KeysharpObject)]);
+			Statics[typeof(KeysharpFunc)].SetBaseInternal(Statics[typeof(KeysharpObject)]);
 
 			// Runtime module classes are not reflected as script-visible built-ins, but generated
 			// module classes derive from them and therefore need prototype entries.
@@ -257,7 +257,7 @@ namespace Keysharp.Runtime
 			var typesToRemoveSet = new HashSet<Type>(new[]
 			{
 				typeof(Any),
-				typeof(FuncObj),
+				typeof(KeysharpFunc),
 				typeof(KeysharpObject),
 				typeof(Class),
 				typeof(Module),
@@ -280,11 +280,9 @@ namespace Keysharp.Runtime
 					continue;
 
 				var name = Script.GetUserDeclaredName(type) ?? type.Name;
+
 				if (!string.IsNullOrEmpty(name))
 					classTypesByName[name] = type;
-
-				if (Keywords.TypeNameAliases.TryGetValue(type.Name, out var alias))
-					classTypesByName[alias] = type;
 			}
 		}
 

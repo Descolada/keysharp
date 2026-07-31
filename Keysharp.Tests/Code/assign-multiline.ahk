@@ -435,13 +435,13 @@ else
 obj := Map()
 
 If (obj is
-KeysharpObject)
+Object)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
 c := obj is
-KeysharpObject AND
+Object AND
 a
 OR
 b
@@ -452,7 +452,7 @@ else
 	FileAppend "fail", "*"
 
 c := NOT (obj
-is KeysharpObject)
+is Object)
 
 If (!c)
 	FileAppend "pass", "*"

@@ -204,12 +204,12 @@ namespace Keysharp.Builtins
 			var keyname = keyName.As();
 			var label = action.As();
 			var opt = options.As();
-			IFuncObj fo = null;
+			KeysharpFunc fo = null;
 			var hook_action = 0u;
 
 			if (action != null)
 			{
-				fo = Functions.GetFuncObj(action, null);//Don't throw on failure because returning null is a valid action.
+				fo = Functions.GetKeysharpFunc(action, null);//Don't throw on failure because returning null is a valid action.
 				var script = Script.TheScript;
 				var tv = script.Threads.CurrentThread;
 
@@ -355,11 +355,11 @@ break_twice:;
 			if (hotstringOptions.Length > 0)
 				HotstringDefinition.ParseOptions(hotstringOptions, ref lun, ref lun, ref sm, ref caseSensitive, ref un, ref un, ref un, ref sr, ref un, ref detectInsideWord, ref un, ref executeAction, ref un);
 
-			IFuncObj ifunc = null;
+			KeysharpFunc ifunc = null;
 
 			if (replacement != null)
 			{
-				if ((ifunc = Functions.GetFuncObj(replacement, null, false)) is not null)
+				if ((ifunc = Functions.GetKeysharpFunc(replacement, null, false)) is not null)
 				{
 				}
 				else if (executeAction)
@@ -834,7 +834,7 @@ break_twice:;
 
 			if (obj0 != null)
 			{
-				var funcobj = Functions.GetFuncObj(obj0, null, true);
+				var funcobj = Functions.GetKeysharpFunc(obj0, null, true);
 				var cp = HotkeyDefinition.FindHotkeyIfExpr(funcobj);
 
 				if (cp == null && funcobj != null)

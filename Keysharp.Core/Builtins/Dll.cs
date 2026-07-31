@@ -405,7 +405,7 @@ namespace Keysharp.Builtins
 		}
 
 		/// <summary>
-		/// Creates a <see cref="DelegateHolder"/> object that wraps a <see cref="FuncObj"/>.
+		/// Creates a <see cref="DelegateHolder"/> object that wraps a <see cref="KeysharpFunc"/>.
 		/// Passing string pointers to <see cref="DllCall"/> when passing a created callback is strongly recommended against.<br/>
 		/// This is because the string pointer cannot remain pinned, and is likely to crash the program if the pointer gets moved by the GC.
 		/// </summary>
@@ -431,7 +431,7 @@ namespace Keysharp.Builtins
 		/// </returns>
 		public static object CallbackCreate(object function, object options = null, object paramCount = null)
 		{
-			Any fo = function is Any a ? a : (FuncObj)Functions.GetFuncObj(function, null, true);
+			Any fo = function is Any a ? a : (KeysharpFunc)Functions.GetKeysharpFunc(function, null, true);
 			if (fo == null)
 				return Errors.ErrorOccurred("Invalid function");
 
@@ -491,7 +491,7 @@ namespace Keysharp.Builtins
 			}
 
 			int arity = Math.Clamp(paramCount.Ai(-1) < 0
-								   ? (!reference && fo is FuncObj f ? (int)f.MinParams : DelegateHolder.MaxArity)
+								   ? (!reference && fo is KeysharpFunc f ? (int)f.MinParams : DelegateHolder.MaxArity)
 								   : paramCount.Ai(-1), 0, DelegateHolder.MaxArity);
 
 			return new DelegateHolder(fo, arity, fast, reference);

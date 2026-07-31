@@ -681,7 +681,7 @@ namespace Keysharp.Builtins
 		/// <returns>The sorted version of the specified string.</returns>
 		public static string Sort(object str, object options = null, object callback = null)
 		{
-			IFuncObj function = null;
+			KeysharpFunc function = null;
 			var input = str.As();
 			var opts = options.As();
 			var splits = opts.Split(' ');
@@ -777,7 +777,7 @@ namespace Keysharp.Builtins
 			}
 
 			if (callback != null)
-				function = Functions.GetFuncObj(callback, null, true);//If supplied, throw if bad.
+				function = Functions.GetKeysharpFunc(callback, null, true);//If supplied, throw if bad.
 
 			var list = input.Split([split], zopt ? StringSplitOptions.None : StringSplitOptions.RemoveEmptyEntries);
 

@@ -25,7 +25,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 		internal int WorkerCount => Volatile.Read(ref workerCount);
 
-		internal CriterionExecutionStatus Execute(IFuncObj criterion, HotCriterionEnum criterionType,
+		internal CriterionExecutionStatus Execute(KeysharpFunc criterion, HotCriterionEnum criterionType,
 			string hotkeyName, object eventInfo, long deadlineTimestamp, out long value, out Exception error)
 		{
 			ArgumentNullException.ThrowIfNull(criterion);
@@ -86,7 +86,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal int RecordRejection()
 			=> Volatile.Read(ref disposed) != 0 ? 0 : Interlocked.Increment(ref rejectionCount);
 
-		private Worker TryAcquireExisting(IFuncObj criterion, HotCriterionEnum criterionType,
+		private Worker TryAcquireExisting(KeysharpFunc criterion, HotCriterionEnum criterionType,
 			string hotkeyName, object eventInfo)
 		{
 			var count = Volatile.Read(ref workerCount);
@@ -118,7 +118,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			private readonly Thread thread;
 			private Exception completedError;
 			private long completedValue;
-			private IFuncObj criterion;
+			private KeysharpFunc criterion;
 			private HotCriterionEnum criterionType;
 			private object eventInfo;
 			private string hotkeyName;
@@ -136,7 +136,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 			internal void Start() => thread.Start();
 
-			internal bool TryBegin(IFuncObj newCriterion, HotCriterionEnum newCriterionType,
+			internal bool TryBegin(KeysharpFunc newCriterion, HotCriterionEnum newCriterionType,
 				string newHotkeyName, object newEventInfo)
 			{
 				lock (gate)
@@ -215,7 +215,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			{
 				while (true)
 				{
-					IFuncObj currentCriterion;
+					KeysharpFunc currentCriterion;
 					HotCriterionEnum currentCriterionType;
 					string currentHotkeyName;
 					object currentEventInfo;

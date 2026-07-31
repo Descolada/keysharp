@@ -117,7 +117,7 @@ namespace Keysharp.Runtime
 						if (opm.Value != null) return (item, opm.Value);
 						if (opm.Set != null) return (item, opm.Set);
 
-						return Errors.ErrorOccurred(err = new Error($"Attempting to get method or property {key} on object {opm} failed."))
+						return Errors.ErrorOccurred(err = new Error($"Attempting to get method or property {key} on object {Errors.Describe(opm)} failed."))
 							   ? throw err : (null, null);
 					}
 
@@ -177,7 +177,7 @@ namespace Keysharp.Runtime
 			}
 
 			if (throwIfMissing)
-				_ = Errors.ErrorOccurred($"Attempting to get method or property {key} on object {item} failed.");
+				_ = Errors.ErrorOccurred($"Attempting to get method or property {key} on object {Errors.Describe(item)} failed.");
 
 			return (null, null);
 		}
@@ -238,7 +238,7 @@ namespace Keysharp.Runtime
 						if (opm.Get != null)
 						{
 							// Allow function or callable object
-							if (opm.Get is FuncObj ifo)
+							if (opm.Get is KeysharpFunc ifo)
 								return args.Length > 0 && opm.NoParamGet ? GetIndexOrNull(ifo.Call(item), args) : ifo.CallInst(item, args);
 							else
 								return Invoke(opm.Get, "Call", item, args);
@@ -316,7 +316,7 @@ namespace Keysharp.Runtime
 				{
 					var target = opm.Call ?? opm.Value;
 
-					if (target is IFuncObj f)
+					if (target is KeysharpFunc f)
 					{
 						// Direct lifecycle method
 						return parameters == null ? f.Call(actualThis) : f.CallInst(actualThis, parameters);
@@ -362,17 +362,17 @@ namespace Keysharp.Runtime
 
 				switch (mitup.Item2)
 				{
-					case IFuncObj fn:
+					case KeysharpFunc fn:
 						// Meta-call marker: Item1 == null ? this is __Call
 						if (mitup.Item1 == null)
 							return fn.Call(actualThis, methName, new Keysharp.Builtins.Array(parameters));
 
 						// Fast path: if it's an unmodified Call method then call the actual function directly
 						if (methName.Equals("Call", StringComparison.OrdinalIgnoreCase)
-							&& obj is IFuncObj direct
+							&& obj is KeysharpFunc direct
 							&& direct.IsValid
-							&& fn is FuncObj fo
-							&& (fo == FuncObj.PrototypeCall || fo.DeclaringType?.IsAssignableFrom(obj.GetType()) == true))
+							&& fn is KeysharpFunc fo
+							&& (fo == KeysharpFunc.PrototypeCall || fo.DeclaringType?.IsAssignableFrom(obj.GetType()) == true))
 							return direct.Call(parameters);
 
 						// Regular callable
@@ -405,7 +405,7 @@ namespace Keysharp.Runtime
 
 		public static bool IsCallable(object item)
 		{
-			if (item is FuncObj || item is IMetaObject)
+			if (item is KeysharpFunc || item is IMetaObject)
 				return true;
 			else if (item is KeysharpObject kso)
 				return Functions.HasProp(kso, "Call") != 0L || Functions.HasProp(kso, "__Call") != 0L;
@@ -414,7 +414,7 @@ namespace Keysharp.Runtime
 
 		public static bool IsStrictCallable(object item)
 		{
-			if (item is FuncObj)
+			if (item is KeysharpFunc)
 				return true;
 			else if (item is KeysharpObject kso)
 				return Functions.HasProp(kso, "Call") != 0L;
@@ -464,7 +464,7 @@ namespace Keysharp.Runtime
 						// Setter function or callable object
 						if (own.Set != null)
 						{
-							if (own.Set is FuncObj f)
+							if (own.Set is KeysharpFunc f)
 							{
 								_ = args.Length > 1 && own.NoParamSet
 									? SetObject(f.Call(item), args)
@@ -508,7 +508,7 @@ namespace Keysharp.Runtime
 						if (opm.StructField != null && item is Struct setStruct)
 							return setStruct.SetFieldValue(opm.StructField, value);
 
-						if (opm.Set is FuncObj fset)
+						if (opm.Set is KeysharpFunc fset)
 						{
 							_ = args.Length > 1 && opm.NoParamSet
 								? SetObject(fset.Call(item), args)
@@ -546,7 +546,7 @@ namespace Keysharp.Runtime
 					// __Set meta (function or callable object), only if no Set/Get/Value is found
 					else if (TryGetOwnPropsMap(kso, "__Set", out var protoSet) && (protoSet.Call ?? protoSet.Value) is object metaSet)
 					{
-						if (metaSet is IFuncObj f)
+						if (metaSet is KeysharpFunc f)
 							_ = f.Call(item, namestr, new Keysharp.Builtins.Array(GetIndexArgs(args)), value);
 						else
 							_ = Invoke(metaSet, "Call", item, namestr, new Keysharp.Builtins.Array(GetIndexArgs(args)), value);

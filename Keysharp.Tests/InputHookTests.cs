@@ -115,7 +115,7 @@ namespace Keysharp.Tests
 			var context = UseQueuedMainContext();
 			var calls = new List<(long dx, long dy, object info)>();
 			var io = (InputObject)Input.InputHook("");
-			io.OnMouseMove = new FuncObj((Func<object, object, object, object>)((_, dx, dy) =>
+			io.OnMouseMove = new KeysharpFunc((Func<object, object, object, object>)((_, dx, dy) =>
 			{
 				calls.Add((dx.Al(), dy.Al(), ThreadAccessors.A_EventInfo));
 				return 0L;

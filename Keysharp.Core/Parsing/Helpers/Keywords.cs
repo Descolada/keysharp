@@ -82,13 +82,6 @@ namespace Keysharp.Parsing
 		public const string AutoExecSectionName = "AutoExecSection";
 		public const string MainScriptVariableName = "MainScript";
 
-		public static Dictionary<string, string> TypeNameAliases = new(StringComparer.OrdinalIgnoreCase)
-		{
-			{ "KeysharpFile", "File" },
-			{ "KeysharpObject", "Object" },
-			{ "FuncObj", "Func" }
-		};
-
 		internal static FrozenSet<string> ClassReservedKeywords = FrozenSet.Create(StringComparer.OrdinalIgnoreCase,
 				"Call", "__New", "__Init", "__Get", "__Set", "__Item", "__Class", "__StaticInit");
 

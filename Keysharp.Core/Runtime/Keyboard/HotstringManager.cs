@@ -7,7 +7,7 @@ namespace Keysharp.Runtime.Keyboard
 	{
 		public static object AddHotstring(
 			string name,
-			IFuncObj funcObj,
+			KeysharpFunc funcObj,
 			ReadOnlySpan<char> options,
 			string hotstring,
 			string replacement,

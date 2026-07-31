@@ -8,22 +8,22 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Creates a function object by searching for a method within the script if funcName was a string.
 		/// The search is done by matching the object type, name and parameter count.
-		/// If funcName was a delegate, then a new <see cref="FuncObj"/> is returned using delegate.Method.
-		/// If funcName was already an <see cref="IFuncObj"/>, then it's just casted and returned.
+		/// If funcName was a delegate, then a new <see cref="KeysharpFunc"/> is returned using delegate.Method.
+		/// If funcName was already an <see cref="KeysharpFunc"/>, then it's just casted and returned.
 		/// Static functions use null for the object.
 		/// </summary>
-		/// <param name="funcName">The name, delegate or IFuncObj of the method.</param>
+		/// <param name="funcName">The name, delegate or KeysharpFunc of the method.</param>
 		/// <param name="obj">The object to call the method on. Default: null for static functions.</param>
 		/// <param name="paramCount">The number of parameters the method has. Default: use the first method found.</param>
-		/// <returns>An <see cref="IFuncObj"/> which can later be called like a function.</returns>
+		/// <returns>An <see cref="KeysharpFunc"/> which can later be called like a function.</returns>
 		[PublicHiddenFromUser]
-		public static IFuncObj Func(object funcName, object obj = null, object paramCount = null) => GetFuncObj(funcName, obj, paramCount, obj != null);
+		public static KeysharpFunc Func(object funcName, object obj = null, object paramCount = null) => GetKeysharpFunc(funcName, obj, paramCount, obj != null);
 		[PublicHiddenFromUser]
-		public static IFuncObj Func(object funcName, Type t, object paramCount = null) => GetFuncObj(funcName, t, paramCount, t != null);
+		public static KeysharpFunc Func(object funcName, Type t, object paramCount = null) => GetKeysharpFunc(funcName, t, paramCount, t != null);
 		[PublicHiddenFromUser]
-		public static IFuncObj Func(Delegate del, object obj = null) => GetFuncObj(del, obj, null, obj != null);
+		public static KeysharpFunc Func(Delegate del, object obj = null) => GetKeysharpFunc(del, obj, null, obj != null);
 		[PublicHiddenFromUser]
-		public static IFuncObj Closure(Delegate del, object obj = null) => new Closure(del, obj);
+		public static KeysharpFunc Closure(Delegate del, object obj = null) => new Closure(del, obj);
 
 		/// <summary>
 		/// Internal helper to get a function object which supports different ways of identifying such.
@@ -31,14 +31,14 @@ namespace Keysharp.Builtins
 		/// <param name="h">The object to examine. This can be a string or an existing function object.</param>
 		/// <param name="eventObj">The object to find the method on.</param>
 		/// <param name="throwIfBad">Whether throw an exception if the method could not be found. Default: false.</param>
-		/// <returns>An <see cref="IFuncObj"/> which may be a newly recreated one, or h if it was already one.</returns>
+		/// <returns>An <see cref="KeysharpFunc"/> which may be a newly recreated one, or h if it was already one.</returns>
 		/// <exception cref="MethodError">A <see cref="MethodError"/> exception is thrown if a function object couldn't be created</exception>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if h was not a string or existing function object.</exception>
 		[PublicHiddenFromUser]
-		public static IFuncObj GetFuncObj(object h, object eventObj, object paramCount = null, bool throwIfBad = false)
+		public static KeysharpFunc GetKeysharpFunc(object h, object eventObj, object paramCount = null, bool throwIfBad = false)
 		{
-			IFuncObj del = null;
-			var cachedFuncObj = Script.TheScript.FunctionData.cachedFuncObj;
+			KeysharpFunc del = null;
+			var cachedKeysharpFunc = Script.TheScript.FunctionData.cachedKeysharpFunc;
 			var moduleType = eventObj as Type;
 			if (moduleType == null && eventObj == null)
 				moduleType = Script.TheScript.CurrentModuleType;
@@ -48,34 +48,34 @@ namespace Keysharp.Builtins
 				if (s.Length > 0)
 				{
 					// A currently-executing deref function exposes its locals/closures by name. Resolve a closure (a
-					// live FuncObj instance, possibly capturing locals) ahead of the module/global tables — these are
+					// live KeysharpFunc instance, possibly capturing locals) ahead of the module/global tables — these are
 					// per-invocation and must never be cached. Only for a bare name (no explicit object/module target).
 					if (eventObj == null)
 					{
 						var scope = Script.executingUserFunc;
-						if (scope != null && scope.TryGetVar(s, out var scopeVal) && scopeVal is IFuncObj scopeFo && scopeFo.IsValid)
+						if (scope != null && scope.TryGetVar(s, out var scopeVal) && scopeVal is KeysharpFunc scopeFo && scopeFo.IsValid)
 							return scopeFo;
 					}
 
 					if (moduleType != null)
 					{
 						var key = new ModuleFuncKey(s, moduleType, paramCount.Ai(-1));
-						del = Script.TheScript.FunctionData.cachedModuleFuncObj.GetOrAdd(
+						del = Script.TheScript.FunctionData.cachedModuleKeysharpFunc.GetOrAdd(
 							key,
-							(k) => new FuncObj(s, moduleType, paramCount)
+							(k) => new KeysharpFunc(s, moduleType, paramCount)
 						);
 						if (!del.IsValid)
 						{
 							// Fall back to global/built-in functions when the module doesn't define the method.
-							del = cachedFuncObj.GetOrAdd(s, (key) => new FuncObj(s, (object)null, paramCount));
+							del = cachedKeysharpFunc.GetOrAdd(s, (key) => new KeysharpFunc(s, (object)null, paramCount));
 						}
 					}
 					else if (eventObj != null)
 					{
-						del = new FuncObj(s, eventObj, paramCount);
+						del = new KeysharpFunc(s, eventObj, paramCount);
 					}
 					else
-						del = cachedFuncObj.GetOrAdd(s, (key) => new FuncObj(s, eventObj, paramCount));
+						del = cachedKeysharpFunc.GetOrAdd(s, (key) => new KeysharpFunc(s, eventObj, paramCount));
 
 					if (!del.IsValid)
 					{
@@ -89,7 +89,7 @@ namespace Keysharp.Builtins
 					}
 				}//Empty string will just return null, which is a valid value in some cases.
 			}
-			else if (h is IFuncObj fo)
+			else if (h is KeysharpFunc fo)
 			{
 				del = fo;
 
@@ -107,9 +107,9 @@ namespace Keysharp.Builtins
 			else if (h is Delegate d)
 			{
 				if (moduleType == null)
-					del = new FuncObj(d, eventObj);
+					del = new KeysharpFunc(d, eventObj);
 				else
-					del = cachedFuncObj.GetOrAdd(d, (key) => new FuncObj(d, eventObj));
+					del = cachedKeysharpFunc.GetOrAdd(d, (key) => new KeysharpFunc(d, eventObj));
 
 				if (!del.IsValid)
 				{
@@ -124,7 +124,7 @@ namespace Keysharp.Builtins
 			}
 			else if (throwIfBad)
 			{
-				_ = Errors.TypeErrorOccurred(h, typeof(FuncObj));
+				_ = Errors.TypeErrorOccurred(h, typeof(KeysharpFunc));
 				return null;
 			}
 
@@ -139,7 +139,7 @@ namespace Keysharp.Builtins
 		/// Otherwise, specify the name of the method to retrieve.
 		/// </param>
 		/// <param name="paramCount">The number of parameters the method has. Default: use the first method found.</param>
-		/// <returns>An <see cref="IFuncObj"/> which can later be called like a method.</returns>
+		/// <returns>An <see cref="KeysharpFunc"/> which can later be called like a method.</returns>
 		/// <exception cref="MethodError">A <see cref="MethodError"/> exception is thrown if the method cannot be found.</exception>
 		public static object GetMethod(object value, object name = null, object paramCount = null)
 		{
@@ -149,7 +149,7 @@ namespace Keysharp.Builtins
 			var mph = Reflections.FindAndCacheMethod(v.GetType(), n.Length > 0 ? n : "Call", count);
 
 			if (mph != null && mph.mi != null)
-				return new FuncObj(mph.mi, null);
+				return new KeysharpFunc(mph.mi, null);
 
 			return Script.CompatReturnsUnsetForMissing ? null
 				: Errors.MethodErrorOccurred($"Unable to retrieve method {n} from object of type {v.GetType()} with parameter count {count}.");
@@ -174,10 +174,10 @@ namespace Keysharp.Builtins
 			if (mitup.Item2 == null) return 0L;
 			switch (mitup.Item2)
 			{
-				case FuncObj fn:
+				case KeysharpFunc fn:
 					if (count != -1)
 					{
-						bool hasThis = value is FuncObj ? false : value is KeysharpObject ? true : fn.IsMethod;
+						bool hasThis = value is KeysharpFunc ? false : value is KeysharpObject ? true : fn.IsMethod;
 						if (count < (fn.MinParams - (hasThis ? 1 : 0))) return 0L;
 						if (count > (fn.MaxParams - (hasThis ? 1 : 0)) && !fn.IsVariadic) return 0L;
 					}
@@ -289,7 +289,7 @@ namespace Keysharp.Builtins
 
 	internal class FunctionData
 	{
-		internal ConcurrentLfu<object, IFuncObj> cachedFuncObj = new (Environment.ProcessorCount, 2000, new ThreadPoolScheduler(), new CaseEqualityComp(eCaseSense.Off));
-		internal ConcurrentLfu<ModuleFuncKey, IFuncObj> cachedModuleFuncObj = new (Environment.ProcessorCount, 2000, new ThreadPoolScheduler(), new ModuleFuncKeyComparer());
+		internal ConcurrentLfu<object, KeysharpFunc> cachedKeysharpFunc = new (Environment.ProcessorCount, 2000, new ThreadPoolScheduler(), new CaseEqualityComp(eCaseSense.Off));
+		internal ConcurrentLfu<ModuleFuncKey, KeysharpFunc> cachedModuleKeysharpFunc = new (Environment.ProcessorCount, 2000, new ThreadPoolScheduler(), new ModuleFuncKeyComparer());
 	}
 }

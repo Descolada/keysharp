@@ -791,7 +791,7 @@ namespace Keysharp.Builtins
 				if (arg is string && (pt == typeof(string) || pt.FullName == "System.ReadOnlySpan`1[System.Char]"))
 				{ score += 1; continue; }
 
-				if (favorDelegates && arg is FuncObj fo && IsDelegateType(pt))
+				if (favorDelegates && arg is KeysharpFunc fo && IsDelegateType(pt))
 				{
 					int arity = DelegateArity(pt);
 
@@ -884,7 +884,7 @@ namespace Keysharp.Builtins
 			return v is byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal;
 		}
 		private static bool IsDelegateType(Type t) => typeof(Delegate).IsAssignableFrom(t);
-		private static bool IsCallableLike(object a) => a is IFuncObj || (a is Any kso && Functions.HasMethod(kso) != 0L);
+		private static bool IsCallableLike(object a) => a is KeysharpFunc || (a is Any kso && Functions.HasMethod(kso) != 0L);
 		private static bool IsComparerLike(Type t)
 		{
 			if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(IComparer<>)) return true;
@@ -956,7 +956,7 @@ namespace Keysharp.Builtins
 			if (target != null && typeof(Delegate).IsAssignableFrom(target))
 			{
 				if (value is null) return null;
-				// value is a Keysharp callable (IFuncObj, KeysharpObject, etc.)
+				// value is a Keysharp callable (KeysharpFunc, KeysharpObject, etc.)
 				return ClrDelegateMarshaler.FromKeysharpFunc(target, value);
 			}
 

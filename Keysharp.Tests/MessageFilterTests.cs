@@ -10,7 +10,7 @@ namespace Keysharp.Tests
 		private static MsgMonitor CreateMonitor(Func<object, object, object, object, object> callback, int maxInstances = 1)
 		{
 			var monitor = new MsgMonitor();
-			monitor.ModifyRegistration(new FuncObj(callback), maxInstances);
+			monitor.ModifyRegistration(new KeysharpFunc(callback), maxInstances);
 			return monitor;
 		}
 
@@ -146,12 +146,12 @@ namespace Keysharp.Tests
 			var order = new List<string>();
 			const int msgId = 0x8005;
 			var monitor = new MsgMonitor();
-			monitor.ModifyRegistration(new FuncObj((Func<object, object, object, object, object>)((wParam, lParam, msg, hwnd) =>
+			monitor.ModifyRegistration(new KeysharpFunc((Func<object, object, object, object, object>)((wParam, lParam, msg, hwnd) =>
 			{
 				order.Add("A");
 				return 0L;
 			})), 1);
-			monitor.ModifyRegistration(new FuncObj((Func<object, object, object, object, object>)((wParam, lParam, msg, hwnd) =>
+			monitor.ModifyRegistration(new KeysharpFunc((Func<object, object, object, object, object>)((wParam, lParam, msg, hwnd) =>
 			{
 				order.Add("B");
 				return 0L;
@@ -185,12 +185,12 @@ namespace Keysharp.Tests
 			var order = new List<string>();
 			const int msgId = 0x8006;
 			var monitor = new MsgMonitor();
-			monitor.ModifyRegistration(new FuncObj((Func<object, object, object, object, object>)((wParam, lParam, msg, hwnd) =>
+			monitor.ModifyRegistration(new KeysharpFunc((Func<object, object, object, object, object>)((wParam, lParam, msg, hwnd) =>
 			{
 				order.Add("A");
 				return 0L;
 			})), 1);
-			monitor.ModifyRegistration(new FuncObj((Func<object, object, object, object, object>)((wParam, lParam, msg, hwnd) =>
+			monitor.ModifyRegistration(new KeysharpFunc((Func<object, object, object, object, object>)((wParam, lParam, msg, hwnd) =>
 			{
 				order.Add("B");
 				return 7L;

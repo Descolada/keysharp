@@ -14,24 +14,7 @@ namespace Keysharp.Builtins
 		void set_Item(object[] indexArgs, object value);
 	}
 
-	public interface IFuncObj
-    {
-        public object Inst { get; set; }
-		public bool IsBuiltIn { get; }
-		public bool IsValid { get; }
-		public string Name { get; }
-
-		public IFuncObj Bind(params object[] obj);
-
-        public object Call(params object[] obj);
-		public object CallInst(object inst, params object[] obj);
-
-        public bool IsByRef(object obj = null);
-
-		public bool IsOptional(object obj = null);
-	}
-
-	public class BoundFunc : FuncObj
+	public class BoundFunc : KeysharpFunc
 	{
 		internal object[] boundargs;
 
@@ -78,7 +61,7 @@ namespace Keysharp.Builtins
 		[PublicHiddenFromUser]
 		public override int GetHashCode() => RuntimeHelpers.GetHashCode(this);
 
-		public override IFuncObj Bind(params object[] args)
+		public override KeysharpFunc Bind(params object[] args)
 		{
 			object[] newbound = new object[boundargs.Length + args.Length];
 			System.Array.Copy(boundargs, newbound, boundargs.Length);
@@ -159,42 +142,48 @@ namespace Keysharp.Builtins
 		}
 	}
 
-	public class Closure : FuncObj
+	public class Closure : KeysharpFunc
 	{
         internal Closure(Delegate m, object o = null) : base(m, o) { }
     }
 
-	public class FuncObj : KeysharpObject, IFuncObj
+	/// <summary>
+	/// A callable object. The C# type is not named <c>Func</c> because that name belongs to
+	/// <see cref="System.Func{TResult}"/> and its overloads; scripts see it as <c>Func</c> via
+	/// <see cref="UserDeclaredNameAttribute"/>.
+	/// </summary>
+	[UserDeclaredName("Func")]
+	public class KeysharpFunc : KeysharpObject
 	{
 		protected MethodInfo mi;
 		internal MethodPropertyHolder mph;
 		private readonly Type moduleType;
 
-		internal static FuncObj PrototypeCall = null;
+		internal static KeysharpFunc PrototypeCall = null;
 
 		[PublicHiddenFromUser]
 		public object Inst { get; set; }
 		internal Type DeclaringType => mi?.DeclaringType;
 		public bool IsClosure => Inst != null && mi.DeclaringType?.DeclaringType == Inst.GetType();
 		public bool IsMethod => (mi != null && !mi.IsStatic) || (mph != null && mph.parameters?.First().Name == "@this");
-		public bool IsBuiltIn => mi?.DeclaringType.Namespace != TheScript.ProgramType.Namespace;
-		public bool IsValid => (mi != null && mph != null && mph.CallFunc != null) || (Inst is Any && mph.memberInfo == null);
-		public string Name => mph.Name;
+		public virtual bool IsBuiltIn => mi?.DeclaringType.Namespace != TheScript.ProgramType.Namespace;
+		public virtual bool IsValid => (mi != null && mph != null && mph.CallFunc != null) || (Inst is Any && mph.memberInfo == null);
+		public virtual string Name => mph.Name;
 		public bool IsVariadic => mph.variadicParamIndex != -1;
 		public long MaxParams { get; internal set; } = 0;
 		public long MinParams { get; internal set; } = 0;
 		internal int VariadicIndex => mph.variadicParamIndex;
 		internal MethodPropertyHolder Mph => mph;
 
-		internal FuncObj(string s, object o = null, object paramCount = null)
+		internal KeysharpFunc(string s, object o = null, object paramCount = null)
 			: this(GetMethodInfo(s, o, paramCount), o)
 		{
 		}
 
-		public FuncObj(params object[] args) : base(args) { }
+		public KeysharpFunc(params object[] args) : base(args) { }
 
 		public static object staticCall(object @this, object funcName, object obj = null, object paramCount = null)
-			=> Functions.GetFuncObj(funcName, obj, paramCount, obj != null);
+			=> Functions.GetKeysharpFunc(funcName, obj, paramCount, obj != null);
 
         private static MethodInfo GetMethodInfo(string s, object o, object paramCount)
         {
@@ -203,7 +192,7 @@ namespace Keysharp.Builtins
 				if (o is not Type)
 				{
 					var mitup = Script.GetMethodOrProperty(o, s, paramCount.Ai(-1));
-					if (mitup.Item2 is FuncObj fo)
+					if (mitup.Item2 is KeysharpFunc fo)
 						return fo.mph.mi;
 					else if (mitup.Item2 is MethodPropertyHolder mph)
 						return mph.mi;
@@ -220,17 +209,17 @@ namespace Keysharp.Builtins
             return Reflections.FindMethod(s, paramCount.Ai(-1))?.mi;
         }
 
-        internal FuncObj(string s, string t, object paramCount = null)
+        internal KeysharpFunc(string s, string t, object paramCount = null)
 		: this(Reflections.FindAndCacheMethod(Script.TheScript.ReflectionsData.stringToTypes[t], s, paramCount.Ai(-1)))
         {
         }
 
-        internal FuncObj(string s, Type t, object paramCount = null)
+        internal KeysharpFunc(string s, Type t, object paramCount = null)
 		: this(Reflections.FindAndCacheMethod(t, s, paramCount.Ai(-1)))
         {
         }
 
-		internal FuncObj(MethodPropertyHolder m, object o = null) : base()
+		internal KeysharpFunc(MethodPropertyHolder m, object o = null) : base()
 		{
 			mph = m;
 			mi = m?.mi;
@@ -244,17 +233,17 @@ namespace Keysharp.Builtins
 			}
 		}
 
-		internal FuncObj(Delegate m, object o = null)
+		internal KeysharpFunc(Delegate m, object o = null)
 		: this(m?.GetMethodInfo(), o)
         {
 			this.Inst = o ?? m.Target;
         }
 
-		internal FuncObj(MethodInfo m, object o = null) : this(m == null ? null : MethodPropertyHolder.GetOrAdd(m), o)
+		internal KeysharpFunc(MethodInfo m, object o = null) : this(m == null ? null : MethodPropertyHolder.GetOrAdd(m), o)
 		{
 		}
 
-		public virtual IFuncObj Bind(params object[] args)
+		public virtual KeysharpFunc Bind(params object[] args)
 		=> new BoundFunc(mph, args, Inst);
 
 		public virtual object Call(params object[] obj)
@@ -348,7 +337,7 @@ namespace Keysharp.Builtins
 		{
 			if (obj is BoundFunc)
 				return false; // BoundFunc has its own Equals override and considers all instances unique
-			return obj is FuncObj fo ? fo.mi == mi && fo.Inst == Inst : false;
+			return obj is KeysharpFunc fo ? fo.mi == mi && fo.Inst == Inst : false;
 		}
 
 		[PublicHiddenFromUser]
@@ -361,7 +350,7 @@ namespace Keysharp.Builtins
 			}
 		}
 
-		public bool IsByRef(object obj = null)
+		public virtual bool IsByRef(object obj = null)
 		{
 			var index = obj.Ai();
 			var funcParams = mi.GetParameters();
@@ -383,7 +372,7 @@ namespace Keysharp.Builtins
 			return false;
 		}
 
-		public bool IsOptional(object obj = null)
+		public virtual bool IsOptional(object obj = null)
 		{
 			var index = obj.Ai();
 			var funcParams = mi.GetParameters();

@@ -170,7 +170,7 @@ namespace Keysharp.Builtins
 		/// </param>
 		public static object OnExit(object callback, object addRemove = null)
 		{
-			Script.TheScript.onExitHandlers.ModifyGlobalEventHandlers(Functions.GetFuncObj(callback, null, true), addRemove.Al(1L));
+			Script.TheScript.onExitHandlers.ModifyGlobalEventHandlers(Functions.GetKeysharpFunc(callback, null, true), addRemove.Al(1L));
 			return DefaultObject;
 		}
 
@@ -194,7 +194,7 @@ namespace Keysharp.Builtins
 			var mt = maxThreads.Al(1);
 			var gd = Script.TheScript.GuiData;
 			var monitor = gd.onMessageHandlers.GetOrAdd(msg);
-			monitor.ModifyRegistration(Functions.GetFuncObj(callback, null, true), mt);
+			monitor.ModifyRegistration(Functions.GetKeysharpFunc(callback, null, true), mt);
 
 			if (mt == 0 && monitor.IsEmpty)
 				_ = gd.onMessageHandlers.TryRemove(msg, out var _);
@@ -279,7 +279,7 @@ namespace Keysharp.Builtins
 			var p = period.Al(long.MaxValue);
 			var pri = priority.Al();
 			var once = p < 0;
-			var func = default(IFuncObj);
+			var func = default(KeysharpFunc);
 			var script = Script.TheScript;
 			var ownerScheduler = script.EventScheduler;
 			ScriptTimerState timer = null;
@@ -291,10 +291,10 @@ namespace Keysharp.Builtins
 				timer = script.Threads.CurrentThread.currentTimer;//This means: use the timer which has already been created for this thread/timer event which we are currently inside of.
 			else
 			{
-				func = Functions.GetFuncObj(f, null);
+				func = Functions.GetKeysharpFunc(f, null);
 
 				if (func == null)
-					return (long)Errors.TypeErrorOccurred(f, typeof(FuncObj));
+					return (long)Errors.TypeErrorOccurred(f, typeof(KeysharpFunc));
 
 				timer = script.FlowData.timers.Find(func, ownerScheduler);
 			}

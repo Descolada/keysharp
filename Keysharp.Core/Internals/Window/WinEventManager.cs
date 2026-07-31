@@ -14,7 +14,7 @@ namespace Keysharp.Internals.Window
 		internal readonly SearchCriteria criteria;            // null => match any window
 		internal readonly WindowSearchOptions inheritedOptions;
 		internal readonly bool detectHidden;                  // effective DetectHiddenWindows for this subscription
-		internal readonly IFuncObj callback;
+		internal readonly KeysharpFunc callback;
 		internal readonly ScriptEventScheduler ownerScheduler;
 		internal readonly CallbackRegistration registration;
 		internal object scriptObject;                         // the Ks.WinEvent wrapper (callback arg 1)
@@ -40,7 +40,7 @@ namespace Keysharp.Internals.Window
 		/// <summary>True for any subscription that maintains a matching-window set (Exist/NotExist).</summary>
 		internal bool TracksMembership => matchingWindows != null;
 
-		internal WinEventRegistration(WindowEventType type, SearchCriteria criteria, IFuncObj callback, long count, ScriptEventScheduler ownerScheduler)
+		internal WinEventRegistration(WindowEventType type, SearchCriteria criteria, KeysharpFunc callback, long count, ScriptEventScheduler ownerScheduler)
 		{
 			this.type = type;
 			this.criteria = criteria;

@@ -1,5 +1,11 @@
 namespace Keysharp.Builtins
 {
+	/// <summary>
+	/// A file opened for input/output. The C# type is named <c>KeysharpFile</c> to avoid colliding with
+	/// <see cref="System.IO.File"/>; scripts see it as <c>File</c> via
+	/// <see cref="UserDeclaredNameAttribute"/>.
+	/// </summary>
+	[UserDeclaredName("File")]
 	public class KeysharpFile : KeysharpObject, IDisposable
 	{
 		private Encoding enc;

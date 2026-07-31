@@ -20,7 +20,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		, detectWhenInsideWord, doReset, suspendExempt, constructedOK;
 
 		internal uint existingThreads, maxThreads;
-		internal IFuncObj hotCriterion;
+		internal KeysharpFunc hotCriterion;
 		internal long inputLevel;
 		internal long priority, keyDelay;
 		private readonly CallbackRegistration callbackRegistration = new();
@@ -58,7 +58,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		public string Sequence { get; }
 
 		public bool SuspendExempt => suspendExempt;
-		internal IFuncObj funcObj
+		internal KeysharpFunc funcObj
 		{
 			get => callbackRegistration.Callback;
 			set => callbackRegistration.Set(value, callbackRegistration.OwnerScheduler, suspended == 0 && value != null);
@@ -92,7 +92,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			//EndChars = defEndChars;
 		}
 
-		internal HotstringDefinition(string _name, IFuncObj _funcObj, ReadOnlySpan<char> _options, string _hotstring, string _replacement
+		internal HotstringDefinition(string _name, KeysharpFunc _funcObj, ReadOnlySpan<char> _options, string _hotstring, string _replacement
 									 , bool _hasContinuationSection, int _suspend)
 
 		{
@@ -282,7 +282,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 		internal bool AnyThreadsAvailable() => existingThreads < maxThreads;
 
-		internal bool CompareHotstring(ReadOnlySpan<char> _hotstring, bool _caseSensitive, bool _detectWhenInsideWord, IFuncObj _hotCriterion)
+		internal bool CompareHotstring(ReadOnlySpan<char> _hotstring, bool _caseSensitive, bool _detectWhenInsideWord, KeysharpFunc _hotCriterion)
 		{
 			// hs.mEndCharRequired is not checked because although it affects the conditions for activating
 			// the hotstring, ::abbrev:: and :*:abbrev:: cannot co-exist (the latter would always take over).

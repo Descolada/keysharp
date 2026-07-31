@@ -439,7 +439,7 @@ namespace Keysharp.Runtime
 			if (obj is Enumerator enumerator)
 				return enumerator;
 
-			if (obj is IFuncObj funcObj)
+			if (obj is KeysharpFunc funcObj)
 				return new Enumerator(obj, ct, funcObj);
 
 			if (obj is I__Enum ienum)
@@ -460,7 +460,7 @@ namespace Keysharp.Runtime
 			{
 				if (kso.op != null && kso.op.TryGetValue("__Enum", out var map))
 				{
-					if (map.Call != null && map.Call is IFuncObj ifocall)
+					if (map.Call != null && map.Call is KeysharpFunc ifocall)
 					{
 						return NormalizeEnumerator(ifocall.Call(obj, count), obj, ct);
 					}
@@ -486,7 +486,7 @@ namespace Keysharp.Runtime
 			if (obj is Enumerator enumerator)
 				return enumerator;
 
-			if (obj is IFuncObj funcObj)
+			if (obj is KeysharpFunc funcObj)
 				return new Enumerator(source, count, funcObj);
 
 			_ = Errors.TypeErrorOccurred(obj, typeof(Enumerator));

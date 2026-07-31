@@ -96,7 +96,7 @@ namespace Keysharp.Internals.Threading
 		// per-pseudo-thread save slot used at the interrupt boundary, so an interrupting thread (timer/hotkey) starts
 		// with no scope and the interrupted one is restored on return.
 		internal Keysharp.Runtime.FuncScope savedExecScope;
-		internal IFuncObj hotCriterion;
+		internal KeysharpFunc hotCriterion;
 		internal long hwndLastUsed = 0;
 		internal long lastFoundForm;
 		private Random randomGenerator;

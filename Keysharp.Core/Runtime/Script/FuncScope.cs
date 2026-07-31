@@ -3,10 +3,10 @@ namespace Keysharp.Runtime
 	/// <summary>
 	/// Exposes the variables of a currently-executing user function to code outside its C# frame — primarily
 	/// closure resolution by name (e.g. a RegEx callout that names a closure, via
-	/// <see cref="Keysharp.Builtins.Functions.GetFuncObj"/>) and ListVars enumeration.<br/>
+	/// <see cref="Keysharp.Builtins.Functions.GetKeysharpFunc"/>) and ListVars enumeration.<br/>
 	/// A scope-publishing function (one that uses <c>%name%</c>, or calls a scope-consuming builtin) installs one
 	/// in its prologue through <see cref="Script.EnterScope"/>, over its generated reader/writer lambdas. It is held
-	/// <c>[ThreadStatic]</c> on <see cref="Script.executingUserFunc"/>; <see cref="Keysharp.Builtins.FuncObj.Call"/>
+	/// <c>[ThreadStatic]</c> on <see cref="Script.executingUserFunc"/>; <see cref="Keysharp.Builtins.KeysharpFunc.Call"/>
 	/// clears it on entry to any user function and restores it on return, so the scope visible at any point is the
 	/// nearest enclosing user function — and only that one. The pseudo-thread push/pop resets and restores it across
 	/// an interrupt boundary, so an interrupting thread (timer/hotkey) starts with none while a synchronous callout
@@ -30,7 +30,7 @@ namespace Keysharp.Runtime
 
 		/// <summary>The function's user-declared name, for the ListVars header (empty for an anonymous lambda). The
 		/// Lowerer passes it as a literal to <see cref="Script.EnterScope"/> — it knows the name at the emission site,
-		/// and this is the scope's only consumer of it, so there is no need to carry the live FuncObj.</summary>
+		/// and this is the scope's only consumer of it, so there is no need to carry the live KeysharpFunc.</summary>
 		public readonly string Name;
 
 		private readonly Reader reader;

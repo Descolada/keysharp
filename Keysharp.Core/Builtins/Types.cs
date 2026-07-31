@@ -277,30 +277,64 @@ namespace Keysharp.Builtins
 		/// <returns>The class name of value.</returns>
 		public static string Type(object value)
 		{
-			if (value != null)
+			if (value == null)
+				return "unset";
+
+			// This must never throw: Type also names values in error messages and ListVars output, where an
+			// exception would replace the diagnostic being reported. Any failure falls back to the CLR name.
+			try
 			{
-				string type = null;
-				if (value is KeysharpObject kso && kso.op != null) {
+				if (value is KeysharpObject kso && kso.op != null)
+				{
 					if (kso.op.ContainsKey("__Class"))
 						return "Prototype";
-                    else if (Script.GetPropertyValueOrNull(kso, "__Class") is object oname && oname is string name && name != null)
-						type = name;
-                    else
-						return "Object";
-				} else
-					type = value.GetType().Name;
 
-				return type switch
+					if (Script.GetPropertyValueOrNull(kso, "__Class") is string name)
+						return AhkName(name);
+
+					return "Object";
+				}
+			}
+			catch (Exception)
 			{
-					"Double" => "Float",
-					"Int64" => "Integer",
-					"Boolean" => "Integer",
-					"KeysharpObject" => "Object",
-					_ => type,
-			};
+			}
+
+			return TypeName(value.GetType());
 		}
-		else
-			return "unset";
+
+		/// <summary>
+		/// Returns the name a script knows a type by: the name declared through
+		/// <see cref="UserDeclaredNameAttribute"/> when the type is implemented under a different CLR name
+		/// (KeysharpObject, StructInt32, ...), else its CLR name. Never throws.
+		/// </summary>
+		/// <param name="type">The type to name.</param>
+		/// <returns>The script-visible name of type.</returns>
+		internal static string TypeName(System.Type type)
+		{
+			if (type == null)
+				return "unset";
+
+			try
+			{
+				return AhkName(Script.GetUserDeclaredName(type) ?? type.Name);
+			}
+			catch (Exception)
+			{
+				return type.Name;
+			}
+		}
+
+		/// <summary>
+		/// Maps the CLR name of a type with no class of its own to the AHK name for its values.
+		/// </summary>
+		/// <param name="name">A CLR or declared type name.</param>
+		/// <returns>The AHK name for that type.</returns>
+		private static string AhkName(string name) => name switch
+		{
+			"Double" => "Float",
+			"Int64" => "Integer",
+			"Boolean" => "Integer",
+			_ => name,
+		};
 	}
-}
 }

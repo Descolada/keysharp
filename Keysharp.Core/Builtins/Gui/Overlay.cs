@@ -194,7 +194,7 @@ namespace Keysharp.Builtins
 			public object Redraw(object callback, object newX = null, object newY = null, object newW = null, object newH = null)
 			{
 				if (RejectRedrawMutation()) return this;
-				if (callback is not IFuncObj f)
+				if (callback is not KeysharpFunc f)
 					return Errors.ValueErrorOccurred("Overlay.Redraw requires a callable object.");
 
 				var nextX = newX != null ? newX.Ai() : x;

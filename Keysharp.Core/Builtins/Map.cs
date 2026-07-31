@@ -222,7 +222,7 @@ namespace Keysharp.Builtins
 		///     2: Return the key in the first element, and the value in the second.
 		/// </param>
 		/// <returns><see cref="Enumerator"/></returns>
-		public IFuncObj __Enum(object count) => CreateEnumerator(count.Ai());
+		public KeysharpFunc __Enum(object count) => CreateEnumerator(count.Ai());
 
 		public new static object staticCall(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
 

@@ -6,7 +6,7 @@ namespace Keysharp.Internals.Threading
 {
 	internal sealed class ScriptTimerState : CallbackRegistration
 	{
-		internal ScriptTimerState(IFuncObj callback, ScriptEventScheduler ownerScheduler)
+		internal ScriptTimerState(KeysharpFunc callback, ScriptEventScheduler ownerScheduler)
 			: base(callback, ownerScheduler, true)
 		{
 		}
@@ -20,7 +20,7 @@ namespace Keysharp.Internals.Threading
 		internal bool DeletePending { get; set; }
 	}
 
-	internal sealed class ScriptTimerKeyComparer : IEqualityComparer<(IFuncObj Callback, ScriptEventScheduler OwnerScheduler)>
+	internal sealed class ScriptTimerKeyComparer : IEqualityComparer<(KeysharpFunc Callback, ScriptEventScheduler OwnerScheduler)>
 	{
 		internal static readonly ScriptTimerKeyComparer Instance = new();
 
@@ -28,10 +28,10 @@ namespace Keysharp.Internals.Threading
 		{
 		}
 
-		public bool Equals((IFuncObj Callback, ScriptEventScheduler OwnerScheduler) x, (IFuncObj Callback, ScriptEventScheduler OwnerScheduler) y)
+		public bool Equals((KeysharpFunc Callback, ScriptEventScheduler OwnerScheduler) x, (KeysharpFunc Callback, ScriptEventScheduler OwnerScheduler) y)
 			=> Equals(x.Callback, y.Callback) && ReferenceEquals(x.OwnerScheduler, y.OwnerScheduler);
 
-		public int GetHashCode((IFuncObj Callback, ScriptEventScheduler OwnerScheduler) obj)
+		public int GetHashCode((KeysharpFunc Callback, ScriptEventScheduler OwnerScheduler) obj)
 		{
 			unchecked
 			{
@@ -47,7 +47,7 @@ namespace Keysharp.Internals.Threading
 		// thread's (it has no period of its own). Small so it fires promptly once the higher-priority thread ends.
 		private const long PriorityBlockedRetryMs = 15;
 		private readonly object gate = new();
-		private readonly Dictionary<(IFuncObj Callback, ScriptEventScheduler OwnerScheduler), ScriptTimerState> timers = new(ScriptTimerKeyComparer.Instance);
+		private readonly Dictionary<(KeysharpFunc Callback, ScriptEventScheduler OwnerScheduler), ScriptTimerState> timers = new(ScriptTimerKeyComparer.Instance);
 		private readonly AutoResetEvent wakeEvent = new(false);
 		private Thread timerThread;
 		private bool disposed;
@@ -85,7 +85,7 @@ namespace Keysharp.Internals.Threading
 			}
 		}
 
-		internal ScriptTimerState Find(IFuncObj callback, ScriptEventScheduler ownerScheduler)
+		internal ScriptTimerState Find(KeysharpFunc callback, ScriptEventScheduler ownerScheduler)
 		{
 			if (callback == null)
 				return null;
@@ -96,7 +96,7 @@ namespace Keysharp.Internals.Threading
 			}
 		}
 
-		internal ScriptTimerState Upsert(IFuncObj callback, ScriptEventScheduler ownerScheduler, long periodMs, bool runOnce, long priority)
+		internal ScriptTimerState Upsert(KeysharpFunc callback, ScriptEventScheduler ownerScheduler, long periodMs, bool runOnce, long priority)
 		{
 			ArgumentNullException.ThrowIfNull(callback);
 

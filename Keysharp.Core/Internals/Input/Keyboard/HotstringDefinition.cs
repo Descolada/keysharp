@@ -102,7 +102,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			hotCriterion = script.Threads.CurrentThread.hotCriterion;
 			suspended = _suspend;
 			ownerScheduler = script.EventScheduler;
-			maxThreads = A_MaxThreadsPerHotkey.Aui();  // The value of g_MaxThreadsPerHotkey can vary during load-time.
+			maxThreads = Ks.A_MaxThreadsPerHotkey.Aui();  // The value of g_MaxThreadsPerHotkey can vary during load-time.
 			priority = hm.hsPriority;
 			keyDelay = hm.hsKeyDelay;
 			sendMode = hm.hsSendMode;  // And all these can vary too.
@@ -114,7 +114,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			endCharRequired = hm.hsEndCharRequired;
 			detectWhenInsideWord = hm.hsDetectWhenInsideWord;
 			doReset = hm.hsDoReset;
-			inputLevel = (long)A_InputLevel;
+			inputLevel = (long)Ks.A_InputLevel;
 			suspendExempt = Keysharp.Builtins.Ks.A_SuspendExempt.Ab();
 			constructedOK = false;
 			var unusedX = false; // do not assign  mReplacement if execute_action is true.

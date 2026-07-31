@@ -1647,17 +1647,17 @@ namespace Keysharp.Parsing.Syntax
 
 			switch (d.Name.ToUpperInvariant())
 			{
-				case "CLIPBOARDTIMEOUT": return Set("Keysharp.Builtins.Accessors.A_ClipboardTimeout", NumArg(1000));
-				case "HOTIFTIMEOUT": return Set("Keysharp.Builtins.Accessors.A_HotIfTimeout",
+				case "CLIPBOARDTIMEOUT": return Set("Keysharp.Builtins.Ks.A_ClipboardTimeout", NumArg(1000));
+				case "HOTIFTIMEOUT": return Set("Keysharp.Builtins.Ks.A_HotIfTimeout",
 						NumArg(Keysharp.Builtins.Accessors.DefaultHotIfTimeout));
-				case "INPUTLEVEL": return Set("Keysharp.Builtins.Accessors.A_InputLevel", NumArg(0));   // setter clamps 0..100
+				case "INPUTLEVEL": return Set("Keysharp.Builtins.Ks.A_InputLevel", NumArg(0));   // setter clamps 0..100
 				case "SUSPENDEXEMPT": return Set("Keysharp.Builtins.Ks.A_SuspendExempt", NumArg(1));   // on Ks; setter ForceBools
 				case "MAXTHREADSBUFFER":
-					return Set("Keysharp.Builtins.Accessors.A_MaxThreadsBuffer",
+					return Set("Keysharp.Builtins.Ks.A_MaxThreadsBuffer",
 						Num(args.Equals("false", System.StringComparison.OrdinalIgnoreCase) || args == "0" ? "0" : "1"));
 				case "MAXTHREADSPERHOTKEY":
 					long.TryParse(args, out var mtph);
-					return Set("Keysharp.Builtins.Accessors.A_MaxThreadsPerHotkey", Num(System.Math.Clamp(mtph, 1, 255).ToString()));
+					return Set("Keysharp.Builtins.Ks.A_MaxThreadsPerHotkey", Num(System.Math.Clamp(mtph, 1, 255).ToString()));
 				case "USEHOOK": return Set("MainScript.ForceKeybdHook", Op("ForceBool", NumArg(0)));
 				// #NoTrayIcon: recorded here and applied at the top of Main (see BuildMain), before any tray
 				// chrome is created. Emitting it inline in the auto-exec section runs too late -- the default

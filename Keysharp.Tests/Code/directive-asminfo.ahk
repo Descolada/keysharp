@@ -1,3 +1,4 @@
+#Import Ks { A_AsmCompany, A_AsmConfiguration, A_AsmCopyright, A_AsmDescription, A_AsmProduct, A_AsmTitle, A_AsmTrademark, A_AsmVersion }
 #NoTrayIcon
 
 #ASSEMBLYTITLE This is a title!

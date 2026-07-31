@@ -1,3 +1,4 @@
+#Import Ks { A_ClipboardTimeout }
 #NoTrayIcon
 
 x := 11

@@ -27,20 +27,6 @@ namespace Keysharp.Builtins
 	{
 		internal const long DefaultHotIfTimeout = 250L;
 
-		/// <summary>
-		/// The version of the assembly that was used to compile the script that is currently running.
-		/// This queries the AssemblyBuildVersionAttribute of the generated code, which is automatically added by the script compiler
-		/// to match the version of the program the script compiler is being run from.
-		/// This allows for a consistent value whether compiling and running a script, or running a compilex exe.
-		/// </summary>
-		public static string A_AhkBuildVersion
-		{
-			get
-			{
-				var ver = GetAssembly().GetCustomAttribute<AssemblyBuildVersionAttribute>();
-				return ver != null ? ver.Version : "";
-			}
-		}
 
 		/// <summary>
 		/// The full path of the assembly that is currently executing.
@@ -105,101 +91,13 @@ namespace Keysharp.Builtins
 		/// </summary>
 		public static Array A_Args { get; internal set; } = [];
 
-		/// <summary>
-		/// The company of the assembly that is currently executing, specified with the #ASSEMBLYCOMPANY directive.
-		/// </summary>
-		public static string A_AsmCompany
-		{
-			get
-			{
-				var ver = GetAssembly().GetCustomAttribute<AssemblyCompanyAttribute>();
-				return ver != null ? ver.Company : DefaultObject;
-			}
-		}
 
-		/// <summary>
-		/// The configuration of the assembly that is currently executing, specified with the #ASSEMBLYCONFIGURATION directive.
-		/// </summary>
-		public static string A_AsmConfiguration
-		{
-			get
-			{
-				var ver = GetAssembly().GetCustomAttribute<AssemblyConfigurationAttribute>();
-				return ver != null ? ver.Configuration : DefaultObject;
-			}
-		}
 
-		/// <summary>
-		/// The copyright of the assembly that is currently executing, specified with the #ASSEMBLYCOPYRIGHT directive.
-		/// </summary>
-		public static string A_AsmCopyright
-		{
-			get
-			{
-				var ver = GetAssembly().GetCustomAttribute<AssemblyCopyrightAttribute>();
-				return ver != null ? ver.Copyright : DefaultObject;
-			}
-		}
 
-		/// <summary>
-		/// The description of the assembly that is currently executing, specified with the #ASSEMBLYDESCRIPTION directive.
-		/// </summary>
-		public static string A_AsmDescription
-		{
-			get
-			{
-				var ver = GetAssembly().GetCustomAttribute<AssemblyDescriptionAttribute>();
-				return ver != null ? ver.Description : DefaultObject;
-			}
-		}
 
-		/// <summary>
-		/// The product of the assembly that is currently executing, specified with the #ASSEMBLYPRODUCT directive.
-		/// </summary>
-		public static string A_AsmProduct
-		{
-			get
-			{
-				var ver = GetAssembly().GetCustomAttribute<AssemblyProductAttribute>();
-				return ver != null ? ver.Product : DefaultObject;
-			}
-		}
 
-		/// <summary>
-		/// The title of the assembly that is currently executing, specified with the #ASSEMBLYTITLE directive.
-		/// </summary>
-		public static string A_AsmTitle
-		{
-			get
-			{
-				var ver = GetAssembly().GetCustomAttribute<AssemblyTitleAttribute>();
-				return ver != null ? ver.Title : DefaultObject;
-			}
-		}
 
-		/// <summary>
-		/// The trademark of the assembly that is currently executing, specified with the #ASSEMBLYTRADEMARK directive.
-		/// </summary>
-		public static string A_AsmTrademark
-		{
-			get
-			{
-				var ver = GetAssembly().GetCustomAttribute<AssemblyTrademarkAttribute>();
-				return ver != null ? ver.Trademark : "";
-			}
-		}
 
-		/// <summary>
-		/// The version of the assembly that is currently executing, specified with the #ASSEMBLVERSION directive.
-		/// </summary>
-		public static string A_AsmVersion
-		{
-			get
-			{
-				var ver = GetAssembly().GetCustomAttribute<AssemblyFileVersionAttribute>();//For some reason it likes AssemblyFileVersionAttribute better than AssemblyVersionAttribute.
-				return ver != null ? ver.Version : DefaultObject;
-			}
-		}
 
 		/// <summary>
 		/// The data on the clipboard.
@@ -226,10 +124,6 @@ namespace Keysharp.Builtins
 			}
 		}
 
-		/// <summary>
-		/// The time in milliseconds to wait when reading the clipboard before a timeout is triggered.
-		/// </summary>
-		public static object A_ClipboardTimeout { get; set; } = 1000L;
 
 		/// <summary>
 		/// The name of the computer as seen on the network.
@@ -520,10 +414,6 @@ namespace Keysharp.Builtins
 		/// </summary>
 		public static object A_HotIf => (Script.TheScript.Threads.CurrentThread.hotCriterion as KeysharpFunc) ?? (object)DefaultObject;
 
-		/// <summary>
-		/// The maximum time allowed for a #HotIf criterion evaluation.
-		/// </summary>
-		public static object A_HotIfTimeout { get; set; } = DefaultHotIfTimeout;
 
 		/// <summary>
 		/// The rate in milliseconds of hotkey activations beyond which a warning dialog will be displayed.
@@ -644,14 +534,6 @@ namespace Keysharp.Builtins
 		/// </summary>
 		public static string A_InitialWorkingDir => Script.TheScript.AccessorData.initialWorkingDir;
 
-		/// <summary>
-		/// The default input level to use for subsequently created hotkeys and hotstrings.
-		/// </summary>
-		public static object A_InputLevel
-		{
-			get => Script.TheScript.AccessorData.inputLevel;
-			set => Script.TheScript.AccessorData.inputLevel = Math.Clamp(value.ToLong(), 0L, 100L);
-		}
 
 		/// <summary>
 		/// Whether the script is running on a 64-bit operating system. Always true.
@@ -731,14 +613,6 @@ namespace Keysharp.Builtins
 		/// </summary>
 		public static bool A_IsPaused => ThreadAccessors.A_IsPaused;
 
-		/// <summary>
-		/// True if the script is persistent.
-		/// </summary>
-		public static object A_IsPersistent
-		{
-			get => TheScript.persistent;
-			set => TheScript.persistent = ForceBool(value);
-		}
 
 		/// <summary>
 		/// Only for compatibility with AHK, C# programs are always unicode.
@@ -792,10 +666,6 @@ namespace Keysharp.Builtins
 			set => ThreadAccessors.A_KeyDurationPlay = value.ToLong();
 		}
 
-		/// <summary>
-		/// <see cref="A_AhkPath"/>.
-		/// </summary>
-		public static string A_KeysharpPath => A_AhkPath;
 
 		/// <summary>
 		/// ListLines is never true.
@@ -1038,36 +908,6 @@ namespace Keysharp.Builtins
 			}
 		}
 
-		/// <summary>
-		/// The current object key in a fpr-each loop.
-		/// </summary>
-		public static object A_LoopKey
-		{
-			get
-			{
-				var s = Loops.LoopStack;
-
-				if (s.Count == 0)
-					return DefaultObject;
-
-				foreach (var l in s)
-				{
-					switch (l.type)
-					{
-						case LoopType.Each:
-							{
-								if (!(l.result is object[]))
-									return DefaultObject;
-
-								var pair = (object[])l.result;
-								return pair[0];
-							}
-					}
-				}
-
-				return DefaultObject;
-			}
-		}
 
 		/// <summary>
 		/// The contents of the current line in a file read loop excluding the carriage return and linefeed (`r`n) that marks the end of the line.
@@ -1212,17 +1052,7 @@ namespace Keysharp.Builtins
 			set => Script.TheScript.AccessorData.maxHotkeysPerInterval = value.ToLong();
 		}
 
-		/// <summary>
-		/// The value specified by #MaxThreadsBuffer.
-		/// Causes some or all hotkeys to buffer rather than ignore keypresses when their #MaxThreadsPerHotkey limit has been reached.
-		/// </summary>
-		public static object A_MaxThreadsBuffer { get; set; } = 0L;
 
-		/// <summary>
-		/// The value specified by #MaxThreadsPerHotkey.
-		/// The maximum number of simultaneous threads per hotkey or hotstring.
-		/// </summary>
-		public static object A_MaxThreadsPerHotkey { get; set; } = 1L;
 
 		/// <summary>
 		/// Current 2-digit day of the month (01-31).
@@ -1302,10 +1132,6 @@ namespace Keysharp.Builtins
 		/// </summary>
 		public static string A_MyDocuments => Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
-		/// <summary>
-		/// The native newline string, i.e. "\n" on linux, "\r\n" on Windows.
-		/// </summary>
-		public static string A_NewLine => Environment.NewLine;
 
 		/// <summary>
 		/// The current local time in YYYYMMDDHH24MISS format.
@@ -1340,10 +1166,6 @@ namespace Keysharp.Builtins
 		/// </summary>
 		public static string A_PriorHotkey => Script.TheScript.priorHotkeyName;
 
-		/// <summary>
-		/// The default priority to use for each thread.
-		/// </summary>
-		public static object A_Priority { get; set; } = 0L;
 
 		/// <summary>
 		/// The last key typed.
@@ -1860,6 +1682,212 @@ namespace Keysharp.Builtins
 			}
 		}
 
+
+	}
+
+	public partial class Ks
+	{
+
+		// Keysharp additions which have no AutoHotkey equivalent. They live here rather than in
+		// Accessors so that a script's global namespace stays identical to AutoHotkey's; scripts
+		// reach them with #Import Ks.
+		/// <summary>
+		/// The version of the assembly that was used to compile the script that is currently running.
+		/// This queries the AssemblyBuildVersionAttribute of the generated code, which is automatically added by the script compiler
+		/// to match the version of the program the script compiler is being run from.
+		/// This allows for a consistent value whether compiling and running a script, or running a compilex exe.
+		/// </summary>
+		public static string A_AhkBuildVersion
+		{
+			get
+			{
+				var ver = GetAssembly().GetCustomAttribute<AssemblyBuildVersionAttribute>();
+				return ver != null ? ver.Version : "";
+			}
+		}
+
+		/// <summary>
+		/// The company of the assembly that is currently executing, specified with the #ASSEMBLYCOMPANY directive.
+		/// </summary>
+		public static string A_AsmCompany
+		{
+			get
+			{
+				var ver = GetAssembly().GetCustomAttribute<AssemblyCompanyAttribute>();
+				return ver != null ? ver.Company : DefaultObject;
+			}
+		}
+
+		/// <summary>
+		/// The configuration of the assembly that is currently executing, specified with the #ASSEMBLYCONFIGURATION directive.
+		/// </summary>
+		public static string A_AsmConfiguration
+		{
+			get
+			{
+				var ver = GetAssembly().GetCustomAttribute<AssemblyConfigurationAttribute>();
+				return ver != null ? ver.Configuration : DefaultObject;
+			}
+		}
+
+		/// <summary>
+		/// The copyright of the assembly that is currently executing, specified with the #ASSEMBLYCOPYRIGHT directive.
+		/// </summary>
+		public static string A_AsmCopyright
+		{
+			get
+			{
+				var ver = GetAssembly().GetCustomAttribute<AssemblyCopyrightAttribute>();
+				return ver != null ? ver.Copyright : DefaultObject;
+			}
+		}
+
+		/// <summary>
+		/// The description of the assembly that is currently executing, specified with the #ASSEMBLYDESCRIPTION directive.
+		/// </summary>
+		public static string A_AsmDescription
+		{
+			get
+			{
+				var ver = GetAssembly().GetCustomAttribute<AssemblyDescriptionAttribute>();
+				return ver != null ? ver.Description : DefaultObject;
+			}
+		}
+
+		/// <summary>
+		/// The product of the assembly that is currently executing, specified with the #ASSEMBLYPRODUCT directive.
+		/// </summary>
+		public static string A_AsmProduct
+		{
+			get
+			{
+				var ver = GetAssembly().GetCustomAttribute<AssemblyProductAttribute>();
+				return ver != null ? ver.Product : DefaultObject;
+			}
+		}
+
+		/// <summary>
+		/// The title of the assembly that is currently executing, specified with the #ASSEMBLYTITLE directive.
+		/// </summary>
+		public static string A_AsmTitle
+		{
+			get
+			{
+				var ver = GetAssembly().GetCustomAttribute<AssemblyTitleAttribute>();
+				return ver != null ? ver.Title : DefaultObject;
+			}
+		}
+
+		/// <summary>
+		/// The trademark of the assembly that is currently executing, specified with the #ASSEMBLYTRADEMARK directive.
+		/// </summary>
+		public static string A_AsmTrademark
+		{
+			get
+			{
+				var ver = GetAssembly().GetCustomAttribute<AssemblyTrademarkAttribute>();
+				return ver != null ? ver.Trademark : "";
+			}
+		}
+
+		/// <summary>
+		/// The version of the assembly that is currently executing, specified with the #ASSEMBLVERSION directive.
+		/// </summary>
+		public static string A_AsmVersion
+		{
+			get
+			{
+				var ver = GetAssembly().GetCustomAttribute<AssemblyFileVersionAttribute>();//For some reason it likes AssemblyFileVersionAttribute better than AssemblyVersionAttribute.
+				return ver != null ? ver.Version : DefaultObject;
+			}
+		}
+
+		/// <summary>
+		/// The time in milliseconds to wait when reading the clipboard before a timeout is triggered.
+		/// </summary>
+		public static object A_ClipboardTimeout { get; set; } = 1000L;
+
+		/// <summary>
+		/// The maximum time allowed for a #HotIf criterion evaluation.
+		/// </summary>
+		public static object A_HotIfTimeout { get; set; } = DefaultHotIfTimeout;
+
+		/// <summary>
+		/// The default input level to use for subsequently created hotkeys and hotstrings.
+		/// </summary>
+		public static object A_InputLevel
+		{
+			get => Script.TheScript.AccessorData.inputLevel;
+			set => Script.TheScript.AccessorData.inputLevel = Math.Clamp(value.ToLong(), 0L, 100L);
+		}
+
+		/// <summary>
+		/// True if the script is persistent.
+		/// </summary>
+		public static object A_IsPersistent
+		{
+			get => TheScript.persistent;
+			set => TheScript.persistent = ForceBool(value);
+		}
+
+		/// <summary>
+		/// <see cref="A_AhkPath"/>.
+		/// </summary>
+		public static string A_KeysharpPath => A_AhkPath;
+
+		/// <summary>
+		/// The current object key in a fpr-each loop.
+		/// </summary>
+		public static object A_LoopKey
+		{
+			get
+			{
+				var s = Loops.LoopStack;
+
+				if (s.Count == 0)
+					return DefaultObject;
+
+				foreach (var l in s)
+				{
+					switch (l.type)
+					{
+						case LoopType.Each:
+							{
+								if (!(l.result is object[]))
+									return DefaultObject;
+
+								var pair = (object[])l.result;
+								return pair[0];
+							}
+					}
+				}
+
+				return DefaultObject;
+			}
+		}
+
+		/// <summary>
+		/// The value specified by #MaxThreadsBuffer.
+		/// Causes some or all hotkeys to buffer rather than ignore keypresses when their #MaxThreadsPerHotkey limit has been reached.
+		/// </summary>
+		public static object A_MaxThreadsBuffer { get; set; } = 0L;
+
+		/// <summary>
+		/// The value specified by #MaxThreadsPerHotkey.
+		/// The maximum number of simultaneous threads per hotkey or hotstring.
+		/// </summary>
+		public static object A_MaxThreadsPerHotkey { get; set; } = 1L;
+
+		/// <summary>
+		/// The native newline string, i.e. "\n" on linux, "\r\n" on Windows.
+		/// </summary>
+		public static string A_NewLine => Environment.NewLine;
+
+		/// <summary>
+		/// The default priority to use for each thread.
+		/// </summary>
+		public static object A_Priority { get; set; } = 0L;
+
 		/// <summary>
 		/// The height of the working area of the primary screen.
 		/// </summary>
@@ -1883,10 +1911,7 @@ namespace Keysharp.Builtins
 				catch { return 0L; }
 			}
 		}
-	}
 
-	public partial class Ks
-	{
 		/// <summary>
 		/// Gets or sets the current thread's message-check interval in milliseconds.
 		/// </summary>

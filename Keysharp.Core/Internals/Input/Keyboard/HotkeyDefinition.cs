@@ -1433,7 +1433,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 			var script = Script.TheScript;
 			var executor = script.HookThread.HotCriterionExecutor;
-			var deadline = GetHotCriterionDeadline(hookDeadline, A_HotIfTimeout.Ad());
+			var deadline = GetHotCriterionDeadline(hookDeadline, Ks.A_HotIfTimeout.Ad());
 			var status = executor.Execute(criterion, criterionType, hotkeyName, eventInfo,
 				deadline, out var value, out var error);
 
@@ -2169,9 +2169,9 @@ namespace Keysharp.Internals.Input.Keyboard
 				// mNextVariant
 				// mExistingThreads
 				// mPriority (default priority is always 0)
-				maxThreads = A_MaxThreadsPerHotkey.Aui(),    // The values of these can vary during load-time.
-				maxThreadsBuffer = A_MaxThreadsBuffer.Ab(),
-				inputLevel = (long)A_InputLevel,
+				maxThreads = Ks.A_MaxThreadsPerHotkey.Aui(),    // The values of these can vary during load-time.
+				maxThreadsBuffer = Ks.A_MaxThreadsBuffer.Ab(),
+				inputLevel = (long)Ks.A_InputLevel,
 				hotCriterion = Script.TheScript.Threads.CurrentThread.hotCriterion, // If this hotkey is an alt-tab one (mHookAction), this is stored but ignored until/unless the Hotkey command converts it into a non-alt-tab hotkey.
 				suspendExempt = Keysharp.Builtins.Ks.A_SuspendExempt.Ab(),
 				noSuppress = _noSuppress,

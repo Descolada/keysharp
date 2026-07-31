@@ -221,7 +221,7 @@ namespace Keysharp.Builtins
 			// directory of Keysharp.Core.dll, where the Scripts folder is also copied in build output.
 			static string ResolveBundledScript(string name)
 			{
-				foreach (var baseDir in new[] { Path.GetDirectoryName(A_KeysharpPath), Path.GetDirectoryName(Ks.A_KeysharpCorePath) })
+				foreach (var baseDir in new[] { Path.GetDirectoryName(Ks.A_KeysharpPath), Path.GetDirectoryName(Ks.A_KeysharpCorePath) })
 				{
 					if (string.IsNullOrEmpty(baseDir))
 						continue;
@@ -246,7 +246,7 @@ namespace Keysharp.Builtins
 
 				if (spy == null)
 				{
-					_ = Dialogs.MsgBox($"Window Spy script not found in a Scripts folder beside:\n{A_KeysharpPath}\nor\n{Ks.A_KeysharpCorePath}", "Keysharp", "Icon!");
+					_ = Dialogs.MsgBox($"Window Spy script not found in a Scripts folder beside:\n{Ks.A_KeysharpPath}\nor\n{Ks.A_KeysharpCorePath}", "Keysharp", "Icon!");
 					return DefaultObject;
 				}
 
@@ -266,7 +266,7 @@ namespace Keysharp.Builtins
 
 				if (spy == null)
 				{
-					_ = Dialogs.MsgBox($"{accessibilitySpyName} accessibility inspector script not found in a Scripts folder beside:\n{A_KeysharpPath}\nor\n{Ks.A_KeysharpCorePath}", "Keysharp", "Icon!");
+					_ = Dialogs.MsgBox($"{accessibilitySpyName} accessibility inspector script not found in a Scripts folder beside:\n{Ks.A_KeysharpPath}\nor\n{Ks.A_KeysharpCorePath}", "Keysharp", "Icon!");
 					return DefaultObject;
 				}
 

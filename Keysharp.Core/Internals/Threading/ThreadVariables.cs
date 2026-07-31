@@ -187,7 +187,7 @@ namespace Keysharp.Internals.Threading
 			lastFoundForm = 0;
 			randomGenerator = null;
 			_ = (regsb?.Clear());
-			priority = (long)A_Priority;
+			priority = (long)Ks.A_Priority;
 			lastPeekTick = Environment.TickCount;
 			threadId = 0;
 			pseudoThreadId = 0L;

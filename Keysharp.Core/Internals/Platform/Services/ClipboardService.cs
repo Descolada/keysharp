@@ -764,7 +764,7 @@ namespace Keysharp.Internals
 		public string GetText()
 		{
 			// OpenClipboard/CloseClipboard honors A_ClipboardTimeout under the Win32 single-owner lock.
-			if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))
+			if (WindowsAPI.OpenClipboard(Keysharp.Builtins.Ks.A_ClipboardTimeout.Al()))
 			{
 				// Whether plain text is present, captured while we still hold the clipboard open (stable — no other
 				// process can be mid-update). Scopes the retry below so empty/non-text clipboards are never delayed.
@@ -816,7 +816,7 @@ namespace Keysharp.Internals
 
 		public void SetText(string text)
 		{
-			if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))
+			if (WindowsAPI.OpenClipboard(Keysharp.Builtins.Ks.A_ClipboardTimeout.Al()))
 			{
 				// A single raw Win32 transaction (EmptyClipboard + SetClipboardData) fires WM_CLIPBOARDUPDATE exactly
 				// once, matching AutoHotkey. Clipboard.SetDataObject(copy:true) would instead do OleSetClipboard then
@@ -943,7 +943,7 @@ namespace Keysharp.Internals
 
 			try
 			{
-				if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))//Need to leave it open for it to work when using the Windows API.
+				if (WindowsAPI.OpenClipboard(Keysharp.Builtins.Ks.A_ClipboardTimeout.Al()))//Need to leave it open for it to work when using the Windows API.
 				{
 					wasOpened = true;
 					_ = WindowsAPI.EmptyClipboard();
@@ -991,7 +991,7 @@ namespace Keysharp.Internals
 		{
 			if (format != 0)
 			{
-				if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))
+				if (WindowsAPI.OpenClipboard(Keysharp.Builtins.Ks.A_ClipboardTimeout.Al()))
 				{
 					byte[] buf;
 					nint gLock = 0;

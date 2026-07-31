@@ -1,3 +1,4 @@
+#Import Ks { A_AsmCompany, A_AsmConfiguration, A_AsmCopyright, A_AsmDescription, A_AsmProduct, A_AsmTitle, A_AsmTrademark, A_AsmVersion }
 #include "directive-header-asminfo.ahk"
 
 if (A_AsmTitle == "This is a title!")

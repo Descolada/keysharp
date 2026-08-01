@@ -3375,6 +3375,9 @@ namespace Keysharp.Parsing.Syntax
 		// ---- hotkeys / hotstrings / remaps ----
 
 		private static readonly ExpressionSyntax UintZero = SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(0u));
+		private const string CopilotDeclarationAlias = "Copilot";
+		private const string CopilotDeclarationChord = "<#<+F23";
+		private const uint CopilotFirmwareModifiersLR = KeyboardUtils.MOD_LWIN | KeyboardUtils.MOD_LSHIFT;
 
 		// Strips the trailing `::` from a raw trigger, restores a dangling backtick, and resolves AHK escapes
 		// (matches the canonical VisitHotkey/VisitHotstring trigger handling).
@@ -3383,6 +3386,40 @@ namespace Keysharp.Parsing.Syntax
 			var t = rawWithColons.Substring(0, rawWithColons.Length - 2);   // strip trailing `::`
 			if (t.Length > 0 && t[^1] == '`' && (t.Length < 2 || t[^2] != '`')) t += '`';
 			return Keysharp.Parsing.Parser.EscapedString(t, true);
+		}
+
+		// Copilot is a declaration-time convenience alias, not a key name. Expanding it here keeps runtime
+		// APIs such as Send, KeyWait, GetKeyState and Hotkey() honest while still allowing the concise spelling
+		// in static hotkeys, custom combinations and remaps. Match a complete identifier only, so an ordinary
+		// name such as MyCopilot is left untouched.
+		private static string ExpandCopilotDeclarationAlias(string text, out bool usedAlias)
+		{
+			usedAlias = false;
+			var searchFrom = 0;
+
+			while (searchFrom < text.Length)
+			{
+				var index = text.IndexOf(CopilotDeclarationAlias, searchFrom, System.StringComparison.OrdinalIgnoreCase);
+
+				if (index < 0)
+					break;
+
+				var after = index + CopilotDeclarationAlias.Length;
+				var hasIdentifierBefore = index > 0 && (char.IsLetterOrDigit(text[index - 1]) || text[index - 1] == '_');
+				var hasIdentifierAfter = after < text.Length && (char.IsLetterOrDigit(text[after]) || text[after] == '_');
+
+				if (hasIdentifierBefore || hasIdentifierAfter)
+				{
+					searchFrom = after;
+					continue;
+				}
+
+				text = text.Substring(0, index) + CopilotDeclarationChord + text.Substring(after);
+				searchFrom = index + CopilotDeclarationChord.Length;
+				usedAlias = true;
+			}
+
+			return text;
 		}
 
 		// Emits a callback method (`public static object <name>(object thishotkey) { … }`) onto __Main and returns its name.
@@ -3410,7 +3447,7 @@ namespace Keysharp.Parsing.Syntax
 			}
 			foreach (var trig in hk.Triggers)
 			{
-				var text = ProcessTriggerText(trig);
+				var text = ExpandCopilotDeclarationAlias(ProcessTriggerText(trig), out _);
 				_dhhr.Add(ExprStmt(Inv(Access("Keysharp.Runtime.Keyboard.HotkeyDefinition.AddHotkey"),
 					FuncBind("__Main." + fnName), UintZero, Str(text))));
 			}
@@ -3466,8 +3503,12 @@ namespace Keysharp.Parsing.Syntax
 		{
 			_persistent = true;
 			// The lexer already split the remap into its source/target key text; just decode the backtick escapes.
-			var sourceKey = Keysharp.Parsing.Parser.EscapedString(rm.Source, true);
-			var targetKey = Keysharp.Parsing.Parser.EscapedString(rm.Target, true);
+			var sourceKey = ExpandCopilotDeclarationAlias(Keysharp.Parsing.Parser.EscapedString(rm.Source, true), out var sourceUsesCopilotAlias);
+			var targetKey = ExpandCopilotDeclarationAlias(Keysharp.Parsing.Parser.EscapedString(rm.Target, true), out _);
+			// A physical Copilot key releases its synthetic LWin+LShift before F23 comes up. Keep releasing those
+			// modifiers when a modifier is the remap target, but do not synthesize them back down afterward. The
+			// literal `<#<+F23` spelling retains the generic chord behavior and therefore still restores them.
+			var firmwareSourceModifiersLR = sourceUsesCopilotAlias ? CopilotFirmwareModifiersLR : 0u;
 
 			uint remapDestVk = 0u, remapDestSc = 0u; uint? modLR = null, modifiersLR = null;
 			var remapName = targetKey; var hotName = sourceKey;
@@ -3479,10 +3520,7 @@ namespace Keysharp.Parsing.Syntax
 			ht.TextToVKandSC(remapName, ref remapDestVk, ref remapDestSc, ref remapDestSource, ref modLR, kbLayout);
 
 			var tempcp1 = HotkeyDefinition.TextToModifiers(hotName, null);
-			var remapSourceIsChord = ChordKeyDefinition.TryGet(tempcp1, out var remapSourceChord);
-			var remapSourceVk = remapSourceIsChord
-				? remapSourceChord.VK
-				: ht.TextToVK(tempcp1, ref modifiersLR, kbLayout);
+			var remapSourceVk = ht.TextToVK(tempcp1, ref modifiersLR, kbLayout);
 			var remapSourceIsCombo = tempcp1.Contains(HotkeyDefinition.COMPOSITE_DELIMITER);
 			var remapSourceIsMouse = MouseUtils.IsMouseVK(remapSourceVk);
 			var remapDestIsMouse = MouseUtils.IsMouseVK(remapDestVk);
@@ -3492,6 +3530,41 @@ namespace Keysharp.Parsing.Syntax
 
 			var remapDest = remapName[0] == '"' ? "\"" : remapName;
 			var remapDestModifiers = targetKey.Substring(0, targetKey.IndexOf(remapName));
+			// Remap targets use hotkey syntax, which allows the < and > side qualifiers. Send does not
+			// recognize them and would type them as literal characters, so a destination which uses them is
+			// emitted as explicit modifier key events instead of as a prefix. Neutral modifiers keep the
+			// prefix form, which Send already resolves to the left-hand key.
+			var destProperties = new HotkeyProperties();
+			_ = HotkeyDefinition.TextToModifiers(targetKey, null, destProperties);
+			// A neutral modifier is resolved to its left-hand key, which is what Send does with the ^ ! + #
+			// prefixes. KeyboardUtils.ConvertModifiers must not be used here: it expands a neutral modifier to
+			// BOTH side bits, which would press RAlt as well - that is AltGr on most non-US layouts and would
+			// change the character produced.
+			var neutralAsLeft = 0u;
+
+			if ((destProperties.modifiers & KeyboardUtils.MOD_CONTROL) != 0) neutralAsLeft |= KeyboardUtils.MOD_LCONTROL;
+
+			if ((destProperties.modifiers & KeyboardUtils.MOD_ALT) != 0) neutralAsLeft |= KeyboardUtils.MOD_LALT;
+
+			if ((destProperties.modifiers & KeyboardUtils.MOD_SHIFT) != 0) neutralAsLeft |= KeyboardUtils.MOD_LSHIFT;
+
+			if ((destProperties.modifiers & KeyboardUtils.MOD_WIN) != 0) neutralAsLeft |= KeyboardUtils.MOD_LWIN;
+
+			var remapDestModifiersLR = destProperties.modifiersLR | neutralAsLeft;
+			var remapDestIsSided = destProperties.modifiersLR != 0;
+			string[] modifierKeyNames = ["LCtrl", "RCtrl", "LAlt", "RAlt", "LShift", "RShift", "LWin", "RWin"];
+			var destModifiersDown = "";
+			var destModifiersUp = "";
+
+			if (remapDestIsSided)
+				for (var i = 0; i < 8; ++i)
+					if ((remapDestModifiersLR & (1u << i)) != 0)
+					{
+						destModifiersDown += $"{{{modifierKeyNames[i]} down}}";
+						destModifiersUp = $"{{{modifierKeyNames[i]} up}}" + destModifiersUp;
+					}
+
+			var remapDestModifiersSend = remapDestIsSided ? destModifiersDown : remapDestModifiers;
 			var remapDestKey = (Keys)remapDestVk;
 
 			if (remapDestKey == Keys.Pause && remapDestModifiers.Length == 0 && string.Compare(remapDest, "Pause", true) == 0)
@@ -3507,8 +3580,7 @@ namespace Keysharp.Parsing.Syntax
 
 			var blindMods = "";
 			var temphk = new HotkeyDefinition(999, null, (uint)HotkeyTypeEnum.Normal, hotName, 0);
-			var chordModifiersLR = remapSourceIsChord ? remapSourceChord.ModifiersLR : 0u;
-			var remapSourceModifiersLR = temphk.modifiersConsolidatedLR | chordModifiersLR;
+			var remapSourceModifiersLR = temphk.modifiersConsolidatedLR;
 			bool? remapDestIsNeutral = null;
 			var remapDestModifierLR = ht.KeyToModifiersLR(remapDestVk, remapDestSc, ref remapDestIsNeutral);
 			var releasedSourceModifiers = new List<string>();
@@ -3516,7 +3588,7 @@ namespace Keysharp.Parsing.Syntax
 			string[] modifierNames = ["LCtrl", "RCtrl", "LAlt", "RAlt", "LShift", "RShift", "LWin", "RWin"];
 
 			for (var i = 0; i < 8; ++i)
-				if ((remapSourceModifiersLR & (1 << i)) != 0 && !remapDestModifiers.Contains(KeyboardMouseSender.ModLRString[i * 2 + 1]))
+				if ((remapSourceModifiersLR & (1 << i)) != 0 && (remapDestModifiersLR & (1u << i)) == 0)
 				{
 					blindMods += KeyboardMouseSender.ModLRString[i * 2];
 					blindMods += KeyboardMouseSender.ModLRString[i * 2 + 1];
@@ -3528,11 +3600,7 @@ namespace Keysharp.Parsing.Syntax
 					{
 						releasedSourceModifiers.Add(modifierNames[i]);
 
-						// Restore it in the up hotkey only if the user could still be holding it. A chord key's
-						// modifiers are fabricated by firmware, which releases them microseconds after the trigger
-						// (verified on Copilot: F23 up, then LShift up, then LWin up). Re-pressing one there could
-						// only produce an undisguised bare Alt/Win tap that the firmware's own up then closes.
-						if ((chordModifiersLR & (1u << i)) == 0)
+						if ((firmwareSourceModifiersLR & (1u << i)) == 0)
 							restoredSourceModifiers.Add(modifierNames[i]);
 					}
 				}
@@ -3543,9 +3611,16 @@ namespace Keysharp.Parsing.Syntax
 			var downExtra = explicitlyReleaseSourceModifiers
 				? string.Concat(releasedSourceModifiers.Select(mod => $"{{{mod} up}}"))
 				: "";
+			// Sided destination modifiers are pressed and released within this one Send, matching the neutral
+			// prefix form which Send scopes the same way. Holding them across the whole remap would leave them
+			// active while the source key is held, and releasing them in the up hotkey would clear a modifier
+			// the user was holding independently.
+			// The destination key's own token stays last: the macOS wrapper below rewrites the final brace to
+			// mark an auto-repeat, and that marker only means anything on a down event. Sided destination
+			// modifiers are therefore released by a following Send rather than being appended here.
 			var p = explicitlyReleaseSourceModifiers
-				? $"{{Blind}}{downExtra}{remapDestModifiers}{{{remapDest} DownR}}"
-				: $"{{Blind{blindMods}}}{remapDestModifiers}{{{remapDest}{(remapWheel ? "" : " DownR")}}}";
+				? $"{{Blind}}{downExtra}{remapDestModifiersSend}{{{remapDest} DownR}}"
+				: $"{{Blind{blindMods}}}{remapDestModifiersSend}{{{remapDest}{(remapWheel ? "" : " DownR")}}}";
 
 #if OSX
 			StatementSyntax RemapDownSend()
@@ -3574,6 +3649,12 @@ namespace Keysharp.Parsing.Syntax
 					SyntaxFactory.Block(RemapDownSend())));
 			else
 				downStatements.Add(RemapDownSend());
+
+			// Release sided destination modifiers straight after, so they are scoped to this one keystroke
+			// exactly as Send scopes the neutral ^ ! + # prefixes, rather than staying down for as long as the
+			// source key is held.
+			if (destModifiersUp.Length != 0)
+				downStatements.Add(SendStmt(Str($"{{Blind}}{destModifiersUp}")));
 			downStatements.Add(SyntaxFactory.ReturnStatement(Str("")));
 			_hotMembers.Add(RemapCallback(downName, downStatements));
 

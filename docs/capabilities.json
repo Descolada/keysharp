@@ -1,4 +1,4 @@
-﻿{
+{
     "legend":  {
                    "full":  "Implemented and generally usable",
                    "partial":  "Implemented with known limitations or gaps",
@@ -3928,20 +3928,31 @@
                      "notes":  "Substring containment operator.",
                      "tested-by":  "misc-object.ahk"
                  },
-                 {
-                     "category":  "Input/Automation",
-                     "feature":  "Copilot / Office keys",
-                     "syntax":  "Copilot::AppsKey",
-                     "windows":  "full",
-                     "linux_x11":  "unknown",
-                     "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "Keysharp extension: the Copilot (LWin+LShift+F23) and Office (LCtrl+LShift+LAlt+LWin) keys, which firmware emits as ordinary key combinations, can be used as hotkeys, as composite-hotkey prefixes (`Copilot & x::`, gated on the whole chord so a bare F23 or Win press never matches), as remap sources and destinations, in Send as `{Copilot}`, and with GetKeyState/KeyWait. Still rejected where a single VK/SC is required, so GetKeyVK, GetKeySC, GetKeyName and GetKeyInfo return 0/blank.",
-                     "tested-by":  "HotstringTests.CopilotHotkeyAliasesLeftWinShiftF23"
-                 },
-                 {
-                     "category":  "Core Language",
-                     "feature":  "Continue",
+                {
+                    "category":  "Input/Automation",
+                    "feature":  "Modifiers on either term of a custom combination",
+                    "syntax":  "<#<+F23 & x::",
+                    "windows":  "full",
+                    "linux_x11":  "unknown",
+                    "linux_wayland":  "unknown",
+                    "macos":  "unknown",
+                    "notes":  "Keysharp extension: both terms of a custom combination may carry modifiers (`<^a & b::`, `a & <^b::`). Those on the prefix are tested against the modifiers held when the prefix key went down and kept until it is released, so a key whose firmware asserts modifiers and drops them immediately still works as a prefix; those on the suffix are tested against the live state as the suffix is pressed. A combination asking for neither continues to ignore the modifier state. This covers keyboards whose Copilot key emits LWin+LShift+F23 and whose Office key emits LCtrl+LShift+LAlt+LWin.",
+                    "tested-by":  "HotstringTests.CompositePrefixCanCarryModifiers"
+                },
+                {
+                    "category":  "Core Language",
+                    "feature":  "Copilot declaration/remap alias",
+                    "syntax":  "Copilot:: / Copilot & x:: / key::Copilot",
+                    "windows":  "full",
+                    "linux_x11":  "unknown",
+                    "linux_wayland":  "unknown",
+                    "macos":  "unknown",
+                    "notes":  "Keysharp extension: in static hotkey and remap declarations only, `Copilot` lowers to the generic `<#<+F23` chord. When used as a remap source, the firmware-generated LWin and LShift modifiers are released but not restored. It is intentionally not a runtime key name for Hotkey(), Send, KeyWait, GetKeyState, InputHook or related APIs. There is no Office alias.",
+                    "tested-by":  "HotstringTests.CopilotDeclarationAliasIsLoweredWithoutBecomingAKeyName; HotstringTests.CopilotRemapAliasPreservesFirmwareSemantics"
+                },
+                {
+                    "category":  "Core Language",
+                    "feature":  "Continue",
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "full",

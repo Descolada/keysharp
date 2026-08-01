@@ -15,6 +15,19 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal byte downWasSuppressed = 0;// Bitmask of SendLevel buckets whose down-event was suppressed (thus their matching up-event should be too).
 		internal uint hotkeyToFireUponRelease; // A up-event hotkey queued by a prior down-event.
 		internal bool isDown;// this key is currently down.
+		// Which modifiers were held at the moment this key was pressed, or null while it is not down. Used by
+		// hotkeys whose composite prefix carries modifiers (`<^a & b::`): the answer is fixed at that moment
+		// and kept until release, so a modifier let go while the key is still held does not disarm the
+		// combination. That matters for keys whose firmware asserts the modifiers itself and drops them
+		// microseconds later, which is how the Copilot and Office keys behave.
+		//
+		// This is written only alongside isDown, because the two are one fact: the modifiers belong to the
+		// press that isDown describes. Keeping them together means every path which ends a press ends both,
+		// so there is no second lifecycle to leak.
+		internal uint? downModifiersLR;
+		// Whether any registered hotkey uses this key as a composite prefix carrying modifiers, so a press of
+		// it needs the sample above. Derived in ChangeHookState beside the other per-key attributes.
+		internal bool samplesPrefixModifiers;
 		internal bool itPutAltDown;// this key resulted in ALT being pushed down (due to alt-tab).
 		internal bool itPutShiftDown;
 		internal uint noSuppress;
@@ -43,6 +56,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		{
 			firstHotkey = HotkeyDefinition.HOTKEY_ID_INVALID;
 			usedAsPrefix = 0;
+			samplesPrefixModifiers = false;
 			usedAsSuffix = false;
 			usedAsKeyUp = false;
 			noSuppress = 0;
@@ -52,6 +66,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal void ResetKeyTypeState()
 		{
 			isDown = false;
+			downModifiersLR = null;
 			itPutAltDown = false;
 			itPutShiftDown = false;
 			downPerformedAction = false;

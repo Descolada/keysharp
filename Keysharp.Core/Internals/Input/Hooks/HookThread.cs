@@ -498,8 +498,6 @@ namespace Keysharp.Internals.Input.Hooks
 			// the key's current status (since those are initialized only if the hook state is changing
 			// from OFF to ON (later below):
 
-			anyChordPrefixHotkey = false; // Re-derived below, so removing the last chord-prefix hotkey turns it off.
-			System.Array.Clear(chordPrefixActive);
 
 			foreach (var k in kvk)
 				k.ResetKeyTypeAttrib();
@@ -645,8 +643,16 @@ namespace Keysharp.Internals.Input.Hooks
 
 				if (hkIsCustomCombo)
 				{
-					if (hk.chordPrefixIndex >= 0)
-						anyChordPrefixHotkey = true;
+					if (hk.prefixModifiers != 0 || hk.prefixModifiersLR != 0)
+					{
+						// Mark the prefix key so that pressing it records which modifiers were held. Doing it per
+						// key keeps the cost off every other key, and puts the decision where the rest of the
+						// per-key attributes are decided.
+						if (hk.modifierVK != 0)
+							kvk[hk.modifierVK].samplesPrefixModifiers = true;
+						else if (hk.modifierSC != 0)
+							ksc[hk.modifierSC].samplesPrefixModifiers = true;
+					}
 
 					if (hk.modifierVK != 0)
 					{
@@ -681,9 +687,29 @@ namespace Keysharp.Internals.Input.Hooks
 							ksc[hk.modifierSC].noSuppress |= HotkeyDefinition.AT_LEAST_ONE_COMBO_HAS_TILDE;
 					}
 
-					// Insert this hotkey at the front of the linked list of hotkeys which use this suffix key.
-					hk.nextHotkey = thisKey.firstHotkey;
-					thisKey.firstHotkey = hk.id;
+					// Insert into the linked list of hotkeys which use this suffix key, keeping it ordered from
+					// most to least specific. The hook fires the first entry whose conditions hold, so without
+					// this a bare `a & b::` declared after `<^a & b::` would eclipse it permanently and the
+					// winner would be decided by declaration order, which means nothing to the reader.
+					// Non-composite hotkeys get the equivalent treatment from SortMostGeneralBeforeLeast below.
+					var specificity = hk.CompositeSpecificity();
+					var previousId = HotkeyDefinition.HOTKEY_ID_INVALID;
+					var currentId = thisKey.firstHotkey;
+
+					while (currentId != HotkeyDefinition.HOTKEY_ID_INVALID
+							&& shk[(int)currentId].CompositeSpecificity() >= specificity)
+					{
+						previousId = currentId;
+						currentId = shk[(int)currentId].nextHotkey;
+					}
+
+					hk.nextHotkey = currentId;
+
+					if (previousId == HotkeyDefinition.HOTKEY_ID_INVALID)
+						thisKey.firstHotkey = hk.id;
+					else
+						shk[(int)previousId].nextHotkey = hk.id;
+
 					continue;
 				}
 
@@ -1713,75 +1739,62 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal virtual bool IsHotstringWordChar(char ch) => char.IsLetterOrDigit(ch) ? true : !char.IsWhiteSpace(ch);
 
-		#region Chord keys as composite prefixes
 
-		// Whether each chord is currently acting as a prefix key. Set when its trigger goes down with the rest
-		// of the chord already held, and cleared when that trigger is released. Both decisions read only the
-		// current event and the modifier state at that instant — there is no cross-press state to drift, and a
-		// missed up costs at most some extra matching until the trigger is next seen.
-		private readonly bool[] chordPrefixActive = new bool[ChordKeyDefinition.Count];
-		// Set while any registered hotkey uses a chord as its prefix. Without this the tracking would run for
-		// every keystroke of every script, and — worse — a script that never mentions these keys could have
-		// `LWin & x::` plus `^+!LWin::` change behaviour merely because Ctrl+Shift+Alt+Win happens to spell the
-		// Office chord. Nothing here should be observable unless a chord prefix was actually asked for.
-		private bool anyChordPrefixHotkey;
-
-		internal bool ChordPrefixActive(int index)
-			=> anyChordPrefixHotkey && (uint)index < (uint)chordPrefixActive.Length && chordPrefixActive[index];
+		#region Composite prefixes which carry modifiers
 
 		/// <summary>
-		/// The modifiers an active chord is holding on its trigger key's behalf. Pressing the physical key
-		/// inherently asserts them, so they are part of the keystroke rather than the user modifying it, and
-		/// logic which asks "did the user press this key with modifiers held?" has to discount them.
-		/// Zero unless a chord whose trigger is <paramref name="triggerVk"/> is currently active.
+		/// Records that a key went down or up, together with the modifiers held if it is one some hotkey uses
+		/// as a modified composite prefix. Exposed so a test can drive the same state change the hook makes.
 		/// </summary>
-		internal uint ActiveChordModifiersLR(uint triggerVk)
+		internal static void RecordKeyDownState(KeyType key, bool down, uint modifiersLR)
 		{
-			if (!anyChordPrefixHotkey)
+			key.isDown = down;
+
+			if (!key.samplesPrefixModifiers)
+				return;
+
+			// Held from the press until the release, so a modifier let go meanwhile does not disarm the
+			// combination; null while the key is up, which is why no separate "was it sampled" flag is needed.
+			key.downModifiersLR = down ? key.downModifiersLR ?? modifiersLR : null;
+		}
+
+		/// <summary>
+		/// The modifiers which an armed composite prefix on <paramref name="vk"/> requires. Holding them is part
+		/// of pressing that prefix rather than the user modifying the keystroke, so logic asking "was this key
+		/// pressed with modifiers held?" has to discount them. Zero unless such a prefix is currently armed.
+		/// </summary>
+		internal uint ActivePrefixModifiersLR(uint vk, uint sc)
+		{
+			// Neither table entry being marked means no hotkey uses this key as a modified prefix, so there is
+			// nothing to discount and no reason to walk the hotkey list.
+			var byVk = kvk != null && vk < (uint)kvk.Length && kvk[vk].samplesPrefixModifiers;
+			var bySc = ksc != null && sc < (uint)ksc.Length && ksc[sc].samplesPrefixModifiers;
+
+			if (!byVk && !bySc)
 				return 0u;
 
-			for (var i = 0; i < ChordKeyDefinition.Count; i++)
+			var shk = Script.TheScript.HotkeyData.shk;
+			var required = 0u;
+
+			for (var i = 0; i < shk.Length; i++)
 			{
-				var chord = ChordKeyDefinition.At(i);
+				var hk = shk[i];
 
-				if (chord.VK == triggerVk && chordPrefixActive[i])
-					return chord.HotkeyModifiersLR(); // Excludes the trigger's own bit, as modifiersLRnew does.
-			}
-
-			return 0u;
-		}
-
-		/// <summary>Test seam: whether any registered hotkey uses a chord as its prefix (see the field).</summary>
-		internal bool AnyChordPrefixHotkey
-		{
-			get => anyChordPrefixHotkey;
-			set => anyChordPrefixHotkey = value;
-		}
-
-		/// <summary>Test seam: drives the same state transition the hook applies to a real key event.</summary>
-		internal void SimulateChordPrefixEvent(uint vk, bool keyUp) => UpdateChordPrefixState(vk, keyUp);
-
-		private void UpdateChordPrefixState(uint vk, bool keyUp)
-		{
-			if (!anyChordPrefixHotkey)
-				return; // Keeps this entirely off the hot path for every script that doesn't use a chord prefix.
-
-			for (var i = 0; i < ChordKeyDefinition.Count; i++)
-			{
-				var chord = ChordKeyDefinition.At(i);
-
-				if (chord.VK != vk)
+				if (hk.prefixModifiers == 0 && hk.prefixModifiersLR == 0)
 					continue;
 
-				if (keyUp)
-					chordPrefixActive[i] = false;
-				else if (!chordPrefixActive[i]) // Latch: the firmware re-sends the whole chord while it is held.
-				{
-					var required = chord.HotkeyModifiersLR();
-					chordPrefixActive[i] = (kbdMsSender.modifiersLRPhysical & required) == required;
-				}
+				// A prefix may be named by VK or by scan code; match either against the key being handled.
+				var key = hk.modifierVK != 0 && hk.modifierVK == vk && kvk != null && vk < (uint)kvk.Length ? kvk[vk]
+						  : hk.modifierSC != 0 && hk.modifierSC == sc && ksc != null && sc < (uint)ksc.Length ? ksc[sc]
+						  : null;
+
+				if (key?.downModifiersLR is uint held && ModifiersSatisfied(held, hk.prefixModifiers, hk.prefixModifiersLR))
+					required |= hk.prefixModifiersLR | ConvertModifiers(hk.prefixModifiers);
 			}
+
+			return required;
 		}
+
 
 		#endregion
 
@@ -2061,8 +2074,23 @@ namespace Keysharp.Internals.Input.Hooks
 			var isIgnored = IsIgnored(extraInfo);
 
 			// Must run before the prefix-key handling below, which asks whether this key has enabled suffixes.
-			if (isKeyboardEvent && !isIgnored)
-				UpdateChordPrefixState(vk, keyUp);
+			var modifiersWereCorrected = false;
+
+			// A key's press and the modifiers held during it are one fact, so they are recorded together and
+			// every path which ends a press ends both. The sample is taken only for keys some hotkey uses as a
+			// modified composite prefix, and only from a corrected modifier state: the hook can miss keystrokes
+			// while it is briefly removed (see GetModifierLRState), and a wrong sample would be latched until
+			// the key was released.
+			void SetKeyDown(KeyType key, bool down)
+			{
+				if (down && key.samplesPrefixModifiers && !modifiersWereCorrected)
+				{
+					modifiersWereCorrected = true;
+					_ = kbdMsSender.GetModifierLRState(true);
+				}
+
+				RecordKeyDownState(key, down, kbdMsSender.modifiersLRPhysical);
+			}
 			var script = Script.TheScript;
 			var collectInputState = new CollectInputState()
 			{
@@ -2206,7 +2234,7 @@ namespace Keysharp.Internals.Input.Hooks
 				// testing, though it might also fix more things):
 				if (extraInfo == KeyPhysIgnore && keyUp && prefixKey == thisKey)
 				{
-					thisKey.isDown = false;
+					SetKeyDown(thisKey, false);
 					thisKey.downPerformedAction = false;  // Seems best, but only for PHYS_IGNORE.
 					prefixKey = null;
 				}
@@ -2269,7 +2297,7 @@ namespace Keysharp.Internals.Input.Hooks
 					// ...because the while-menu-was-displayed up-event never set it to false
 					// ...because it returned too early here before it could get to that part further below.
 					thisKey.downPerformedAction = false; // Seems ok in this case to do this for both aKeyUp and !aKeyUp.
-					thisKey.isDown = !keyUp;
+					SetKeyDown(thisKey, !keyUp);
 					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 				}
 			} // Mouse hook.
@@ -2307,7 +2335,7 @@ namespace Keysharp.Internals.Input.Hooks
 				// when a custom combination hotkey Suspends itself, thereby causing used_as to be reset to false.
 				// Fix for v1.1.31.03: Done conditionally because its previous value is used below.  This affects
 				// modifier keys as hotkeys, such as Shift::MsgBox.
-				thisKey.isDown = !keyUp;
+				SetKeyDown(thisKey, !keyUp);
 				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 			}
 
@@ -2333,8 +2361,7 @@ namespace Keysharp.Internals.Input.Hooks
 				}
 			}
 
-			thisKey.isDown = !keyUp;
-			var modifiersWereCorrected = false;
+			SetKeyDown(thisKey, !keyUp);
 
 			if (isKeyboardEvent)
 			{
@@ -2379,6 +2406,7 @@ namespace Keysharp.Internals.Input.Hooks
 				modifiersWereCorrected = true;
 				_ = kbdMsSender.GetModifierLRState(true);
 			}
+
 
 			///////////////////////////////////////////////////////////////////////////////////////
 			// CASE #1 of 4: PREFIX key has been pressed down.  But use it in this capacity only if
@@ -2483,11 +2511,11 @@ namespace Keysharp.Internals.Input.Hooks
 						char? ch = null;
 						firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref ch, eventInfo);
 
-						// A chord key's own modifiers are asserted by pressing it, so they must not count as the
-						// user having modified the keystroke — otherwise a chord that is both a suffix hotkey and
-						// a custom-combo prefix (Copilot::a plus Copilot & a::) would fire its suffix immediately
-						// instead of postponing it until release, the way an ordinary prefix key does.
-						if (suppressThisPrefix && (modifiersLRnew & ~ActiveChordModifiersLR(vk)) == 0) // So far, it looks like the prefix should be suppressed.
+						// Modifiers a composite prefix requires are part of pressing that prefix, not the user
+						// modifying the keystroke. Without discounting them, a key which is both a suffix hotkey
+						// and a modified prefix (`<#<+F23::a` plus `<#<+F23 & a::`) would fire its suffix
+						// immediately instead of postponing it until release, as an ordinary prefix key does.
+						if (suppressThisPrefix && (modifiersLRnew & ~ActivePrefixModifiersLR(vk, sc)) == 0) // So far, it looks like the prefix should be suppressed.
 						{
 							if (firingIsCertain == null || !fireWithNoSuppress) // Hotkey is ineligible to fire or lacks the no-suppress prefix.
 							{
@@ -2739,10 +2767,14 @@ namespace Keysharp.Internals.Input.Hooks
 					//a & b up::  ; Up.
 					//MsgBox %A_ThisHotkey%
 					//return
-					// A chord prefix additionally requires its chord to be active, so `Copilot & x` fires only for
-					// the actual Copilot key and never for a bare F23, and `Office & x` never for a plain Win+x.
+					// A prefix carrying modifiers (`<^a & b::`) additionally requires those to have been held when
+					// the prefix key went down; that sample is latched until the prefix is released. Modifiers on
+					// the suffix (`a & <^b::`) are tested against the live state instead, since they describe the
+					// keystroke being made now. Both are skipped entirely when the hotkey asked for neither, which
+					// preserves the rule that a composite otherwise ignores the modifier state.
 					if (thisModifierKey.isDown
-							&& (this_hk.chordPrefixIndex < 0 || ChordPrefixActive(this_hk.chordPrefixIndex))) // A prefix key qualified to trigger this suffix is down.
+							&& ModifiersSatisfied(thisModifierKey.downModifiersLR ?? 0u, this_hk.prefixModifiers, this_hk.prefixModifiersLR)
+							&& ModifiersSatisfied(kbdMsSender.modifiersLRLogicalNonIgnored, this_hk.suffixModifiers, this_hk.suffixModifiersLR)) // A prefix key qualified to trigger this suffix is down.
 					{
 						if (this_hk.keyUp)
 						{
@@ -3516,6 +3548,7 @@ namespace Keysharp.Internals.Input.Hooks
 					// RAlt::Send {PgDn}  ; Fails to work because ALT-PgDn usually does nothing.
 #if !LINUX
 					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk, sc, 0, false, KeyBlockThis);
+
 #endif
 				}
 			}
@@ -4632,7 +4665,7 @@ namespace Keysharp.Internals.Input.Hooks
 				kbdMsSender.modifiersLRCtrlAltDelMask = 0;
 				kbdMsSender.modifiersLRLogical = kbdMsSender.modifiersLRLogicalNonIgnored = (allModifiersUp ? 0 : kbdMsSender.GetModifierLRState(true));
 				System.Array.Clear(physicalKeyState, 0, physicalKeyState.Length);
-				System.Array.Clear(chordPrefixActive); // The hook was absent, so a chord's trigger-up may have been missed.
+
 				disguiseNextMenu = false;
 				undisguisedMenuInEffect = false;
 				// On Windows Vista and later, this definitely only works if the classic alt-tab menu

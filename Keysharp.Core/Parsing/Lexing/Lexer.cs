@@ -607,15 +607,15 @@ namespace Keysharp.Parsing.Lexing
 		// the legacy permissive behavior in that case.
 		private static bool IsRemapTargetKeyName(System.ReadOnlySpan<char> keyName)
 		{
+			// Copilot is accepted only so static remap syntax can lower it to `<#<+F23`. It deliberately remains
+			// absent from the runtime key-name tables used by Send, KeyWait, GetKeyState, Hotkey(), and similar APIs.
+			if (keyName.Equals("Copilot".AsSpan(), System.StringComparison.OrdinalIgnoreCase))
+				return true;
+
 			// AltTab, ShiftAltTab, AltTabMenu, AltTabAndMenu and AltTabMenuDismiss aren't real keys but are valid
 			// remap targets — `x::AltTab` registers a hotkey with that special hook action (handled in the remap
 			// lowering), so accept them here instead of lexing the line as a `AltTab()` function-call body.
 			if (Keysharp.Internals.Input.Keyboard.HotkeyDefinition.ConvertAltTab(keyName.ToString(), false) != 0)
-				return true;
-
-			// Chord keys (Copilot, Office) deliberately stay out of the vk/sc tables, but they are valid remap
-			// targets: Send knows how to emit the combination they stand for.
-			if (Keysharp.Internals.Input.Keyboard.ChordKeyDefinition.TryGet(keyName, out _))
 				return true;
 
 			var ht = Keysharp.Runtime.Script.TheScript?.HookThread;

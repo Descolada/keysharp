@@ -106,10 +106,20 @@ done
 		}
 
 		/// <summary>
+		/// Whether a left/right modifier state satisfies a requirement, expressed the same way a hotkey's own
+		/// requirement is: <paramref name="requiredLR"/> names a specific side, <paramref name="required"/>
+		/// names a modifier either side of which will do.
+		/// </summary>
+		internal static bool ModifiersSatisfied(uint stateLR, uint required, uint requiredLR)
+			=> (stateLR & requiredLR) == requiredLR
+			   && (required == 0u || (ConvertModifiersLR(stateLR) & required) == required);
+
+		/// <summary>
 		/// Convert the input param to a modifiersLR value and return it.
 		/// </summary>
 		/// <param name="modifiers"></param>
 		/// <returns></returns>
+
 		internal static uint ConvertModifiers(uint modifiers)
 		{
 			var modifiersLR = 0u;

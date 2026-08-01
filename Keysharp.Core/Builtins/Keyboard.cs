@@ -148,9 +148,6 @@ namespace Keysharp.Builtins
 			else
 				keystatetype = KeyStateTypes.Logical;
 
-			if (ChordKeyDefinition.TryGet(keyname, out var chordKey))
-				return chordKey.IsDown(keystatetype);
-
 			var vk = ht.TextToVK(keyname, ref dummy, layout: null); // Returns 0 if keyname is not a valid key name or virtual key code.
 
 			if (vk == 0)
@@ -547,7 +544,7 @@ break_twice:;
 			bool waitIndefinitely;
 			int sleepDuration;
 			DateTime startTime;
-			var vk = 0u; // For GetKeyState; stays 0 for a joystick or chord key.
+			var vk = 0u; // For GetKeyState; stays 0 if this is a joystick control.
 			bool waitForKeyDown;
 			KeyStateTypes keyStateType;
 			var joy = JoyControls.Invalid;
@@ -556,9 +553,7 @@ break_twice:;
 			var ht = script.HookThread;
 			var kbdMouseSender = ht.kbdMsSender;
 			uint? modLR = null;
-			var isChordKey = ChordKeyDefinition.TryGet(keyname, out var chordKey);
-
-			if (!isChordKey && (vk = ht.TextToVK(keyname, ref modLR, layout: null)) == 0)
+			if ((vk = ht.TextToVK(keyname, ref modLR, layout: null)) == 0)
 			{
 				joy = Joystick.ConvertJoy(keyname, ref joystickId);
 
@@ -608,12 +603,7 @@ break_twice:;
 			for (startTime = DateTime.UtcNow; ;) // start_time is initialized unconditionally for use with v1.0.30.02's new logging feature further below.
 			{
 				// Always do the first iteration so that at least one check is done.
-				if (isChordKey)
-				{
-					if (chordKey.IsDown(keyStateType) == waitForKeyDown)
-						return true;
-				}
-				else if (vk != 0) // Waiting for key or mouse button, not joystick.
+				if (vk != 0) // Waiting for key or mouse button, not joystick.
 				{
 					if (ScriptGetKeyState(vk, keyStateType) == waitForKeyDown)
 						return true;

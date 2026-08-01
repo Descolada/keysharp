@@ -40,11 +40,44 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal uint modifierSC;
 		internal uint modifiersConsolidatedLR;
 		/// <summary>
-		/// When this hotkey's prefix is a chord key (`Copilot &amp; x::`), which chord — otherwise -1. The prefix
-		/// only counts as down while that chord is active, which is what separates it from a plain combo on the
-		/// chord's trigger key.
+		/// Modifiers required on this hotkey's composite prefix (`&lt;^a &amp; b::` requires LCtrl), split into
+		/// either-side and specific-side forms exactly as <see cref="modifiers"/> and
+		/// <see cref="modifiersLR"/> are for the suffix. Both zero when the prefix is a bare key.
 		/// </summary>
-		internal int chordPrefixIndex = -1;
+		/// <remarks>
+		/// These are tested against the modifiers held when the prefix key was pressed rather than those held
+		/// when the suffix is pressed, so a key whose firmware asserts modifiers and releases them immediately
+		/// still works as a prefix.
+		/// </remarks>
+		internal uint prefixModifiers;
+		internal uint prefixModifiersLR;
+		/// <summary>
+		/// Modifiers written on the suffix of a composite hotkey (`a &amp; &lt;^b::`), in the same two forms.
+		/// </summary>
+		/// <remarks>
+		/// Held separately from <see cref="modifiers"/>/<see cref="modifiersLR"/> because those also collect
+		/// modifiers which <c>TextToVKandSC</c> infers from the keyboard layout in order to produce a
+		/// character. Those are incidental and must not become a requirement - which is what the comment on
+		/// <see cref="modifiersConsolidatedLR"/> warns about - whereas these were asked for.
+		/// </remarks>
+		internal uint suffixModifiers;
+		internal uint suffixModifiersLR;
+
+		/// <summary>
+		/// How demanding this composite hotkey is, as the number of modifiers it requires on either term. The
+		/// hook orders same-keys composites by this so the most specific is tried first, rather than letting
+		/// declaration order decide.
+		/// </summary>
+		internal int CompositeSpecificity()
+			=> Demandingness(prefixModifiers, prefixModifiersLR) + Demandingness(suffixModifiers, suffixModifiersLR);
+
+		/// <summary>
+		/// Scores one term's requirement. A side-specific modifier counts for more than a neutral one because
+		/// it accepts strictly fewer keystrokes, so `&lt;^a &amp; b::` outranks `^a &amp; b::`. Expanding a neutral
+		/// modifier to its two side bits and counting those would invert the two.
+		/// </summary>
+		private static int Demandingness(uint neutral, uint sided)
+			=> System.Numerics.BitOperations.PopCount(neutral) + (2 * System.Numerics.BitOperations.PopCount(sided));
 		internal uint modifiersLR;
 		internal uint modifierVK;
 		internal uint nextHotkey;
@@ -262,6 +295,19 @@ namespace Keysharp.Internals.Input.Keyboard
 					if (modifiers != 0)
 						modifiersConsolidatedLR |= ConvertModifiers(modifiers);
 				}
+
+				// Modifiers written on a composite's suffix are held at the moment it fires, which is what this
+				// field describes, so they belong here alongside the prefix key's own contribution. Only the
+				// written ones qualify: the general modifiers/modifiersLR fields also carry whatever the layout
+				// needs to produce the suffix character, which is incidental rather than required.
+				// A composite's PREFIX modifiers are deliberately excluded. They describe the moment the prefix
+				// was pressed, not this one, and may well have been released by now - which is the whole point
+				// of latching them - so claiming them here would mislead every consumer, not least the sender's
+				// thisHotkeyModifiersLR.
+				modifiersConsolidatedLR |= suffixModifiersLR;
+
+				if (suffixModifiers != 0)
+					modifiersConsolidatedLR |= ConvertModifiers(suffixModifiers);
 			} // if (mType != HK_JOYSTICK)
 
 			// If mKeybdHookMandatory==true, ManifestAllHotkeysHotstringsHooks() will set mType to HK_KEYBD_HOOK for us.
@@ -563,7 +609,12 @@ namespace Keysharp.Internals.Input.Keyboard
 							|| ((hot.modifiersConsolidatedLR & (MOD_LWIN | MOD_RWIN)) != 0 && (hot.modifiersConsolidatedLR & (MOD_LALT | MOD_RALT)) == 0)
 							// For v1.0.30, above has been expanded to include Win+Shift and Win+Control modifiers.
 							|| (hot.vk != 0 && !MouseUtils.IsMouseVK(hot.vk)) // e.g. "RButton & Space"
-							|| (hot.modifierVK != 0 && !MouseUtils.IsMouseVK(hot.modifierVK)))) // e.g. "Space & RButton"
+							|| (hot.modifierVK != 0 && !MouseUtils.IsMouseVK(hot.modifierVK)) // e.g. "Space & RButton"
+							// A requirement on the prefix is judged against the modifiers held when that key went
+							// down, which is only tracked while the keyboard hook is installed. Unlike the normal
+							// modifiers the mouse hook can handle by itself, this one is excluded from
+							// modifiersConsolidatedLR above, so it has to be asked for explicitly.
+							|| hot.prefixModifiers != 0 || hot.prefixModifiersLR != 0))
 					hot.type = HotkeyTypeEnum.BothHook;  // Needed by ChangeHookState().
 
 				// For the above, the following types of mouse hotkeys do not need the keyboard hook:
@@ -1323,6 +1374,8 @@ namespace Keysharp.Internals.Input.Keyboard
 						// produced by holding down the shift key and pressing the lowercase letter.  In addition, it
 						// preserves backward compatibility and may improve flexibility.
 						&& string.Compare(propExisting.prefixText, propCandidate.prefixText, true) == 0
+						&& propExisting.suffixModifiers == propCandidate.suffixModifiers
+						&& propExisting.suffixModifiersLR == propCandidate.suffixModifiersLR
 						&& string.Compare(propExisting.suffixText, propCandidate.suffixText, true) == 0)
 					return shk[i]; // Match found.
 			}
@@ -1610,6 +1663,8 @@ namespace Keysharp.Internals.Input.Keyboard
 			bool? b = null;
 			var asModifier = ht.KeyToModifiersLR(isSC ? 0u : VKorSC, isSC ? VKorSC : 0u, ref b);
 			bool hasEnabledSuffix = false;
+			// The modifier state sampled when this key went down, for prefixes which require modifiers.
+			var keyState = isSC ? ht.ksc[VKorSC] : ht.kvk[VKorSC];
 
 			for (var i = 0; i < shk.Length; ++i)
 			{
@@ -1619,10 +1674,11 @@ namespace Keysharp.Internals.Input.Keyboard
 						|| hk.IsCompletelyDisabled())
 					continue; // This hotkey isn't enabled or it doesn't use the specified key as a prefix.  No further checking for it.
 
-				// A chord prefix only counts while its chord is active. Gating here — where the hook decides
-				// whether this key is acting as a prefix on this press at all — is what keeps `Office & x::`
-				// from turning every bare Win press into a prefix (suppressed, then replayed on release).
-				if (hk.chordPrefixIndex >= 0 && !ht.ChordPrefixActive(hk.chordPrefixIndex))
+				// A prefix carrying modifiers only counts while those were held as it went down. Gating here —
+				// where the hook decides whether this key acts as a prefix on this press at all — is what keeps
+				// `<^<+<!LWin & x::` from turning every bare Win press into a prefix (suppressed, then replayed
+				// on release).
+				if ((hk.prefixModifiers != 0 || hk.prefixModifiersLR != 0) && !ModifiersSatisfied(keyState.downModifiersLR ?? 0u, hk.prefixModifiers, hk.prefixModifiersLR))
 					continue;
 
 				if (hk.hookAction != 0)
@@ -1698,6 +1754,18 @@ namespace Keysharp.Internals.Input.Keyboard
 				term1 = term1.Substring(1);
 
 			term1 = term1.TrimEnd(SpaceTab);
+			// A composite prefix may carry modifiers of its own (`<^a & b::`). Supplying a properties object
+			// diverts the modifiers into it rather than into the hotkey's own, which belong to the suffix; the
+			// hotkey is still passed so that * and $ continue to set allowExtraModifiers and keybdHookMandatory.
+			var prefixProperties = new HotkeyProperties();
+			term1 = TextToModifiers(term1, thisHotkey, prefixProperties);
+
+			if (thisHotkey != null)
+			{
+				thisHotkey.prefixModifiers = prefixProperties.modifiers;
+				thisHotkey.prefixModifiersLR = prefixProperties.modifiersLR;
+			}
+
 			var result = TextToKey(ref term1, true, thisHotkey, syntaxCheckOnly);
 
 			if (result == ResultType.Fail || result == ResultType.ConditionFalse)
@@ -1705,13 +1773,21 @@ namespace Keysharp.Internals.Input.Keyboard
 
 			var term2 = splits[1].TrimStart(SpaceTab);
 
-			// Even though modifiers on keys already modified by a mModifierVK are not supported, call
-			// TextToModifiers() anyway to use its output (for consistency).  The modifiers it sets
-			// are currently ignored because the mModifierVK takes precedence.
-			// UPDATE: Treat any modifier other than '~' as an error, since otherwise users expect
-			// hotkeys like "' & +e::Send È" to work.
 			if (term2[0] == '~')
 				term2 = term2.Substring(1); // Some other stage handles this modifier, so just ignore it here.
+
+			// The suffix of a composite may carry modifiers too (`a & <#<+F23::`). AutoHotkey rejects these
+			// because its consolidated modifiers come from the prefix key alone, leaving them ineffective.
+			// They are recorded separately from the hotkey's own modifiers, which by the time TextToKey has
+			// run also hold whatever the layout needs to produce the suffix character.
+			var suffixProperties = new HotkeyProperties();
+			term2 = TextToModifiers(term2, thisHotkey, suffixProperties);
+
+			if (thisHotkey != null)
+			{
+				thisHotkey.suffixModifiers = suffixProperties.modifiers;
+				thisHotkey.suffixModifiersLR = suffixProperties.modifiersLR;
+			}
 
 			return TextToKey(ref term2, false, thisHotkey, syntaxCheckOnly);
 		}
@@ -1730,7 +1806,6 @@ namespace Keysharp.Internals.Input.Keyboard
 			var tempVk = 0u;
 			var tempSc = 0u;
 			uint? modifiersLR = 0u;
-			var isChordKey = false;
 			var isMouse = false;
 			uint? joystickId = 0u;
 			var script = Script.TheScript;
@@ -1769,29 +1844,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			ref var hotkeyType = ref (thisHotkey != null ? ref thisHotkey.type : ref hotkeyTypeTemp);//Simplifies and reduces code size below.
 			var keySource = KeySource.None;
 
-			if (ChordKeyDefinition.TryGet(text.AsSpan(), out var chordKey, out var chordIndex))
-			{
-				tempVk = chordKey.VK;
-				keySource = KeySource.Name;
-
-				if (isModifier)
-				{
-					// As a prefix, a chord is recognised once — when its trigger goes down with the rest of the
-					// chord already held — and from then until the trigger's release it behaves as a single key.
-					// Only the trigger's VK becomes modifierVK; the chord condition rides separately so that
-					// `Office & x` never matches a plain Win+x, and so a bare Win press is not treated as a
-					// prefix at all.
-					if (thisHotkey != null)
-						thisHotkey.chordPrefixIndex = chordIndex;
-				}
-				else
-				{
-					isChordKey = true;
-					modifiersLR |= chordKey.HotkeyModifiersLR();
-				}
-			}
-			else
-				_ = ht.TextToVKandSC(text, ref tempVk, ref tempSc, ref keySource, ref modifiersLR, layout: null, allowVkScPair: false);
+			_ = ht.TextToVKandSC(text, ref tempVk, ref tempSc, ref keySource, ref modifiersLR, layout: null, allowVkScPair: false);
 
 			if (tempVk != 0)
 			{
@@ -1886,15 +1939,8 @@ namespace Keysharp.Internals.Input.Keyboard
 					// modifiers from left-right to neutral.  But exclude right-side modifiers (except RWin) so that
 					// things like AltGr are more precisely handled (the implications of this policy could use
 					// further review).  Currently, right-Alt (via AltGr) is the only possible right-side key.
-					// A chord key's firmware-generated modifiers are inherently side-specific.
-					// Character keys retain the neutralization policy described above.
-					if (isChordKey)
-						thisHotkey.modifiersLR |= modifiersLR.Value;
-					else
-					{
-						thisHotkey.modifiers |= ConvertModifiersLR(modifiersLR.Value & (MOD_RWIN | MOD_LWIN | MOD_LCONTROL | MOD_LALT | MOD_LSHIFT));
-						thisHotkey.modifiersLR |= modifiersLR.Value & (MOD_RSHIFT | MOD_RALT | MOD_RCONTROL); // Not MOD_RWIN since it belongs above.
-					}
+					thisHotkey.modifiers |= ConvertModifiersLR(modifiersLR.Value & (MOD_RWIN | MOD_LWIN | MOD_LCONTROL | MOD_LALT | MOD_LSHIFT));
+					thisHotkey.modifiersLR |= modifiersLR.Value & (MOD_RSHIFT | MOD_RALT | MOD_RCONTROL); // Not MOD_RWIN since it belongs above.
 				}
 			}
 
@@ -2098,6 +2144,14 @@ namespace Keysharp.Internals.Input.Keyboard
 
 					if (properties.suffixHasTilde = properties.suffixText.StartsWith('~')) // Override any value of noSuppress set higher above.
 						properties.suffixText = properties.suffixText.Substring(1); // For simplicity, no skipping of leading whitespace between tilde and the suffix key name.
+
+					// Lift any modifiers off the suffix so that what remains is just the key name, as it already
+					// is for a non-composite hotkey. Without this, "a & <#<+F23" and "a & <+<#F23" compare as
+					// different text and become separate hotkeys rather than the same one written two ways.
+					var suffixModifierProperties = new HotkeyProperties();
+					properties.suffixText = TextToModifiers(properties.suffixText, null, suffixModifierProperties);
+					properties.suffixModifiers = suffixModifierProperties.modifiers;
+					properties.suffixModifiersLR = suffixModifierProperties.modifiersLR;
 				}
 				else // A normal (non-composite) hotkey, so noSuppress was already set properly (higher above).
 					properties.suffixText = sub.TrimStart(SpaceTab);
@@ -2110,12 +2164,6 @@ namespace Keysharp.Internals.Input.Keyboard
 					properties.isKeyUp = true; // Override the default set earlier.
 				}
 
-				// Canonicalize a chord key's name to the same true nature as the event chord it stands for.
-				if (ChordKeyDefinition.TryGet(properties.suffixText, out var chordKey))
-				{
-					properties.modifiersLR |= chordKey.HotkeyModifiersLR();
-					properties.suffixText = chordKey.KeyName;
-				}
 			}
 
 			return sub;
@@ -2857,6 +2905,8 @@ namespace Keysharp.Internals.Input.Keyboard
 	/// </summary>
 	internal class HotkeyProperties
 	{
+		internal uint suffixModifiers;
+		internal uint suffixModifiersLR;
 		internal bool hasAsterisk;
 		internal bool hookIsMandatory;
 		internal bool isKeyUp;
@@ -2871,6 +2921,8 @@ namespace Keysharp.Internals.Input.Keyboard
 		{
 			modifiers = 0u;
 			modifiersLR = 0u;
+			suffixModifiers = 0u;
+			suffixModifiersLR = 0u;
 			prefixHasTilde = false;
 			suffixHasTilde = false;
 			hasAsterisk = false;

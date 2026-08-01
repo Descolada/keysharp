@@ -1,3 +1,4 @@
+using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 using Keyboard = Keysharp.Builtins.Keyboard;
 
@@ -469,6 +470,73 @@ namespace Keysharp.Tests
 #endif
 
 		[Test, Category("Hotstring")]
+		public void CopilotDeclarationAliasIsLoweredWithoutBecomingAKeyName()
+		{
+			var script = """
+				Copilot::MsgBox "direct"
+				Copilot Up::MsgBox "up"
+				Copilot & x::MsgBox "prefix"
+				a & Copilot::MsgBox "suffix"
+				MyCopilot::MsgBox "boundary"
+				""";
+			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(script);
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			var generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			Assert.IsTrue(generated.Contains("\"<#<+F23\""), generated);
+			Assert.IsTrue(generated.Contains("\"<#<+F23 Up\""), generated);
+			Assert.IsTrue(generated.Contains("\"<#<+F23 & x\""), generated);
+			Assert.IsTrue(generated.Contains("\"a & <#<+F23\""), generated);
+			Assert.IsTrue(generated.Contains("\"MyCopilot\""), generated);
+			Assert.IsFalse(generated.Contains("\"Copilot\""), generated);
+			Assert.AreEqual(0L, Keyboard.GetKeyVK("Copilot"));
+			Assert.AreEqual(0L, Keyboard.GetKeySC("Copilot"));
+			Assert.AreEqual(0L, Keyboard.GetKeyVK("Office"));
+			Assert.AreEqual(0L, Keyboard.GetKeySC("Office"));
+
+			// Office deliberately has no corresponding declaration/remap alias. Since it is not a real key name,
+			// an identifier in the target position remains a one-line hotkey body rather than becoming a remap.
+			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("a::Office");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			Assert.IsFalse(generated.Contains("__Remap_"), generated);
+		}
+
+		[Test, Category("Hotstring")]
+		public void CopilotRemapAliasPreservesFirmwareSemantics()
+		{
+			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("Copilot::RCtrl");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			var generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			Assert.IsTrue(generated.Contains("\"*<#<+F23\""), generated);
+			Assert.IsTrue(generated.Contains(RemapDown("{Blind}{LShift up}{LWin up}{RCtrl DownR}")), generated);
+			Assert.IsTrue(generated.Contains("{Blind}{RCtrl Up}"), generated);
+			Assert.IsFalse(generated.Contains("GetKeyState(\"LShift\",\"P\")"), generated);
+			Assert.IsFalse(generated.Contains("GetKeyState(\"LWin\",\"P\")"), generated);
+
+			// The literal chord retains ordinary generic-chord behavior, including restoring physically-held
+			// source modifiers after the remapped modifier is released.
+			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("<#<+F23::RCtrl");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			Assert.IsTrue(generated.Contains("GetKeyState(\"LShift\",\"P\")"), generated);
+			Assert.IsTrue(generated.Contains("GetKeyState(\"LWin\",\"P\")"), generated);
+
+			// Sided targets are translated into the explicit events Send requires, in both directions.
+			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("Copilot::>^a");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			Assert.IsTrue(generated.Contains(RemapDown("{Blind<+<#}{RCtrl down}{a DownR}")), generated);
+			Assert.IsTrue(generated.Contains("{Blind}{RCtrl up}"), generated);
+
+			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("a::Copilot");
+			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
+			generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
+			Assert.IsTrue(generated.Contains(RemapDown("{Blind}{LShift down}{LWin down}{F23 DownR}")), generated);
+			Assert.IsTrue(generated.Contains("{Blind}{LWin up}{LShift up}"), generated);
+			Assert.IsTrue(generated.Contains("{Blind}{F23 Up}"), generated);
+		}
+
+		[Test, Category("Hotstring")]
 		public void ModifiedSourceToModifierRemapSpansBothHotkeyCallbacks()
 		{
 			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(">!.::RCtrl");
@@ -507,222 +575,125 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Hotstring")]
-		public void CopilotHotkeyAliasesLeftWinShiftF23()
+		public void SidedModifiersOnRemapDestinationBecomeKeyEvents()
 		{
-			var copilot = new HotkeyDefinition(999, null, (uint)HotkeyTypeEnum.Normal, "Copilot", 0);
-			Assert.IsTrue(copilot.constructedOK);
-			Assert.AreEqual(Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_F23, copilot.vk);
-			Assert.AreEqual(
-				Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT,
-				copilot.modifiersConsolidatedLR);
-			Assert.IsFalse(copilot.allowExtraModifiers);
-			Assert.IsTrue(copilot.keybdHookMandatory);
-			Assert.AreEqual(0L, Keyboard.GetKeyVK("Copilot"));
-			Assert.AreEqual(0L, Keyboard.GetKeySC("Copilot"));
-
-			var wildcardDown = new HotkeyDefinition(1000, null, (uint)HotkeyTypeEnum.Normal, "*Copilot", 0);
-			var wildcardUp = new HotkeyDefinition(1001, null, (uint)HotkeyTypeEnum.Normal, "*Copilot Up", 0);
-			Assert.IsTrue(wildcardDown.constructedOK);
-			Assert.IsTrue(wildcardUp.constructedOK);
-			Assert.AreEqual(wildcardDown.vk, wildcardUp.vk);
-			Assert.AreEqual(wildcardDown.modifiersConsolidatedLR, wildcardUp.modifiersConsolidatedLR);
-			Assert.IsTrue(wildcardDown.allowExtraModifiers);
-			Assert.IsTrue(wildcardUp.allowExtraModifiers);
-			Assert.IsTrue(wildcardUp.keyUp);
-
-			var properties = new HotkeyProperties();
-			_ = HotkeyDefinition.TextToModifiers("Copilot Up", null, properties);
-			Assert.AreEqual("F23", properties.suffixText);
-			Assert.AreEqual(copilot.modifiersConsolidatedLR, properties.modifiersLR);
-			Assert.IsTrue(properties.isKeyUp);
-
-			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("Copilot::RCtrl");
+			// A remap target is hotkey syntax and may use < and >, but Send has no such prefix and would type
+			// them as literal characters (which is how "a::<#<+F23" came to type ">>"). Such a destination is
+			// emitted as explicit modifier events instead, released immediately after the destination key so
+			// that they are scoped to the one keystroke, exactly as Send scopes the neutral ^ ! + # prefixes.
+			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("a::<#<+F23");
 			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
 			var generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
-			Assert.IsTrue(generated.Contains(RemapDown("{Blind}{LShift up}{LWin up}{RCtrl DownR}")), generated);
-			// The chord's modifiers are firmware-fabricated and released microseconds after the trigger, so the
-			// up hotkey must not re-press them; only genuinely user-held modifiers are restored (see >!.::RCtrl).
-			Assert.IsTrue(generated.Contains("{Blind}{RCtrl Up}"), generated);
-			Assert.IsFalse(generated.Contains("GetKeyState(\"LShift\",\"P\")"), generated);
-			Assert.IsFalse(generated.Contains("GetKeyState(\"LWin\",\"P\")"), generated);
-			Assert.IsFalse(generated.Contains("System.String.Concat("), generated);
-			Assert.IsTrue(generated.Contains("\"*Copilot\""), generated);
-			Assert.IsTrue(generated.Contains("\"*Copilot up\""), generated);
+			Assert.IsTrue(generated.Contains(RemapDown("{Blind}{LShift down}{LWin down}{F23 DownR}")), generated);
+			Assert.IsTrue(generated.Contains("{Blind}{LWin up}{LShift up}"), generated);
+			Assert.IsTrue(generated.Contains("{Blind}{F23 Up}"), generated);
+			Assert.IsFalse(generated.Contains("<#<+"), generated);
 
-			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("Copilot::a");
+			// A neutral destination keeps the prefix form, which Send resolves to the left-hand key.
+			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("a::#+F23");
 			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
 			generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
-			Assert.IsTrue(generated.Contains(RemapDown("{Blind<+<#}{a DownR}")), generated);
-			Assert.IsFalse(generated.Contains("{Blind>+"), generated);
+			Assert.IsTrue(generated.Contains(RemapDown("{Blind}#+{F23 DownR}")), generated);
 		}
 
 		[Test, Category("Hotstring")]
-		public void ChordKeyIsUsableAsRemapDestinationAndSendToken()
+		public void CompositePrefixCanCarryModifiers()
 		{
-			// Send resolves a chord name to its trigger plus the modifiers the firmware would assert, so the
-			// ordinary token machinery ({Blind}, Down/Up, repeat counts) applies unchanged.
-			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("a::Copilot");
-			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
-			var generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
-			// Previously this silently lexed as a hotkey body calling Copilot(), with no diagnostic at all.
-			Assert.IsTrue(generated.Contains("__Remap_"), generated);
-			Assert.IsTrue(generated.Contains(RemapDown("{Copilot DownR}")), generated);
-			Assert.IsTrue(generated.Contains("{Copilot Up}"), generated);
-
-			// A name that is neither a key nor a chord still lexes as a hotkey body, not a remap.
-			(prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("a::NotAKeyName");
-			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
-			Assert.IsFalse(new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString().Contains("__Remap_"));
-		}
-
-		[Test, Category("Hotstring")]
-		public void ChordKeyAsCompositePrefixIsGatedOnTheWholeChord()
-		{
-			var ht = s.HookThread;
-			const uint f23 = Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_F23;
-			const uint lwin = Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LWIN;
-			const uint lshift = Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LSHIFT;
-
-			// The prefix is the chord's trigger, but carries the chord's identity so it is not the same hotkey
-			// as a plain combo on that trigger.
-			var copilotCombo = new HotkeyDefinition(1100, null, (uint)HotkeyTypeEnum.Normal, "Copilot & x", 0);
-			Assert.IsTrue(copilotCombo.constructedOK);
-			Assert.AreEqual(f23, copilotCombo.modifierVK);
-			Assert.AreNotEqual(-1, copilotCombo.chordPrefixIndex);
-
-			var officeCombo = new HotkeyDefinition(1101, null, (uint)HotkeyTypeEnum.Normal, "Office & x", 0);
-			Assert.IsTrue(officeCombo.constructedOK);
-			Assert.AreEqual(lwin, officeCombo.modifierVK);
-			Assert.AreNotEqual(-1, officeCombo.chordPrefixIndex);
-			Assert.AreNotEqual(copilotCombo.chordPrefixIndex, officeCombo.chordPrefixIndex);
-
-			// A plain combo on the same trigger is a different hotkey and is never chord-gated.
-			var plainCombo = new HotkeyDefinition(1102, null, (uint)HotkeyTypeEnum.Normal, "F23 & x", 0);
-			Assert.IsTrue(plainCombo.constructedOK);
-			Assert.AreEqual(f23, plainCombo.modifierVK);
-			Assert.AreEqual(-1, plainCombo.chordPrefixIndex);
-
-			var savedPhysical = ht.kbdMsSender.modifiersLRPhysical;
-			var savedAnyChordPrefix = ht.AnyChordPrefixHotkey;
-
-			try
-			{
-				// Nothing is tracked at all unless a chord-prefix hotkey is actually registered, so a script that
-				// never mentions these keys cannot be affected by the chord machinery.
-				ht.AnyChordPrefixHotkey = false;
-				ht.kbdMsSender.modifiersLRPhysical = Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN
-													 | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT;
-				ht.SimulateChordPrefixEvent(f23, false);
-				Assert.IsFalse(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex), "tracked with no chord-prefix hotkey registered");
-				Assert.AreEqual(0u, ht.ActiveChordModifiersLR(f23));
-				ht.SimulateChordPrefixEvent(f23, true);
-				ht.AnyChordPrefixHotkey = true;
-
-				// Trigger alone: not the chord, so the prefix must stay inactive.
-				ht.kbdMsSender.modifiersLRPhysical = 0;
-				ht.SimulateChordPrefixEvent(f23, false);
-				Assert.IsFalse(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex), "a bare F23 activated the Copilot prefix");
-				ht.SimulateChordPrefixEvent(f23, true);
-
-				// Whole chord present when the trigger goes down: active.
-				ht.kbdMsSender.modifiersLRPhysical = Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN
-													 | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT;
-				ht.SimulateChordPrefixEvent(f23, false);
-				Assert.IsTrue(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex));
-
-				// It latches: the firmware re-sends the whole chord while held, and a modifier going away
-				// mid-hold must not drop the prefix.
-				ht.kbdMsSender.modifiersLRPhysical = 0;
-				ht.SimulateChordPrefixEvent(f23, false);
-				Assert.IsTrue(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex), "prefix dropped during the hold");
-
-				// Released by the trigger's own up, which is unambiguous.
-				ht.SimulateChordPrefixEvent(f23, true);
-				Assert.IsFalse(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex));
-
-				// Office is gated on its own chord, and a plain Win press must not activate it — that is what
-				// keeps `Office & x::` from turning every bare Win press into a prefix key.
-				ht.kbdMsSender.modifiersLRPhysical = 0;
-				ht.SimulateChordPrefixEvent(lwin, false);
-				Assert.IsFalse(ht.ChordPrefixActive(officeCombo.chordPrefixIndex), "a bare Win press activated the Office prefix");
-				ht.SimulateChordPrefixEvent(lwin, true);
-
-				ht.kbdMsSender.modifiersLRPhysical = Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LCONTROL
-													 | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT
-													 | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LALT;
-				ht.SimulateChordPrefixEvent(lwin, false);
-				Assert.IsTrue(ht.ChordPrefixActive(officeCombo.chordPrefixIndex));
-				// Copilot's chord is not satisfied by Office's modifiers, so the two never cross-activate.
-				Assert.IsFalse(ht.ChordPrefixActive(copilotCombo.chordPrefixIndex));
-				ht.SimulateChordPrefixEvent(lwin, true);
-
-				// While a chord prefix is active its own modifiers are part of pressing the key, not the user
-				// modifying it. The hook discounts them so that a chord which is both a suffix hotkey and a
-				// combo prefix (Copilot::a plus Copilot & a::) still postpones its suffix until release.
-				Assert.AreEqual(0u, ht.ActiveChordModifiersLR(f23));
-				ht.kbdMsSender.modifiersLRPhysical = Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN
-													 | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT;
-				ht.SimulateChordPrefixEvent(f23, false);
-				Assert.AreEqual(Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN
-								| Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT,
-								ht.ActiveChordModifiersLR(f23));
-				// It describes only that trigger, and nothing at all once released.
-				Assert.AreEqual(0u, ht.ActiveChordModifiersLR(lshift));
-				ht.SimulateChordPrefixEvent(f23, true);
-				Assert.AreEqual(0u, ht.ActiveChordModifiersLR(f23));
-			}
-			finally
-			{
-				ht.kbdMsSender.modifiersLRPhysical = savedPhysical;
-				ht.AnyChordPrefixHotkey = savedAnyChordPrefix;
-			}
-		}
-
-		[Test, Category("Hotstring")]
-		public void OfficeHotkeyAliasesLeftModifierChord()
-		{
-			var office = new HotkeyDefinition(1002, null, (uint)HotkeyTypeEnum.Normal, "Office", 0);
-			Assert.IsTrue(office.constructedOK);
-			Assert.AreEqual(Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LWIN, office.vk);
+			// The modifiers belong to the prefix, not the suffix: the prefix key is still just F23.
+			var combo = new HotkeyDefinition(1100, null, (uint)HotkeyTypeEnum.Normal, "<#<+F23 & x", 0);
+			Assert.IsTrue(combo.constructedOK);
+			Assert.AreEqual(Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_F23, combo.modifierVK);
 			Assert.AreEqual(
-				Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LCONTROL
-				| Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT
-				| Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LALT,
-				office.modifiersConsolidatedLR);
-			Assert.IsTrue(office.keybdHookMandatory);
-			Assert.AreEqual(0L, Keyboard.GetKeyVK("Office"));
-			Assert.AreEqual(0L, Keyboard.GetKeySC("Office"));
+				Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT,
+				combo.prefixModifiersLR);
 
-			var properties = new HotkeyProperties();
-			_ = HotkeyDefinition.TextToModifiers("Office Up", null, properties);
-			Assert.AreEqual("LWin", properties.suffixText);
-			Assert.AreEqual(office.modifiersConsolidatedLR, properties.modifiersLR);
-			Assert.IsTrue(properties.isKeyUp);
+			// A plain combo on the same prefix key is unconstrained, and is a different hotkey.
+			var plain = new HotkeyDefinition(1101, null, (uint)HotkeyTypeEnum.Normal, "F23 & x", 0);
+			Assert.IsTrue(plain.constructedOK);
+			Assert.AreEqual(combo.modifierVK, plain.modifierVK);
+			Assert.AreEqual(0u, plain.prefixModifiersLR);
 
-			Assert.IsTrue(ChordKeyDefinition.TryGet("Office", out var chord));
-			var down = new HashSet<uint>
-			{
-				Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LCONTROL,
-				Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LSHIFT,
-				Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LMENU,
-				Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LWIN
-			};
-			var modifiersLR = down.Aggregate(0u,
-				(mask, vk) => mask | Keysharp.Internals.Input.Keyboard.KeyboardUtils.ModifierLRMaskFromVK(vk));
-			Assert.IsTrue(chord.IsDown(modifiersLR, true));
-			down.Remove(Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_LMENU);
-			modifiersLR = down.Aggregate(0u,
-				(mask, vk) => mask | Keysharp.Internals.Input.Keyboard.KeyboardUtils.ModifierLRMaskFromVK(vk));
-			Assert.IsFalse(chord.IsDown(modifiersLR, true));
+			// The suffix of a composite may carry modifiers too. AutoHotkey rejects these outright, so a
+			// combination which used to be spelled with a chord key name has an equivalent again.
+			var suffix = new HotkeyDefinition(1103, null, (uint)HotkeyTypeEnum.Normal, "a & <#<+F23", 0);
+			Assert.IsTrue(suffix.constructedOK);
+			Assert.AreEqual(Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_F23, suffix.vk);
+			Assert.AreEqual(
+				Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT,
+				suffix.suffixModifiersLR);
+			Assert.AreEqual(0u, suffix.prefixModifiersLR); // The modifiers belong to the suffix, not the prefix.
 
-			var (prog, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics("Office::RCtrl");
-			Assert.IsEmpty(diags, "unexpected parse diagnostics: " + string.Join("; ", diags));
-			var generated = new Keysharp.Parsing.Syntax.Lowerer().Build(prog, "Test").ToFullString();
-			Assert.IsTrue(generated.Contains(RemapDown(
-				"{Blind}{LCtrl up}{LAlt up}{LShift up}{LWin up}{RCtrl DownR}")), generated);
-			Assert.IsTrue(generated.Contains("\"*Office\""), generated);
-			Assert.IsTrue(generated.Contains("\"*Office up\""), generated);
+			// A composite with no modifiers on either side keeps ignoring the modifier state.
+			var bare = new HotkeyDefinition(1104, null, (uint)HotkeyTypeEnum.Normal, "a & F23", 0);
+			Assert.IsTrue(bare.constructedOK);
+			Assert.AreEqual(0u, bare.suffixModifiersLR);
+			Assert.IsTrue(ModifiersSatisfied(0u, bare.suffixModifiers, bare.suffixModifiersLR));
+
+			// A suffix's modifiers are held when the hotkey fires, which is what modifiersConsolidatedLR
+			// describes, so they belong there. A prefix's are not: they describe the earlier moment the prefix
+			// was pressed and may already have been released, so they must stay out of it.
+			Assert.AreEqual(
+				Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT,
+				suffix.modifiersConsolidatedLR & (Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LWIN | Keysharp.Internals.Input.Keyboard.KeyboardUtils.MOD_LSHIFT));
+			Assert.AreEqual(0u, combo.modifiersConsolidatedLR);
+
+			// Specificity orders the chain, so a bare combination cannot eclipse a modified one on the same
+			// keys regardless of which was declared first.
+			Assert.Greater(combo.CompositeSpecificity(), plain.CompositeSpecificity());
+			Assert.Greater(suffix.CompositeSpecificity(), bare.CompositeSpecificity());
+			Assert.AreEqual(0, bare.CompositeSpecificity());
+
+			// A neutral modifier means either side satisfies it; a sided one means that side only.
+			var neutral = new HotkeyDefinition(1102, null, (uint)HotkeyTypeEnum.Normal, "^F23 & x", 0);
+			Assert.IsTrue(neutral.constructedOK);
+			Assert.IsTrue(ModifiersSatisfied(MOD_LCONTROL, neutral.prefixModifiers, neutral.prefixModifiersLR));
+			Assert.IsTrue(ModifiersSatisfied(MOD_RCONTROL, neutral.prefixModifiers, neutral.prefixModifiersLR));
+			Assert.IsFalse(ModifiersSatisfied(MOD_LSHIFT, neutral.prefixModifiers, neutral.prefixModifiersLR));
+			Assert.IsTrue(ModifiersSatisfied(MOD_LWIN | MOD_LSHIFT, combo.prefixModifiers, combo.prefixModifiersLR));
+			Assert.IsFalse(ModifiersSatisfied(MOD_RWIN | MOD_RSHIFT, combo.prefixModifiers, combo.prefixModifiersLR));
+			Assert.IsTrue(ModifiersSatisfied(0u, plain.prefixModifiers, plain.prefixModifiersLR));
 		}
+
+		[Test, Category("Hotstring")]
+		public void ModifiedCompositePrefixIsLatchedAtPrefixDown()
+		{
+			var key = new Keysharp.Internals.Input.Keyboard.KeyType(Keysharp.Internals.Input.Keyboard.VirtualKeys.VK_F23);
+			var chord = MOD_LWIN | MOD_LSHIFT;
+
+			// A key no hotkey uses as a modified prefix records nothing, so ordinary keys pay for none of this.
+			Keysharp.Internals.Input.Hooks.HookThread.RecordKeyDownState(key, true, chord);
+			Assert.IsTrue(key.isDown);
+			Assert.IsNull(key.downModifiersLR);
+
+			key.samplesPrefixModifiers = true;
+
+			// Pressed with nothing held: the requirement is not met, and zero is a real answer rather than
+			// "not yet sampled".
+			Keysharp.Internals.Input.Hooks.HookThread.RecordKeyDownState(key, false, 0u);
+			Keysharp.Internals.Input.Hooks.HookThread.RecordKeyDownState(key, true, 0u);
+			Assert.AreEqual(0u, key.downModifiersLR);
+			Assert.IsFalse(ModifiersSatisfied(key.downModifiersLR ?? 0u, 0u, chord));
+
+			// Auto-repeat must not revise it, even from that zero.
+			Keysharp.Internals.Input.Hooks.HookThread.RecordKeyDownState(key, true, chord);
+			Assert.AreEqual(0u, key.downModifiersLR, "the sample was revised while the key was still held");
+
+			// Pressed with the modifiers held: armed.
+			Keysharp.Internals.Input.Hooks.HookThread.RecordKeyDownState(key, false, 0u);
+			Keysharp.Internals.Input.Hooks.HookThread.RecordKeyDownState(key, true, chord);
+			Assert.IsTrue(ModifiersSatisfied(key.downModifiersLR ?? 0u, 0u, chord));
+
+			// Latched: modifiers going away while the key is still held must not disarm it. This is what lets a
+			// key whose firmware drops the modifiers immediately still act as a prefix.
+			Keysharp.Internals.Input.Hooks.HookThread.RecordKeyDownState(key, true, 0u);
+			Assert.IsTrue(ModifiersSatisfied(key.downModifiersLR ?? 0u, 0u, chord), "the sample was revised while the key was still held");
+
+			// Released: the press is over, so both halves of it end together.
+			Keysharp.Internals.Input.Hooks.HookThread.RecordKeyDownState(key, false, chord);
+			Assert.IsFalse(key.isDown);
+			Assert.IsNull(key.downModifiersLR);
+		}
+
 
 #if OSX
 		[Test, Category("Hotstring")]

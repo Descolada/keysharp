@@ -89,5 +89,15 @@ namespace Keysharp.Internals.Properties {
                 return ((byte[])(obj));
             }
         }
+
+        /// <summary>
+        ///   Looks up a localized resource of type System.Byte[].
+        /// </summary>
+        public static byte[] Keysharp_png {
+            get {
+                object obj = ResourceManager.GetObject("Keysharp.png", resourceCulture);
+                return ((byte[])(obj));
+            }
+        }
     }
 }

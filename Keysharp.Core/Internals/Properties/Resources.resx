@@ -127,4 +127,7 @@
   <data name="Keysharp_s.ico" type="System.Resources.ResXFileRef, System.Windows.Forms">
     <value>..\..\..\Keysharp_s.ico;System.Byte[], mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </data>
+  <data name="Keysharp.png" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\..\..\Keysharp.png;System.Byte[], mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </data>
 </root>

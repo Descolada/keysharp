@@ -96,7 +96,8 @@ namespace Keysharp.Internals.UI.Unix
 		{
 			var fileMenu = new ButtonMenuItem { Text = "&File" };
 			var reloadScriptItem = new ButtonMenuItem { Text = "&Reload Script", Shortcut = Eto.Forms.Application.Instance.CommonModifier | Eto.Forms.Keys.R };
-			var editScriptItem = new ButtonMenuItem { Text = "&Edit Script", Shortcut = Eto.Forms.Application.Instance.CommonModifier | Eto.Forms.Keys.E, Enabled = !A_IsCompiled };
+			//Hidden rather than disabled, to match the WinForms main window.
+			var editScriptItem = new ButtonMenuItem { Text = "&Edit Script", Shortcut = Eto.Forms.Application.Instance.CommonModifier | Eto.Forms.Keys.E, Visible = !A_IsCompiled };
 			var windowSpyItem = new ButtonMenuItem { Text = "&Window Spy" };
 			suspendHotkeysMenuItem = new CheckMenuItem { Text = "&Suspend Hotkeys" };
 			var exitItem = new ButtonMenuItem { Text = "E&xit" };
@@ -406,6 +407,9 @@ namespace Keysharp.Internals.UI.Unix
 				e.Cancel = true;
 				return;
 			}
+
+			//An open About box would otherwise outlive its owner and keep the Eto application running.
+			about?.Close();
 		}
 
 		private void refreshToolStripMenuItem_Click(object sender, EventArgs e) => RefreshSelectedTab();

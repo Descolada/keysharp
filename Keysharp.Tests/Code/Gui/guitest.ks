@@ -83,9 +83,26 @@ FileMenu.Add("My Su&bmenu", MainSubmenu1)
 ImgSrchMenu := Menu()
 ImgSrchMenu.Add("&Image Search Test", "ImgSrch")
 
+; Menu presentation options added in v2.1:
+;   Radio changes a checked item's mark from a tick to a bullet.
+;   RTL changes the item's text/layout direction.
+;   Break and BarBreak begin new popup-menu columns (BarBreak also draws a divider).
+;   Right applies to a top-level menu-bar item, so this whole menu sits at the right edge.
+PresentationMenu := Menu()
+PresentationMenu.Add("Radio-style checked item", "MenuHandler", "Radio")
+PresentationMenu.Check("Radio-style checked item")
+PresentationMenu.Add("Ordinary checked item", "MenuHandler")
+PresentationMenu.Check("Ordinary checked item")
+PresentationMenu.Add("RTL sample: שלום", "MenuHandler", "RTL")
+PresentationMenu.Add("Break: column two", "MenuHandler", "Break")
+PresentationMenu.Add("Second-column item", "MenuHandler")
+PresentationMenu.Add("BarBreak: column three", "MenuHandler", "BarBreak")
+PresentationMenu.Add("Third-column item", "MenuHandler")
+
 MyMenuBar := MenuBar()
 MyMenuBar.Add("&Menu Icon Test", FileMenu)
 MyMenuBar.Add("&Image Search", ImgSrchMenu)
+MyMenuBar.Add("&Presentation", PresentationMenu, "Right")
 
 MyGui := Gui(, "KEYSHARP TESTS")
 MyGui.OnEvent("Close", "CloseApp")

@@ -53,6 +53,7 @@ namespace Keysharp.Builtins
 
 		private NativeMemoryHandle ownedHandle;
 		private long borrowedPtr;
+		private bool isPointerView;
 		private bool disposed;
 		private Dictionary<string, Struct> nestedViews;
 
@@ -85,6 +86,7 @@ namespace Keysharp.Builtins
 		private Type StructType => type ?? GetType();
 
 		public long Ptr => ownedHandle?.DangerousGetHandle().ToInt64() ?? borrowedPtr;
+		internal bool IsPointerView => isPointerView;
 
 		// Resolved from the receiver rather than declared as an instance property, so that it also answers on a
 		// struct class's Prototype: the prototype defines the layout but is not itself a Struct. A prototype
@@ -375,6 +377,7 @@ namespace Keysharp.Builtins
 			unsafe { Unsafe.InitBlockUnaligned((void*)handle, 0, (uint)info.Size); }
 
 			ownedHandle = new NativeMemoryHandle(handle);
+			isPointerView = false;
 		}
 
 		internal object Dispose(bool disposing)
@@ -384,6 +387,7 @@ namespace Keysharp.Builtins
 
 			ReleaseOwnedStorage();
 			borrowedPtr = 0;
+			isPointerView = false;
 			nestedViews?.Clear();
 			disposed = true;
 			return DefaultObject;
@@ -912,6 +916,7 @@ namespace Keysharp.Builtins
 		{
 			ReleaseOwnedStorage();
 			borrowedPtr = ptr;
+			isPointerView = true;
 			nestedViews?.Clear();
 		}
 

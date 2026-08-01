@@ -296,6 +296,11 @@ namespace Keysharp.Builtins
 			if (obj is not Struct st)
 				return Errors.TypeErrorOccurred(obj, typeof(Struct));
 
+			// Since v2.1-alpha.27, only a boxed pointer created by StructClass.At() has a redirectable
+			// data pointer. An ordinary struct instance owns its storage and cannot be rebound.
+			if (!st.IsPointerView)
+				return Errors.ErrorOccurred("Operation failed.");
+
 			st.SetDataPtr(ptr.Al());
 			return Script.DefaultObject;
 		}

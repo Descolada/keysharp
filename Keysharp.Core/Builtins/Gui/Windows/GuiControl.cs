@@ -1024,6 +1024,9 @@ namespace Keysharp.Builtins
 
 				var opts = g.ParseOpt(typename, _control.Text, options.As());
 
+				if (opts.dpiresize.HasValue)
+					dpiResize = opts.dpiresize.Value;
+
 				if (opts.redraw.HasValue)
 				{
 					if (opts.redraw == false)

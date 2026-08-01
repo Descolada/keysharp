@@ -44,6 +44,9 @@ namespace Keysharp.Builtins
 			private CallbackHub selectedItemChangedHandlers;
 			internal Size requestedSize = new (int.MinValue, int.MinValue);
 			internal bool eventHandlerActive = true;
+			//"+/-DPIResize": whether this control is re-laid out when the GUI's DPI changes. Seeded from the
+			//GUI's default when the control is added, so a later change to that default leaves this one alone.
+			internal bool dpiResize = true;
 
 			internal bool RemoveOwnedHandlers(ScriptEventScheduler scheduler)
 			{

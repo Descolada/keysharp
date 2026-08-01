@@ -8,6 +8,7 @@ namespace Keysharp.Builtins
 		public bool AllowShowDisplay = true;
 		internal CallbackHub closedHandlers;
 		internal CallbackHub contextMenuChangedHandlers;
+		internal CallbackHub dpiChangeHandlers;
 		internal CallbackHub dropFilesHandlers;
 		internal CallbackHub escapeHandlers;
 		internal object eventObj;
@@ -20,6 +21,8 @@ namespace Keysharp.Builtins
 		private bool closingFromDestroy;
 #if WINDOWS
 		private nint originalWndProcPtr;
+#else
+		private long lastDpi = 96;
 #endif
 #if OSX
 		private uint mouseTransparentWindow;
@@ -297,8 +300,10 @@ namespace Keysharp.Builtins
 			removeStyle = _removeStyle;
 			removeExStyle = _removeExStyle;
 #if WINDOWS
-			AutoScaleDimensions = new SizeF(96F, 96F);
-			AutoScaleMode = AutoScaleMode.Dpi;
+			//Keysharp does all of its own DPI scaling (Gui.DpiScale on the way in, Gui.RescaleForDpi when the DPI
+			//changes), so WinForms must not scale as well: it would fight the raw pixels a "-DPIScale" GUI supplies,
+			//and it rescales every child unconditionally, which cannot honor a per-control "-DPIResize".
+			AutoScaleMode = AutoScaleMode.None;
 			//See Gui.Show() for where the remainder of the properties get set, such as scaling values.
 			Font = MainWindow.OurDefaultFont;
 			StartPosition = FormStartPosition.CenterScreen;
@@ -314,10 +319,12 @@ namespace Keysharp.Builtins
 			{
 #if WINDOWS
 				FormClosing += Form_FormClosing;
+				DpiChanged += Form_DpiChanged;
 				Resize += Form_Resize;
 				VisibleChanged += Form_VisibleChanged;
 #else
 				Closing += Form_FormClosing;
+				LogicalPixelSizeChanged += Form_LogicalPixelSizeChanged;
 				SizeChanged += Form_Resize;
 				Shown += Form_VisibleChanged;
 #endif
@@ -330,6 +337,7 @@ namespace Keysharp.Builtins
 			{
 				beenShown = true;
 #if !WINDOWS
+				lastDpi = CurrentDpi;
 				_ = this.Handle;
 				// On Wayland the titlebar/taskbar icon is resolved from the window's app_id (matched to an
 				// installed keysharp.desktop), not from the Window.Icon pixbuf — GTK3 has no per-window icon
@@ -419,6 +427,7 @@ namespace Keysharp.Builtins
 		internal bool RemoveOwnedHandlers(ScriptEventScheduler scheduler)
 			=> (closedHandlers?.RemoveOwned(scheduler) == true)
 				| (contextMenuChangedHandlers?.RemoveOwned(scheduler) == true)
+				| (dpiChangeHandlers?.RemoveOwned(scheduler) == true)
 				| (dropFilesHandlers?.RemoveOwned(scheduler) == true)
 				| (escapeHandlers?.RemoveOwned(scheduler) == true)
 				| (sizeHandlers?.RemoveOwned(scheduler) == true);
@@ -573,6 +582,36 @@ namespace Keysharp.Builtins
 #endif
 		}
 
+#if WINDOWS
+		private void Form_DpiChanged(object sender, DpiChangedEventArgs e)
+		{
+			//Only the controls are re-laid out here; the window itself is left to WinForms, which applies the
+			//suggested rectangle once this returns.
+			if (Tag is WeakReference<Gui> wrg && wrg.TryGetTarget(out var g))
+				g.RescaleForDpi(e.DeviceDpiOld, e.DeviceDpiNew);
+
+			CallDpiChangeHandlers(e.DeviceDpiOld, e.DeviceDpiNew);
+		}
+#else
+		private long CurrentDpi => Math.Max(1L, (long)Math.Round(LogicalPixelSize * 96.0));
+
+		private void Form_LogicalPixelSizeChanged(object sender, EventArgs e)
+		{
+			var newDpi = CurrentDpi;
+			var oldDpi = lastDpi;
+			lastDpi = newDpi;
+
+			if (oldDpi != newDpi)
+				CallDpiChangeHandlers(oldDpi, newDpi);
+		}
+#endif
+
+		internal void CallDpiChangeHandlers(long oldDpi, long newDpi)
+		{
+			if (Tag is WeakReference<Gui> wrg && wrg.TryGetTarget(out var g))
+				_ = dpiChangeHandlers?.InvokeEventHandlers(g, oldDpi, newDpi);
+		}
+
 		internal object OnEvent(object obj0, object obj1, object obj2 = null)
 		{
 			var e = obj0.As();
@@ -603,6 +642,13 @@ namespace Keysharp.Builtins
 					dropFilesHandlers = new();
 
 				dropFilesHandlers.ModifyEventHandlers(del, i);
+			}
+			else if (e is "dpichange" or "dpichanged")
+			{
+				if (dpiChangeHandlers == null)
+					dpiChangeHandlers = new();
+
+				dpiChangeHandlers.ModifyEventHandlers(del, i);
 			}
 			else if (e == "escape")
 			{

@@ -27,6 +27,9 @@ namespace Keysharp.Builtins
 			];
 
 		internal Dictionary<object, object> controls = [];
+		// AHK's mDefaultDPIResize: the GUI-level "+/-DPIResize" only supplies the default for controls added
+		// afterward, so toggling it never retroactively changes controls that already exist.
+		internal bool defaultDpiResize = true;
 #if WINDOWS
 		internal bool dpiscaling = true;
 #elif OSX
@@ -145,22 +148,18 @@ namespace Keysharp.Builtins
 				"Disabled", (f, o) => { if (o is bool b) f.form.Enabled = !b; }
 			},
 			{
-				// -DPIScale means the script supplies raw pixels and wants no scaling. On Windows the form must
-				// therefore also drop WinForms' own AutoScaleMode.Dpi: otherwise at HiDPI (e.g. 200%) WinForms
-				// still scales the form's client/child controls while the script positions in raw pixels — the
-				// two fight, and on resize part of the client is left unpainted (a black/white or opaque region,
-				// e.g. the middle of a +ClickThrough overlay). AutoScaleMode.None maps raw pixels 1:1 to the
-				// (DPI-aware) window. +DPIScale keeps the default AutoScaleMode.Dpi.
-				"DPIScale", (f, o) => { if (o is bool b) { f.dpiscaling = b;
-#if WINDOWS
-						f.form.AutoScaleMode = b ? AutoScaleMode.Dpi : AutoScaleMode.None;
-#endif
-					} }
+				// DPIScale is purely a unit conversion on the numbers the script supplies: +DPIScale multiplies
+				// them by the window's DPI when a control is created and divides again in GetPos/GetClientPos,
+				// while -DPIScale passes them through as raw pixels. It says nothing about what happens when the
+				// DPI changes later — that is DPIResize, which is deliberately independent (as in AHK, where
+				// RescaleForDPI ignores mUsesDPIScaling), so "-DPIScale +DPIResize" is a valid combination.
+				"DPIScale", (f, o) => { if (o is bool b) f.dpiscaling = b; }
 			},
 			{
-				// v2.1 option, accepted for compatibility. Per-monitor DPI re-layout is not implemented, but the
-				// option is recognized so scripts that use it are not rejected as invalid.
-				"DPIResize", (f, o) => { }
+				// v2.1: whether controls are re-laid out when the window's DPI changes, e.g. after being dragged
+				// to a monitor at a different scale. This sets the default for controls added afterward; an
+				// individual control can override it with its own "+/-DPIResize" option.
+				"DPIResize", (f, o) => { if (o is bool b) f.defaultDpiResize = b; }
 			},
 			{
 				"LastFound", (f, o) =>
@@ -2249,10 +2248,10 @@ namespace Keysharp.Builtins
 			}
 
 			ctrl.SetLocation(loc);
+			holder.dpiResize = opts.dpiresize ?? defaultDpiResize;
 			controls[ctrl.Handle.ToInt64()] = holder;
 
 #if WINDOWS
-
 			if (ctrl is KeysharpActiveX kax)
 				kax.Init();
 
@@ -2672,6 +2671,91 @@ namespace Keysharp.Builtins
 				form.MaximumSize = form.GetSize();
 			}
 		}
+
+#if WINDOWS
+		//Scales a stored pixel measurement from oldDpi to newDpi, rounding the way Win32's MulDiv does.
+		private static int ScaleForDpi(int value, int oldDpi, int newDpi) => (int)(((long)value * newDpi + oldDpi / 2) / oldDpi);
+
+		private static Size ScaleForDpi(Size size, int oldDpi, int newDpi) =>
+			new (ScaleForDpi(size.Width, oldDpi, newDpi), ScaleForDpi(size.Height, oldDpi, newDpi));
+
+		/// <summary>
+		/// Re-lays out the GUI after its DPI changed, mirroring AHK's GuiType::RescaleForDPI.
+		/// WinForms' own AutoScaleMode is left at None (see <see cref="KeysharpForm"/>) because it rescales every
+		/// child unconditionally, which cannot honor a per-control "-DPIResize".
+		/// Fonts are deliberately left alone: AHK stores them as pixel heights and must rescale them, whereas the
+		/// fonts used here are point-based and already grow with the device DPI, so scaling would double-apply.
+		/// </summary>
+		/// <param name="oldDpi">The DPI the current layout was computed for.</param>
+		/// <param name="newDpi">The DPI to lay the GUI out for.</param>
+		internal void RescaleForDpi(int oldDpi, int newDpi)
+		{
+			if (form == null || oldDpi <= 0 || newDpi <= 0 || oldDpi == newDpi)
+				return;
+
+			//Margins and size limits must be adjusted before anything is resized against them.
+			var margin = form.Margin;
+			form.Margin = new Padding(ScaleForDpi(margin.Left, oldDpi, newDpi), ScaleForDpi(margin.Top, oldDpi, newDpi),
+									  ScaleForDpi(margin.Right, oldDpi, newDpi), ScaleForDpi(margin.Bottom, oldDpi, newDpi));
+			form.MinimumSize = ScaleForDpi(form.MinimumSize, oldDpi, newDpi);
+			form.MaximumSize = ScaleForDpi(form.MaximumSize, oldDpi, newDpi);
+			form.SuspendLayout();
+
+			//Parents are scaled before their children so a child is never momentarily clipped to a container
+			//that is still sized for the old DPI.
+			foreach (Forms.Control child in form.Controls)
+				RescaleControlForDpi(child, oldDpi, newDpi);
+
+			form.ResumeLayout(true);
+			//Every control moved, so a partial repaint tends to leave artifacts behind.
+			form.Invalidate(true);
+		}
+
+		private static void RescaleControlForDpi(Forms.Control ctrl, int oldDpi, int newDpi)
+		{
+			//Controls Keysharp adds for its own layout (radio group panels, tab pages) have no holder and always
+			//follow the window; only script-visible controls can opt out with "-DPIResize".
+			var holder = ctrl.GetGuiControl();
+
+			if (holder == null || holder.dpiResize)
+			{
+				var bounds = ctrl.Bounds;
+				//Width and height are scaled from the original extents rather than from the already-rounded
+				//position so that repeated transitions don't accumulate drift.
+				ctrl.Bounds = new Rectangle(ScaleForDpi(bounds.X, oldDpi, newDpi), ScaleForDpi(bounds.Y, oldDpi, newDpi),
+											ScaleForDpi(bounds.Width, oldDpi, newDpi), ScaleForDpi(bounds.Height, oldDpi, newDpi));
+
+				//Kept in step with the bounds because it is stored in pixels and is what Tab controls re-apply.
+				//Either dimension may still be int.MinValue ("not specified"), which must be left alone.
+				if (holder != null)
+				{
+					if (holder.requestedSize.Width != int.MinValue)
+						holder.requestedSize.Width = ScaleForDpi(holder.requestedSize.Width, oldDpi, newDpi);
+
+					if (holder.requestedSize.Height != int.MinValue)
+						holder.requestedSize.Height = ScaleForDpi(holder.requestedSize.Height, oldDpi, newDpi);
+				}
+
+				if (ctrl is Forms.ListView lv)
+				{
+					foreach (ColumnHeader col in lv.Columns)
+						col.Width = ScaleForDpi(col.Width, oldDpi, newDpi);
+				}
+				else if (ctrl is Forms.ListBox lb && lb.IntegralHeight)
+				{
+					//An integral-height list box silently shrinks to a whole number of items, so a few pixels of
+					//rounding loss cost a whole item and enough transitions would shrink it away entirely.
+					var itemHeight = lb.ItemHeight;
+
+					if (itemHeight > 0 && ScaleForDpi(bounds.Height, oldDpi, newDpi) - lb.Height > itemHeight / 2)
+						lb.Height += itemHeight;
+				}
+			}
+
+			foreach (Forms.Control child in ctrl.Controls)
+				RescaleControlForDpi(child, oldDpi, newDpi);
+		}
+#endif
 
 		public object Restore()
 		{
@@ -3269,6 +3353,7 @@ namespace Keysharp.Builtins
 					else if (Options.TryParse(opt, "y", ref options.y)) { options.ypos = GuiOptions.Positioning.Absolute; }
 					else if (Options.TryParse(opt, "t", ref options.t)) { options.tabstops.Add(options.t); }
 					else if (Options.TryParse(opt, "Redraw", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.redraw = tempbool; }
+					else if (Options.TryParse(opt, "DPIResize", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.dpiresize = tempbool; }
 					//Checkbox.
 					else if (opt.Equals("Check3", StringComparison.OrdinalIgnoreCase)) { options.check3 = true; }//Needs to come before any option starting with a 'c'.
 					else if (opt.Equals("CheckedGray ", StringComparison.OrdinalIgnoreCase)) { options.checkedgray = true; }
@@ -3755,6 +3840,9 @@ namespace Keysharp.Builtins
 
 			//DropDownList
 			internal int ddlchoose = int.MinValue;
+
+			//Whether this control is re-laid out when the GUI's DPI changes; unset means inherit the GUI default.
+			internal bool? dpiresize;
 
 			internal System.DateTime dtChoose = System.DateTime.Now;
 			internal System.DateTime dthigh = System.DateTime.MaxValue;

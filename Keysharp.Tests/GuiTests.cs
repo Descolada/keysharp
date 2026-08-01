@@ -164,6 +164,177 @@ namespace Keysharp.Tests
 #if WINDOWS
 		[Test, Category("Gui")]
 		[Apartment(ApartmentState.STA)]
+		public void DpiResizeDefaultsPerControlAndIsIndependentOfDpiScale()
+		{
+			var gui = new Gui(System.Array.Empty<object>());
+			_ = gui.__New();
+
+			try
+			{
+				// WinForms must never scale on its own, otherwise "-DPIScale" raw pixels get scaled anyway and
+				// every child is resized regardless of its own "-DPIResize".
+				Assert.AreEqual(AutoScaleMode.None, gui.form.AutoScaleMode);
+				_ = gui.Opt("-DPIScale");
+				Assert.AreEqual(AutoScaleMode.None, gui.form.AutoScaleMode);
+
+				var inherited = (Gui.Control)gui.Add("Button", "x10 y10 w100 h30");
+				var optedOut = (Gui.Control)gui.Add("Button", "x10 y50 w100 h30 -DPIResize");
+				Assert.IsTrue(inherited.dpiResize, "controls should inherit the GUI's default");
+				Assert.IsFalse(optedOut.dpiResize, "a per-control -DPIResize should override the GUI default");
+
+				// As in AHK, the GUI option only seeds controls added afterwards.
+				_ = gui.Opt("-DPIResize");
+				Assert.IsTrue(inherited.dpiResize, "changing the GUI default must not affect existing controls");
+				var addedAfter = (Gui.Control)gui.Add("Button", "x10 y90 w100 h30");
+				Assert.IsFalse(addedAfter.dpiResize);
+
+				// GuiCtrl.Opt() can flip it back on an existing control.
+				_ = optedOut.Opt("+DPIResize");
+				Assert.IsTrue(optedOut.dpiResize);
+			}
+			finally
+			{
+				_ = gui.Destroy();
+			}
+		}
+
+		[Test, Category("Gui")]
+		[Apartment(ApartmentState.STA)]
+		public void RescaleForDpiSkipsControlsThatOptedOut()
+		{
+			var gui = new Gui(System.Array.Empty<object>());
+			_ = gui.__New();
+
+			try
+			{
+				var scaled = (Gui.Control)gui.Add("Button", "w100 h30");
+				var unscaled = (Gui.Control)gui.Add("Button", "w100 h30 -DPIResize");
+				// Bounds are assigned explicitly so the expected values don't depend on Keysharp's layout math.
+				var original = new Rectangle(10, 10, 100, 30);
+				scaled.Ctrl.Bounds = original;
+				unscaled.Ctrl.Bounds = original;
+
+				gui.RescaleForDpi(96, 144);
+				Assert.AreEqual(new Rectangle(15, 15, 150, 45), scaled.Ctrl.Bounds);
+				Assert.AreEqual(original, unscaled.Ctrl.Bounds, "-DPIResize controls must keep their bounds");
+
+				// Scaling back down must land on the original bounds rather than drifting.
+				gui.RescaleForDpi(144, 96);
+				Assert.AreEqual(original, scaled.Ctrl.Bounds);
+				Assert.AreEqual(original, unscaled.Ctrl.Bounds);
+
+				// A no-op transition must not touch anything.
+				gui.RescaleForDpi(96, 96);
+				Assert.AreEqual(original, scaled.Ctrl.Bounds);
+			}
+			finally
+			{
+				_ = gui.Destroy();
+			}
+		}
+
+		[Test, Category("Gui")]
+		[Apartment(ApartmentState.STA)]
+		public void DpiChangeEventRegistersAndDispatches()
+		{
+			var gui = new Gui(System.Array.Empty<object>());
+			_ = gui.__New();
+			var callback = new KeysharpFunc((Func<object, object, object, object>)((_, _, _) => 0L));
+
+			try
+			{
+				_ = gui.OnEvent("DPIChange", callback);
+				Assert.AreEqual(1, gui.form.dpiChangeHandlers.Count);
+				// Dispatch depends on the script thread scheduler; this verifies registration and the native event bridge.
+				gui.form.CallDpiChangeHandlers(96, 144);
+			}
+			finally
+			{
+				_ = gui.Destroy();
+			}
+		}
+
+		[Test, Category("Gui")]
+		[Apartment(ApartmentState.STA)]
+		public void MenuPresentationOptionsAndWaitDefault()
+		{
+			var callback = new KeysharpFunc((Func<object, object, object, object>)((_, _, _) => 0L));
+			var menu = new Keysharp.Builtins.Menu();
+			var plainMenu = new Keysharp.Builtins.Menu();
+			var menuBar = new Keysharp.Builtins.MenuBar();
+
+			try
+			{
+				var first = (ToolStripMenuItem)menu.Add("First", callback);
+				var second = (ToolStripMenuItem)menu.Add("Second", callback, "Radio BarBreak RTL");
+				_ = menu.Check("Second");
+
+				Assert.IsTrue(second.Checked);
+				Assert.AreEqual(RightToLeft.Yes, second.RightToLeft);
+				var presentation = Keysharp.Builtins.Menu.GetPresentation(second);
+				Assert.IsTrue(presentation.Radio);
+				Assert.IsTrue(presentation.BarBreak);
+				Assert.IsTrue(presentation.StartsColumn);
+
+				// Break and BarBreak are mutually exclusive; removing one must leave the other alone.
+				_ = menu.Add("Second", callback, "Break");
+				Assert.IsTrue(presentation.Break);
+				Assert.IsFalse(presentation.BarBreak);
+				_ = menu.Add("Second", callback, "-BarBreak");
+				Assert.IsTrue(presentation.Break, "-BarBreak must not clear Break.");
+
+				// Columns are arranged when the drop-down opens, not on every Add, so drive a real open.
+				var flow = (FlowLayoutSettings)menu.MenuItem.LayoutSettings;
+				Assert.IsFalse(flow.GetFlowBreak(first), "Adding items must not lay out a menu that is not shown.");
+				OpenAndClose(menu.MenuItem);
+				Assert.IsTrue(flow.GetFlowBreak(first), "A column break should begin a new column after the preceding item.");
+				Assert.IsTrue(flow.WrapContents);
+				Assert.Greater(second.Bounds.Left, first.Bounds.Left);
+
+				// Losing the last column break must restore ordinary single-column autosizing.
+				_ = menu.Add("Second", callback, "-Break");
+				OpenAndClose(menu.MenuItem);
+				Assert.IsFalse(flow.WrapContents);
+				Assert.IsTrue(menu.MenuItem.AutoSize);
+				Assert.Greater(second.Bounds.Top, first.Bounds.Top);
+
+				// A menu that never asks for columns must be left entirely to WinForms' own layout.
+				var plainFirst = (ToolStripMenuItem)plainMenu.Add("First", callback);
+				var plainSecond = (ToolStripMenuItem)plainMenu.Add("Second", callback);
+				OpenAndClose(plainMenu.MenuItem);
+				Assert.IsFalse(((FlowLayoutSettings)plainMenu.MenuItem.LayoutSettings).WrapContents);
+				Assert.Greater(plainSecond.Bounds.Top, plainFirst.Bounds.Top, "A normal popup menu should remain vertical.");
+
+				// Right is a menu-bar-only option in AHK (MENU_TYPE_BAR); popups must ignore it.
+				var right = (ToolStripMenuItem)menuBar.Add("Right", callback, "Right");
+				Assert.AreEqual(ToolStripItemAlignment.Right, right.Alignment);
+				Assert.IsTrue(Keysharp.Builtins.Menu.GetPresentation(right).Right);
+				var notRight = (ToolStripMenuItem)plainMenu.Add("NotRight", callback, "Right");
+				Assert.AreEqual(ToolStripItemAlignment.Left, notRight.Alignment);
+				Assert.IsFalse(Keysharp.Builtins.Menu.GetPresentation(notRight).Right);
+
+				// A submenu's drop-down is created on demand and must still get the Keysharp renderer.
+				var subItem = (ToolStripMenuItem)menuBar.Add("Sub", new Keysharp.Builtins.Menu());
+				Assert.AreSame(menuBar.MenuStrip.Renderer, subItem.DropDown.Renderer);
+			}
+			finally
+			{
+				menu.MenuItem.Dispose();
+				plainMenu.MenuItem.Dispose();
+				menuBar.MenuStrip.Dispose();
+				menuBar.MenuItem.Dispose();
+			}
+		}
+
+		// Raises Opening/Closed exactly as a real display would, without leaving a popup on screen.
+		private static void OpenAndClose(ContextMenuStrip menu)
+		{
+			menu.Show(new Point(0, 0));
+			menu.Close();
+		}
+
+		[Test, Category("Gui")]
+		[Apartment(ApartmentState.STA)]
 		public void WinSetStyleDoesNotAlterExStyle()
 		{
 			using var form = new Form { Text = nameof(WinSetStyleDoesNotAlterExStyle) };
@@ -214,6 +385,37 @@ namespace Keysharp.Tests
 				_ = WindowsAPI.SetWindowLongPtr(handle, WindowsAPI.GWL_EXSTYLE, new nint(originalExStyle));
 				A_DetectHiddenWindows = oldDetectHiddenWindows;
 			}
+		}
+#endif
+
+#if LINUX
+		[Test, Category("Gui")]
+		public void MenuPresentationOptionsUseGtkNativeFeatures()
+		{
+			SkipIfUiInitializationBlocked("Test requires a live GTK application.");
+			var callback = new KeysharpFunc((Func<object, object, object, object>)((_, _, _) => 0L));
+			var menu = new Keysharp.Builtins.Menu();
+			var menuBar = new Keysharp.Builtins.MenuBar();
+			var first = (ToolStripMenuItem)menu.Add("First", callback);
+			var second = (ToolStripMenuItem)menu.Add("Second", callback, "Radio BarBreak RTL");
+			_ = menu.Check("Second");
+			menu.MenuItem.Refresh();
+
+			var nativeFirst = (Gtk.Widget)first.EtoItem.ControlObject;
+			var nativeSecond = (Gtk.CheckMenuItem)second.EtoItem.ControlObject;
+			var nativeMenu = (Gtk.Menu)menu.MenuItem.EtoMenu.ControlObject;
+			using var firstColumn = nativeMenu.ChildGetProperty(nativeFirst, "left-attach");
+			using var secondColumn = nativeMenu.ChildGetProperty(nativeSecond, "left-attach");
+
+			Assert.IsTrue(nativeSecond.DrawAsRadio);
+			Assert.AreEqual(Gtk.TextDirection.Rtl, nativeSecond.Direction);
+			Assert.AreEqual(0U, Convert.ToUInt32(firstColumn.Val));
+			Assert.AreEqual(2U, Convert.ToUInt32(secondColumn.Val));
+			Assert.IsTrue(nativeMenu.Children.Any(static child => child.Name == "keysharp-menu-barbreak"));
+
+			var right = (ToolStripMenuItem)menuBar.Add("Right", callback, "Right");
+			var nativeRight = (Gtk.MenuItem)right.EtoItem.ControlObject;
+			Assert.IsTrue((bool)nativeRight.GetType().GetProperty("RightJustified").GetValue(nativeRight));
 		}
 #endif
 

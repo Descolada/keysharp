@@ -11,6 +11,163 @@ namespace Keysharp.Builtins
 	public class Menu : KeysharpObject
 	{
 		/// <summary>
+		/// The AHK v2.1 item options that have no direct WinForms/Eto equivalent and so must be reproduced by
+		/// hand. AutoHotkey stores these as MFT_* bits on the native menu item; here they live on the item's Tag.
+		/// </summary>
+		internal sealed class MenuItemPresentation
+		{
+			internal bool BarBreak;
+			internal bool Break;
+			internal bool Radio;
+			internal bool Right;
+			internal bool Rtl;
+
+			//Both flavors begin a new column; BarBreak additionally draws a divider in front of it.
+			internal bool StartsColumn => Break || BarBreak;
+		}
+
+		internal static MenuItemPresentation GetPresentation(ToolStripMenuItem item) =>
+			item.Tag as MenuItemPresentation ?? (MenuItemPresentation)(item.Tag = new MenuItemPresentation());
+
+		//"Break" and "BarBreak" are mutually exclusive: a column starts either with a divider or without one.
+		//Removing one leaves the other alone, matching AHK's per-flag MFT_MENUBREAK/MFT_MENUBARBREAK clearing.
+		private static void SetColumnBreak(ToolStripMenuItem item, bool adding, bool withBar)
+		{
+			var presentation = GetPresentation(item);
+
+			if (adding)
+				(presentation.BarBreak, presentation.Break) = (withBar, !withBar);
+			else if (withBar)
+				presentation.BarBreak = false;
+			else
+				presentation.Break = false;
+		}
+
+#if WINDOWS
+		//Left margin reserved on a BarBreak column, with the divider drawn down the middle of it.
+		private const int ColumnGap = 8;
+
+		private sealed class KeysharpMenuRenderer : ToolStripProfessionalRenderer
+		{
+			//Win32 draws a bullet for MFT_RADIOCHECK items; ToolStrip only knows how to draw a tick.
+			protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+			{
+				if (e.Item.Tag is not MenuItemPresentation { Radio: true })
+				{
+					base.OnRenderItemCheck(e);
+					return;
+				}
+
+				var bounds = e.ImageRectangle;
+				var diameter = Math.Max(5, Math.Min(bounds.Width, bounds.Height) / 2);
+				var oldSmoothing = e.Graphics.SmoothingMode;
+				e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+				using (var brush = new SolidBrush(e.Item.Enabled ? SystemColors.MenuText : SystemColors.GrayText))
+					e.Graphics.FillEllipse(brush, bounds.Left + ((bounds.Width - diameter) / 2),
+										   bounds.Top + ((bounds.Height - diameter) / 2), diameter, diameter);
+
+				e.Graphics.SmoothingMode = oldSmoothing;
+			}
+
+			//Draws the MFT_MENUBARBREAK divider. This runs on every repaint, so a menu with no BarBreak item
+			//must cost no more than the scan itself.
+			protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
+			{
+				base.OnRenderToolStripBackground(e);
+				var first = true;
+
+				foreach (ToolStripItem item in e.ToolStrip.Items)
+				{
+					if (!item.Available)
+						continue;
+
+					//The first visible item already starts the first column, so it never gets a divider.
+					if (!first && item.Tag is MenuItemPresentation { BarBreak: true })
+					{
+						using var pen = new Pen(SystemColors.ControlDark);
+						var x = Math.Max(0, item.Bounds.Left - (ColumnGap / 2));
+						e.Graphics.DrawLine(pen, x, e.AffectedBounds.Top + 2, x, e.ToolStrip.ClientSize.Height - 3);
+					}
+
+					first = false;
+				}
+			}
+		}
+
+		private static readonly ToolStripRenderer menuRenderer = new KeysharpMenuRenderer();
+
+		/// <summary>
+		/// Reproduces MFT_MENUBREAK/MFT_MENUBARBREAK. ToolStrip has no native multi-column support, so the
+		/// columns come from letting its flow layout wrap at each item that begins one.
+		/// Runs when the menu is about to open, so it sees the final item list exactly once per display.
+		/// </summary>
+		private static void ApplyColumns(ToolStripDropDown dropDown)
+		{
+			var flow = (FlowLayoutSettings)dropDown.LayoutSettings;
+			var items = dropDown.Items.Cast<ToolStripItem>().Where(static item => item.Available).ToArray();
+
+			//A drop-down already defaults to a single top-down column, so there is nothing to do unless this
+			//menu wants columns or is still laid out in them from a previous display.
+			if (!flow.WrapContents && !items.Skip(1).Any(static item => item.Tag is MenuItemPresentation { StartsColumn: true }))
+				return;
+
+			ToolStripItem previous = null;
+			var gap = 0;
+			var columns = 1;
+
+			foreach (var item in items)
+			{
+				flow.SetFlowBreak(item, false);
+
+				//The first visible item already starts the first column and so cannot begin another.
+				if (previous != null && item.Tag is MenuItemPresentation { StartsColumn: true } presentation)
+				{
+					flow.SetFlowBreak(previous, true);
+					gap = presentation.BarBreak ? ColumnGap : 0;
+					++columns;
+				}
+
+				var margin = item.Margin;
+				item.Margin = new Padding(gap, margin.Top, margin.Right, margin.Bottom);
+				previous = item;
+			}
+
+			flow.WrapContents = columns > 1;
+			//AutoSize cannot measure a wrapped flow layout, so a multi-column menu is sized from its items.
+			//The first pass lays them out at the still-tall autosized height, which is what makes the explicit
+			//flow breaks (rather than the height) decide where the columns fall.
+			dropDown.AutoSize = columns == 1;
+
+			if (columns > 1)
+			{
+				dropDown.PerformLayout();
+				dropDown.Size = new Size(items.Max(static item => item.Bounds.Right) + dropDown.Padding.Right,
+										 items.Max(static item => item.Bounds.Bottom) + dropDown.Padding.Bottom);
+			}
+		}
+#endif
+
+		/// <summary>
+		/// Gives a menu the Keysharp renderer and, for popups, arranges its columns just before it opens.
+		/// Idempotent — the renderer doubles as the "already initialized" marker. No-op off Windows, where the
+		/// native menus provide these features themselves (see UnixMenuPresentation).
+		/// </summary>
+		/// <param name="menu">The menu to initialize.</param>
+		internal static void InitMenu(ToolStrip menu)
+		{
+#if WINDOWS
+			if (menu == null || menu.Renderer == menuRenderer)
+				return;
+
+			menu.Renderer = menuRenderer;
+
+			if (menu is ToolStripDropDown dropDown)
+				dropDown.Opening += static (sender, _) => ApplyColumns((ToolStripDropDown)sender);
+#endif
+		}
+
+		/// <summary>
 		/// The default item in the menu.
 		/// </summary>
 		internal ToolStripItem defaultItem;
@@ -88,6 +245,9 @@ namespace Keysharp.Builtins
 		public Menu(params object[] args) : base(args)
 		{
 			MenuItem = (args?.Length > 0 ? (ContextMenuStrip)args[0] : null) ?? new ContextMenuStrip();
+			//Virtual, so this also covers a MenuBar's MenuStrip: a derived class's field initializers have
+			//already run by the time the base constructor body does.
+			InitMenu(GetMenu());
 			//GetMenu().ImageScalingSize = new System.Drawing.Size(28, 28);//Don't set scaling, it makes the checked icons look funny.
 			menuId = Interlocked.Increment(ref Script.TheScript.GuiData.menuCount);
 			Script.TheScript.GuiData.allMenus[menuId] = new(this);
@@ -472,13 +632,15 @@ namespace Keysharp.Builtins
 		/// Otherwise, specify the X and Y coordinates at which to display the upper left corner of the menu.<br/>
 		/// The coordinates are relative to the active window's client area unless overridden by using <see cref="CoordMode"/> or <see cref="A_CoordModeMenu"/>.
 		/// </param>
-		/// <param name="wait">If true, wait until the menu is closed before returning. If false or omitted, return immediately.</param>
+		/// <param name="wait">If true or omitted, wait until the menu is closed before returning. If false, return immediately.</param>
 		public object Show(object x = null, object y = null, object wait = null)
 		{
 			if (this is MenuBar)
 				return Errors.ValueErrorOccurred("MenuBar objects cannot be shown as popup menus.");
 
-			var shouldWait = wait.Ab(false);
+			// Keysharp menus do not expose the native MNS_MODELESS style, so an omitted Wait has the standard-menu
+			// default of true (AHK's aWait.value_or(temp_modeless)). Passing false retains the non-blocking form.
+			var shouldWait = wait.Ab(true);
 
 			Script.InvokeOnUIThread(() =>
 			{
@@ -692,6 +854,10 @@ namespace Keysharp.Builtins
 						moveItem.Owner = item.DropDown;
 #endif
 					}
+
+					//The submenu's drop-down only comes into existence here, so this is where it gets its renderer
+					//and column handling. Items that already own a populated drop-down keep the one they were given.
+					InitMenu(item.DropDown);
 #if !WINDOWS
 					item.Owner?.SyncEtoItems();
 #endif
@@ -714,15 +880,40 @@ namespace Keysharp.Builtins
 						var tempbool = false;
 
 						if (Options.TryParse(opt, "P", ref temp)) { if (clickReg != null) clickReg.Priority = temp; }
-						else if (Options.TryParse(opt, "Radio", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { }
+						else if (Options.TryParse(opt, "Radio", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true))
+							GetPresentation(item).Radio = tempbool;
 						else if (Options.TryParse(opt, "Right", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true))
 						{
-							item.TextAlign = tempbool ? ContentAlignment.MiddleRight : ContentAlignment.MiddleLeft;
+							//AHK honors Right only for menu-bar items (MENU_TYPE_BAR), not inside popups or submenus.
+							//Items can be inserted into a submenu through a MenuBar, so the parent has to be checked too.
+							if (this is MenuBar && item.GetCurrentParent() == GetMenu())
+							{
+								GetPresentation(item).Right = tempbool;
+#if WINDOWS
+								item.Alignment = tempbool ? ToolStripItemAlignment.Right : ToolStripItemAlignment.Left;
+#endif
+							}
 						}
-						else if (Options.TryParse(opt, "Break", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { }
-						else if (Options.TryParse(opt, "BarBreak", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { }
+						else if (Options.TryParse(opt, "Break", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true))
+							SetColumnBreak(item, tempbool, false);
+						else if (Options.TryParse(opt, "BarBreak", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true))
+							SetColumnBreak(item, tempbool, true);
+						else if (Options.TryParse(opt, "RTL", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true))
+						{
+							GetPresentation(item).Rtl = tempbool;
+#if WINDOWS
+							item.RightToLeft = tempbool ? RightToLeft.Yes : RightToLeft.No;
+#endif
+						}
 					}
 				}
+
+#if !WINDOWS
+				//The Eto backends have no "about to open" hook — the tray indicator and menu bar are handed the
+				//native menu directly — so their items must be rebuilt as soon as the menu changes. On Windows
+				//this is deferred to the drop-down's Opening event (see InitMenu).
+				GetMenu().Refresh();
+#endif
 			}
 
 			return item != null ? item : "";

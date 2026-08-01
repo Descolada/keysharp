@@ -21,9 +21,15 @@ namespace Keysharp.Internals.Window.Unix
 			{
 				text = value ?? "";
 				if (EtoItem != null)
-					EtoItem.Text = text;
+					EtoItem.Text = PresentedText;
 			}
 		}
+
+		internal virtual string PresentedText => text;
+
+		//Whether this item must be backed by an Eto CheckMenuItem rather than a ButtonMenuItem. The base item
+		//only ever builds a ButtonMenuItem, so overrides must stay in step with their own BuildEtoItem.
+		internal virtual bool NeedsCheckItem => false;
 
 		public string Name
 		{
@@ -62,8 +68,15 @@ namespace Keysharp.Internals.Window.Unix
 					return;
 
 				checkedValue = value;
-				if (EtoItem is CheckMenuItem checkItem)
-					checkItem.Checked = value;
+				// Only a CheckMenuItem can show a state indicator and only a ButtonMenuItem can show an image, so
+				// the parent has to rebuild its list whenever the required type changes. Toggling an item that is
+				// already of the right type — every radio item, and every uncheck of a plain one — does not.
+				var isCheckItem = EtoItem is CheckMenuItem;
+
+				if (EtoItem != null && isCheckItem != NeedsCheckItem)
+					parent?.SyncEtoItems();
+				else if (isCheckItem)
+					((CheckMenuItem)EtoItem).Checked = value;
 
 				CheckedChanged?.Invoke(this, EventArgs.Empty);
 			}
@@ -118,7 +131,7 @@ namespace Keysharp.Internals.Window.Unix
 			if (EtoItem == null)
 				EtoItem = new ButtonMenuItem();
 
-			EtoItem.Text = Text;
+			EtoItem.Text = PresentedText;
 			EtoItem.Enabled = Enabled;
 			EtoItem.Visible = Visible;
 
@@ -298,6 +311,8 @@ namespace Keysharp.Internals.Window.Unix
 			ContextMenu.Items.Clear();
 			foreach (var item in Items)
 				ContextMenu.Items.Add(item.BuildEtoItem());
+
+			UnixMenuPresentation.Apply(ContextMenu, Items);
 		}
 
 		public virtual void Refresh()
@@ -308,6 +323,21 @@ namespace Keysharp.Internals.Window.Unix
 
 	public class ToolStripDropDownMenu : ToolStrip
 	{
+		private readonly ToolStripMenuItem ownerItem;
+
+		public ToolStripDropDownMenu(ToolStripMenuItem ownerItem = null)
+		{
+			this.ownerItem = ownerItem;
+		}
+
+		internal override void SyncEtoItems()
+		{
+			if (ownerItem != null)
+				ownerItem.SyncSubItems();
+			else
+				base.SyncEtoItems();
+		}
+
 		public virtual void Show(Eto.Drawing.Point point, Control parent = null)
 		{
 			SyncEtoItems();
@@ -335,9 +365,39 @@ namespace Keysharp.Internals.Window.Unix
 		public Keys ShortcutKeys { get; set; }
 		public object TextAlign { get; set; }
 
+		private Keysharp.Builtins.Menu.MenuItemPresentation Presentation =>
+			Tag as Keysharp.Builtins.Menu.MenuItemPresentation;
+
+		internal override string PresentedText
+		{
+			get
+			{
+				var text = base.PresentedText;
+#if OSX
+				// NSMenu does not expose a radio-style state image independently of radio-group behavior.
+				// Prefixing the bullet preserves AHK's presentation without changing click/check semantics.
+				if (Checked && Presentation?.Radio == true)
+					text = "\u25cf " + text;
+
+				if (Presentation?.Rtl == true)
+					text = "\u2067" + text + "\u2069";
+#endif
+				return text;
+			}
+		}
+
+		// A submenu is always a plain button item: it hosts the child menu and never shows a state indicator.
+		// Beyond that, macOS draws the radio bullet into the text (see PresentedText) so a radio item stays a
+		// button item, whereas GTK draws it with CheckMenuItem.DrawAsRadio and needs a check item even unchecked.
+#if OSX
+		internal override bool NeedsCheckItem => DropDownItems.Count == 0 && Checked && Presentation?.Radio != true;
+#else
+		internal override bool NeedsCheckItem => DropDownItems.Count == 0 && (Checked || Presentation?.Radio == true);
+#endif
+
 		public ToolStripMenuItem()
 		{
-			dropDownMenu = new ToolStripDropDownMenu();
+			dropDownMenu = new ToolStripDropDownMenu(this);
 		}
 
 		public ToolStripMenuItem(string text) : this()
@@ -348,17 +408,10 @@ namespace Keysharp.Internals.Window.Unix
 
 		internal override MenuItem BuildEtoItem()
 		{
-			if (EtoItem == null || (Checked && EtoItem is not CheckMenuItem))
-			{
-				if (DropDownItems.Count > 0)
-					EtoItem = new ButtonMenuItem();
-				else if (Checked)
-					EtoItem = new CheckMenuItem();
-				else
-					EtoItem = new ButtonMenuItem();
-			}
+			if (EtoItem == null || (EtoItem is CheckMenuItem) != NeedsCheckItem)
+				EtoItem = NeedsCheckItem ? new CheckMenuItem() : new ButtonMenuItem();
 
-			EtoItem.Text = Text;
+			EtoItem.Text = PresentedText;
 			EtoItem.Enabled = Enabled;
 			EtoItem.Visible = Visible;
 
@@ -366,16 +419,13 @@ namespace Keysharp.Internals.Window.Unix
 				button.Image = etoImage;
 
 			if (EtoItem is CheckMenuItem checkItem)
-			{
-				checkItem.CheckedChanged -= CheckItem_CheckedChanged;
-				checkItem.CheckedChanged += CheckItem_CheckedChanged;
 				checkItem.Checked = Checked;
-			}
 
 			EtoItem.Click -= EtoItem_Click;
 			EtoItem.Click += EtoItem_Click;
 
 			SyncSubItems();
+			UnixMenuPresentation.Apply(EtoItem, Presentation);
 			return EtoItem;
 		}
 
@@ -399,15 +449,114 @@ namespace Keysharp.Internals.Window.Unix
 				item.ResetEtoItemRecursive();
 				button.Items.Add(item.BuildEtoItem());
 			}
+
+			UnixMenuPresentation.Apply(button, DropDownItems);
 		}
 
-		private void CheckItem_CheckedChanged(object sender, EventArgs e)
+		private void EtoItem_Click(object sender, EventArgs e)
 		{
-			if (sender is CheckMenuItem checkItem)
-				Checked = checkItem.Checked;
+			// Selecting an AHK menu item does not implicitly toggle its check/radio state.
+			if (sender is CheckMenuItem checkItem && checkItem.Checked != Checked)
+				checkItem.Checked = Checked;
+
+			RaiseClick();
+		}
+	}
+
+	internal static class UnixMenuPresentation
+	{
+		internal static void Apply(MenuItem item, Keysharp.Builtins.Menu.MenuItemPresentation presentation)
+		{
+#if LINUX
+			if (item?.ControlObject is Gtk.MenuItem nativeItem)
+			{
+				// GTK3's RightJustified property is deprecated without a native replacement; it is still the
+				// platform API which implements AHK's right-aligned menu-bar item.
+#pragma warning disable CS0612
+				nativeItem.RightJustified = presentation?.Right == true;
+#pragma warning restore CS0612
+				nativeItem.Direction = presentation?.Rtl == true ? Gtk.TextDirection.Rtl : Gtk.TextDirection.Ltr;
+
+				if (nativeItem is Gtk.CheckMenuItem checkItem)
+					checkItem.DrawAsRadio = presentation?.Radio == true;
+			}
+#endif
 		}
 
-		private void EtoItem_Click(object sender, EventArgs e) => RaiseClick();
+		internal static void Apply(ContextMenu menu, IReadOnlyList<ToolStripItem> items)
+		{
+#if LINUX
+			if (menu?.ControlObject is Gtk.Menu nativeMenu)
+				Apply(nativeMenu, items);
+#endif
+		}
+
+		internal static void Apply(ButtonMenuItem parent, IReadOnlyList<ToolStripItem> items)
+		{
+#if LINUX
+			if (parent?.ControlObject is Gtk.MenuItem nativeParent && nativeParent.Submenu is Gtk.Menu nativeMenu)
+				Apply(nativeMenu, items);
+#endif
+		}
+
+#if LINUX
+		private const string BarBreakSeparatorName = "keysharp-menu-barbreak";
+
+		private static void Apply(Gtk.Menu menu, IReadOnlyList<ToolStripItem> items)
+		{
+			foreach (var oldSeparator in menu.Children.Where(static child => child.Name == BarBreakSeparatorName).ToArray())
+			{
+				menu.Remove(oldSeparator);
+				oldSeparator.Destroy();
+			}
+
+			var columns = new List<(List<(Gtk.Widget Widget, ToolStripItem Item)> Items, bool Bar)>();
+			var current = new List<(Gtk.Widget, ToolStripItem)>();
+			columns.Add((current, false));
+
+			foreach (var item in items)
+			{
+				if (item.EtoItem?.ControlObject is not Gtk.Widget widget)
+					continue;
+
+				var presentation = item.Tag as Keysharp.Builtins.Menu.MenuItemPresentation;
+				Apply(item.EtoItem, presentation);
+
+				if (current.Count > 0 && presentation is { Break: true } or { BarBreak: true })
+				{
+					current = [];
+					columns.Add((current, presentation.BarBreak));
+				}
+
+				current.Add((widget, item));
+			}
+
+			if (columns.Count == 1)
+				return;
+
+			foreach (var column in columns)
+				foreach (var entry in column.Items)
+					menu.Remove(entry.Widget);
+
+			var maxRows = Math.Max(1, columns.Max(static column => column.Items.Count));
+			for (var columnIndex = 0; columnIndex < columns.Count; ++columnIndex)
+			{
+				var column = columns[columnIndex];
+				var itemColumn = (uint)(columnIndex * 2);
+
+				if (columnIndex > 0 && column.Bar)
+				{
+					var separatorHost = new Gtk.MenuItem { Name = BarBreakSeparatorName, Sensitive = false };
+					separatorHost.Add(new Gtk.Separator(Gtk.Orientation.Vertical));
+					menu.Attach(separatorHost, itemColumn - 1, itemColumn, 0, (uint)maxRows);
+					separatorHost.ShowAll();
+				}
+
+				for (var row = 0; row < column.Items.Count; ++row)
+					menu.Attach(column.Items[row].Widget, itemColumn, itemColumn + 1, (uint)row, (uint)row + 1);
+			}
+		}
+#endif
 	}
 }
 #endif

@@ -29,11 +29,19 @@ if ObjGetDataPtr(ab) != ab.Ptr
 if ObjGetDataSize(ab) != 5
     FileAppend "fail datasize", "*"
 
-; ObjSetDataPtr rebinds the struct to an external address (like Struct.At, in place).
-buf := Buffer(8, 0)
-pt := AB1()
-ObjSetDataPtr(pt, buf.Ptr)
-if pt.Ptr != buf.Ptr
+; Since alpha.27, only a boxed pointer created by Struct.At can be rebound.
+buf1 := Buffer(8, 0)
+buf2 := Buffer(8, 0)
+pt := AB1.At(buf1.Ptr)
+ObjSetDataPtr(pt, buf2.Ptr)
+if pt.Ptr != buf2.Ptr
     FileAppend "fail setdataptr", "*"
+
+try ObjSetDataPtr(AB1(), buf1.Ptr)
+catch Error
+    normalStructFailed := true
+
+if !IsSet(normalStructFailed)
+    FileAppend "fail setdataptr owned", "*"
 
 FileAppend "pass", "*"

@@ -5396,16 +5396,16 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "GUI control types are elements of interaction which can be added to a GUI window using the Gui object\u0027s Add method."
+                     "notes":  "GUI control types are elements of interaction which can be added to a GUI window using the Gui object\u0027s Add method. ActiveX and Custom are Win32-only and raise a ValueError on Linux and macOS; every other type is available on all platforms. ListView additionally supports only the Report view there (see Gui.Add)."
                  },
                  {
                      "category":  "Windowing/GUI",
                      "feature":  "Gui()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "The Gui object provides an interface to create a window, add controls, modify the window, and retrieve information about the window. Such windows can be used as data entry forms or custom user interfaces.",
                      "tested-by":  "ControlTests/control_add_delete_item.ahk"
                  },
@@ -5414,9 +5414,9 @@
                      "feature":  "Gui.__Enum()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Returns an enumerator for GUI controls."
                  },
                  {
@@ -5424,9 +5424,9 @@
                      "feature":  "Gui.__Item",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Indexer property for retrieving controls by name or key."
                  },
                  {
@@ -5434,9 +5434,9 @@
                      "feature":  "Gui.__New()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Constructs a new GUI window object."
                  },
                  {
@@ -5447,7 +5447,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "Adds a control to the GUI.",
+                     "notes":  "Adds a control to the GUI. The ActiveX and Custom control types are Win32-only and raise a ValueError on Linux and macOS. A ListView created with a view option other than +Report (+Icon, +IconSmall, +Tile, +List) is not implemented there either.",
                      "tested-by":  "ControlTests/control_add_delete_item.ahk"
                  },
                  {
@@ -5455,9 +5455,9 @@
                      "feature":  "Gui.BackColor",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets or sets the GUI background color.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -5466,9 +5466,9 @@
                      "feature":  "Gui.Call()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Shows the GUI when the object is called like a function."
                  },
                  {
@@ -5476,9 +5476,9 @@
                      "feature":  "Gui.Control.Add()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Adds an item to controls that support item lists."
                  },
                  {
@@ -5486,9 +5486,9 @@
                      "feature":  "Gui.Control.Choose()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Selects an item in the control."
                  },
                  {
@@ -5499,16 +5499,16 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "ClassNN identifier of the control."
+                     "notes":  "ClassNN identifier of the control. Off Windows only a top-level window reports a ClassNN; a child control returns an empty string, because Eto controls are drawn by the toolkit and have no per-control native window class."
                  },
                  {
                      "category":  "Windowing/GUI",
                      "feature":  "Gui.Control.Delete()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Deletes items from controls that support item lists."
                  },
                  {
@@ -5516,9 +5516,9 @@
                      "feature":  "Gui.Control.Enabled",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets or sets whether the control is enabled."
                  },
                  {
@@ -5526,9 +5526,9 @@
                      "feature":  "Gui.Control.Focus()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Sets keyboard focus to the control."
                  },
                  {
@@ -5536,9 +5536,9 @@
                      "feature":  "Gui.Control.Focused",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Whether the control currently has focus."
                  },
                  {
@@ -5546,9 +5546,9 @@
                      "feature":  "Gui.Control.GetPos()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets the control position and size."
                  },
                  {
@@ -5556,9 +5556,9 @@
                      "feature":  "Gui.Control.Gui",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Parent GUI object for the control."
                  },
                  {
@@ -5566,9 +5566,9 @@
                      "feature":  "Gui.Control.Hwnd",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Native window handle of the control."
                  },
                  {
@@ -5576,9 +5576,9 @@
                      "feature":  "Gui.Control.Move()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Moves or resizes the control."
                  },
                  {
@@ -5586,9 +5586,9 @@
                      "feature":  "Gui.Control.Name",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Associated control name."
                  },
                  {
@@ -5606,9 +5606,9 @@
                      "feature":  "Gui.Control.OnEvent()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Registers a control event callback."
                  },
                  {
@@ -5640,16 +5640,16 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "Applies options to the control."
+                     "notes":  "Sets options for the control. Changing a ListView to a view other than Report (+Icon, +IconSmall, +Tile, +List) is not implemented on Linux or macOS and raises. Raw Win32 style options (+0x..., +E0x...) have no portable equivalent and are ignored."
                  },
                  {
                      "category":  "Windowing/GUI",
                      "feature":  "Gui.Control.Redraw()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Redraws the control."
                  },
                  {
@@ -5657,9 +5657,9 @@
                      "feature":  "Gui.Control.SetCue()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Sets cue banner (placeholder text) for the control."
                  },
                  {
@@ -5667,9 +5667,9 @@
                      "feature":  "Gui.Control.SetFont()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Sets the control font."
                  },
                  {
@@ -5677,9 +5677,9 @@
                      "feature":  "Gui.Control.Text",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets or sets the control text."
                  },
                  {
@@ -5687,9 +5687,9 @@
                      "feature":  "Gui.Control.Type",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Control type name."
                  },
                  {
@@ -5697,9 +5697,9 @@
                      "feature":  "Gui.Control.Value",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets or sets the control value."
                  },
                  {
@@ -5707,9 +5707,9 @@
                      "feature":  "Gui.Control.Visible",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets or sets whether the control is visible."
                  },
                  {
@@ -5717,9 +5717,9 @@
                      "feature":  "Gui.Destroy()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Destroys the GUI window and releases associated resources."
                  },
                  {
@@ -5737,9 +5737,9 @@
                      "feature":  "Gui.FocusedCtrl",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Currently focused control in the GUI."
                  },
                  {
@@ -5747,9 +5747,9 @@
                      "feature":  "Gui.GetClientPos()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets the GUI client-area position and size."
                  },
                  {
@@ -5757,9 +5757,9 @@
                      "feature":  "Gui.GetPos()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets the GUI window position and size."
                  },
                  {
@@ -5767,9 +5767,9 @@
                      "feature":  "Gui.Hide()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Hides the GUI window."
                  },
                  {
@@ -5777,9 +5777,9 @@
                      "feature":  "Gui.Hwnd",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Native window handle of the GUI.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -5788,9 +5788,9 @@
                      "feature":  "Gui.MarginX",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Default horizontal margin for layout.",
                      "tested-by":  "Gui/text-control-test.ahk"
                  },
@@ -5799,9 +5799,9 @@
                      "feature":  "Gui.MarginY",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Default vertical margin for layout.",
                      "tested-by":  "Gui/text-control-test.ahk"
                  },
@@ -5810,9 +5810,9 @@
                      "feature":  "Gui.Maximize()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Maximizes the GUI window."
                  },
                  {
@@ -5820,9 +5820,9 @@
                      "feature":  "Gui.MenuBar",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets or sets the menu bar attached to the GUI.",
                      "tested-by":  "ControlTests/menubar_ks_2.ahk"
                  },
@@ -5831,9 +5831,9 @@
                      "feature":  "Gui.Minimize()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Minimizes the GUI window."
                  },
                  {
@@ -5841,10 +5841,10 @@
                      "feature":  "Gui.Move()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "Moves or resizes the GUI window.",
+                     "macos":  "full",
+                     "notes":  "Moves and/or resizes the window. On Wayland a client cannot set its own position, so the move is routed through the compositor backend and needs KWin, GNOME or Cinnamon with the Keysharp extension; resizing works everywhere.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -5852,9 +5852,9 @@
                      "feature":  "Gui.Name",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Associated GUI name."
                  },
                  {
@@ -5862,9 +5862,9 @@
                      "feature":  "Gui.OnEvent()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Registers a GUI event callback.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -5887,7 +5887,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "Applies GUI window options.",
+                     "notes":  "Sets options for the window. Raw Win32 style and extended-style options (+0x..., +E0x...) have no portable equivalent and are ignored on Linux and macOS; the named options are honoured through the toolkit\u0027s own properties. The Theme option is unsupported on every platform.",
                      "tested-by":  "ControlTests/picture_tests.ahk"
                  },
                  {
@@ -5895,9 +5895,9 @@
                      "feature":  "Gui.Restore()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Restores the GUI window from minimized or maximized state."
                  },
                  {
@@ -5905,9 +5905,9 @@
                      "feature":  "Gui.SetFont()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Sets the default font for subsequent controls.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -5916,10 +5916,10 @@
                      "feature":  "Gui.Show()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "Shows the GUI window.",
+                     "macos":  "full",
+                     "notes":  "Displays the window. Explicit X/Y placement on Wayland goes through the compositor backend (KWin, GNOME or Cinnamon with the Keysharp extension) because a client cannot position its own top-level; size, state and centring work everywhere.",
                      "tested-by":  "ControlTests/control_add_delete_item.ahk"
                  },
                  {
@@ -5927,9 +5927,9 @@
                      "feature":  "Gui.Submit()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Submits control values and returns them to script variables.",
                      "tested-by":  "ControlTests/control_set_exstyle.ahk"
                  },
@@ -5938,9 +5938,9 @@
                      "feature":  "Gui.Tab.UseTab()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Selects the active tab page for subsequent control additions."
                  },
                  {
@@ -5948,9 +5948,9 @@
                      "feature":  "Gui.Title",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets or sets the GUI window title.",
                      "tested-by":  "ControlTests/control_exstyle_cb.ahk"
                  },
@@ -5959,9 +5959,9 @@
                      "feature":  "Gui.Visible",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets/sets GUI visibility state."
                  },
                  {
@@ -5969,9 +5969,9 @@
                      "feature":  "GuiCtrlFromHwnd()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "The GuiCtrlFromHwnd function retrieves the GuiControl object of a GUI control associated with the specified window handle.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -5980,9 +5980,9 @@
                      "feature":  "GuiFromHwnd()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "The GuiFromHwnd function retrieves the Gui object of a GUI window associated with the specified window handle.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -6829,9 +6829,9 @@
                      "feature":  "ListView.Add()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Adds a row to a ListView control.",
                      "tested-by":  "Gui/guitest.ks"
                  },
@@ -6840,9 +6840,9 @@
                      "feature":  "ListView.Delete()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Deletes one row or all rows in a ListView."
                  },
                  {
@@ -6850,9 +6850,9 @@
                      "feature":  "ListView.DeleteCol()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Deletes a column from a ListView control."
                  },
                  {
@@ -6860,9 +6860,9 @@
                      "feature":  "ListView.GetCount()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets item, selected-item, or column count in a ListView."
                  },
                  {
@@ -6870,9 +6870,9 @@
                      "feature":  "ListView.GetNext()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets the next row matching selection/focus criteria."
                  },
                  {
@@ -6880,9 +6880,9 @@
                      "feature":  "ListView.GetText()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets text from a ListView row and column.",
                      "tested-by":  "Gui/guitest.ks"
                  },
@@ -6891,9 +6891,9 @@
                      "feature":  "ListView.Insert()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Inserts a row at a specific position in a ListView."
                  },
                  {
@@ -6901,9 +6901,9 @@
                      "feature":  "ListView.InsertCol()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Inserts a column into a ListView."
                  },
                  {
@@ -6911,9 +6911,9 @@
                      "feature":  "ListView.Modify()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Changes ListView row state, text, or icon."
                  },
                  {
@@ -6921,9 +6921,9 @@
                      "feature":  "ListView.ModifyCol()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Changes ListView column options and width.",
                      "tested-by":  "Gui/guitest.ks"
                  },
@@ -6932,9 +6932,9 @@
                      "feature":  "ListView.SetImageList()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Assigns an image list for ListView icons."
                  },
                  {
@@ -7334,9 +7334,9 @@
                      "feature":  "Menu()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "The Menu/MenuBar object provides an interface to create and modify a menu or menu bar, add and modify menu items, and retrieve information about the menu or menu bar.",
                      "tested-by":  "ControlTests/dir_select_hotkey.ahk"
                  },
@@ -7348,7 +7348,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "Adds an item to a menu.",
+                     "notes":  "Adds an item to a menu. The Right and RTL item options are Win32 menu attributes with no Eto counterpart, so they are parsed and ignored on Linux and macOS; every other option, including the Break/BarBreak column controls, works on all platforms.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -7356,9 +7356,9 @@
                      "feature":  "Menu.AddStandard()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Adds standard tray menu items."
                  },
                  {
@@ -7366,9 +7366,9 @@
                      "feature":  "Menu.Check()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Checks a menu item."
                  },
                  {
@@ -7376,9 +7376,9 @@
                      "feature":  "Menu.ClickCount",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Number of clicks required to trigger a tray menu item."
                  },
                  {
@@ -7386,9 +7386,9 @@
                      "feature":  "Menu.Default",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Default menu item name or position."
                  },
                  {
@@ -7396,9 +7396,9 @@
                      "feature":  "Menu.Delete()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Deletes one menu item or all items."
                  },
                  {
@@ -7406,9 +7406,9 @@
                      "feature":  "Menu.Disable()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Disables a menu item."
                  },
                  {
@@ -7416,9 +7416,9 @@
                      "feature":  "Menu.Enable()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Enables a menu item."
                  },
                  {
@@ -7426,9 +7426,9 @@
                      "feature":  "Menu.Handle",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Native menu handle.",
                      "tested-by":  "props-script-settings.ahk"
                  },
@@ -7440,16 +7440,16 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "Inserts a menu item at a specific position."
+                     "notes":  "Inserts an item into a menu. Shares its option parsing with Menu.Add, so the Right and RTL options are likewise ignored on Linux and macOS."
                  },
                  {
                      "category":  "Windowing/GUI",
                      "feature":  "Menu.MenuItemCount",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Returns number of items in a menu."
                  },
                  {
@@ -7457,9 +7457,9 @@
                      "feature":  "Menu.MenuItemName()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Returns item text/name for a menu entry."
                  },
                  {
@@ -7467,9 +7467,9 @@
                      "feature":  "Menu.Rename()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Renames a menu item."
                  },
                  {
@@ -7477,9 +7477,9 @@
                      "feature":  "Menu.SetColor()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Sets menu background color."
                  },
                  {
@@ -7487,9 +7487,9 @@
                      "feature":  "Menu.SetIcon()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Sets icon for a menu item.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -7498,9 +7498,9 @@
                      "feature":  "Menu.Show()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Shows the menu at a screen position.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -7509,9 +7509,9 @@
                      "feature":  "Menu.ToggleCheck()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Toggles checked state of a menu item."
                  },
                  {
@@ -7519,9 +7519,9 @@
                      "feature":  "Menu.ToggleEnable()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Toggles enabled state of a menu item."
                  },
                  {
@@ -7529,9 +7529,9 @@
                      "feature":  "Menu.ToggleItemVis()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Toggles visibility of a menu item."
                  },
                  {
@@ -7539,9 +7539,9 @@
                      "feature":  "Menu.Uncheck()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Unchecks a menu item."
                  },
                  {
@@ -7549,9 +7549,9 @@
                      "feature":  "MenuBar()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "The Menu/MenuBar object provides an interface to create and modify a menu or menu bar, add and modify menu items, and retrieve information about the menu or menu bar.",
                      "tested-by":  "ControlTests/menubar_ks_2.ahk"
                  },
@@ -7560,9 +7560,9 @@
                      "feature":  "MenuFromHandle()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "The MenuFromHandle function retrieves the Menu or MenuBar object corresponding to a Win32 menu handle."
                  },
                  {
@@ -7573,7 +7573,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "The MenuSelect function invokes a menu item from the menu bar of the specified window.",
+                     "notes":  "The MenuSelect function invokes a menu item from the menu bar of the specified window. Like the Control functions, on Linux and macOS it can only reach menus of windows created by this script, not those of other applications.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -7734,7 +7734,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "Displays the specified text in a small window containing one or more buttons. Differs in that the following option values are not supported: 6, 768, 4096, 8192, 262144, 16384 (meaning, no help button). Also, when the timeout options is used, or an owner window is set, the text will be right justified.",
+                     "notes":  "Displays the specified text in a small window containing one or more buttons. Option values 6, 768, 4096, 8192, 262144 and 16384 are not supported on any platform (there is no help button), and when a timeout or an owner window is used the text is right justified. On Linux and macOS the toolkit offers only the OK, OK/Cancel, Yes/No and Yes/No/Cancel button sets, so button options 2 (Abort/Retry/Ignore), 5 (Retry/Cancel) and 6 (Cancel/Try Again/Continue) are unavailable there and fall back to OK. The four icon options behave the same everywhere.",
                      "tested-by":  "ControlTests/control_add_delete_item.ahk"
                  },
                  {
@@ -8837,7 +8837,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "Built on WinForms/Eto; some controls and behavior still differ."
+                     "notes":  "Creating and driving the script\u0027s own GUI windows. Built on WinForms (Windows) and Eto (Linux/macOS); the object model, events, controls, menus, ListView and TreeView all behave the same. Remaining differences: the ActiveX and Custom control types are Win32-only, ListView supports only the Report view off Windows, raw Win32 style options are ignored, per-monitor DPI re-layout is Windows-only, and a client cannot position its own window on Wayland without a compositor backend."
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
@@ -9579,9 +9579,9 @@
                      "feature":  "TabControl.SetTabIcon()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Sets icon for a tab page in tab controls."
                  },
                  {
@@ -9655,10 +9655,10 @@
                      "feature":  "ToolTip()",
                      "syntax":  "ToolTip(\"some text\", 25, 25)",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "Creates an always-on-top window anywhere on the screen. On Linux and macOS it is drawn via the cross-platform Overlay primitive; on Wayland that needs a capable compositor (KWin, GNOME, or Cinnamon with the Keysharp extension).",
+                     "macos":  "full",
+                     "notes":  "Creates an always-on-top window anywhere on the screen. On Linux and macOS it is drawn with the cross-platform Overlay primitive rather than a native tooltip, which on Wayland needs a compositor the Overlay supports (KWin, GNOME, or Cinnamon with the Keysharp extension).",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -9669,7 +9669,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "Tray/menu behavior varies by desktop environment and platform APIs."
+                     "notes":  "Tray icon, its menu and TrayTip notifications. On Linux the tray depends on the desktop providing a StatusNotifier/AppIndicator host - some environments need an extension before an icon appears at all - and notifications go through the desktop notification service. macOS uses a status item in the menu bar."
                  },
                  {
                      "category":  "Core Language",
@@ -9698,9 +9698,9 @@
                      "feature":  "TreeView.Add()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Adds an item to a TreeView.",
                      "tested-by":  "Gui/guitest.ks"
                  },
@@ -9709,9 +9709,9 @@
                      "feature":  "TreeView.Delete()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Deletes one item or all items in a TreeView."
                  },
                  {
@@ -9719,9 +9719,9 @@
                      "feature":  "TreeView.Get()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets state information for a TreeView item."
                  },
                  {
@@ -9729,9 +9729,9 @@
                      "feature":  "TreeView.GetChild()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets the first child item of a TreeView node."
                  },
                  {
@@ -9739,9 +9739,9 @@
                      "feature":  "TreeView.GetCount()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets the total item count in a TreeView."
                  },
                  {
@@ -9749,9 +9749,9 @@
                      "feature":  "TreeView.GetNext()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets the next sibling item in a TreeView."
                  },
                  {
@@ -9759,9 +9759,9 @@
                      "feature":  "TreeView.GetNode()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Returns TreeView node object by node id/handle."
                  },
                  {
@@ -9769,9 +9769,9 @@
                      "feature":  "TreeView.GetParent()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets the parent item of a TreeView node.",
                      "tested-by":  "Gui/guitest.ks"
                  },
@@ -9780,9 +9780,9 @@
                      "feature":  "TreeView.GetPrev()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets the previous sibling item in a TreeView."
                  },
                  {
@@ -9790,9 +9790,9 @@
                      "feature":  "TreeView.GetSelection()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets the currently selected TreeView item."
                  },
                  {
@@ -9800,9 +9800,9 @@
                      "feature":  "TreeView.GetText()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Gets text of a TreeView item."
                  },
                  {
@@ -9810,9 +9810,9 @@
                      "feature":  "TreeView.Modify()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Changes TreeView item text, icon, or state.",
                      "tested-by":  "Gui/guitest.ks"
                  },
@@ -9821,9 +9821,9 @@
                      "feature":  "TreeView.SetImageList()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Assigns an image list for TreeView icons."
                  },
                  {
@@ -9962,7 +9962,7 @@
                      "feature":  "WinActivate()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinActivate function activates the specified window.",
@@ -9973,7 +9973,7 @@
                      "feature":  "WinActivateBottom()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinActivateBottom function is similar to the WinActivate function but it activates the bottommost matching window rather than the topmost."
@@ -9983,7 +9983,7 @@
                      "feature":  "WinActive()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinActive function checks if the specified window is active and returns its unique ID (HWND).",
@@ -9994,7 +9994,7 @@
                      "feature":  "WinClose()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinClose function closes the specified window.",
@@ -10005,7 +10005,7 @@
                      "feature":  "WinExist()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinExist function checks if the specified window exists and returns the unique ID (HWND) of the first matching window.",
@@ -10026,7 +10026,7 @@
                      "feature":  "WinGetAlwaysOnTop()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetAlwaysOnTop function returns a non-zero value if the specified window is always-on-top. On macOS, only supported for windows owned by the calling process; always returns false for windows owned by other applications."
@@ -10036,7 +10036,7 @@
                      "feature":  "WinGetClass()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetClass function retrieves the specified window\u0027s class name.",
@@ -10047,7 +10047,7 @@
                      "feature":  "WinGetClientPos()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetClientPos function retrieves the position and size of the specified window\u0027s client area."
@@ -10060,7 +10060,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "The WinGetControls function returns an array of ClassNNs for all controls in the specified window."
+                     "notes":  "Returns the ClassNN of the controls in a window. Off Windows only windows created by this script have real controls; for a foreign application X11 enumerates child X windows (which a client-side-drawn GTK/Qt app does not have), and Wayland and macOS report none. Use the bundled AtSpi (Linux) or Ax (macOS) library for cross-process control access."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10070,14 +10070,14 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "The WinGetControlsHwnd function returns an array of unique IDs (HWNDs) for all controls in the specified window."
+                     "notes":  "Returns the window handles of the controls in a window. Off Windows only windows created by this script have real controls; for a foreign application X11 enumerates child X windows (which a client-side-drawn GTK/Qt app does not have), and Wayland and macOS report none. Use the bundled AtSpi (Linux) or Ax (macOS) library for cross-process control access."
                  },
                  {
                      "category":  "Windowing/GUI",
                      "feature":  "WinGetCount()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetCount function returns the number of existing windows that match the specified criteria."
@@ -10087,7 +10087,7 @@
                      "feature":  "WinGetEnabled()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "unsupported",
                      "notes":  "Retrieves the enabled/disabled state of the specified window. On macOS this always reflects whether the window exists, not its true enabled state, since there is no API to query it."
@@ -10107,7 +10107,7 @@
                      "feature":  "WinGetID()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetID function returns the unique ID (HWND) of the specified window."
@@ -10117,7 +10117,7 @@
                      "feature":  "WinGetIDLast()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetIDLast function returns the unique ID (HWND) of the last/bottommost window if there is more than one match."
@@ -10127,7 +10127,7 @@
                      "feature":  "WinGetList()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetList function returns an array of unique IDs (HWNDs) for all existing windows that match the specified criteria.",
@@ -10138,7 +10138,7 @@
                      "feature":  "WinGetMinMax()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetMinMax function returns a non-zero number if the specified window is maximized or minimized."
@@ -10148,7 +10148,7 @@
                      "feature":  "WinGetPID()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetPID function returns the Process ID (PID) of the specified window."
@@ -10158,7 +10158,7 @@
                      "feature":  "WinGetPos()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetPos function retrieves the position and size of the specified window.",
@@ -10169,7 +10169,7 @@
                      "feature":  "WinGetProcessName()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetProcessName function returns the name of the process that owns the specified window."
@@ -10179,7 +10179,7 @@
                      "feature":  "WinGetProcessPath()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetProcessPath function returns the full path and name of the process that owns the specified window."
@@ -10203,14 +10203,14 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "The WinGetText function retrieves the text from the specified window."
+                     "notes":  "Retrieves the text from a window. On X11 the text is gathered by walking the X window tree and reading each child\u0027s WM_NAME, so a modern GTK or Qt application - whose widgets are drawn client-side and are not X windows - yields little or nothing. Wayland exposes no window text at all and returns empty; macOS reads it through the Accessibility API."
                  },
                  {
                      "category":  "Windowing/GUI",
                      "feature":  "WinGetTitle()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinGetTitle function retrieves the title of the specified window.",
@@ -10231,7 +10231,7 @@
                      "feature":  "WinGetTransparent()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "full",
                      "notes":  "The WinGetTransparent function returns the degree of transparency of the specified window."
@@ -10241,7 +10241,7 @@
                      "feature":  "WinHide()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinHide function hides the specified window. On macOS, windows owned by the calling process are hidden individually; for windows owned by other applications, macOS provides no per-window hide API, so the entire owning application is hidden instead."
@@ -10251,7 +10251,7 @@
                      "feature":  "WinKill()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinKill function forces the specified window to close. On Wayland a real force-kill is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent), falling back to a graceful close request.",
@@ -10262,7 +10262,7 @@
                      "feature":  "WinMaximize()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinMaximize function enlarges the specified window to its maximum size.",
@@ -10284,7 +10284,7 @@
                      "feature":  "WinMinimize()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinMinimize function collapses the specified window into a button on the task bar.",
@@ -10295,7 +10295,7 @@
                      "feature":  "WinMinimizeAll()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows.",
@@ -10306,7 +10306,7 @@
                      "feature":  "WinMinimizeAllUndo()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows.",
@@ -10317,7 +10317,7 @@
                      "feature":  "WinMove()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinMove function changes the position and/or size of the specified window.",
@@ -10328,7 +10328,7 @@
                      "feature":  "WinMoveBottom()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows. On Wayland this is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS, only supported for windows owned by the calling process, via NSWindow.orderBack(); macOS provides no API to lower another process\u0027s window."
@@ -10338,7 +10338,7 @@
                      "feature":  "WinMoveTop()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "full",
                      "notes":  "The WinMoveTop function brings the specified window to the top of the stack without explicitly activating it. On Wayland this is provided natively on KWin (compositor scripting) or by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS this is done via the Accessibility AXRaise action, which raises the window within its owning application without activating that application."
@@ -10351,14 +10351,14 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "unsupported",
-                     "notes":  "Redraws the specified window. macOS has no public API to force another application to redraw its window, so the feature is permanently unsupported there."
+                     "notes":  "Redraws a window. Own windows are invalidated through the toolkit on every platform. For a foreign window X11 approximates it with XClearWindow, Wayland has no equivalent and raises an OSError, and macOS reports success without doing anything because AppKit owns repainting."
                  },
                  {
                      "category":  "Windowing/GUI",
                      "feature":  "WinRestore()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinRestore function unminimizes or unmaximizes the specified window if it is minimized or maximized."
@@ -10368,7 +10368,7 @@
                      "feature":  "WinSetAlwaysOnTop()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows). On macOS, only supported for windows owned by the calling process; macOS provides no API to change another process\u0027s window level, and raising it via Accessibility would require repeatedly stealing focus, so it is a no-op for windows owned by other applications."
@@ -10378,7 +10378,7 @@
                      "feature":  "WinSetEnabled()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "unsupported",
                      "notes":  "Enables or disables the specified window. macOS has no faithful public equivalent of Win32 EnableWindow for another application, so the feature is intentionally unsupported there."
@@ -10419,7 +10419,7 @@
                      "feature":  "WinSetTitle()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinSetTitle function changes the title of the specified window. On macOS, windows owned by the calling process have their title set directly; for windows owned by other applications, setting AXTitle via the Accessibility API is attempted, but most applications treat it as read-only and the call has no effect."
@@ -10439,7 +10439,7 @@
                      "feature":  "WinSetTransparent()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinSetTransparent function makes the specified window semi-transparent. On Wayland this is provided natively on KWin (compositor scripting) or by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS, only supported for windows owned by the calling process, via NSWindow.alphaValue; macOS provides no public API to change another process\u0027s window opacity."
@@ -10449,7 +10449,7 @@
                      "feature":  "WinShow()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "The WinShow function unhides the specified window. On macOS, windows owned by the calling process are restored individually; for windows owned by other applications, the entire owning application is unhidden (the inverse of WinHide\u0027s fallback)."
@@ -10459,7 +10459,7 @@
                      "feature":  "WinWait()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "full",
                      "notes":  "The WinWait function waits until the specified window exists.",
@@ -10470,7 +10470,7 @@
                      "feature":  "WinWaitActive()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "full",
                      "notes":  "The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active.",
@@ -10481,7 +10481,7 @@
                      "feature":  "WinWaitClose()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "full",
                      "notes":  "The WinWaitClose function waits until no matching windows can be found."
@@ -10491,7 +10491,7 @@
                      "feature":  "WinWaitNotActive()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "full",
                      "linux_wayland":  "partial",
                      "macos":  "full",
                      "notes":  "The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active."

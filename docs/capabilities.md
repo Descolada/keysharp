@@ -540,64 +540,64 @@ Status legend:
 | GroupAdd() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The GroupAdd function adds a window specification to a window group, creating the group if necessary. |
 | GroupClose() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The GroupClose function closes the active window if it was just activated by the GroupActivate or GroupDeactivate function. |
 | GroupDeactivate() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The GroupDeactivate function is similar to the GroupActivate function but activates the next window not in the group. |
-| Gui control types | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | GUI control types are elements of interaction which can be added to a GUI window using the Gui object's Add method. |
-| Gui() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The Gui object provides an interface to create a window, add controls, modify the window, and retrieve information about the window. Such windows can be used as data entry forms or custom user interfaces. |
-| Gui.__Enum() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns an enumerator for GUI controls. |
-| Gui.__Item | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Indexer property for retrieving controls by name or key. |
-| Gui.__New() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Constructs a new GUI window object. |
-| Gui.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds a control to the GUI. |
-| Gui.BackColor | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets the GUI background color. |
-| Gui.Call() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Shows the GUI when the object is called like a function. |
-| Gui.Control.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds an item to controls that support item lists. |
-| Gui.Control.Choose() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Selects an item in the control. |
-| Gui.Control.ClassNN | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | ClassNN identifier of the control. |
-| Gui.Control.Delete() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Deletes items from controls that support item lists. |
-| Gui.Control.Enabled | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets whether the control is enabled. |
-| Gui.Control.Focus() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets keyboard focus to the control. |
-| Gui.Control.Focused | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Whether the control currently has focus. |
-| Gui.Control.GetPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the control position and size. |
-| Gui.Control.Gui | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Parent GUI object for the control. |
-| Gui.Control.Hwnd | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Native window handle of the control. |
-| Gui.Control.Move() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Moves or resizes the control. |
-| Gui.Control.Name | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Associated control name. |
+| Gui control types | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | GUI control types are elements of interaction which can be added to a GUI window using the Gui object's Add method. ActiveX and Custom are Win32-only and raise a ValueError on Linux and macOS; every other type is available on all platforms. ListView additionally supports only the Report view there (see Gui.Add). |
+| Gui() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Gui object provides an interface to create a window, add controls, modify the window, and retrieve information about the window. Such windows can be used as data entry forms or custom user interfaces. |
+| Gui.__Enum() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns an enumerator for GUI controls. |
+| Gui.__Item | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Indexer property for retrieving controls by name or key. |
+| Gui.__New() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Constructs a new GUI window object. |
+| Gui.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds a control to the GUI. The ActiveX and Custom control types are Win32-only and raise a ValueError on Linux and macOS. A ListView created with a view option other than +Report (+Icon, +IconSmall, +Tile, +List) is not implemented there either. |
+| Gui.BackColor | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the GUI background color. |
+| Gui.Call() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Shows the GUI when the object is called like a function. |
+| Gui.Control.Add() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Adds an item to controls that support item lists. |
+| Gui.Control.Choose() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Selects an item in the control. |
+| Gui.Control.ClassNN | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | ClassNN identifier of the control. Off Windows only a top-level window reports a ClassNN; a child control returns an empty string, because Eto controls are drawn by the toolkit and have no per-control native window class. |
+| Gui.Control.Delete() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Deletes items from controls that support item lists. |
+| Gui.Control.Enabled | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets whether the control is enabled. |
+| Gui.Control.Focus() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets keyboard focus to the control. |
+| Gui.Control.Focused | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Whether the control currently has focus. |
+| Gui.Control.GetPos() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the control position and size. |
+| Gui.Control.Gui | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Parent GUI object for the control. |
+| Gui.Control.Hwnd | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Native window handle of the control. |
+| Gui.Control.Move() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Moves or resizes the control. |
+| Gui.Control.Name | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Associated control name. |
 | Gui.Control.OnCommand() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Registers a WM_COMMAND callback for the control. WM_COMMAND is a Win32 concept; the non-Windows implementation accepts the call, registers nothing and never fires. |
-| Gui.Control.OnEvent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a control event callback. |
+| Gui.Control.OnEvent() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Registers a control event callback. |
 | Gui.Control.OnMessage() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Registers Callback(GuiCtrlObj, wParam, lParam, Msg) to run when the control receives the given window message, ahead of the WM_COMMAND/WM_NOTIFY reflection and default processing. Matches AHK: a non-empty return claims the message (it becomes the reply, the remaining handlers are skipped and default processing is suppressed), while an empty string or no return at all lets the next handler and then default handling run. An explicit 0 therefore claims the message and replies 0. AddRemove is 1 (append, default), -1 (prepend) or 0 (unregister); any other value is a ValueError. Window messages are a Win32 concept, so on Linux and macOS the registration is accepted but no handler is ever invoked. |
 | Gui.Control.OnNotify() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Registers a WM_NOTIFY callback for the control. WM_NOTIFY is a Win32 concept; the non-Windows implementation accepts the call, registers nothing and never fires. |
-| Gui.Control.Opt() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Applies options to the control. |
-| Gui.Control.Redraw() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Redraws the control. |
-| Gui.Control.SetCue() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets cue banner (placeholder text) for the control. |
-| Gui.Control.SetFont() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets the control font. |
-| Gui.Control.Text | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets the control text. |
-| Gui.Control.Type | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Control type name. |
-| Gui.Control.Value | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets the control value. |
-| Gui.Control.Visible | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets whether the control is visible. |
-| Gui.Destroy() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Destroys the GUI window and releases associated resources. |
+| Gui.Control.Opt() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets options for the control. Changing a ListView to a view other than Report (+Icon, +IconSmall, +Tile, +List) is not implemented on Linux or macOS and raises. Raw Win32 style options (+0x..., +E0x...) have no portable equivalent and are ignored. |
+| Gui.Control.Redraw() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Redraws the control. |
+| Gui.Control.SetCue() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets cue banner (placeholder text) for the control. |
+| Gui.Control.SetFont() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the control font. |
+| Gui.Control.Text | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the control text. |
+| Gui.Control.Type | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Control type name. |
+| Gui.Control.Value | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the control value. |
+| Gui.Control.Visible | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets whether the control is visible. |
+| Gui.Destroy() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Destroys the GUI window and releases associated resources. |
 | Gui.Flash() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Flashes the GUI window to attract attention. Backed by the Win32 FlashWindow API; the call is accepted and does nothing on Linux and macOS. |
-| Gui.FocusedCtrl | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Currently focused control in the GUI. |
-| Gui.GetClientPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the GUI client-area position and size. |
-| Gui.GetPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the GUI window position and size. |
-| Gui.Hide() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Hides the GUI window. |
-| Gui.Hwnd | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Native window handle of the GUI. |
-| Gui.MarginX | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Default horizontal margin for layout. |
-| Gui.MarginY | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Default vertical margin for layout. |
-| Gui.Maximize() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Maximizes the GUI window. |
-| Gui.MenuBar | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets the menu bar attached to the GUI. |
-| Gui.Minimize() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Minimizes the GUI window. |
-| Gui.Move() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Moves or resizes the GUI window. |
-| Gui.Name | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Associated GUI name. |
-| Gui.OnEvent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a GUI event callback. |
+| Gui.FocusedCtrl | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Currently focused control in the GUI. |
+| Gui.GetClientPos() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the GUI client-area position and size. |
+| Gui.GetPos() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the GUI window position and size. |
+| Gui.Hide() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Hides the GUI window. |
+| Gui.Hwnd | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Native window handle of the GUI. |
+| Gui.MarginX | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Default horizontal margin for layout. |
+| Gui.MarginY | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Default vertical margin for layout. |
+| Gui.Maximize() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Maximizes the GUI window. |
+| Gui.MenuBar | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the menu bar attached to the GUI. |
+| Gui.Minimize() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Minimizes the GUI window. |
+| Gui.Move() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | Moves and/or resizes the window. On Wayland a client cannot set its own position, so the move is routed through the compositor backend and needs KWin, GNOME or Cinnamon with the Keysharp extension; resizing works everywhere. |
+| Gui.Name | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Associated GUI name. |
+| Gui.OnEvent() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Registers a GUI event callback. |
 | Gui.OnMessage() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Registers Callback(GuiObj, wParam, lParam, Msg) to run when the GUI window receives the given window message, ahead of the default window procedure. Matches AHK: a non-empty return claims the message (it becomes the reply, the remaining handlers are skipped and default processing is suppressed), while an empty string or no return at all lets the next handler and then the default window procedure run. An explicit 0 therefore claims the message and replies 0; a non-numeric value claims it and replies 0. AddRemove is 1 (append, default), -1 (prepend) or 0 (unregister); any other value is a ValueError. Window messages are a Win32 concept, so on Linux and macOS the registration is accepted (a cross-platform script still loads) but no handler is ever invoked. |
-| Gui.Opt() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Applies GUI window options. |
-| Gui.Restore() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Restores the GUI window from minimized or maximized state. |
-| Gui.SetFont() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets the default font for subsequent controls. |
-| Gui.Show() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Shows the GUI window. |
-| Gui.Submit() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Submits control values and returns them to script variables. |
-| Gui.Tab.UseTab() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Selects the active tab page for subsequent control additions. |
-| Gui.Title | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets the GUI window title. |
-| Gui.Visible | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets/sets GUI visibility state. |
-| GuiCtrlFromHwnd() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The GuiCtrlFromHwnd function retrieves the GuiControl object of a GUI control associated with the specified window handle. |
-| GuiFromHwnd() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The GuiFromHwnd function retrieves the Gui object of a GUI window associated with the specified window handle. |
+| Gui.Opt() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets options for the window. Raw Win32 style and extended-style options (+0x..., +E0x...) have no portable equivalent and are ignored on Linux and macOS; the named options are honoured through the toolkit's own properties. The Theme option is unsupported on every platform. |
+| Gui.Restore() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Restores the GUI window from minimized or maximized state. |
+| Gui.SetFont() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the default font for subsequent controls. |
+| Gui.Show() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | Displays the window. Explicit X/Y placement on Wayland goes through the compositor backend (KWin, GNOME or Cinnamon with the Keysharp extension) because a client cannot position its own top-level; size, state and centring work everywhere. |
+| Gui.Submit() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Submits control values and returns them to script variables. |
+| Gui.Tab.UseTab() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Selects the active tab page for subsequent control additions. |
+| Gui.Title | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the GUI window title. |
+| Gui.Visible | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets/sets GUI visibility state. |
+| GuiCtrlFromHwnd() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The GuiCtrlFromHwnd function retrieves the GuiControl object of a GUI control associated with the specified window handle. |
+| GuiFromHwnd() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The GuiFromHwnd function retrieves the Gui object of a GUI window associated with the specified window handle. |
 | HasBase() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The HasBase function returns a non-zero number if the specified value is derived from the specified base object. |
 | HashMap | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific map class extending Map without sorted enumeration. |
 | HashMap.__New() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific HashMap constructor (inherits Map methods/properties). |
@@ -685,17 +685,17 @@ Status legend:
 | ListHotkeys() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The ListHotkeys function displays the hotkeys in use by the current script, whether their subroutines are currently running, and whether they use a hook. |
 | ListLines() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The ListLines function enables or disables line logging or displays the script lines most recently executed. |
 | ListVars() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The ListVars function displays the script's variables: their names and current contents. |
-| ListView.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds a row to a ListView control. |
-| ListView.Delete() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Deletes one row or all rows in a ListView. |
-| ListView.DeleteCol() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Deletes a column from a ListView control. |
-| ListView.GetCount() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets item, selected-item, or column count in a ListView. |
-| ListView.GetNext() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the next row matching selection/focus criteria. |
-| ListView.GetText() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets text from a ListView row and column. |
-| ListView.Insert() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Inserts a row at a specific position in a ListView. |
-| ListView.InsertCol() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Inserts a column into a ListView. |
-| ListView.Modify() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Changes ListView row state, text, or icon. |
-| ListView.ModifyCol() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Changes ListView column options and width. |
-| ListView.SetImageList() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Assigns an image list for ListView icons. |
+| ListView.Add() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Adds a row to a ListView control. |
+| ListView.Delete() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Deletes one row or all rows in a ListView. |
+| ListView.DeleteCol() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Deletes a column from a ListView control. |
+| ListView.GetCount() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets item, selected-item, or column count in a ListView. |
+| ListView.GetNext() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the next row matching selection/focus criteria. |
+| ListView.GetText() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets text from a ListView row and column. |
+| ListView.Insert() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Inserts a row at a specific position in a ListView. |
+| ListView.InsertCol() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Inserts a column into a ListView. |
+| ListView.Modify() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Changes ListView row state, text, or icon. |
+| ListView.ModifyCol() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Changes ListView column options and width. |
+| ListView.SetImageList() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assigns an image list for ListView icons. |
 | ListViewGetContent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The ListViewGetContent function returns content data from a list-view control, such as rows, columns, or count values. |
 | Ln() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the base e (natural) logarithm of a number. Throws an exception if a negative number is passed in. |
 | LoadPicture() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Loads an image, icon or cursor. Differs in that instead of writing to a ref argument, it returns a structure whose fields are Handle and ImageType. |
@@ -732,30 +732,30 @@ Status legend:
 | MD5() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes MD5 hash for input data. |
 | MemberError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | MemoryError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| Menu() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The Menu/MenuBar object provides an interface to create and modify a menu or menu bar, add and modify menu items, and retrieve information about the menu or menu bar. |
-| Menu.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds an item to a menu. |
-| Menu.AddStandard() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds standard tray menu items. |
-| Menu.Check() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Checks a menu item. |
-| Menu.ClickCount | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Number of clicks required to trigger a tray menu item. |
-| Menu.Default | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Default menu item name or position. |
-| Menu.Delete() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Deletes one menu item or all items. |
-| Menu.Disable() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Disables a menu item. |
-| Menu.Enable() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Enables a menu item. |
-| Menu.Handle | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Native menu handle. |
-| Menu.Insert() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Inserts a menu item at a specific position. |
-| Menu.MenuItemCount | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns number of items in a menu. |
-| Menu.MenuItemName() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns item text/name for a menu entry. |
-| Menu.Rename() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Renames a menu item. |
-| Menu.SetColor() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets menu background color. |
-| Menu.SetIcon() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets icon for a menu item. |
-| Menu.Show() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Shows the menu at a screen position. |
-| Menu.ToggleCheck() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Toggles checked state of a menu item. |
-| Menu.ToggleEnable() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Toggles enabled state of a menu item. |
-| Menu.ToggleItemVis() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Toggles visibility of a menu item. |
-| Menu.Uncheck() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Unchecks a menu item. |
-| MenuBar() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The Menu/MenuBar object provides an interface to create and modify a menu or menu bar, add and modify menu items, and retrieve information about the menu or menu bar. |
-| MenuFromHandle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MenuFromHandle function retrieves the Menu or MenuBar object corresponding to a Win32 menu handle. |
-| MenuSelect() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MenuSelect function invokes a menu item from the menu bar of the specified window. |
+| Menu() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Menu/MenuBar object provides an interface to create and modify a menu or menu bar, add and modify menu items, and retrieve information about the menu or menu bar. |
+| Menu.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds an item to a menu. The Right and RTL item options are Win32 menu attributes with no Eto counterpart, so they are parsed and ignored on Linux and macOS; every other option, including the Break/BarBreak column controls, works on all platforms. |
+| Menu.AddStandard() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Adds standard tray menu items. |
+| Menu.Check() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Checks a menu item. |
+| Menu.ClickCount | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Number of clicks required to trigger a tray menu item. |
+| Menu.Default | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Default menu item name or position. |
+| Menu.Delete() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Deletes one menu item or all items. |
+| Menu.Disable() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Disables a menu item. |
+| Menu.Enable() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enables a menu item. |
+| Menu.Handle | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Native menu handle. |
+| Menu.Insert() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Inserts an item into a menu. Shares its option parsing with Menu.Add, so the Right and RTL options are likewise ignored on Linux and macOS. |
+| Menu.MenuItemCount | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns number of items in a menu. |
+| Menu.MenuItemName() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns item text/name for a menu entry. |
+| Menu.Rename() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Renames a menu item. |
+| Menu.SetColor() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets menu background color. |
+| Menu.SetIcon() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets icon for a menu item. |
+| Menu.Show() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Shows the menu at a screen position. |
+| Menu.ToggleCheck() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Toggles checked state of a menu item. |
+| Menu.ToggleEnable() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Toggles enabled state of a menu item. |
+| Menu.ToggleItemVis() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Toggles visibility of a menu item. |
+| Menu.Uncheck() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Unchecks a menu item. |
+| MenuBar() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Menu/MenuBar object provides an interface to create and modify a menu or menu bar, add and modify menu items, and retrieve information about the menu or menu bar. |
+| MenuFromHandle() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The MenuFromHandle function retrieves the Menu or MenuBar object corresponding to a Win32 menu handle. |
+| MenuSelect() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MenuSelect function invokes a menu item from the menu bar of the specified window. Like the Control functions, on Linux and macOS it can only reach menus of windows created by this script, not those of other applications. |
 | MethodError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | Min() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the smaller of two numbers. If either is not numeric, the empty string is returned. The smaller value of an array is computed if one is passed in. |
 | Mod() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the remainder when the first number is divided by the second number. Throws an exception if the second number is 0. |
@@ -771,7 +771,7 @@ Status legend:
 | MouseClickDrag() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MouseClickDrag function clicks and holds the specified mouse button, moves the mouse to the destination coordinates, then releases the button. |
 | MouseGetPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MouseGetPos function retrieves the current position of the mouse cursor, and optionally which window and control it is hovering over. |
 | MouseMove() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MouseMove function moves the mouse cursor. |
-| MsgBox() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Displays the specified text in a small window containing one or more buttons. Differs in that the following option values are not supported: 6, 768, 4096, 8192, 262144, 16384 (meaning, no help button). Also, when the timeout options is used, or an owner window is set, the text will be right justified. |
+| MsgBox() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Displays the specified text in a small window containing one or more buttons. Option values 6, 768, 4096, 8192, 262144 and 16384 are not supported on any platform (there is no help button), and when a timeout or an owner window is used the text is right justified. On Linux and macOS the toolkit offers only the OK, OK/Cancel, Yes/No and Yes/No/Cancel button sets, so button options 2 (Abort/Retry/Ignore), 5 (Retry/Cancel) and 6 (Cancel/Try Again/Continue) are unavailable there and fall back to OK. The four icon options behave the same everywhere. |
 | NormalizeEol() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Normalizes all line endings to a requested or platform-default sequence. |
 | not | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Logical NOT operator. |
 | Number() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Number function converts a numeric string to a pure integer or floating-point number. |
@@ -863,7 +863,7 @@ Status legend:
 | RunScript() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Executes script source text/file in a script engine context. |
 | RunWait() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Run and RunWait functions run an external program. RunWait will wait until the program finishes before continuing. |
 | Screen capture and pixel/image functions | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Pixel/image search and screen capture depend on platform-specific backends. |
-| Script-owned window management | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Built on WinForms/Eto; some controls and behavior still differ. |
+| Script-owned window management | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Creating and driving the script's own GUI windows. Built on WinForms (Windows) and Eto (Linux/macOS); the object model, events, controls, menus, ListView and TreeView all behave the same. Remaining differences: the ActiveX and Custom control types are Win32-only, ListView supports only the Report view off Windows, raw Win32 style options are ignored, per-monitor DPI re-layout is Windows-only, and a client cannot position its own window on Wayland without a compositor backend. |
 | SecureRandom() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Generates cryptographically secure random numbers. |
 | Send() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sends simulated keystrokes. |
 | SendEvent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sends keystrokes via Event mode. |
@@ -935,30 +935,30 @@ Status legend:
 | SysGet() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets system information. Non-Windows builds implement monitor dimensions/count, mouse presence/buttons, network state and selected session metrics; Win32-only system metrics have no portable equivalent and are not implemented. |
 | SysGetIPAddresses() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SysGetIPAddresses function returns an array of the system's IPv4 addresses. |
 | ZeroDivisionError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| TabControl.SetTabIcon() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets icon for a tab page in tab controls. |
+| TabControl.SetTabIcon() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets icon for a tab page in tab controls. |
 | Tan() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the tangent of a number. |
 | Tanh() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the hyperbolic tangent of a number. |
 | TargetError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | Thread | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Thread settings and controls. |
 | Throw | 🟡 Partial | 🟡 Partial | 🟡 Partial | 🟡 Partial | Rethrowing with throw is only allowed directly within the scope of catch, not from an arbitrary point (eg from functions). |
 | TimeoutError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| ToolTip() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Creates an always-on-top window anywhere on the screen. On Linux and macOS it is drawn via the cross-platform Overlay primitive; on Wayland that needs a capable compositor (KWin, GNOME, or Cinnamon with the Keysharp extension). |
-| Tray icon and menu | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Tray/menu behavior varies by desktop environment and platform APIs. |
+| ToolTip() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | Creates an always-on-top window anywhere on the screen. On Linux and macOS it is drawn with the cross-platform Overlay primitive rather than a native tooltip, which on Wayland needs a compositor the Overlay supports (KWin, GNOME, or Cinnamon with the Keysharp extension). |
+| Tray icon and menu | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Tray icon, its menu and TrayTip notifications. On Linux the tray depends on the desktop providing a StatusNotifier/AppIndicator host - some environments need an extension before an icon appears at all - and notifications go through the desktop notification service. macOS uses a status item in the menu bar. |
 | TraySetIcon() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Changes the script's tray icon. |
 | TrayTip() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Creates a toast message window near the tray icon. Differs in that the Mute option is accepted but has no effect (there is no way to mute the system sound) and a large icon cannot be requested. The registry key EnableBalloonTips is not observed for disabling the notification. The option 4 has no effect because the tray icon is always shown at the top of the toast. On Linux and macOS the toast is an Eto Notification, so its appearance and duration are decided by the desktop notification service. |
-| TreeView.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds an item to a TreeView. |
-| TreeView.Delete() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Deletes one item or all items in a TreeView. |
-| TreeView.Get() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets state information for a TreeView item. |
-| TreeView.GetChild() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the first child item of a TreeView node. |
-| TreeView.GetCount() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the total item count in a TreeView. |
-| TreeView.GetNext() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the next sibling item in a TreeView. |
-| TreeView.GetNode() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns TreeView node object by node id/handle. |
-| TreeView.GetParent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the parent item of a TreeView node. |
-| TreeView.GetPrev() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the previous sibling item in a TreeView. |
-| TreeView.GetSelection() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the currently selected TreeView item. |
-| TreeView.GetText() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets text of a TreeView item. |
-| TreeView.Modify() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Changes TreeView item text, icon, or state. |
-| TreeView.SetImageList() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Assigns an image list for TreeView icons. |
+| TreeView.Add() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Adds an item to a TreeView. |
+| TreeView.Delete() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Deletes one item or all items in a TreeView. |
+| TreeView.Get() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets state information for a TreeView item. |
+| TreeView.GetChild() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the first child item of a TreeView node. |
+| TreeView.GetCount() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the total item count in a TreeView. |
+| TreeView.GetNext() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the next sibling item in a TreeView. |
+| TreeView.GetNode() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns TreeView node object by node id/handle. |
+| TreeView.GetParent() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the parent item of a TreeView node. |
+| TreeView.GetPrev() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the previous sibling item in a TreeView. |
+| TreeView.GetSelection() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the currently selected TreeView item. |
+| TreeView.GetText() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets text of a TreeView item. |
+| TreeView.Modify() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Changes TreeView item text, icon, or state. |
+| TreeView.SetImageList() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assigns an image list for TreeView icons. |
 | Trim() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Trims characters from the beginning and end of a string. |
 | True | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Boolean true constant. |
 | Try | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Starts exception-handling scope for statements that may throw. |
@@ -974,10 +974,10 @@ Status legend:
 | VarSetStrCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Does nothing because the.NET runtime manages all memory. |
 | VerCompare() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The VerCompare function compares two version strings. |
 | While | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | While-loop statement. |
-| WinActivate() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinActivate function activates the specified window. |
-| WinActivateBottom() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinActivateBottom function is similar to the WinActivate function but it activates the bottommost matching window rather than the topmost. |
-| WinActive() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinActive function checks if the specified window is active and returns its unique ID (HWND). |
-| WinClose() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinClose function closes the specified window. |
+| WinActivate() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinActivate function activates the specified window. |
+| WinActivateBottom() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinActivateBottom function is similar to the WinActivate function but it activates the bottommost matching window rather than the topmost. |
+| WinActive() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinActive function checks if the specified window is active and returns its unique ID (HWND). |
+| WinClose() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinClose function closes the specified window. |
 | WinEvent | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific Ks class for cross-platform window-event subscriptions. Windows uses SetWinEventHook; Linux uses X11 or native compositor sources; macOS uses Accessibility AXObserver streams and requires Accessibility permission. |
 | WinEvent.Active() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to active/foreground window changes; also fires when the active window's title changes (so late-matching criteria are caught). Callback receives (hook, hwnd, dwmsEventTime). |
 | WinEvent.CaretMove() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to text caret (insertion point) movement. hwnd is the caret owner's top-level window and A_EventInfo holds the caret rectangle { x, y, w, h } in screen coordinates; unchanged positions are suppressed. Sourced from the same accessibility plumbing as CaretGetPos, so coverage matches it: Windows uses the MSAA caret (EVENT_OBJECT_LOCATIONCHANGE on OBJID_CARET), Linux the AT-SPI object:text-caret-moved signal, macOS the AXSelectedTextChanged notification. Applications that draw their own caret without exposing it to accessibility report nothing. |
@@ -993,51 +993,51 @@ Status legend:
 | WinEvent.Restore() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to restoration from a minimized state. X11 derives it from _NET_WM_STATE_HIDDEN transitions, Wayland maps compositor restore events, and macOS uses AXWindowDeminiaturized. |
 | WinEvent.Stop() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Cancels the subscription. Also runs on __Delete, but GC timing is unpredictable so call it (or let the owning thread tear down) explicitly. |
 | WinEvent.TitleChange() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to window title changes. |
-| WinExist() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinExist function checks if the specified window exists and returns the unique ID (HWND) of the first matching window. |
+| WinExist() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinExist function checks if the specified window exists and returns the unique ID (HWND) of the first matching window. |
 | WinFromPoint() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns window handle located at screen coordinates. |
-| WinGetAlwaysOnTop() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetAlwaysOnTop function returns a non-zero value if the specified window is always-on-top. On macOS, only supported for windows owned by the calling process; always returns false for windows owned by other applications. |
-| WinGetClass() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetClass function retrieves the specified window's class name. |
-| WinGetClientPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetClientPos function retrieves the position and size of the specified window's client area. |
-| WinGetControls() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetControls function returns an array of ClassNNs for all controls in the specified window. |
-| WinGetControlsHwnd() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetControlsHwnd function returns an array of unique IDs (HWNDs) for all controls in the specified window. |
-| WinGetCount() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetCount function returns the number of existing windows that match the specified criteria. |
-| WinGetEnabled() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Retrieves the enabled/disabled state of the specified window. On macOS this always reflects whether the window exists, not its true enabled state, since there is no API to query it. |
+| WinGetAlwaysOnTop() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetAlwaysOnTop function returns a non-zero value if the specified window is always-on-top. On macOS, only supported for windows owned by the calling process; always returns false for windows owned by other applications. |
+| WinGetClass() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetClass function retrieves the specified window's class name. |
+| WinGetClientPos() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetClientPos function retrieves the position and size of the specified window's client area. |
+| WinGetControls() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns the ClassNN of the controls in a window. Off Windows only windows created by this script have real controls; for a foreign application X11 enumerates child X windows (which a client-side-drawn GTK/Qt app does not have), and Wayland and macOS report none. Use the bundled AtSpi (Linux) or Ax (macOS) library for cross-process control access. |
+| WinGetControlsHwnd() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns the window handles of the controls in a window. Off Windows only windows created by this script have real controls; for a foreign application X11 enumerates child X windows (which a client-side-drawn GTK/Qt app does not have), and Wayland and macOS report none. Use the bundled AtSpi (Linux) or Ax (macOS) library for cross-process control access. |
+| WinGetCount() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetCount function returns the number of existing windows that match the specified criteria. |
+| WinGetEnabled() | 🟢 Full | 🟢 Full | 🟡 Partial | 🔴 Unsupported | Retrieves the enabled/disabled state of the specified window. On macOS this always reflects whether the window exists, not its true enabled state, since there is no API to query it. |
 | WinGetExStyle() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Retrieves the extended style of the specified window. Neither X11, Wayland nor macOS has an equivalent of Win32 extended window styles; all three always return 0. |
-| WinGetID() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetID function returns the unique ID (HWND) of the specified window. |
-| WinGetIDLast() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetIDLast function returns the unique ID (HWND) of the last/bottommost window if there is more than one match. |
-| WinGetList() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetList function returns an array of unique IDs (HWNDs) for all existing windows that match the specified criteria. |
-| WinGetMinMax() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetMinMax function returns a non-zero number if the specified window is maximized or minimized. |
-| WinGetPID() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetPID function returns the Process ID (PID) of the specified window. |
-| WinGetPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetPos function retrieves the position and size of the specified window. |
-| WinGetProcessName() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetProcessName function returns the name of the process that owns the specified window. |
-| WinGetProcessPath() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetProcessPath function returns the full path and name of the process that owns the specified window. |
+| WinGetID() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetID function returns the unique ID (HWND) of the specified window. |
+| WinGetIDLast() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetIDLast function returns the unique ID (HWND) of the last/bottommost window if there is more than one match. |
+| WinGetList() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetList function returns an array of unique IDs (HWNDs) for all existing windows that match the specified criteria. |
+| WinGetMinMax() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetMinMax function returns a non-zero number if the specified window is maximized or minimized. |
+| WinGetPID() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetPID function returns the Process ID (PID) of the specified window. |
+| WinGetPos() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetPos function retrieves the position and size of the specified window. |
+| WinGetProcessName() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetProcessName function returns the name of the process that owns the specified window. |
+| WinGetProcessPath() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetProcessPath function returns the full path and name of the process that owns the specified window. |
 | WinGetStyle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Retrieves the style of the specified window. No non-Windows platform has a real Win32 style word, so for a script-owned window the toolkit state is projected onto the WS_* bits scripts actually test: WS_CAPTION/WS_POPUP from the border style, WS_SYSMENU, WS_THICKFRAME, WS_MINIMIZEBOX and WS_MAXIMIZEBOX from the frame buttons, plus WS_VISIBLE, WS_DISABLED, WS_MINIMIZE and WS_MAXIMIZE from the window state. Foreign windows expose no style word at all: X11 and macOS return 0, and Wayland reports only WS_CAPTION from the compositor decoration state. |
-| WinGetText | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetText function retrieves the text from the specified window. |
-| WinGetTitle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetTitle function retrieves the title of the specified window. |
+| WinGetText | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Retrieves the text from a window. On X11 the text is gathered by walking the X window tree and reading each child's WM_NAME, so a modern GTK or Qt application - whose widgets are drawn client-side and are not X windows - yields little or nothing. Wayland exposes no window text at all and returns empty; macOS reads it through the Accessibility API. |
+| WinGetTitle() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinGetTitle function retrieves the title of the specified window. |
 | WinGetTransColor() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Retrieves the transparency colour key of the specified window. No non-Windows backend implements a per-colour transparency key; X11, Wayland and macOS always return 0. |
-| WinGetTransparent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinGetTransparent function returns the degree of transparency of the specified window. |
-| WinHide() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinHide function hides the specified window. On macOS, windows owned by the calling process are hidden individually; for windows owned by other applications, macOS provides no per-window hide API, so the entire owning application is hidden instead. |
-| WinKill() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinKill function forces the specified window to close. On Wayland a real force-kill is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent), falling back to a graceful close request. |
-| WinMaximize() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMaximize function enlarges the specified window to its maximum size. |
+| WinGetTransparent() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | The WinGetTransparent function returns the degree of transparency of the specified window. |
+| WinHide() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinHide function hides the specified window. On macOS, windows owned by the calling process are hidden individually; for windows owned by other applications, macOS provides no per-window hide API, so the entire owning application is hidden instead. |
+| WinKill() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinKill function forces the specified window to close. On Wayland a real force-kill is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent), falling back to a graceful close request. |
+| WinMaximize() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinMaximize function enlarges the specified window to its maximum size. |
 | WinMaximizeAll() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Maximizes all top-level windows. |
-| WinMinimize() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMinimize function collapses the specified window into a button on the task bar. |
-| WinMinimizeAll() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows. |
-| WinMinimizeAllUndo() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows. |
-| WinMove() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMove function changes the position and/or size of the specified window. |
-| WinMoveBottom() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows. On Wayland this is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS, only supported for windows owned by the calling process, via NSWindow.orderBack(); macOS provides no API to lower another process's window. |
-| WinMoveTop() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinMoveTop function brings the specified window to the top of the stack without explicitly activating it. On Wayland this is provided natively on KWin (compositor scripting) or by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS this is done via the Accessibility AXRaise action, which raises the window within its owning application without activating that application. |
-| WinRedraw() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Redraws the specified window. macOS has no public API to force another application to redraw its window, so the feature is permanently unsupported there. |
-| WinRestore() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinRestore function unminimizes or unmaximizes the specified window if it is minimized or maximized. |
-| WinSetAlwaysOnTop() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows). On macOS, only supported for windows owned by the calling process; macOS provides no API to change another process's window level, and raising it via Accessibility would require repeatedly stealing focus, so it is a no-op for windows owned by other applications. |
-| WinSetEnabled() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Enables or disables the specified window. macOS has no faithful public equivalent of Win32 EnableWindow for another application, so the feature is intentionally unsupported there. |
+| WinMinimize() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinMinimize function collapses the specified window into a button on the task bar. |
+| WinMinimizeAll() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows. |
+| WinMinimizeAllUndo() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows. |
+| WinMove() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinMove function changes the position and/or size of the specified window. |
+| WinMoveBottom() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows. On Wayland this is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS, only supported for windows owned by the calling process, via NSWindow.orderBack(); macOS provides no API to lower another process's window. |
+| WinMoveTop() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | The WinMoveTop function brings the specified window to the top of the stack without explicitly activating it. On Wayland this is provided natively on KWin (compositor scripting) or by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS this is done via the Accessibility AXRaise action, which raises the window within its owning application without activating that application. |
+| WinRedraw() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Redraws a window. Own windows are invalidated through the toolkit on every platform. For a foreign window X11 approximates it with XClearWindow, Wayland has no equivalent and raises an OSError, and macOS reports success without doing anything because AppKit owns repainting. |
+| WinRestore() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinRestore function unminimizes or unmaximizes the specified window if it is minimized or maximized. |
+| WinSetAlwaysOnTop() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows). On macOS, only supported for windows owned by the calling process; macOS provides no API to change another process's window level, and raising it via Accessibility would require repeatedly stealing focus, so it is a no-op for windows owned by other applications. |
+| WinSetEnabled() | 🟢 Full | 🟢 Full | 🟡 Partial | 🔴 Unsupported | Enables or disables the specified window. macOS has no faithful public equivalent of Win32 EnableWindow for another application, so the feature is intentionally unsupported there. |
 | WinSetExStyle() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Changes the extended style of the specified window. Neither X11, Wayland nor macOS has an equivalent of Win32 extended window styles. On a script-owned window the call is accepted and does nothing; on a foreign window it raises an OSError. |
 | WinSetRegion() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The WinSetRegion function changes the shape of the specified window to be the specified rectangle, ellipse, or polygon. This is implemented purely via the Win32 GDI region APIs (HRGN/SetWindowRgn) and is Windows-only; non-rectangular window shaping has no equivalent implementation on Linux or macOS. |
 | WinSetStyle() | 🟢 Full | 🔴 Unsupported | 🟡 Partial | 🔴 Unsupported | Changes the style of the specified window. X11 has no way to write Win32 window styles: the call is accepted and does nothing on a script-owned window and raises an OSError on a foreign window. Wayland maps only WS_CAPTION, to the compositor decoration state, and only for compositor-backed windows. macOS has no equivalent. |
-| WinSetTitle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinSetTitle function changes the title of the specified window. On macOS, windows owned by the calling process have their title set directly; for windows owned by other applications, setting AXTitle via the Accessibility API is attempted, but most applications treat it as read-only and the call has no effect. |
+| WinSetTitle() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinSetTitle function changes the title of the specified window. On macOS, windows owned by the calling process have their title set directly; for windows owned by other applications, setting AXTitle via the Accessibility API is attempted, but most applications treat it as read-only and the call has no effect. |
 | WinSetTransColor() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Makes all pixels of the chosen colour invisible. No non-Windows backend implements a per-colour transparency key; X11, Wayland and macOS raise an OSError. Whole-window opacity via WinSetTransparent is supported instead. |
-| WinSetTransparent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinSetTransparent function makes the specified window semi-transparent. On Wayland this is provided natively on KWin (compositor scripting) or by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS, only supported for windows owned by the calling process, via NSWindow.alphaValue; macOS provides no public API to change another process's window opacity. |
-| WinShow() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinShow function unhides the specified window. On macOS, windows owned by the calling process are restored individually; for windows owned by other applications, the entire owning application is unhidden (the inverse of WinHide's fallback). |
-| WinWait() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinWait function waits until the specified window exists. |
-| WinWaitActive() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |
-| WinWaitClose() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinWaitClose function waits until no matching windows can be found. |
-| WinWaitNotActive() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |
+| WinSetTransparent() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinSetTransparent function makes the specified window semi-transparent. On Wayland this is provided natively on KWin (compositor scripting) or by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS, only supported for windows owned by the calling process, via NSWindow.alphaValue; macOS provides no public API to change another process's window opacity. |
+| WinShow() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟡 Partial | The WinShow function unhides the specified window. On macOS, windows owned by the calling process are restored individually; for windows owned by other applications, the entire owning application is unhidden (the inverse of WinHide's fallback). |
+| WinWait() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | The WinWait function waits until the specified window exists. |
+| WinWaitActive() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |
+| WinWaitClose() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | The WinWaitClose function waits until no matching windows can be found. |
+| WinWaitNotActive() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |

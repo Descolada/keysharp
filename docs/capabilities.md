@@ -411,13 +411,13 @@ Status legend:
 | ControlGetChoice() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetChoice function returns the text of the currently selected entry in a list box, combo box, or drop-down list. |
 | ControlGetClassNN() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetClassNN function returns the class ClassNN (class name and sequence number) of a control. |
 | ControlGetEnabled() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetEnabled function returns 1 if a control is enabled, or 0 if disabled. |
-| ControlGetExStyle() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control. |
+| ControlGetExStyle() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control. Eto controls have no Win32 style word, so the non-Windows backend returns the placeholder value 1 for every control rather than a real style. |
 | ControlGetFocus() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetFocus function retrieves which control of the target window has keyboard focus, if any. |
 | ControlGetHwnd() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetHwnd function returns the window handle (HWND) of a control. |
 | ControlGetIndex() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetIndex function returns the index of the currently selected entry in a list box, combo box, or drop-down list, or the index of the active page in a tab control. |
 | ControlGetItems() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetItems function returns an array of entries from a list box, combo box, or drop-down list. |
 | ControlGetPos() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetPos function retrieves the position and size of a control. |
-| ControlGetStyle() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control. |
+| ControlGetStyle() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control. Eto controls have no Win32 style word, so the non-Windows backend returns the placeholder value 1 for every control rather than a real style. (Unlike WinGetStyle, no WS_* projection is done for controls.) |
 | ControlGetText() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetText function retrieves text from a control. |
 | ControlGetVisible() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetVisible function returns 1 if a control is visible, or 0 if hidden. |
 | ControlHide() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlHide function hides a control. |
@@ -427,8 +427,8 @@ Status legend:
 | ControlSendText() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSend and ControlSendText functions send simulated keystrokes or text to a window or control. |
 | ControlSetChecked() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSetChecked function checks or unchecks a check box or radio button. |
 | ControlSetEnabled() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSetEnabled function enables or disables a control. |
-| ControlSetExStyle() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control. |
-| ControlSetStyle() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control. |
+| ControlSetExStyle() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control. Eto controls have no Win32 style word, so the value is parsed and accepted on non-Windows platforms but has no effect. |
+| ControlSetStyle() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control. Eto controls have no Win32 style word, so the value is parsed and accepted on non-Windows platforms but has no effect. |
 | ControlSetText() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSetText function changes the text of a control. |
 | ControlShow() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlShow function shows a control if it was previously hidden. |
 | ControlShowDropDown() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlShowDropDown function shows the popup list of a combo box or drop-down list. |
@@ -560,10 +560,10 @@ Status legend:
 | Gui.Control.Hwnd | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Native window handle of the control. |
 | Gui.Control.Move() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Moves or resizes the control. |
 | Gui.Control.Name | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Associated control name. |
-| Gui.Control.OnCommand() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a WM_COMMAND callback for the control. |
+| Gui.Control.OnCommand() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Registers a WM_COMMAND callback for the control. WM_COMMAND is a Win32 concept; the non-Windows implementation accepts the call, registers nothing and never fires. |
 | Gui.Control.OnEvent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a control event callback. |
-| Gui.Control.OnMessage() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a window-message callback for the control. |
-| Gui.Control.OnNotify() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a WM_NOTIFY callback for the control. |
+| Gui.Control.OnMessage() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Registers Callback(GuiCtrlObj, wParam, lParam, Msg) to run when the control receives the given window message, ahead of the WM_COMMAND/WM_NOTIFY reflection and default processing. Matches AHK: a non-empty return claims the message (it becomes the reply, the remaining handlers are skipped and default processing is suppressed), while an empty string or no return at all lets the next handler and then default handling run. An explicit 0 therefore claims the message and replies 0. AddRemove is 1 (append, default), -1 (prepend) or 0 (unregister); any other value is a ValueError. Window messages are a Win32 concept, so on Linux and macOS the registration is accepted but no handler is ever invoked. |
+| Gui.Control.OnNotify() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Registers a WM_NOTIFY callback for the control. WM_NOTIFY is a Win32 concept; the non-Windows implementation accepts the call, registers nothing and never fires. |
 | Gui.Control.Opt() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Applies options to the control. |
 | Gui.Control.Redraw() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Redraws the control. |
 | Gui.Control.SetCue() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets cue banner (placeholder text) for the control. |
@@ -573,7 +573,7 @@ Status legend:
 | Gui.Control.Value | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets the control value. |
 | Gui.Control.Visible | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets whether the control is visible. |
 | Gui.Destroy() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Destroys the GUI window and releases associated resources. |
-| Gui.Flash() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Flashes the GUI window to attract attention. |
+| Gui.Flash() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Flashes the GUI window to attract attention. Backed by the Win32 FlashWindow API; the call is accepted and does nothing on Linux and macOS. |
 | Gui.FocusedCtrl | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Currently focused control in the GUI. |
 | Gui.GetClientPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the GUI client-area position and size. |
 | Gui.GetPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the GUI window position and size. |
@@ -587,7 +587,7 @@ Status legend:
 | Gui.Move() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Moves or resizes the GUI window. |
 | Gui.Name | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Associated GUI name. |
 | Gui.OnEvent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a GUI event callback. |
-| Gui.OnMessage() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a window-message callback for the GUI. |
+| Gui.OnMessage() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Registers Callback(GuiObj, wParam, lParam, Msg) to run when the GUI window receives the given window message, ahead of the default window procedure. Matches AHK: a non-empty return claims the message (it becomes the reply, the remaining handlers are skipped and default processing is suppressed), while an empty string or no return at all lets the next handler and then the default window procedure run. An explicit 0 therefore claims the message and replies 0; a non-numeric value claims it and replies 0. AddRemove is 1 (append, default), -1 (prepend) or 0 (unregister); any other value is a ValueError. Window messages are a Win32 concept, so on Linux and macOS the registration is accepted (a cross-platform script still loads) but no handler is ever invoked. |
 | Gui.Opt() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Applies GUI window options. |
 | Gui.Restore() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Restores the GUI window from minimized or maximized state. |
 | Gui.SetFont() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets the default font for subsequent controls. |
@@ -624,7 +624,7 @@ Status legend:
 | IniDelete() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Deletes a value from a standard format.ini file. |
 | IniRead() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Reads a value, section or list of section names from a standard format.ini file. |
 | IniWrite() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Writes a value or section to a standard format.ini file. |
-| InputBox() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The InputBox function displays an input box to ask the user to enter a string. |
+| InputBox() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The InputBox function displays an input box to ask the user to enter a string. On Linux and macOS the dialog is built with Eto and honours only the Password option; the W, H, X, Y and T (timeout) options are ignored, so Result never returns "Timeout". |
 | InputHook() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The InputHook function creates an object which can be used to collect or intercept keyboard input. |
 | InputHook.BackspaceIsUndo | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Treats Backspace as undo for collected input. |
 | InputHook.CaseSensitive | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Whether match checks are case-sensitive. |
@@ -870,8 +870,8 @@ Status legend:
 | SendInput() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sends keystrokes via Input mode. |
 | SendLevel() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets the send level for generated input. |
 | SendMessage() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The SendMessage function sends a message to a window or control and waits for acknowledgement. |
-| SendMode() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets the default send mode. |
-| SendPlay() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sends keystrokes via Play mode. |
+| SendMode() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets the default send mode. "Play" has no journal-playback equivalent on Linux or macOS and is downgraded to "Event" with a one-time warning to stderr; Input and Event behave as documented. |
+| SendPlay() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sends keystrokes via Play mode. Play mode depends on the Win32 journal-playback hook, which has no equivalent elsewhere: Linux and macOS silently downgrade to Event mode and print a one-time warning to stderr. |
 | SendText() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sends text without translating key names. |
 | SetCapsLockState() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SetCapsLockState, SetNumLockState and SetScrollLockState functions set the state of the corresponding key. Can also force the key to stay on or off. |
 | SetControlDelay() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SetControlDelay function sets the delay that will occur after each control-modifying function. |
@@ -897,12 +897,12 @@ Status legend:
 | Sleep() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Sleep function waits the specified amount of time before continuing. |
 | Sort() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Arranges a variable's contents in alphabetical, numerical, or random order (optionally removing duplicates). The back slash option also supports specifying a forward slash / so it can be used for paths on non-Windows systems. |
 | Sound APIs | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Audio device/endpoint support differs by platform. |
-| SoundBeep() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Emits a tone from the PC speaker. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundBeep() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Emits a tone at the requested frequency and duration on every platform. Windows uses the Win32 Beep API. Linux and macOS synthesize the sine wave to an in-memory WAV and play it through the same backend as SoundPlay, so Frequency and Duration are honoured there too; Linux needs one of the players listed under SoundPlay to be installed. |
 | SoundGetInterface() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Retrieves a native COM interface of a sound device or component and is Windows-specific. |
 | SoundGetMute() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Retrieves a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
 | SoundGetName() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Retrieves the name of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
 | SoundGetVolume() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Retrieves a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
-| SoundPlay() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Plays a sound, video, or other supported file type. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundPlay() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Plays a sound file. The "*n" standard-sound syntax (*-1, *16, *32, *48, *64) works on every platform: Windows passes the number to MessageBeep, Linux uses the freedesktop sound theme and macOS /System/Library/Sounds, the latter two falling back to a synthesized beep when the desktop ships no such sound. Windows plays via MCI, so any format with an installed codec works (.wav, .mp3, .avi, ...); MCI limits paths to roughly 127 characters. macOS uses afplay (wav/aiff/caf/mp3/m4a). Linux picks the best installed player for the file type - paplay or aplay for uncompressed/libsndfile formats, otherwise ffplay, mpv, gst-play-1.0 or mpg123 - and raises an error naming them if none is present. On every platform, starting a new file stops the previous one, SoundPlay on a nonexistent file stops playback and raises, and playback stops when the script exits. |
 | SoundSetMute() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Changes a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
 | SoundSetVolume() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Changes a volume setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
 | SplitPath() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Separates a file name or URL into its name, directory, extension, and drive. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been. |
@@ -945,7 +945,7 @@ Status legend:
 | ToolTip() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Creates an always-on-top window anywhere on the screen. On Linux and macOS it is drawn via the cross-platform Overlay primitive; on Wayland that needs a capable compositor (KWin, GNOME, or Cinnamon with the Keysharp extension). |
 | Tray icon and menu | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Tray/menu behavior varies by desktop environment and platform APIs. |
 | TraySetIcon() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Changes the script's tray icon. |
-| TrayTip() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Creates a toast message window near the tray icon. Differs in that there is no way to mute the system sound specify a large icon. The duration will be 5 seconds by default, but an additional option dur can be used to specify the duration in seconds, such as dur7. The registry key EnableBalloonTips is not observed for disabling the notification. The option 4 has no effect because the tray icon is always shown at the top of the toast. |
+| TrayTip() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Creates a toast message window near the tray icon. Differs in that the Mute option is accepted but has no effect (there is no way to mute the system sound) and a large icon cannot be requested. The registry key EnableBalloonTips is not observed for disabling the notification. The option 4 has no effect because the tray icon is always shown at the top of the toast. On Linux and macOS the toast is an Eto Notification, so its appearance and duration are decided by the desktop notification service. |
 | TreeView.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds an item to a TreeView. |
 | TreeView.Delete() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Deletes one item or all items in a TreeView. |
 | TreeView.Get() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets state information for a TreeView item. |
@@ -1002,7 +1002,7 @@ Status legend:
 | WinGetControlsHwnd() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetControlsHwnd function returns an array of unique IDs (HWNDs) for all controls in the specified window. |
 | WinGetCount() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetCount function returns the number of existing windows that match the specified criteria. |
 | WinGetEnabled() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Retrieves the enabled/disabled state of the specified window. On macOS this always reflects whether the window exists, not its true enabled state, since there is no API to query it. |
-| WinGetExStyle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Retrieves the extended style of the specified window. macOS has no equivalent of Win32 extended window styles; always returns 0. |
+| WinGetExStyle() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Retrieves the extended style of the specified window. Neither X11, Wayland nor macOS has an equivalent of Win32 extended window styles; all three always return 0. |
 | WinGetID() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetID function returns the unique ID (HWND) of the specified window. |
 | WinGetIDLast() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetIDLast function returns the unique ID (HWND) of the last/bottommost window if there is more than one match. |
 | WinGetList() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetList function returns an array of unique IDs (HWNDs) for all existing windows that match the specified criteria. |
@@ -1011,10 +1011,10 @@ Status legend:
 | WinGetPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetPos function retrieves the position and size of the specified window. |
 | WinGetProcessName() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetProcessName function returns the name of the process that owns the specified window. |
 | WinGetProcessPath() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetProcessPath function returns the full path and name of the process that owns the specified window. |
-| WinGetStyle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Retrieves the style of the specified window. macOS has no equivalent of Win32 window styles; always returns 0. |
+| WinGetStyle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Retrieves the style of the specified window. No non-Windows platform has a real Win32 style word, so for a script-owned window the toolkit state is projected onto the WS_* bits scripts actually test: WS_CAPTION/WS_POPUP from the border style, WS_SYSMENU, WS_THICKFRAME, WS_MINIMIZEBOX and WS_MAXIMIZEBOX from the frame buttons, plus WS_VISIBLE, WS_DISABLED, WS_MINIMIZE and WS_MAXIMIZE from the window state. Foreign windows expose no style word at all: X11 and macOS return 0, and Wayland reports only WS_CAPTION from the compositor decoration state. |
 | WinGetText | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetText function retrieves the text from the specified window. |
 | WinGetTitle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetTitle function retrieves the title of the specified window. |
-| WinGetTransColor() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Retrieves the current transparent color of the specified window. macOS has no equivalent of a window transparency color key; always returns 0. |
+| WinGetTransColor() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Retrieves the transparency colour key of the specified window. No non-Windows backend implements a per-colour transparency key; X11, Wayland and macOS always return 0. |
 | WinGetTransparent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinGetTransparent function returns the degree of transparency of the specified window. |
 | WinHide() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinHide function hides the specified window. On macOS, windows owned by the calling process are hidden individually; for windows owned by other applications, macOS provides no per-window hide API, so the entire owning application is hidden instead. |
 | WinKill() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinKill function forces the specified window to close. On Wayland a real force-kill is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent), falling back to a graceful close request. |
@@ -1030,11 +1030,11 @@ Status legend:
 | WinRestore() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinRestore function unminimizes or unmaximizes the specified window if it is minimized or maximized. |
 | WinSetAlwaysOnTop() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows). On macOS, only supported for windows owned by the calling process; macOS provides no API to change another process's window level, and raising it via Accessibility would require repeatedly stealing focus, so it is a no-op for windows owned by other applications. |
 | WinSetEnabled() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Enables or disables the specified window. macOS has no faithful public equivalent of Win32 EnableWindow for another application, so the feature is intentionally unsupported there. |
-| WinSetExStyle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Changes extended Win32-style window attributes where a backend can map them. Raw Win32 extended-style integers have no Cocoa equivalent and are permanently unsupported on macOS. |
+| WinSetExStyle() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Changes the extended style of the specified window. Neither X11, Wayland nor macOS has an equivalent of Win32 extended window styles. On a script-owned window the call is accepted and does nothing; on a foreign window it raises an OSError. |
 | WinSetRegion() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The WinSetRegion function changes the shape of the specified window to be the specified rectangle, ellipse, or polygon. This is implemented purely via the Win32 GDI region APIs (HRGN/SetWindowRgn) and is Windows-only; non-rectangular window shaping has no equivalent implementation on Linux or macOS. |
-| WinSetStyle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Changes Win32-style window attributes where a backend can map them. Raw Win32 style integers have no Cocoa equivalent and are permanently unsupported on macOS. |
+| WinSetStyle() | 🟢 Full | 🔴 Unsupported | 🟡 Partial | 🔴 Unsupported | Changes the style of the specified window. X11 has no way to write Win32 window styles: the call is accepted and does nothing on a script-owned window and raises an OSError on a foreign window. Wayland maps only WS_CAPTION, to the compositor decoration state, and only for compositor-backed windows. macOS has no equivalent. |
 | WinSetTitle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinSetTitle function changes the title of the specified window. On macOS, windows owned by the calling process have their title set directly; for windows owned by other applications, setting AXTitle via the Accessibility API is attempted, but most applications treat it as read-only and the call has no effect. |
-| WinSetTransColor() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Makes pixels of a selected color transparent. Cocoa has no window color-key equivalent, so this feature is permanently unsupported on macOS. |
+| WinSetTransColor() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Makes all pixels of the chosen colour invisible. No non-Windows backend implements a per-colour transparency key; X11, Wayland and macOS raise an OSError. Whole-window opacity via WinSetTransparent is supported instead. |
 | WinSetTransparent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinSetTransparent function makes the specified window semi-transparent. On Wayland this is provided natively on KWin (compositor scripting) or by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS, only supported for windows owned by the calling process, via NSWindow.alphaValue; macOS provides no public API to change another process's window opacity. |
 | WinShow() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinShow function unhides the specified window. On macOS, windows owned by the calling process are restored individually; for windows owned by other applications, the entire owning application is unhidden (the inverse of WinHide's fallback). |
 | WinWait() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinWait function waits until the specified window exists. |

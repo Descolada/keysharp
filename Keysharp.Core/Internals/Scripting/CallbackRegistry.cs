@@ -5,6 +5,32 @@ using Keysharp.Internals.Invoke;
 
 namespace Keysharp.Internals.Scripting
 {
+	/// <summary>
+	/// The rules for "this callback consumed the event, stop calling the rest".
+	/// <para>
+	/// AHK has exactly two, and which one applies is a property of the callback family — see the two
+	/// <c>MsgMonitorList::Call</c> overloads in <c>source/script_object.cpp</c>:
+	/// </para>
+	/// <list type="bullet">
+	/// <item><see cref="NonZero"/> — the <c>(aInitNewThreadIndex)</c> overload: <c>if (retval) break;</c>. Used
+	/// by OnError, OnExit and OnClipboardChange, so both <c>return 0</c> and <c>return ""</c> continue the
+	/// chain. Keysharp's hand-rolled OnError loop (<c>Errors.cs:41</c>) applies the same rule inline.</item>
+	/// <item><see cref="NonEmpty"/> — the <c>(aMsg, aMsgType, aGui)</c> overload:
+	/// <c>if (result == EARLY_RETURN) break;</c>, where EARLY_RETURN means <c>CallMethod</c> saw a non-blank
+	/// return (<c>script_object.cpp:53</c>, via <c>TokenIsBlank</c>). Used only by GUI event/message monitors,
+	/// so <c>return 0</c> DOES stop the chain and reply 0, while <c>return ""</c> or no return continues.</item>
+	/// </list>
+	/// <para>
+	/// Kept here, non-generic, because the rule has nothing to do with the registration type, and because a
+	/// caller deciding "was this handled?" must test the very predicate the loop broke on rather than restate it.
+	/// </para>
+	/// </summary>
+	internal static class CallbackStop
+	{
+		internal static readonly Func<object, bool> NonZero = static r => r.Al() != 0L;
+		internal static readonly Func<object, bool> NonEmpty = static r => !r.IsNullOrEmpty();
+	}
+
 	internal sealed class CallbackRegistry<TRegistration> where TRegistration : CallbackRegistration
 	{
 		private readonly Lock gate = new();
@@ -180,7 +206,7 @@ namespace Keysharp.Internals.Scripting
 
 		/// <summary>
 		/// Invoke all registered event handlers, with each being called in its own pseudo-thread.<br/>
-		/// If any event handler returns a non-empty result, no further calls are made.
+		/// If any event handler returns a non-zero result, no further calls are made.
 		/// </summary>
 		/// <param name="args">The parameters to pass to each event handler.</param>
 		/// <returns>The result of the last event handler that was called.</returns>
@@ -199,8 +225,19 @@ namespace Keysharp.Internals.Scripting
 		internal object InvokeExitHandlers(params object[] args) =>
 			InvokeHandlers(args, skipUninterruptible: true, allowEmergencyOverflow: true, checkPersistence: false);
 
-		private object InvokeHandlers(object[] args, bool skipUninterruptible, bool allowEmergencyOverflow, bool checkPersistence)
+		/// <summary>
+		/// Invoke handlers for a window message (GuiObj.OnMessage / GuiCtrlObj.OnMessage). Identical to
+		/// <see cref="InvokeEventHandlers"/> except that the chain stops on any NON-EMPTY return
+		/// (<see cref="CallbackStop.NonEmpty"/>) rather than a non-zero one.
+		/// </summary>
+		/// <param name="args">The parameters to pass to each event handler.</param>
+		/// <returns>The result of the last event handler that was called.</returns>
+		internal object InvokeWindowMessageHandlers(params object[] args) =>
+			InvokeHandlers(args, skipUninterruptible: false, allowEmergencyOverflow: false, checkPersistence: true, CallbackStop.NonEmpty);
+
+		private object InvokeHandlers(object[] args, bool skipUninterruptible, bool allowEmergencyOverflow, bool checkPersistence, Func<object, bool> stopWhen = null)
 		{
+			stopWhen ??= CallbackStop.NonZero;
 			object result = null;
 			var snapshot = GetSnapshot();
 
@@ -277,7 +314,7 @@ namespace Keysharp.Internals.Scripting
 				if (executionResult != ScriptEventExecutionResult.Executed)
 					continue;
 
-				if (result.Al() != 0L)
+				if (stopWhen(result))
 					break;
 			}
 

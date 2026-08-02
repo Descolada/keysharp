@@ -501,8 +501,11 @@ namespace Keysharp.Runtime
 			else
 				msgFilter.Attach();
 #endif
-			HookThread = CreateHookThread();
+			//Must be set BEFORE the hook thread is constructed: HookThread.KeybdMutexName/MouseMutexName are
+			//instance field initializers derived from MutexName, so assigning it afterwards left them holding
+			//the previous value and made #HookMutexName a no-op.
 			if (hookMutexName != null && hookMutexName != "") Keysharp.Internals.Input.Hooks.HookThread.MutexName = hookMutexName;
+			HookThread = CreateHookThread();
 			//Init the data objects that the API classes will use.
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.
 		}
@@ -1248,6 +1251,16 @@ namespace Keysharp.Runtime
 			if (Interlocked.Exchange(ref disposeStarted, 1) != 0)
 				return;
 
+			//Everything below is managed teardown that can block on, or marshal to, another thread:
+			//HookThread.Stop() joins the hook's STA thread, and winEventManager/flowData post to the UI
+			//thread. None of it may run on the GC finalizer thread -- joining there stalls the whole
+			//finalizer queue, which is precisely what ExitAppInternal's GC.WaitForPendingFinalizers()
+			//then waits on. A Script that reaches its finalizer was never disposed (i.e. it leaked); its
+			//hook thread is a background thread that dies with the process, and StringsData frees its
+			//GCHandles from its own finalizer, so skipping this on that path leaks nothing that matters.
+			if (!disposing)
+				return;
+
 			HookThread?.Stop();
 			winEventManager?.Dispose();
 #if LINUX
@@ -1256,12 +1269,13 @@ namespace Keysharp.Runtime
 			stringsData?.Free();
 			flowData?.Dispose();
 
-			if (!disposing)
-				return;
-
 			// Frees every overlay this process still owns (Highlight/ToolTip/Overlay builtins all register as
 			// image overlays), so a script that exits without disposing them doesn't leak on-screen surfaces.
 			try { _ = Platform.Overlay.TryHideAllImageOverlays(); } catch { }
+
+			// Stops anything SoundPlay left playing. On Windows an MCI item left open can hang the process on
+			// exit (AHK closes it from its destructor for the same reason); elsewhere this reaps the player.
+			try { Keysharp.Internals.Os.SoundPlayback.StopCurrent(); } catch { }
 
 #if WINDOWS
 			Application.RemoveMessageFilter(msgFilter);

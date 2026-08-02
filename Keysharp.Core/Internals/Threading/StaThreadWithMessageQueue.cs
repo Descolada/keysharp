@@ -64,13 +64,20 @@ namespace Keysharp.Internals.Threading
 		{
 			if (ctx != null)
 			{
-				ctx.Send((_) => Application.ExitThread(), null);
+				try { ctx.Send((_) => Application.ExitThread(), null); } catch { }
+
 				ctx = null;
 			}
 
+			//Bounded, unlike a bare Join(): if the STA thread is wedged (stuck in a native hook callback, or in a
+			//#HotIf evaluation that never returns) an unbounded join hangs whichever thread is tearing down --
+			//and teardown can be driven from a path that GC.WaitForPendingFinalizers() is itself waiting on. The
+			//thread is IsBackground, so abandoning it costs nothing: it dies with the process.
 			if (!ReferenceEquals(Thread.CurrentThread, thread))
-				thread.Join();
+				_ = thread.Join(ShutdownJoinTimeoutMs);
 		}
+
+		private const int ShutdownJoinTimeoutMs = 5000;
 
 		public bool IsDisposed() => ctx == null;
 	}

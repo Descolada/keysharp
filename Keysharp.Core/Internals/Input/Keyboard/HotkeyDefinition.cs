@@ -2548,6 +2548,13 @@ namespace Keysharp.Internals.Input.Keyboard
 			// otherwise any modal dialogs, such as MessageBox(), that call DispatchMessage()
 			// internally wouldn't be able to find anyone to send hotkey messages to, so they
 			// would probably be lost:
+			// KNOWN DEFECT (deferred): RegisterHotKey/UnregisterHotKey are thread-affine -- the OS ties a
+			// registration to the calling thread and only that thread can undo it -- but this registers inline
+			// on the caller's thread while Unregister() marshals to the main window's thread. A Hotkey() call
+			// made from a RealThread therefore registers on that thread and can never be unregistered.
+			// Not fixed here on purpose: marshalling registration through mainWindow.Invoke() would block on a
+			// window that may have no message pump (the test host and headless/engine startup both reach this
+			// path), trading a narrow bug for a broad hang. Fix once UI-thread ownership is defined.
 			return (isRegistered = Platform.Hotkeys.Register(script.MainWindowHandle, id, (KeyModifiers)modifiersToRegister, vk))
 				   ? ResultType.Ok
 				   : ResultType.Fail;
@@ -2639,18 +2646,25 @@ namespace Keysharp.Internals.Input.Keyboard
 			// with cleanup and exit.  Such reporting might cause an infinite loop, leading to
 			// a stack overflow if the reporting itself encounters an error and tries to exit,
 			// which in turn would call us again:
-			if (mw != null && mw.IsDisposed)
+			// A missing or disposed main window means the window this hotkey was registered against is
+			// already gone, so the OS registration went with it. Clear the flag WITHOUT reading
+			// Script.MainWindowHandle: this path also runs from ~HotkeyDefinition() on the GC finalizer
+			// thread after teardown, where MainWindowHandle would lazily construct a whole new MainWindow
+			// off the UI thread, for a script that has already exited.
+			if (mw == null || mw.IsDisposed)
 			{
 				isRegistered = false;
 				return ResultType.Ok;
 			}
 
 			var handle = script.MainWindowHandle;
-			mw?.Invoke(() =>
-			{
-				_ = Platform.Hotkeys.Unregister(handle, id);
-			});
-			return isRegistered ? ResultType.Ok : ResultType.Fail;//I've see it fail in one rare case.
+			var unregistered = false;
+			mw.Invoke(() => unregistered = Platform.Hotkeys.Unregister(handle, id));
+			// Clear the flag regardless of what the OS reported: the registration is unusable either way,
+			// and leaving it set makes Register() early-return Ok forever, so a hotkey unregistered while
+			// suspended could never be re-registered once Suspend was turned back off.
+			isRegistered = false;
+			return unregistered ? ResultType.Ok : ResultType.Fail;//I've see it fail in one rare case.
 		}
 
 		private static KeysharpFunc FindHotkeyIf(KeysharpFunc fo, List<KeysharpFunc> list)

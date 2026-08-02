@@ -38,6 +38,9 @@ namespace Keysharp.Builtins
 			private CallbackHub itemExpandHandlers;
 			private CallbackHub lostFocusHandlers;
 #if WINDOWS
+			//Keyed by window message number, for OnMessage(). Separate from commandHandlers/notifyHandlers
+			//because those key on a WM_COMMAND notification code / WM_NOTIFY code, not on the message itself.
+			private ConcurrentDictionary<int, CallbackHub> messageHandlers;
 			private ConcurrentDictionary<int, CallbackHub> notifyHandlers;
 #endif
 			private long parenthandle;
@@ -65,6 +68,7 @@ namespace Keysharp.Builtins
 				removedAny |= itemExpandHandlers?.RemoveOwned(scheduler) == true;
 				removedAny |= lostFocusHandlers?.RemoveOwned(scheduler) == true;
 #if WINDOWS
+				removedAny |= CallbackRegistry<CallbackRegistration>.RemoveOwned(messageHandlers, scheduler);
 				removedAny |= CallbackRegistry<CallbackRegistration>.RemoveOwned(notifyHandlers, scheduler);
 #endif
 				removedAny |= selectedItemChangedHandlers?.RemoveOwned(scheduler) == true;

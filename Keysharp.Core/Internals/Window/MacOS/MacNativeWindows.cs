@@ -648,6 +648,73 @@ namespace Keysharp.Internals.Window.MacOS
 			return null;
 		}
 
+		// Eto hands out the raw NSWindow pointer as a window's handle (MacView.NativeHandle => Control.Handle),
+		// but every window-server API in this file is keyed by CGWindowID. Nothing bridged the two, so a
+		// script-created GUI missed TryGetWindowInfo() and every own-window native path below was unreachable
+		// for it. Translate one of our own handles to its window number to close that gap.
+		internal static bool TryGetOwnWindowNumber(nint handle, out uint windowNumber)
+		{
+			windowNumber = 0;
+
+			if (handle == 0)
+				return false;
+
+			var app = Eto.Forms.Application.Instance;
+
+			if (app == null)
+				return false;
+
+			try
+			{
+				foreach (var window in app.Windows)
+				{
+					// Compare native handles rather than the managed wrappers: MonoMac can hand back distinct
+					// wrapper instances for the same underlying NSWindow* (see IsUserFacingWindow).
+					if (window.ControlObject is not NSWindow native || native.Handle != handle)
+						continue;
+
+					var number = native.WindowNumber;
+
+					if (number > 0)
+					{
+						windowNumber = (uint)number;
+						return true;
+					}
+
+					// WindowNumber goes negative once a window is ordered out (TryHideOwnWindow), so recover
+					// the number it was hidden under — otherwise a hidden own window stops resolving.
+					lock (hiddenOwnWindowsLock)
+					{
+						foreach (var kv in hiddenOwnWindows)
+						{
+							if (kv.Value.Handle == native.Handle)
+							{
+								windowNumber = kv.Key;
+								return true;
+							}
+						}
+					}
+
+					return false;
+				}
+			}
+			catch
+			{
+			}
+
+			return false;
+		}
+
+		// TryGetWindowInfo() for a handle that is one of our own Eto windows rather than a CGWindowID.
+		internal static bool TryGetOwnWindowInfo(nint handle, out MacNativeWindow info, bool includeTextMetadata = false)
+		{
+			if (TryGetOwnWindowNumber(handle, out var number))
+				return TryGetWindowInfo((nint)number, out info, includeTextMetadata);
+
+			info = default;
+			return false;
+		}
+
 		// Sets/clears "always on top" for one of our own windows by adjusting its NSWindow level.
 		// There is no equivalent for windows owned by other applications: the Accessibility API
 		// exposes no attribute for window level, and AppleScript can't set it either.

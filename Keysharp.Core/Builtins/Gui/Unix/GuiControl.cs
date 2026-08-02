@@ -1267,7 +1267,10 @@ namespace Keysharp.Builtins
 				return Errors.ValueErrorOccurred($"Only Edit controls implement this method.");
 			}
 
+			//WM_COMMAND, WM_NOTIFY and window messages in general are Win32 concepts with no Eto/GTK/Cocoa
+			//equivalent, so these are accepted (so a cross-platform script still loads) but never fire.
 			public object OnCommand(object notifyCode, object callback, object addRemove = null) => DefaultObject;
+			public object OnMessage(object msgNumber, object callback, object addRemove = null) => DefaultObject;
 			public object OnEvent(object eventName, object callback, object addRemove = null)
 			{
 				var e = eventName.As().ToLower();

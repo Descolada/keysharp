@@ -134,21 +134,31 @@ namespace Keysharp.Internals.Window.MacOS
 		{
 			get
 			{
-				if (TryGetNativeInfo(out var native)
-						&& native.OwnerPid == Environment.ProcessId
-						&& MacNativeWindows.TryGetOwnWindowFrameStyle(native.WindowNumber, out var titled, out var closable, out var resizable, out var miniaturizable))
+				// Frame furniture is only readable for our own windows — AX exposes no equivalent for another
+				// application's window, and there is nothing honest to synthesize for one.
+				if (!TryGetNativeInfo(out var native)
+						|| native.OwnerPid != Environment.ProcessId
+						|| !MacNativeWindows.TryGetOwnWindowFrameStyle(native.WindowNumber, out var titled, out var closable, out var resizable, out var miniaturizable))
+					return 0;
+
+				var style = titled ? WS_CAPTION : EtoWindowStyles.WS_POPUP;
+
+				if (closable) style |= WS_SYSMENU;
+				if (resizable) style |= WS_THICKFRAME;
+				if (miniaturizable) style |= WS_MINIMIZEBOX;
+
+				// Match the shared Eto projection (EtoWindowStyles.ForWindow) so a window reports the same
+				// state bits whether it was reached by handle or seeded from an enumeration batch.
+				if (Visible) style |= EtoWindowStyles.WS_VISIBLE;
+
+				style |= WindowState switch
 				{
-					long style = 0;
+					FormWindowState.Minimized => EtoWindowStyles.WS_MINIMIZE,
+					FormWindowState.Maximized => EtoWindowStyles.WS_MAXIMIZE,
+					_ => 0L
+				};
 
-					if (titled) style |= WS_CAPTION;
-					if (closable) style |= WS_SYSMENU;
-					if (resizable) style |= WS_THICKFRAME;
-					if (miniaturizable) style |= WS_MINIMIZEBOX;
-
-					return style;
-				}
-
-				return 0;
+				return style;
 			}
 		}
 

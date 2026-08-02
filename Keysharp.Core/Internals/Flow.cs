@@ -166,7 +166,8 @@ namespace Keysharp.Internals
 
 			if (script.KeyboardData.blockInput)
 				_ = Keysharp.Builtins.Keyboard.ScriptBlockInput(ToggleValueType.Off);
-			else if (script.KeyboardData.blockMouseMove)
+
+			if (script.KeyboardData.blockMouseMove)
 				_ = Keysharp.Builtins.Keyboard.ScriptBlockInput(ToggleValueType.MouseMoveOff);
 
 			script.FlowData.timers.Clear();

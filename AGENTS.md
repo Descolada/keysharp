@@ -106,7 +106,7 @@ Any change to the **script-visible API surface** must be accompanied by a docume
    # from repo root
    pwsh scripts/generate-capabilities.ps1
    ```
-   This rewrites `docs/capabilities.md` and re-injects the concise overview table into `README.md` between the `<!-- CAPABILITIES_OVERVIEW:START/END -->` markers.
+   This rewrites `docs/capabilities.md` and re-injects the concise overview table into `docs/reference.md` between the `<!-- CAPABILITIES_OVERVIEW:START/END -->` markers. (`README.md` carries a separate, hand-written condensed table and is not generated.)
 3. **`docs/reference.md`** — hand-maintained platform, implementation, and AutoHotkey v2 compatibility notes. Update it when the change affects per-platform support, setup/installation, or a documented difference from AutoHotkey v2.
 4. **`../KeysharpDocs`** — the separate user-facing reference site, cloned as a sibling of this repo (it **is** present in the current environment). When it exists, update it in the same change:
    - Pages are hand-written HTML; most function/directive/object/statement pages live in `docs/lib/`.

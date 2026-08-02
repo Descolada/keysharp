@@ -72,7 +72,12 @@ namespace Keysharp.Internals.Window.Windows
 		public void Dispose()
 		{
 			disposed = true;
-			PostToUIThread(() => UninstallOnUI((WindowEventMask)~0));
+			//Must be synchronous, unlike Start/Stop: Script.Dispose() calls this and then closes the main
+			//window, so a posted callback would still be sitting in the queue when the message loop ends,
+			//leaving every SetWinEventHook handle installed and the pinned proc alive for the rest of the
+			//process -- and a subsequent Script would install a second set and double-dispatch every event.
+			//InvokeOnUIThread also keeps UnhookWinEvent on the thread that installed the hook, as required.
+			InvokeOnUIThread(() => UninstallOnUI((WindowEventMask)~0));
 		}
 
 		// ---- UI-thread hook management ------------------------------------------------------

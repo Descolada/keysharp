@@ -1514,10 +1514,12 @@ namespace Keysharp.Internals
 			if (!X11Specified(h))
 				return 0L;
 
-			if (Control.FromHandle(h) is Eto.Forms.Form form)
-				return (long)form.WindowStyle;
+			if (Control.FromHandle(h) is Eto.Forms.Control control)
+				return EtoWindowStyles.For(control);
 
-			Ks.OutputDebugLine($"Window with handle {h} was not a .NET Form or Control, so the style could not be retrieved. Returning 0.");
+			// A foreign X11 window: EWMH exposes no style word, and _MOTIF_WM_HINTS is both optional and
+			// only about decorations, so there is nothing honest to synthesize here.
+			Ks.OutputDebugLine($"Window with handle {h} is not owned by this process, so no window style is available. Returning 0.");
 			return 0;
 		}
 

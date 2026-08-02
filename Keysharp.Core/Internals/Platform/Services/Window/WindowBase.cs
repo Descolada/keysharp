@@ -187,8 +187,11 @@ namespace Keysharp.Internals
 		public virtual long GetStyle(nint h)
 		{
 #if !WINDOWS
+			// Projects the toolkit's window/control state onto the Win32 WS_* bits scripts actually test.
+			// (This used to hand back Eto's own WindowStyle enum value, where Default is 0 and None is 1 —
+			// numbers that collide meaninglessly with the WS_* constants.)
 			if (TryOwnControl(h, out var control))
-				return control is Form form ? (long)form.WindowStyle : 0L;
+				return EtoWindowStyles.For(control);
 #endif
 			return NotYet<long>();
 		}

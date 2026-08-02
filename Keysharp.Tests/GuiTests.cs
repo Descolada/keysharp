@@ -256,6 +256,95 @@ namespace Keysharp.Tests
 
 		[Test, Category("Gui")]
 		[Apartment(ApartmentState.STA)]
+		public void OnMessageRegistersOrdersAndRemovesHandlers()
+		{
+			const int msgId = 0x8123;
+			var gui = new Gui(System.Array.Empty<object>());
+			_ = gui.__New();
+
+			try
+			{
+				var order = new List<string>();
+				var control = (Gui.Control)gui.Add("Button", "w80 h24");
+				// Returning "" (empty) is what lets the chain continue; see the explicit-0 case further down.
+				var first = new KeysharpFunc((Func<object, object, object, object, object>)((_, _, _, _) => { order.Add("first"); return ""; }));
+				var second = new KeysharpFunc((Func<object, object, object, object, object>)((_, _, _, _) => { order.Add("second"); return ""; }));
+
+				// AddRemove is an ordering switch, not a thread count: AHK rejects anything outside -1..1.
+				_ = Assert.Throws<Keysharp.Builtins.KeysharpException>(() => gui.OnMessage(msgId, second, 5L));
+				_ = Assert.Throws<Keysharp.Builtins.KeysharpException>(() => control.OnMessage(msgId, second, -2L));
+
+				_ = gui.OnMessage(msgId, second);        // default 1: append
+				_ = gui.OnMessage(msgId, first, -1L);    // -1: run before the already-registered one
+
+				var m = Message.Create(gui.form.Handle, msgId, 0, 0);
+				Assert.IsFalse(gui.InvokeWindowMessageHandlers(ref m), "handlers returning \"\" must not claim the message");
+				NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "first", "second" }, order);
+
+				// A non-empty return claims the message and supplies its result, skipping later handlers.
+				order.Clear();
+				var claiming = new KeysharpFunc((Func<object, object, object, object, object>)((_, _, _, _) => { order.Add("claim"); return 7L; }));
+				_ = gui.OnMessage(msgId, claiming, -1L);
+				m = Message.Create(gui.form.Handle, msgId, 0, 0);
+				Assert.IsTrue(gui.InvokeWindowMessageHandlers(ref m));
+				Assert.AreEqual(7, m.Result.ToInt64());
+				NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "claim" }, order);
+
+				// 0 unregisters.
+				order.Clear();
+				_ = gui.OnMessage(msgId, claiming, 0L);
+				_ = gui.OnMessage(msgId, first, 0L);
+				_ = gui.OnMessage(msgId, second, 0L);
+				m = Message.Create(gui.form.Handle, msgId, 0, 0);
+				Assert.IsFalse(gui.InvokeWindowMessageHandlers(ref m));
+				NUnit.Framework.Legacy.CollectionAssert.IsEmpty(order);
+
+				// Only an EMPTY return leaves the message unclaimed, per AHK. An empty string and no return at
+				// all both let the next handler (and then the default window procedure) run.
+				foreach (var inert in new object[] { "", null })
+				{
+					order.Clear();
+					var quiet = new KeysharpFunc((Func<object, object, object, object, object>)((_, _, _, _) => { order.Add("quiet"); return inert; }));
+					_ = gui.OnMessage(msgId, quiet);
+					_ = gui.OnMessage(msgId, second);
+					m = Message.Create(gui.form.Handle, msgId, 0, 0);
+					Assert.IsFalse(gui.InvokeWindowMessageHandlers(ref m), $"a return of '{inert ?? "(no return)"}' must not claim the message");
+					NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "quiet", "second" }, order, "an unclaimed message must still reach later handlers");
+					Assert.AreEqual(0, m.Result.ToInt64());
+					_ = gui.OnMessage(msgId, quiet, 0L);
+					_ = gui.OnMessage(msgId, second, 0L);
+				}
+
+				// An explicit 0 IS non-empty, so it claims the message and replies 0 — the distinction that
+				// separates AHK's rule from a plain non-zero test.
+				order.Clear();
+				var repliesZero = new KeysharpFunc((Func<object, object, object, object, object>)((_, _, _, _) => { order.Add("zero"); return 0L; }));
+				_ = gui.OnMessage(msgId, repliesZero);
+				_ = gui.OnMessage(msgId, second);
+				m = Message.Create(gui.form.Handle, msgId, 0, 0);
+				Assert.IsTrue(gui.InvokeWindowMessageHandlers(ref m), "an explicit 0 is non-empty and claims the message");
+				Assert.AreEqual(0, m.Result.ToInt64(), "the claimed message replies with the returned 0");
+				NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "zero" }, order, "claiming must skip the remaining handlers");
+				_ = gui.OnMessage(msgId, repliesZero, 0L);
+				_ = gui.OnMessage(msgId, second, 0L);
+
+				// Controls keep their own registry, keyed by message rather than by notification code.
+				var ctrlHits = 0;
+				var ctrlHandler = new KeysharpFunc((Func<object, object, object, object, object>)((_, _, _, _) => { ctrlHits++; return 3L; }));
+				_ = control.OnMessage(msgId, ctrlHandler);
+				var cm = Message.Create(control.Ctrl.Handle, msgId, 0, 0);
+				Assert.AreEqual(1L, control.InvokeMessageHandlers(ref cm).Al());
+				Assert.AreEqual(1, ctrlHits);
+				Assert.AreEqual(3, cm.Result.ToInt64());
+			}
+			finally
+			{
+				_ = gui.Destroy();
+			}
+		}
+
+		[Test, Category("Gui")]
+		[Apartment(ApartmentState.STA)]
 		public void ColumnedMenuKeepsItsSizeAcrossDisplays()
 		{
 			// Mirrors guitest.ks's Presentation menu: a MenuBar submenu with radio items, a separator and two
@@ -512,6 +601,57 @@ namespace Keysharp.Tests
 			Assert.AreNotEqual(0, mainWindow.NativeHandle);
 			Assert.IsFalse(mainWindow.Visible);
 			Assert.IsFalse(shown);
+		}
+
+		[Test, Category("Gui")]
+		public void EtoWindowStylesProjectToksWin32StyleBits()
+		{
+			SkipIfUiInitializationBlocked("Test requires a live Eto Application (macOS testhost cannot drive AppKit).");
+
+			using var form = new Eto.Forms.Form
+			{
+				WindowStyle = Eto.Forms.WindowStyle.Default,
+				Closeable = true,
+				Resizable = true,
+				Minimizable = true,
+				Maximizable = true
+			};
+			var style = EtoWindowStyles.ForWindow(form);
+
+			// A decorated, fully-featured window carries the frame bits scripts test for. It is deliberately
+			// NOT Eto's own WindowStyle enum value (Default is 0, None is 1), which collides meaninglessly
+			// with the WS_* constants.
+			Assert.AreEqual(EtoWindowStyles.WS_CAPTION, style & EtoWindowStyles.WS_CAPTION);
+			Assert.AreEqual(EtoWindowStyles.WS_SYSMENU, style & EtoWindowStyles.WS_SYSMENU);
+			Assert.AreEqual(EtoWindowStyles.WS_THICKFRAME, style & EtoWindowStyles.WS_THICKFRAME);
+			Assert.AreEqual(EtoWindowStyles.WS_MINIMIZEBOX, style & EtoWindowStyles.WS_MINIMIZEBOX);
+			Assert.AreEqual(EtoWindowStyles.WS_MAXIMIZEBOX, style & EtoWindowStyles.WS_MAXIMIZEBOX);
+			Assert.AreEqual(0L, style & EtoWindowStyles.WS_POPUP, "a decorated window is not a popup");
+			Assert.AreEqual(0L, style & EtoWindowStyles.WS_CHILD, "a top-level window is not a child");
+
+			// Clearing the toolkit properties clears exactly the matching bits.
+			form.Resizable = false;
+			form.Minimizable = false;
+			form.Maximizable = false;
+			form.Closeable = false;
+			style = EtoWindowStyles.ForWindow(form);
+			Assert.AreEqual(0L, style & EtoWindowStyles.WS_THICKFRAME);
+			Assert.AreEqual(0L, style & EtoWindowStyles.WS_MINIMIZEBOX);
+			Assert.AreEqual(0L, style & EtoWindowStyles.WS_MAXIMIZEBOX);
+			Assert.AreEqual(0L, style & EtoWindowStyles.WS_SYSMENU);
+
+			// Borderless is the closest thing to a bare WS_POPUP, and drops the caption bits.
+			form.WindowStyle = Eto.Forms.WindowStyle.None;
+			style = EtoWindowStyles.ForWindow(form);
+			Assert.AreEqual(EtoWindowStyles.WS_POPUP, style & EtoWindowStyles.WS_POPUP);
+			Assert.AreEqual(0L, style & EtoWindowStyles.WS_CAPTION);
+
+			// Child controls report WS_CHILD plus the visible/enabled state, and never frame bits.
+			using var button = new Eto.Forms.Button { Enabled = false };
+			var controlStyle = EtoWindowStyles.For(button);
+			Assert.AreEqual(EtoWindowStyles.WS_CHILD, controlStyle & EtoWindowStyles.WS_CHILD);
+			Assert.AreEqual(EtoWindowStyles.WS_DISABLED, controlStyle & EtoWindowStyles.WS_DISABLED);
+			Assert.AreEqual(0L, controlStyle & EtoWindowStyles.WS_CAPTION);
 		}
 #endif
 

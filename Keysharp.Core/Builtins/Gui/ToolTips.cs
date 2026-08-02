@@ -472,7 +472,10 @@ namespace Keysharp.Builtins
 						else if (opt.Equals("iconx", StringComparison.OrdinalIgnoreCase)) icon = SystemIcons.Get(SystemIconType.Error, SystemIconSize.Large);
 #endif
 						else if (opt.Equals("mute", StringComparison.OrdinalIgnoreCase)) { }
-						else HandleInt(int.Parse(opt));
+						else if (int.TryParse(opt, out var optval)) HandleInt(optval);
+						//AHK only defines Iconi/Icon!/Iconx/Mute and the numeric options; anything else is a
+						//script error.
+						else return Errors.ValueErrorOccurred($"Invalid TrayTip option: {opt}.");
 					}
 				}
 			}

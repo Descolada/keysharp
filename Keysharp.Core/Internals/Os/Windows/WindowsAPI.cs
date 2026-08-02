@@ -683,6 +683,11 @@ namespace Keysharp.Internals.Os.Windows
 		[DllImport(winmm, CharSet = CharSet.Unicode)]
 		internal static extern int mciSendString(string command, StringBuilder buffer, int bufferSize, nint hwndCallback);
 
+		//SoundPlay's "*n": the parameter is the MB_ICON* value, and 0xFFFFFFFF (-1) is the simple beep.
+		[LibraryImport(user32, EntryPoint = "MessageBeep")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static partial bool MessageBeep(uint uType);
+
 		[LibraryImport(winmm, EntryPoint = "joyGetPosEx")]
 		internal static partial int joyGetPosEx(int uJoyID, ref JOYINFOEX pji);
 

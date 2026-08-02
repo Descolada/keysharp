@@ -4086,10 +4086,10 @@
                      "feature":  "ControlGetExStyle()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control.",
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control. Eto controls have no Win32 style word, so the non-Windows backend returns the placeholder value 1 for every control rather than a real style.",
                      "tested-by":  "ControlTests/control_exstyle_cb.ahk"
                  },
                  {
@@ -4152,10 +4152,10 @@
                      "feature":  "ControlGetStyle()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control.",
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control. Eto controls have no Win32 style word, so the non-Windows backend returns the placeholder value 1 for every control rather than a real style. (Unlike WinGetStyle, no WS_* projection is done for controls.)",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -4262,10 +4262,10 @@
                      "feature":  "ControlSetExStyle()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control.",
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control. Eto controls have no Win32 style word, so the value is parsed and accepted on non-Windows platforms but has no effect.",
                      "tested-by":  "ControlTests/control_set_exstyle.ahk"
                  },
                  {
@@ -4273,10 +4273,10 @@
                      "feature":  "ControlSetStyle()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control.",
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control. Eto controls have no Win32 style word, so the value is parsed and accepted on non-Windows platforms but has no effect.",
                      "tested-by":  "ControlTests/control_exstyle_cb.ahk"
                  },
                  {
@@ -5596,10 +5596,10 @@
                      "feature":  "Gui.Control.OnCommand()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "Registers a WM_COMMAND callback for the control."
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "Registers a WM_COMMAND callback for the control. WM_COMMAND is a Win32 concept; the non-Windows implementation accepts the call, registers nothing and never fires."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -5614,22 +5614,23 @@
                  {
                      "category":  "Windowing/GUI",
                      "feature":  "Gui.Control.OnMessage()",
-                     "syntax":  "",
+                     "syntax":  "GuiCtrlObj.OnMessage(MsgNumber, Callback [, AddRemove])",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "Registers a window-message callback for the control."
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "Registers Callback(GuiCtrlObj, wParam, lParam, Msg) to run when the control receives the given window message, ahead of the WM_COMMAND/WM_NOTIFY reflection and default processing. Matches AHK: a non-empty return claims the message (it becomes the reply, the remaining handlers are skipped and default processing is suppressed), while an empty string or no return at all lets the next handler and then default handling run. An explicit 0 therefore claims the message and replies 0. AddRemove is 1 (append, default), -1 (prepend) or 0 (unregister); any other value is a ValueError. Window messages are a Win32 concept, so on Linux and macOS the registration is accepted but no handler is ever invoked.",
+                     "tested-by":  "GuiTests.OnMessageRegistersOrdersAndRemovesHandlers"
                  },
                  {
                      "category":  "Windowing/GUI",
                      "feature":  "Gui.Control.OnNotify()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "Registers a WM_NOTIFY callback for the control."
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "Registers a WM_NOTIFY callback for the control. WM_NOTIFY is a Win32 concept; the non-Windows implementation accepts the call, registers nothing and never fires."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -5726,10 +5727,10 @@
                      "feature":  "Gui.Flash()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "Flashes the GUI window to attract attention."
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "Flashes the GUI window to attract attention. Backed by the Win32 FlashWindow API; the call is accepted and does nothing on Linux and macOS."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -5870,12 +5871,13 @@
                  {
                      "category":  "Windowing/GUI",
                      "feature":  "Gui.OnMessage()",
-                     "syntax":  "",
+                     "syntax":  "GuiObj.OnMessage(MsgNumber, Callback [, AddRemove])",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "partial",
-                     "notes":  "Registers a window-message callback for the GUI."
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "Registers Callback(GuiObj, wParam, lParam, Msg) to run when the GUI window receives the given window message, ahead of the default window procedure. Matches AHK: a non-empty return claims the message (it becomes the reply, the remaining handlers are skipped and default processing is suppressed), while an empty string or no return at all lets the next handler and then the default window procedure run. An explicit 0 therefore claims the message and replies 0; a non-numeric value claims it and replies 0. AddRemove is 1 (append, default), -1 (prepend) or 0 (unregister); any other value is a ValueError. Window messages are a Win32 concept, so on Linux and macOS the registration is accepted (a cross-platform script still loads) but no handler is ever invoked.",
+                     "tested-by":  "GuiTests.OnMessageRegistersOrdersAndRemovesHandlers"
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -6259,7 +6261,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "The InputBox function displays an input box to ask the user to enter a string.",
+                     "notes":  "The InputBox function displays an input box to ask the user to enter a string. On Linux and macOS the dialog is built with Eto and honours only the Password option; the W, H, X, Y and T (timeout) options are ignored, so Result never returns \"Timeout\".",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -8910,7 +8912,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "Sets the default send mode.",
+                     "notes":  "Sets the default send mode. \"Play\" has no journal-playback equivalent on Linux or macOS and is downgraded to \"Event\" with a one-time warning to stderr; Input and Event behave as documented.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -8921,7 +8923,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "Sends keystrokes via Play mode.",
+                     "notes":  "Sends keystrokes via Play mode. Play mode depends on the Win32 journal-playback hook, which has no equivalent elsewhere: Linux and macOS silently downgrade to Event mode and print a one-time warning to stderr.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -9198,8 +9200,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
-                     "macos":  "full",
-                     "notes":  "Emits a tone from the PC speaker. Platform statuses inherited from curated \u0027Sound APIs\u0027; per-function validation pending.",
+                     "macos":  "partial",
+                     "notes":  "Emits a tone at the requested frequency and duration on every platform. Windows uses the Win32 Beep API. Linux and macOS synthesize the sine wave to an in-memory WAV and play it through the same backend as SoundPlay, so Frequency and Duration are honoured there too; Linux needs one of the players listed under SoundPlay to be installed.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -9253,8 +9255,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
-                     "macos":  "full",
-                     "notes":  "Plays a sound, video, or other supported file type. Platform statuses inherited from curated \u0027Sound APIs\u0027; per-function validation pending.",
+                     "macos":  "partial",
+                     "notes":  "Plays a sound file. The \"*n\" standard-sound syntax (*-1, *16, *32, *48, *64) works on every platform: Windows passes the number to MessageBeep, Linux uses the freedesktop sound theme and macOS /System/Library/Sounds, the latter two falling back to a synthesized beep when the desktop ships no such sound. Windows plays via MCI, so any format with an installed codec works (.wav, .mp3, .avi, ...); MCI limits paths to roughly 127 characters. macOS uses afplay (wav/aiff/caf/mp3/m4a). Linux picks the best installed player for the file type - paplay or aplay for uncompressed/libsndfile formats, otherwise ffplay, mpv, gst-play-1.0 or mpg123 - and raises an error naming them if none is present. On every platform, starting a new file stops the previous one, SoundPlay on a nonexistent file stops playback and raises, and playback stops when the script exits.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -9683,12 +9685,12 @@
                  {
                      "category":  "Core Language",
                      "feature":  "TrayTip()",
-                     "syntax":  "TrayTip(\"some text\", \"a title\", \"3 dur7\")",
+                     "syntax":  "TrayTip(\"some text\", \"a title\", \"Iconi\")",
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "Creates a toast message window near the tray icon. Differs in that there is no way to mute the system sound specify a large icon. The duration will be 5 seconds by default, but an additional option dur can be used to specify the duration in seconds, such as dur7. The registry key EnableBalloonTips is not observed for disabling the notification. The option 4 has no effect because the tray icon is always shown at the top of the toast.",
+                     "notes":  "Creates a toast message window near the tray icon. Differs in that the Mute option is accepted but has no effect (there is no way to mute the system sound) and a large icon cannot be requested. The registry key EnableBalloonTips is not observed for disabling the notification. The option 4 has no effect because the tray icon is always shown at the top of the toast. On Linux and macOS the toast is an Eto Notification, so its appearance and duration are decided by the desktop notification service.",
                      "tested-by":  "ControlTests/control_choose_string.ahk"
                  },
                  {
@@ -10095,10 +10097,10 @@
                      "feature":  "WinGetExStyle()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
                      "macos":  "unsupported",
-                     "notes":  "Retrieves the extended style of the specified window. macOS has no equivalent of Win32 extended window styles; always returns 0."
+                     "notes":  "Retrieves the extended style of the specified window. Neither X11, Wayland nor macOS has an equivalent of Win32 extended window styles; all three always return 0."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10189,8 +10191,9 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
-                     "macos":  "unsupported",
-                     "notes":  "Retrieves the style of the specified window. macOS has no equivalent of Win32 window styles; always returns 0."
+                     "macos":  "partial",
+                     "notes":  "Retrieves the style of the specified window. No non-Windows platform has a real Win32 style word, so for a script-owned window the toolkit state is projected onto the WS_* bits scripts actually test: WS_CAPTION/WS_POPUP from the border style, WS_SYSMENU, WS_THICKFRAME, WS_MINIMIZEBOX and WS_MAXIMIZEBOX from the frame buttons, plus WS_VISIBLE, WS_DISABLED, WS_MINIMIZE and WS_MAXIMIZE from the window state. Foreign windows expose no style word at all: X11 and macOS return 0, and Wayland reports only WS_CAPTION from the compositor decoration state.",
+                     "tested-by":  "GuiTests.EtoWindowStylesProjectToksWin32StyleBits"
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10218,10 +10221,10 @@
                      "feature":  "WinGetTransColor()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
                      "macos":  "unsupported",
-                     "notes":  "Retrieves the current transparent color of the specified window. macOS has no equivalent of a window transparency color key; always returns 0."
+                     "notes":  "Retrieves the transparency colour key of the specified window. No non-Windows backend implements a per-colour transparency key; X11, Wayland and macOS always return 0."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10385,10 +10388,10 @@
                      "feature":  "WinSetExStyle()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
                      "macos":  "unsupported",
-                     "notes":  "Changes extended Win32-style window attributes where a backend can map them. Raw Win32 extended-style integers have no Cocoa equivalent and are permanently unsupported on macOS."
+                     "notes":  "Changes the extended style of the specified window. Neither X11, Wayland nor macOS has an equivalent of Win32 extended window styles. On a script-owned window the call is accepted and does nothing; on a foreign window it raises an OSError."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10405,10 +10408,10 @@
                      "feature":  "WinSetStyle()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
+                     "linux_x11":  "unsupported",
                      "linux_wayland":  "partial",
                      "macos":  "unsupported",
-                     "notes":  "Changes Win32-style window attributes where a backend can map them. Raw Win32 style integers have no Cocoa equivalent and are permanently unsupported on macOS.",
+                     "notes":  "Changes the style of the specified window. X11 has no way to write Win32 window styles: the call is accepted and does nothing on a script-owned window and raises an OSError on a foreign window. Wayland maps only WS_CAPTION, to the compositor decoration state, and only for compositor-backed windows. macOS has no equivalent.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -10426,10 +10429,10 @@
                      "feature":  "WinSetTransColor()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
                      "macos":  "unsupported",
-                     "notes":  "Makes pixels of a selected color transparent. Cocoa has no window color-key equivalent, so this feature is permanently unsupported on macOS."
+                     "notes":  "Makes all pixels of the chosen colour invisible. No non-Windows backend implements a per-colour transparency key; X11, Wayland and macOS raise an OSError. Whole-window opacity via WinSetTransparent is supported instead."
                  },
                  {
                      "category":  "Windowing/GUI",

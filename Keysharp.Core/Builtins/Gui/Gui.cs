@@ -1,3 +1,5 @@
+using CallbackHub = Keysharp.Internals.Scripting.CallbackRegistry<Keysharp.Internals.Scripting.CallbackRegistration>;
+
 namespace Keysharp.Builtins
 {
 	internal class GuiData
@@ -544,7 +546,19 @@ namespace Keysharp.Builtins
 
 		~Gui()
 		{
-			Script.TheScript.ExitIfNotPersistent();//May not be necessary, but try anyway.
+			//Re-check persistence when a Gui is collected, since it may have been the only thing keeping the
+			//script alive. This runs on the GC finalizer thread, so it must never take the inline path:
+			//ExitIfNotPersistent posts to the UI thread, but PostToUIThread falls back to running the action
+			//inline when no UI context is bound, which would drive ExitAppInternal -- and its
+			//GC.WaitForPendingFinalizers() -- from the finalizer thread and deadlock. Skip once the script has
+			//exited too: TheScript is still set after teardown, so a late collection would otherwise run exit
+			//logic against a dead script (or, after a restart, against a different one).
+			var script = Script.TheScript;
+
+			if (script == null || script.hasExited || script.UIThreadContext == null)
+				return;
+
+			script.ExitIfNotPersistent();
 		}
 
 		public KeysharpFunc __Enum(object count) => CreateEnumerator(count.Ai());
@@ -2522,6 +2536,67 @@ namespace Keysharp.Builtins
 		}
 
 		public object OnEvent(object obj0, object obj1, object obj2 = null) => form.OnEvent(obj0, obj1, obj2);
+
+		/// <summary>
+		/// Registers a function to be called when the GUI window receives the specified window message.
+		/// </summary>
+		/// <param name="msgNumber">The number of the message to monitor.</param>
+		/// <param name="callback">The function to call, as <c>Callback(GuiObj, wParam, lParam, Msg)</c>.
+		/// If it returns a non-zero value, that value becomes the message's result and neither the remaining
+		/// handlers nor the default window procedure run.</param>
+		/// <param name="addRemove">If omitted, defaults to 1. Otherwise 1 to call this callback after any
+		/// previously registered ones, -1 to call it before them, or 0 to unregister it.</param>
+		/// <remarks>
+		/// Window messages exist only on Windows. On Linux and macOS the registration is accepted so that a
+		/// cross-platform script still loads, but no handler is ever invoked.
+		/// </remarks>
+		public object OnMessage(object msgNumber, object callback, object addRemove = null)
+		{
+			var addremove = addRemove.Al(1L);
+
+			//AHK's GuiType::OnEvent rejects anything outside -1..1: a GUI event can only run one thread at a
+			//time, so the parameter is an ordering/removal switch rather than a thread count.
+			if (addremove < -1 || addremove > 1)
+				return Errors.ValueErrorOccurred($"Invalid AddRemove value: {addremove}.");
+
+#if WINDOWS
+			var del = Functions.GetKeysharpFunc(callback, form.eventObj, true);
+
+			if (del == null)
+				return Errors.ValueErrorOccurred("The callback was not a valid function.");
+
+			messageHandlers ??= new();
+			_ = messageHandlers.GetOrAdd((int)msgNumber.Al(), static _ => new()).ModifyEventHandlers(del, addremove);
+#endif
+			return DefaultObject;
+		}
+
+#if WINDOWS
+		//Keyed by window message number, populated by OnMessage() and drained from KeysharpForm.WndProc.
+		private ConcurrentDictionary<int, CallbackHub> messageHandlers;
+
+		/// <summary>
+		/// Runs any OnMessage() handlers registered for this message, ahead of the default window procedure
+		/// (mirroring AHK's GuiWindowProc, which consults its message monitors before DefDlgProc).
+		/// </summary>
+		/// <returns>True if a handler claimed the message and supplied its result.</returns>
+		internal bool InvokeWindowMessageHandlers(ref Message m)
+		{
+			if (messageHandlers == null || !messageHandlers.TryGetValue(m.Msg, out var handler))
+				return false;
+
+			var result = handler?.InvokeWindowMessageHandlers(this, m.WParam.ToInt64(), m.LParam.ToInt64(), (long)m.Msg);
+
+			//"Claimed" must be the same test the chain broke on, so reuse that predicate rather than restating
+			//it: a NON-EMPTY return claims the message (an explicit 0 replies 0 and suppresses default
+			//processing), while "" or no return at all falls through.
+			if (!CallbackStop.NonEmpty(result))
+				return false;
+
+			m.Result = (nint)result.Al();
+			return true;
+		}
+#endif
 
 		public object Opt(object obj)
 		{

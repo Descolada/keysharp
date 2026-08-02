@@ -37,14 +37,17 @@ namespace Keysharp.Builtins
 		{
 			var freq = frequency.Ai(523);
 			var time = duration.Ai(150);
-#if LINUX
-			var seconds = time / 1000.0;
-			if ($"speaker-test -t sine -f {freq} -l 1 & sleep {seconds} && kill -9 $!".Bash() != 0)
-				return Errors.ErrorOccurred("SoundBeep command failed.");
-#elif OSX
-			_ = "osascript -e 'beep'".Bash();
-#elif WINDOWS
-			Console.Beep(freq, time);
+#if WINDOWS
+			// Console.Beep is Win32 Beep(), which is exactly what AHK calls.
+			Console.Beep(Math.Clamp(freq, SoundPlayback.MinFrequency, SoundPlayback.MaxFrequency), Math.Max(0, time));
+#else
+
+			// Linux and macOS have no tone generator, so synthesize the sine and play it. This is what makes
+			// Frequency and Duration mean something on macOS (which used to emit a fixed system alert) and
+			// removes the Linux dependency on alsa-utils' speaker-test.
+			if (!SoundPlayback.TryPlayTone(freq, time, out var error))
+				return Errors.ErrorOccurred($"SoundBeep failed: {error}");
+
 #endif
 			return DefaultObject;
 		}
@@ -124,85 +127,49 @@ namespace Keysharp.Builtins
 		{
 			var file = filename.As();
 			var w = wait.As();
-#if WINDOWS
 
+			// "*n" selects a standard system sound. Wait has no effect in this mode (as documented).
 			if (file.Length > 1 && file[0] == '*')
 			{
 				if (!int.TryParse(file.AsSpan(1), out var n))
-				{
-					return Errors.ValueErrorOccurred($"Invalid SoundPlay wait option: {file}.");
-				}
+					return Errors.ValueErrorOccurred($"Invalid SoundPlay system sound: {file}.");
 
-				switch (n)
-				{
-					case -1:
-						SystemSounds.Beep.Play();
-						break;
-
-					case 16:
-						SystemSounds.Hand.Play();
-						break;
-
-					case 32:
-						SystemSounds.Question.Play();
-						break;
-
-					case 48:
-						SystemSounds.Exclamation.Play();
-						break;
-
-					case 64:
-						SystemSounds.Asterisk.Play();
-						break;
-
-					default:
-						break;
-				}
-
-				return DefaultObject;
+				return PlaySystemSound(n);
 			}
-
-#endif
 
 			try
 			{
 				var doWait = w == "1" || string.Compare(w, "WAIT", true) == 0;
-#if WINDOWS
-				var sound = new SoundPlayer(file);
 
-				if (doWait)
-					sound.PlaySync();
-				else
-					sound.Play();
+				if (!SoundPlayback.TryPlay(file, doWait, out var error))
+					return Errors.ErrorOccurred(error);
 
-#elif OSX
-				using var player = Process.Start(new ProcessStartInfo
-				{
-					FileName = "afplay",
-					UseShellExecute = false,
-					ArgumentList = { file }
-				});
-
-				if (player == null)
-					return Errors.ErrorOccurred($"Failed to play audio file {file}.");
-
-				if (doWait)
-				{
-					player.WaitForExit();
-
-					if (player.ExitCode != 0)
-						return Errors.ErrorOccurred($"Failed to play audio file {file}.");
-				}
-#else
-				if ($"aplay --quiet {filename}".Bash(doWait) != 0)
-					return Errors.ErrorOccurred($"Failed to play audio file {file}.");
-#endif
 				return DefaultObject;
 			}
 			catch (Exception ex)
 			{
 				return Errors.ErrorOccurred(ex.Message);
 			}
+		}
+
+		/// <summary>
+		/// Plays one of SoundPlay's "*n" standard system sounds.
+		/// </summary>
+		/// <param name="which">-1 for a simple beep, or 16/32/48/64 for hand/question/exclamation/asterisk.</param>
+		private static object PlaySystemSound(int which)
+		{
+#if WINDOWS
+			_ = SoundPlayback.TryPlaySystemSound(which);
+#else
+
+			// Prefer the desktop's own alert sound so "*n" matches what the rest of the system does; fall back
+			// to a synthesized beep so the call is never silently inaudible where no sound theme is installed.
+			if (SoundPlayback.SystemSoundFile(which) is string path && SoundPlayback.TryPlay(path, wait: false, out _))
+				return DefaultObject;
+
+			_ = SoundPlayback.TryPlayTone(523, 150, out _);
+#endif
+			return DefaultObject;
 		}
 
 		/// <summary>

@@ -28,6 +28,14 @@ namespace Keysharp.Internals
 			return false;
 		}
 
+		// The window-server descriptor for a handle, accepting either a CGWindowID or one of our own Eto
+		// window handles (an NSWindow pointer). Used by the action verbs whose native implementation is
+		// own-process only, so that a script-created GUI reaches it instead of falling through to the
+		// toolkit no-op in WindowBase.
+		private static bool TryNative(nint h, out MacNativeWindow native)
+			=> MacNativeWindows.TryGetWindowInfo(h, out native)
+			   || MacNativeWindows.TryGetOwnWindowInfo(h, out native);
+
 		// macOS off-process titles come from the kCGWindow batch (unavailable when re-queried by handle), so a
 		// by-handle MacWindowInfo lazily fetches its descriptor once; enumerate seeds each from the batch.
 		public override WindowInfoBase CreateWindow(nint id)
@@ -214,7 +222,7 @@ namespace Keysharp.Internals
 
 		public override bool TrySetStyle(nint h, long style)
 		{
-			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+			if (!TryNative(h, out var native))
 				return base.TrySetStyle(h, style);
 
 			if (native.OwnerPid != Environment.ProcessId)
@@ -241,7 +249,7 @@ namespace Keysharp.Internals
 
 		public override bool TrySetTransparency(nint h, object alpha)
 		{
-			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+			if (!TryNative(h, out var native))
 				return base.TrySetTransparency(h, alpha);
 
 			if (native.OwnerPid != Environment.ProcessId)
@@ -273,7 +281,7 @@ namespace Keysharp.Internals
 
 		public override bool TrySetZOrder(nint h, ZOrder z)
 		{
-			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+			if (!TryNative(h, out var native))
 				return base.TrySetZOrder(h, z);
 
 			if (z != ZOrder.Bottom)   // raise to top
@@ -353,8 +361,11 @@ namespace Keysharp.Internals
 			return restored || activated;
 		}
 
+		// Own controls/windows are invalidated through the toolkit (base) — try that FIRST. AppKit repaints
+		// foreign windows on its own schedule and exposes no "invalidate that window" call, so for those the
+		// verb only reports that the window exists rather than doing anything.
 		public override bool TryRedraw(nint h)
-			=> MacNativeWindows.TryGetWindowInfo(h, out _) || base.TryRedraw(h);
+			=> base.TryRedraw(h) || MacNativeWindows.TryGetWindowInfo(h, out _);
 
 		public override bool TryClick(nint h, Point at, uint button, int count)
 		{

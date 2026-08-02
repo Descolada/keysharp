@@ -1,7 +1,9 @@
 param(
 	[string]$Source = "docs/capabilities.json",
 	[string]$DocsOut = "docs/capabilities.md",
-	[string]$ReadmePath = "README.md"
+	# The CAPABILITIES_OVERVIEW markers live in docs/reference.md; README.md carries a
+	# hand-written condensed table instead and is deliberately not injected into.
+	[string]$OverviewPath = "docs/reference.md"
 )
 
 Set-StrictMode -Version Latest
@@ -51,7 +53,9 @@ if (-not (Test-Path $Source)) {
 	throw "Source file not found: $Source"
 }
 
-$root = Get-Content $Source -Raw | ConvertFrom-Json
+# ReadAllText, not Get-Content -Raw: Windows PowerShell 5.1 decodes with the system ANSI
+# codepage by default, which double-encodes every non-ASCII character on the round trip.
+$root = [System.IO.File]::ReadAllText((Resolve-Path $Source)) | ConvertFrom-Json
 
 $allRows = $root.rows | Sort-Object @{ Expression = { $_.feature.ToString().ToLowerInvariant() } }, @{ Expression = { $_.feature.ToString() } }
 $tableAll = BuildTableLines $allRows
@@ -82,7 +86,7 @@ if ($docsDir -and -not (Test-Path $docsDir)) { New-Item -ItemType Directory -Pat
 
 [System.IO.File]::WriteAllText($DocsOut, $docsSection, [System.Text.UTF8Encoding]::new($false))
 
-# Build concise overview matrix for README injection.
+# Build concise overview matrix for injection between the CAPABILITIES_OVERVIEW markers.
 $overviewFeatures = @(
 	"Parser and runtime execution",
 	"Directives and preprocessing",
@@ -122,28 +126,28 @@ $overviewSection = [string]::Join("`n", $overviewLines)
 
 $startMarker = "<!-- CAPABILITIES_OVERVIEW:START -->"
 $endMarker = "<!-- CAPABILITIES_OVERVIEW:END -->"
-$readmeInjected = $false
-if (Test-Path $ReadmePath) {
-	$readmeText = Get-Content $ReadmePath -Raw
-	$readmeNewline = if ($readmeText -match "`r`n") { "`r`n" } else { "`n" }
+$overviewInjected = $false
+if (Test-Path $OverviewPath) {
+	$overviewText = [System.IO.File]::ReadAllText((Resolve-Path $OverviewPath))
+	$overviewNewline = if ($overviewText -match "`r`n") { "`r`n" } else { "`n" }
 	$pattern = [regex]::Escape($startMarker) + ".*?" + [regex]::Escape($endMarker)
-	$replacement = $startMarker + $readmeNewline + ($overviewSection -replace "`n", $readmeNewline) + $readmeNewline + $endMarker
-	if ([regex]::IsMatch($readmeText, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)) {
-		$newReadme = [regex]::Replace($readmeText, $pattern, $replacement, [System.Text.RegularExpressions.RegexOptions]::Singleline)
-		[System.IO.File]::WriteAllText($ReadmePath, $newReadme, [System.Text.UTF8Encoding]::new($false))
-		$readmeInjected = $true
+	$replacement = $startMarker + $overviewNewline + ($overviewSection -replace "`n", $overviewNewline) + $overviewNewline + $endMarker
+	if ([regex]::IsMatch($overviewText, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)) {
+		$newOverview = [regex]::Replace($overviewText, $pattern, $replacement, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+		[System.IO.File]::WriteAllText($OverviewPath, $newOverview, [System.Text.UTF8Encoding]::new($false))
+		$overviewInjected = $true
 	}
 	else {
-		Write-Warning "README markers not found; skipped README injection."
+		Write-Warning "CAPABILITIES_OVERVIEW markers not found in $OverviewPath; skipped overview injection."
 	}
 }
 else {
-	Write-Warning "README not found at $ReadmePath; skipped README injection."
+	Write-Warning "Overview file not found at $OverviewPath; skipped overview injection."
 }
 
 Write-Host "Generated:"
 Write-Host "  $DocsOut"
-if ($readmeInjected) {
+if ($overviewInjected) {
 	Write-Host "Injected concise overview into:"
-	Write-Host "  $ReadmePath"
+	Write-Host "  $OverviewPath"
 }

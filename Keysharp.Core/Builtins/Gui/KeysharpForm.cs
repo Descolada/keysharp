@@ -104,6 +104,12 @@ namespace Keysharp.Builtins
 			if (handledByMessageHook)
 				return;
 
+			//GuiObj.OnMessage() monitors run ahead of default processing, the same way AHK's GuiWindowProc
+			//consults its message monitors before handing off to DefDlgProc.
+			if (beenConstructed && Tag is WeakReference<Gui> guiRef && guiRef.TryGetTarget(out var owningGui)
+					&& owningGui.InvokeWindowMessageHandlers(ref m))
+				return;
+
 			base.WndProc(ref m);
 		}
 

@@ -8,7 +8,6 @@ namespace Keysharp.Internals.Scripting
 	{
 		private static readonly Lock _lock = new();
 		private static readonly Queue<Any> _q = new();       // enqueued by finalizers (strong refs -> resurrection)
-		private static readonly List<Any> _batch = new();    // batch processed on main thread
 		private static bool _pending = false;
 
 		public static void Enqueue(Any obj)
@@ -16,35 +15,53 @@ namespace Keysharp.Internals.Scripting
 			var script = TheScript;
 			if (script == null) return;
 
+			bool post;
+
 			lock (_lock)
 			{
 				_q.Enqueue(obj);     // keep strong ref: prevents collection until processed
+				// Claim the right to post from INSIDE the lock. Enqueue runs on the GC finalizer thread, so the
+				// old unsynchronized check-then-set let two threads both observe false and post twice. Worse, a
+				// _pending stuck at true -- because its post targeted a scheduler that died with the previous
+				// script -- permanently silenced every later Enqueue, so __Delete simply stopped running.
+				post = !_pending;
+
+				if (post)
+					_pending = true;
 			}
-			if (!_pending)
+
+			if (!post) return;
+
+			try
 			{
-				_pending = true;
-				try
-				{
-					script.ScriptMainThreadContext.Post(_ => RunPendingDestructors(), null);
-				}
-				catch { }
+				script.ScriptMainThreadContext.Post(_ => RunPendingDestructors(), null);
+			}
+			catch
+			{
+				// The post never happened, so release the claim; otherwise nothing would ever post again.
+				lock (_lock) _pending = false;
 			}
 		}
 
-		// Called on the script's logical main thread, serialized via ScriptMainThreadContext.
+		// Called on the script's logical main thread, serialized via ScriptMainThreadContext -- but also directly
+		// from ExitAppInternal, so the batch is a local rather than a shared static: two overlapping calls would
+		// otherwise interleave into the same list and double-invoke (or lose) __Delete.
 		public static void RunPendingDestructors()
 		{
+			var batch = new List<Any>();
+
 			// Drain to a batch
 			lock (_lock)
 			{
-				while (_q.Count > 0) _batch.Add(_q.Dequeue());
-			}
-			_pending = false;
+				while (_q.Count > 0) batch.Add(_q.Dequeue());
 
-			if (_batch.Count == 0) return;
+				_pending = false;
+			}
+
+			if (batch.Count == 0) return;
 
 			// Sort for outside-in (parents before children)
-			var ordered = OrderOutsideIn(_batch);
+			var ordered = OrderOutsideIn(batch);
 
 			// Now call __Delete in that order
 			foreach (var any in ordered)
@@ -62,7 +79,7 @@ namespace Keysharp.Internals.Scripting
 			}
 
 			// Drop strong refs so GC can actually collect
-			_batch.Clear();
+			batch.Clear();
 		}
 
 		private static List<Any> OrderOutsideIn(List<Any> batch)

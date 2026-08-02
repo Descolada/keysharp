@@ -261,6 +261,7 @@ namespace Keysharp.Tests
 			var callback = new KeysharpFunc((Func<object, object, object, object>)((_, _, _) => 0L));
 			var menu = new Keysharp.Builtins.Menu();
 			var plainMenu = new Keysharp.Builtins.Menu();
+			var subMenu = new Keysharp.Builtins.Menu();
 			var menuBar = new Keysharp.Builtins.MenuBar();
 
 			try
@@ -313,21 +314,29 @@ namespace Keysharp.Tests
 				Assert.AreEqual(ToolStripItemAlignment.Left, notRight.Alignment);
 				Assert.IsFalse(Keysharp.Builtins.Menu.GetPresentation(notRight).Right);
 
-				// A submenu's drop-down is created on demand and must still get the Keysharp renderer.
-				var subItem = (ToolStripMenuItem)menuBar.Add("Sub", new Keysharp.Builtins.Menu());
+				// A submenu's drop-down is created on demand and must still get the Keysharp renderer. It reports
+				// its owner's renderer rather than its own, so it also must not be mistaken for an already
+				// initialized menu and left without column handling.
+				var subFirst = (ToolStripMenuItem)subMenu.Add("First", callback);
+				var subSecond = (ToolStripMenuItem)subMenu.Add("Second", callback, "BarBreak");
+				var subItem = (ToolStripMenuItem)menuBar.Add("Sub", subMenu);
 				Assert.AreSame(menuBar.MenuStrip.Renderer, subItem.DropDown.Renderer);
+				OpenAndClose(subItem.DropDown);
+				Assert.IsTrue(((FlowLayoutSettings)subItem.DropDown.LayoutSettings).WrapContents);
+				Assert.Greater(subSecond.Bounds.Left, subFirst.Bounds.Left, "A menu bar's submenu must get columns too.");
 			}
 			finally
 			{
 				menu.MenuItem.Dispose();
 				plainMenu.MenuItem.Dispose();
+				subMenu.MenuItem.Dispose();
 				menuBar.MenuStrip.Dispose();
 				menuBar.MenuItem.Dispose();
 			}
 		}
 
 		// Raises Opening/Closed exactly as a real display would, without leaving a popup on screen.
-		private static void OpenAndClose(ContextMenuStrip menu)
+		private static void OpenAndClose(ToolStripDropDown menu)
 		{
 			menu.Show(new Point(0, 0));
 			menu.Close();
@@ -401,7 +410,7 @@ namespace Keysharp.Tests
 			_ = menu.Check("Second");
 			menu.MenuItem.Refresh();
 
-			var nativeFirst = (Gtk.Widget)first.EtoItem.ControlObject;
+			var nativeFirst = (Gtk.MenuItem)first.EtoItem.ControlObject;
 			var nativeSecond = (Gtk.CheckMenuItem)second.EtoItem.ControlObject;
 			var nativeMenu = (Gtk.Menu)menu.MenuItem.EtoMenu.ControlObject;
 			using var firstColumn = nativeMenu.ChildGetProperty(nativeFirst, "left-attach");
@@ -409,9 +418,15 @@ namespace Keysharp.Tests
 
 			Assert.IsTrue(nativeSecond.DrawAsRadio);
 			Assert.AreEqual(Gtk.TextDirection.Rtl, nativeSecond.Direction);
+			//The label carries the direction as well, because that is what right-aligns the item's text.
+			Assert.AreEqual(Gtk.TextDirection.Rtl, nativeSecond.Child.Direction);
+			Assert.AreEqual(Gtk.TextDirection.Ltr, nativeFirst.Child.Direction);
+			//Columns must be adjacent: a spacer column would be as wide as a column of text.
 			Assert.AreEqual(0U, Convert.ToUInt32(firstColumn.Val));
-			Assert.AreEqual(2U, Convert.ToUInt32(secondColumn.Val));
-			Assert.IsTrue(nativeMenu.Children.Any(static child => child.Name == "keysharp-menu-barbreak"));
+			Assert.AreEqual(1U, Convert.ToUInt32(secondColumn.Val));
+			//The BarBreak divider is a border on the column's own items rather than a widget of its own.
+			Assert.IsTrue(nativeSecond.StyleContext.HasClass(UnixMenuPresentation.BarBreakStyleClass));
+			Assert.IsFalse(nativeFirst.StyleContext.HasClass(UnixMenuPresentation.BarBreakStyleClass));
 
 			var right = (ToolStripMenuItem)menuBar.Add("Right", callback, "Right");
 			var nativeRight = (Gtk.MenuItem)right.EtoItem.ControlObject;

@@ -470,12 +470,20 @@ namespace Keysharp.Internals.Window.Unix
 #if LINUX
 			if (item?.ControlObject is Gtk.MenuItem nativeItem)
 			{
+				var rtl = presentation?.Rtl == true;
 				// GTK3's RightJustified property is deprecated without a native replacement; it is still the
 				// platform API which implements AHK's right-aligned menu-bar item.
 #pragma warning disable CS0612
 				nativeItem.RightJustified = presentation?.Right == true;
 #pragma warning restore CS0612
-				nativeItem.Direction = presentation?.Rtl == true ? Gtk.TextDirection.Rtl : Gtk.TextDirection.Ltr;
+				nativeItem.Direction = rtl ? Gtk.TextDirection.Rtl : Gtk.TextDirection.Ltr;
+
+				// The item's own direction only decides which side the state indicator sits on: a GtkMenuItem does
+				// not propagate it to the label Eto adds as its child, which is what actually lays out the text.
+				// A GtkLabel mirrors its alignment for an RTL direction, so this is what right-aligns the item.
+				// Setting an explicit alignment instead would not work: GTK mirrors that too, cancelling it out.
+				if (nativeItem.Child is Gtk.Label label)
+					label.Direction = nativeItem.Direction;
 
 				if (nativeItem is Gtk.CheckMenuItem checkItem)
 					checkItem.DrawAsRadio = presentation?.Radio == true;
@@ -500,18 +508,27 @@ namespace Keysharp.Internals.Window.Unix
 		}
 
 #if LINUX
-		private const string BarBreakSeparatorName = "keysharp-menu-barbreak";
+		internal const string BarBreakStyleClass = "keysharp-menu-barbreak";
+		private const uint ApplicationStylePriority = 600;//GTK_STYLE_PROVIDER_PRIORITY_APPLICATION, which gtk-sharp does not expose.
+		private static Gtk.CssProvider barBreakProvider;
+
+		//A GtkMenu gives every one of its columns the width of the widest item in the whole menu, so a column
+		//holding nothing but a divider would be as wide as a column of text. A left border on the items of the
+		//column the divider belongs to is the only placement that costs no width.
+		private static void EnsureBarBreakStyle()
+		{
+			if (barBreakProvider != null || Gdk.Screen.Default is not Gdk.Screen screen)
+				return;
+
+			barBreakProvider = new Gtk.CssProvider();
+			_ = barBreakProvider.LoadFromData($"menuitem.{BarBreakStyleClass} {{ border-left: 1px solid alpha(currentColor, 0.35); }}");
+			Gtk.StyleContext.AddProviderForScreen(screen, barBreakProvider, ApplicationStylePriority);
+		}
 
 		private static void Apply(Gtk.Menu menu, IReadOnlyList<ToolStripItem> items)
 		{
-			foreach (var oldSeparator in menu.Children.Where(static child => child.Name == BarBreakSeparatorName).ToArray())
-			{
-				menu.Remove(oldSeparator);
-				oldSeparator.Destroy();
-			}
-
-			var columns = new List<(List<(Gtk.Widget Widget, ToolStripItem Item)> Items, bool Bar)>();
-			var current = new List<(Gtk.Widget, ToolStripItem)>();
+			var columns = new List<(List<Gtk.Widget> Widgets, bool Bar)>();
+			var current = new List<Gtk.Widget>();
 			columns.Add((current, false));
 
 			foreach (var item in items)
@@ -521,39 +538,35 @@ namespace Keysharp.Internals.Window.Unix
 
 				var presentation = item.Tag as Keysharp.Builtins.Menu.MenuItemPresentation;
 				Apply(item.EtoItem, presentation);
+				widget.StyleContext.RemoveClass(BarBreakStyleClass);
 
-				if (current.Count > 0 && presentation is { Break: true } or { BarBreak: true })
+				if (current.Count > 0 && presentation is { StartsColumn: true })
 				{
 					current = [];
 					columns.Add((current, presentation.BarBreak));
 				}
 
-				current.Add((widget, item));
+				current.Add(widget);
 			}
 
 			if (columns.Count == 1)
 				return;
 
-			foreach (var column in columns)
-				foreach (var entry in column.Items)
-					menu.Remove(entry.Widget);
+			if (columns.Any(static column => column.Bar))
+				EnsureBarBreakStyle();
 
-			var maxRows = Math.Max(1, columns.Max(static column => column.Items.Count));
 			for (var columnIndex = 0; columnIndex < columns.Count; ++columnIndex)
 			{
-				var column = columns[columnIndex];
-				var itemColumn = (uint)(columnIndex * 2);
+				var (widgets, bar) = columns[columnIndex];
 
-				if (columnIndex > 0 && column.Bar)
+				for (var row = 0; row < widgets.Count; ++row)
 				{
-					var separatorHost = new Gtk.MenuItem { Name = BarBreakSeparatorName, Sensitive = false };
-					separatorHost.Add(new Gtk.Separator(Gtk.Orientation.Vertical));
-					menu.Attach(separatorHost, itemColumn - 1, itemColumn, 0, (uint)maxRows);
-					separatorHost.ShowAll();
-				}
+					//Attaching a widget the menu already owns only moves it, so nothing has to be removed first.
+					menu.Attach(widgets[row], (uint)columnIndex, (uint)columnIndex + 1, (uint)row, (uint)row + 1);
 
-				for (var row = 0; row < column.Items.Count; ++row)
-					menu.Attach(column.Items[row].Widget, itemColumn, itemColumn + 1, (uint)row, (uint)row + 1);
+					if (bar)
+						widgets[row].StyleContext.AddClass(BarBreakStyleClass);
+				}
 			}
 		}
 #endif

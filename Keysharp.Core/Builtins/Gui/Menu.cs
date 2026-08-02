@@ -150,22 +150,33 @@ namespace Keysharp.Builtins
 
 		/// <summary>
 		/// Gives a menu the Keysharp renderer and, for popups, arranges its columns just before it opens.
-		/// Idempotent — the renderer doubles as the "already initialized" marker. No-op off Windows, where the
-		/// native menus provide these features themselves (see UnixMenuPresentation).
+		/// Idempotent. No-op off Windows, where the native menus provide these features themselves
+		/// (see UnixMenuPresentation).
 		/// </summary>
 		/// <param name="menu">The menu to initialize.</param>
 		internal static void InitMenu(ToolStrip menu)
 		{
 #if WINDOWS
-			if (menu == null || menu.Renderer == menuRenderer)
+			if (menu == null)
 				return;
 
 			menu.Renderer = menuRenderer;
 
+			//A drop-down that belongs to a menu item reports its owner's renderer rather than its own, so the
+			//renderer cannot double as an "already initialized" marker here: a submenu of an initialized menu bar
+			//already claims to have it and would never get its column handling. Detaching first is what keeps
+			//repeated calls from stacking up handlers instead.
 			if (menu is ToolStripDropDown dropDown)
-				dropDown.Opening += static (sender, _) => ApplyColumns((ToolStripDropDown)sender);
+			{
+				dropDown.Opening -= DropDown_Opening;
+				dropDown.Opening += DropDown_Opening;
+			}
 #endif
 		}
+
+#if WINDOWS
+		private static void DropDown_Opening(object sender, CancelEventArgs e) => ApplyColumns((ToolStripDropDown)sender);
+#endif
 
 		/// <summary>
 		/// The default item in the menu.
@@ -237,6 +248,14 @@ namespace Keysharp.Builtins
 		/// The <see cref="ContextMenuStrip"/> that holds the menu items.
 		/// </summary>
 		internal ContextMenuStrip MenuItem { get; set; }
+
+		/// <summary>
+		/// The drop-down this menu's items were handed over to when it became a submenu, or null while it stands
+		/// on its own. AutoHotkey can use one menu in several places because every use shares its native menu,
+		/// whereas here becoming a submenu moves the items into the owning item's drop-down. Every lookup by name
+		/// or position therefore has to follow them, or it would search a collection the items just left.
+		/// </summary>
+		private ToolStrip submenuOf;
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Menu"/> class.
@@ -740,7 +759,7 @@ namespace Keysharp.Builtins
 			}
 		}
 
-		protected internal virtual ToolStrip GetMenu() => MenuItem;
+		protected internal virtual ToolStrip GetMenu() => submenuOf ?? MenuItem;
 
 		protected static object HandleColor(ToolStrip menu, string name, bool submenus, bool backcolor)
 		{
@@ -858,6 +877,9 @@ namespace Keysharp.Builtins
 					//The submenu's drop-down only comes into existence here, so this is where it gets its renderer
 					//and column handling. Items that already own a populated drop-down keep the one they were given.
 					InitMenu(item.DropDown);
+					//Point the submenu at where its items now live. This has to come after the move, which drains
+					//whichever collection the menu was using up to now.
+					mnu.submenuOf = item.DropDown;
 #if !WINDOWS
 					item.Owner?.SyncEtoItems();
 #endif

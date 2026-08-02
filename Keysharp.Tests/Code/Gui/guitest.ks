@@ -88,11 +88,17 @@ ImgSrchMenu.Add("&Image Search Test", "ImgSrch")
 ;   RTL changes the item's text/layout direction.
 ;   Break and BarBreak begin new popup-menu columns (BarBreak also draws a divider).
 ;   Right applies to a top-level menu-bar item, so this whole menu sits at the right edge.
+; Selecting an item never changes its own mark on its own -- AHK leaves that to the script -- so the marks
+; here are wired up to be checked by hand: the three radio items act as one group where picking any of them
+; moves the bullet, and the tick item turns its checkmark on and off.
 PresentationMenu := Menu()
-PresentationMenu.Add("Radio-style checked item", "MenuHandler", "Radio")
-PresentationMenu.Check("Radio-style checked item")
-PresentationMenu.Add("Ordinary checked item", "MenuHandler")
-PresentationMenu.Check("Ordinary checked item")
+PresentationMenu.Add("Radio choice &1", "PickPresentationRadio", "Radio")
+PresentationMenu.Add("Radio choice &2", "PickPresentationRadio", "Radio")
+PresentationMenu.Add("Radio choice &3", "PickPresentationRadio", "Radio")
+PresentationMenu.Check("Radio choice &1")
+PresentationMenu.Add()  ; Add a separator line.
+PresentationMenu.Add("Toggle my chec&kmark", "TogglePresentationCheck")
+PresentationMenu.Check("Toggle my chec&kmark")
 PresentationMenu.Add("RTL sample: שלום", "MenuHandler", "RTL")
 PresentationMenu.Add("Break: column two", "MenuHandler", "Break")
 PresentationMenu.Add("Second-column item", "MenuHandler")
@@ -754,6 +760,19 @@ MenuHandler(Item, *) {
 		TraySetIcon("Shell32.dll", 174)
 	else
 		TraySetIcon(A_KeysharpCorePath, "Keysharp.ico")
+}
+
+; The three radio items behave as one group, so picking any of them should move the bullet off whichever
+; item held it. MenuObj is the menu the item was selected from, which saves naming PresentationMenu here.
+PickPresentationRadio(Item, Pos, MenuObj) {
+	loop 3
+		MenuObj.UnCheck("Radio choice &" A_Index)
+
+	MenuObj.Check(Item)
+}
+
+TogglePresentationCheck(Item, Pos, MenuObj) {
+	MenuObj.ToggleCheck(Item)
 }
 
 #z::

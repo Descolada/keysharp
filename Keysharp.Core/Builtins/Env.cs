@@ -1,5 +1,42 @@
 namespace Keysharp.Builtins
 {
+#if !WINDOWS
+	internal sealed class EnvData
+	{
+		// EnvUpdate is deliberately deferred, and neither platform exposes the process-environment delta.
+		// Keep only changes made through EnvSet rather than diffing or republishing the inherited environment.
+		private readonly Lock pendingChangesLock = new ();
+		private readonly Dictionary<string, string> pendingChanges = new (StringComparer.Ordinal);
+
+		internal void RecordChange(string name, string value)
+		{
+			lock (pendingChangesLock)
+				pendingChanges[name] = value;
+		}
+
+		internal Dictionary<string, string> SnapshotPendingChanges()
+		{
+			lock (pendingChangesLock)
+				return new (pendingChanges, pendingChanges.Comparer);
+		}
+
+		internal void AcknowledgePublishedChanges(IReadOnlyDictionary<string, string> publishedChanges)
+		{
+			lock (pendingChangesLock)
+			{
+				foreach (var pair in publishedChanges)
+				{
+					// EnvSet may run while EnvUpdate is publishing. Only remove the snapshot value;
+					// a newer value for the same name must remain pending for the next call.
+					if (pendingChanges.TryGetValue(pair.Key, out var current)
+							&& string.Equals(current, pair.Value, StringComparison.Ordinal))
+						_ = pendingChanges.Remove(pair.Key);
+				}
+			}
+		}
+	}
+#endif
+
 	/// <summary>
 	/// Public interface for environment-related functions.
 	/// </summary>
@@ -93,7 +130,12 @@ namespace Keysharp.Builtins
 		{
 			try
 			{
-				Environment.SetEnvironmentVariable(name.As(), value as string);
+				var variableName = name.As();
+				var variableValue = value as string;
+				Environment.SetEnvironmentVariable(variableName, variableValue);
+#if !WINDOWS
+				Script.TheScript?.EnvData.RecordChange(variableName, variableValue);
+#endif
 				return DefaultObject;
 			}
 			catch (Exception ex)
@@ -103,14 +145,44 @@ namespace Keysharp.Builtins
 		}
 
 		/// <summary>
-		/// Notifies the operating system and all running applications that environment variables have changed.
+		/// Notifies the operating system that environment variables have changed. On Linux and macOS, changes
+		/// made by EnvSet are published to the current user's service manager for subsequently launched processes.
 		/// </summary>
-		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on Windows if any failure is detected.</exception>
+		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any failure is detected. A
+		/// session manager that simply isn't installed is not a failure — there is nowhere to publish to, so that
+		/// is logged and the call succeeds.</exception>
 		public static object EnvUpdate()
 		{
-#if LINUX
-			if ("source ~/.bashrc".Bash() != 0)
-				Ks.OutputDebugLine("EnvUpdate: failed to source ~/.bashrc");
+#if LINUX || OSX
+			var envData = Script.TheScript?.EnvData;
+			var pendingChanges = envData?.SnapshotPendingChanges() ?? new Dictionary<string, string>();
+
+			if (pendingChanges.Count == 0)
+				return DefaultObject;
+
+			foreach (var command in BuildEnvironmentUpdateCommands(pendingChanges))
+			{
+				var result = RunCommand(command.FileName, command.Arguments);
+
+				if (result.Succeeded)
+					continue;
+
+				// A session manager that isn't installed at all (no D-Bus activation environment, no systemd
+				// user manager, no launchd) has nowhere to publish to. That is a missing platform feature
+				// rather than a failed update, so it is logged; a helper that ran and reported an error is a
+				// real failure and is raised.
+				if (!result.Started)
+				{
+					Ks.OutputDebugLine($"EnvUpdate: {command.FileName} is unavailable, so the environment changes " +
+									   $"were not published to the session manager. Details: {result.ErrorMessage}");
+					continue;
+				}
+
+				return Errors.OSErrorOccurred(new InvalidOperationException(result.ErrorMessage),
+						$"EnvUpdate failed while running {command.FileName}.");
+			}
+
+			envData?.AcknowledgePublishedChanges(pendingChanges);
 #elif WINDOWS
 
 			//SendMessage() freezes when running in a unit test. PostMessage seems to work. Use SendMessageTimeout().
@@ -119,10 +191,42 @@ namespace Keysharp.Builtins
 			{
 				return Errors.OSErrorOccurred(ex, "Error updating environment variables.");
 			}
-
+#else
+			return Errors.OSErrorOccurred(new PlatformNotSupportedException(), "EnvUpdate is not supported on this platform.");
 #endif
 			return DefaultObject;
 		}
+
+#if !WINDOWS
+		internal readonly record struct EnvironmentUpdateCommand(string FileName, string[] Arguments);
+
+		internal static List<EnvironmentUpdateCommand> BuildEnvironmentUpdateCommands(IReadOnlyDictionary<string, string> changes)
+		{
+			var commands = new List<EnvironmentUpdateCommand>();
+			var ordered = changes.OrderBy(pair => pair.Key, StringComparer.Ordinal).ToArray();
+#if LINUX
+			var dbusArguments = new List<string> { "--systemd" };
+
+			foreach (var pair in ordered)
+				// dbus-update-activation-environment cannot remove a variable, so deletion is
+				// represented as an empty value there and removed exactly from systemd below.
+				dbusArguments.Add($"{pair.Key}={pair.Value ?? string.Empty}");
+
+			commands.Add(new ("dbus-update-activation-environment", dbusArguments.ToArray()));
+			var deletedNames = ordered.Where(pair => pair.Value == null).Select(pair => pair.Key).ToArray();
+
+			if (deletedNames.Length > 0)
+				commands.Add(new ("systemctl", ["--user", "unset-environment", .. deletedNames]));
+#elif OSX
+			foreach (var pair in ordered)
+				commands.Add(pair.Value == null
+					? new ("/bin/launchctl", ["unsetenv", pair.Key])
+					: new ("/bin/launchctl", ["setenv", pair.Key, pair.Value]));
+#endif
+			return commands;
+		}
+
+#endif
 
 		/// <summary>
 		/// Assign command line arguments to <see cref="A_Args"/>.
@@ -416,66 +520,24 @@ namespace Keysharp.Builtins
 		}
 
 		/// <summary>
-		/// Detect whether the buttons on any mouse are swapped. This function is needed because Mono's Winforms
-		/// hard codes SystemInformation.MouseButtonsSwapped to false for linux.
-		/// This will break on the first device with buttons swapped, which may or may not be the actual mouse.
-		/// Unsure how to find the "actual" mouse device though. Should be good enough for our purposes.
-		/// This also excludes any device with "XTEST" in the name.
+		/// Whether the primary and secondary mouse buttons are swapped, for <c>SysGet(SM_SWAPBUTTON)</c>.
+		/// <para>
+		/// This defers to the active <see cref="KeyboardMouseSender"/>'s own answer rather than probing the system
+		/// separately, so the value a script reads always matches the one the send path acts on. The two used to be
+		/// independent: this method shelled out to <c>xinput list</c> plus one <c>xinput get-button-map</c> per device
+		/// while the sender read <c>XGetPointerMapping</c>, so they could disagree on X11 (different device sets), the
+		/// shell-out saw only XWayland devices on a Wayland session, and every call spawned 2+N processes.
+		/// </para>
+		/// <para>
+		/// Per-backend accuracy is therefore whatever the sender reports: X11 reads the pointer map, while the native
+		/// Wayland/inputd and macOS senders currently answer false unconditionally. That is a pre-existing gap rather
+		/// than a regression here — consolidating removes a second, differently-wrong answer, and closing the
+		/// remaining one belongs in the senders, where the send path picks it up at the same time.
+		/// </para>
 		/// </summary>
-		/// <returns>Whether any mouse was found to have any buttons swapped</returns>
+		/// <returns>Whether the mouse buttons are swapped; false before any sender has been created.</returns>
 		internal static bool MouseButtonsSwapped()
-		{
-#if LINUX
-			var swapped = false;
-			if ("xinput list --name-only".Bash(out var deviceNamesOut) != 0
-				|| "xinput list --id-only".Bash(out var deviceIdsOut) != 0)
-				return false;
-
-			var deviceNames = deviceNamesOut.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-			//foreach (var name in deviceNames)
-			//  Ks.OutputDebugLine($"{name}");
-			var deviceIds = deviceIdsOut.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-			//foreach (var id in deviceIds)
-			//  Ks.OutputDebugLine($"{id}");
-
-			if (deviceNames.Length == deviceIds.Length)
-			{
-				for (var i = 0; i < deviceNames.Length && !swapped; i++)
-				{
-					if (!deviceNames[i].Contains("xtest", StringComparison.OrdinalIgnoreCase))
-					{
-						if ($"xinput get-button-map {deviceIds[i]}".Bash(out var buttonStr) != 0)
-							continue;
-						var buttonStrSplits = buttonStr.Split(SpaceTab, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-						if (buttonStrSplits.All(sp => int.TryParse(sp, out var _)))
-						{
-							//Ks.OutputDebugLine($"Device {deviceIds[i]}: {deviceNames[i]} with buttons {buttonStr} getting examined.");
-							for (var j = 0; j < 3 && j < buttonStrSplits.Length; j++)
-							{
-								if (int.TryParse(buttonStrSplits[j], out var btn))
-								{
-									if (btn != j + 1)
-									{
-										swapped = true;
-										//Ks.OutputDebugLine($"\tWas swapped.");
-										break;
-									}
-								}
-								else
-									break;
-							}
-						}
-					}
-				}
-			}
-
-			return swapped;
-#else
-			return false;
-#endif
-		}
+			=> Script.TheScript.HookThread?.kbdMsSender?.MouseButtonsSwapped ?? false;
 
 		internal static bool NetworkUp()
 		{

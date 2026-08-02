@@ -1,5 +1,6 @@
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using CollectionAssert = NUnit.Framework.Legacy.CollectionAssert;
 using Keyboard = Keysharp.Builtins.Keyboard;
 
 namespace Keysharp.Tests
@@ -396,6 +397,131 @@ namespace Keysharp.Tests
 			var fromSc = $"sc{sc:x}";
 			Assert.AreEqual(vk, Keysharp.Builtins.Keyboard.GetKeyVK(fromSc));
 		}
+
+#if LINUX || OSX
+		[Test, Category("Hotstring")]
+		public void UnixNumpadNavigationNamesKeepTheirPhysicalScanCodes()
+		{
+			var expected = new (string Name, long Vk, long Sc)[]
+			{
+#if LINUX
+				("NumpadIns", 0x2D, 82),
+				("NumpadEnd", 0x23, 79),
+				("NumpadDown", 0x28, 80),
+				("NumpadPgDn", 0x22, 81),
+				("NumpadLeft", 0x25, 75),
+				("NumpadClear", 0x0C, 76),
+				("NumpadRight", 0x27, 77),
+				("NumpadHome", 0x24, 71),
+				("NumpadUp", 0x26, 72),
+				("NumpadPgUp", 0x21, 73),
+				("NumpadDel", 0x2E, 83),
+#else
+				("NumpadIns", 0x2D, 0x52),
+				("NumpadEnd", 0x23, 0x53),
+				("NumpadDown", 0x28, 0x54),
+				("NumpadPgDn", 0x22, 0x55),
+				("NumpadLeft", 0x25, 0x56),
+				("NumpadClear", 0x0C, 0x47),
+				("NumpadRight", 0x27, 0x58),
+				("NumpadHome", 0x24, 0x59),
+				("NumpadUp", 0x26, 0x5B),
+				("NumpadPgUp", 0x21, 0x5C),
+				("NumpadDel", 0x2E, 0x41),
+#endif
+			};
+
+			foreach (var (name, vk, sc) in expected)
+			{
+				Assert.AreEqual(vk, Keyboard.GetKeyVK(name), name);
+				Assert.AreEqual(sc, Keyboard.GetKeySC(name), name);
+			}
+
+#if LINUX
+			Assert.AreEqual(72u, Keysharp.Internals.Input.Keyboard.KeyCodes.MapVkToSc(0x26));
+			Assert.AreEqual(103u, Keysharp.Internals.Input.Keyboard.KeyCodes.MapVkToSc(0x26, true));
+			Assert.AreEqual(103L, Keyboard.GetKeySC("Up"));
+#else
+			Assert.AreEqual(0x5Bu, Keysharp.Internals.Input.Keyboard.KeyCodes.MapVkToSc(0x26));
+			Assert.AreEqual(0x7Eu, Keysharp.Internals.Input.Keyboard.KeyCodes.MapVkToSc(0x26, true));
+			Assert.AreEqual(0x7EL, Keyboard.GetKeySC("Up"));
+#endif
+		}
+#endif
+
+#if LINUX
+		[Test, Category("Hotstring")]
+		public void LinuxEvdevMappingsCoverPortableAndAlternateKeyCodes()
+		{
+			static uint VkToEvdev(uint vk) => Keysharp.Internals.Input.Keyboard.KeyCodes.VkToEvdev(vk);
+			static uint EvdevToVk(uint evdev) => Keysharp.Internals.Input.Keyboard.KeyCodes.EvdevToVk(evdev);
+
+			Assert.AreEqual(86u, VkToEvdev(0xE2)); // VK_OEM_102 -> KEY_102ND
+			Assert.AreEqual(0xE2u, EvdevToVk(86));
+			Assert.AreEqual(0xE2u, EvdevToVk(89)); // KEY_RO
+			Assert.AreEqual(93u, VkToEvdev(0x15)); // VK_KANA
+			foreach (var evdev in new uint[] { 90, 91, 93, 122 })
+				Assert.AreEqual(0x15u, EvdevToVk(evdev));
+			Assert.AreEqual(123u, VkToEvdev(0x19)); // VK_HANJA
+			Assert.AreEqual(0x19u, EvdevToVk(123));
+			Assert.AreEqual(0x5Du, EvdevToVk(139)); // KEY_MENU -> VK_APPS
+			Assert.AreEqual(0x6Cu, EvdevToVk(95)); // KEY_KPJPCOMMA -> VK_SEPARATOR
+			Assert.AreEqual(0xBBu, EvdevToVk(117)); // KEY_KPEQUAL -> VK_OEM_PLUS
+			Assert.AreEqual(0xDCu, EvdevToVk(124)); // KEY_YEN -> VK_OEM_5
+			Assert.AreEqual(0xACu, EvdevToVk(150)); // KEY_WWW -> VK_BROWSER_HOME
+			Assert.AreEqual(155u, VkToEvdev(0xB4)); // VK_LAUNCH_MAIL -> KEY_MAIL
+			Assert.AreEqual(0xB4u, EvdevToVk(215)); // KEY_EMAIL
+			Assert.AreEqual(0xB3u, EvdevToVk(207)); // KEY_PLAY -> VK_MEDIA_PLAY_PAUSE
+			Assert.AreEqual(223u, VkToEvdev(0x03)); // VK_CANCEL -> KEY_CANCEL
+			Assert.AreEqual(0x26u, Keysharp.Internals.Input.Keyboard.KeyCodes.ApplyNumpadState(
+				EvdevToVk(72), numLockOn: false, shiftDown: false)); // KEY_KP8 -> VK_UP
+			Assert.AreEqual(0x68u, Keysharp.Internals.Input.Keyboard.KeyCodes.ApplyNumpadState(
+				EvdevToVk(72), numLockOn: true, shiftDown: false)); // KEY_KP8 -> VK_NUMPAD8
+			Assert.AreEqual(0x68u, Keysharp.Internals.Input.Keyboard.KeyCodes.ApplyNumpadState(
+				EvdevToVk(72), numLockOn: false, shiftDown: true));
+			Assert.AreEqual(0x26u, Keysharp.Internals.Input.Keyboard.KeyCodes.ApplyNumpadState(
+				EvdevToVk(72), numLockOn: true, shiftDown: true));
+		}
+
+		[Test, Category("Hotstring")]
+		public void LinuxScanCodesForVkCoversEverySynonymousEvdevCode()
+		{
+			static uint[] CodesFor(uint vk) => Keysharp.Internals.Input.Keyboard.KeyCodes.ScanCodesForVk(vk).ToArray();
+			static uint TwinOf(uint vk, bool numLockOn, bool shiftDown)
+				=> Keysharp.Internals.Input.Keyboard.KeyCodes.NumpadTwinVk(vk, numLockOn, shiftDown);
+
+			// The whole point of the reverse map: a key-state query must see every code that reports as the VK,
+			// not just the one MapVkToSc names.
+			CollectionAssert.AreEqual(new uint[] { 127, 139 }, CodesFor(0x5D)); // VK_APPS: KEY_COMPOSE, KEY_MENU
+			CollectionAssert.AreEqual(new uint[] { 155, 215 }, CodesFor(0xB4)); // VK_LAUNCH_MAIL: KEY_MAIL, KEY_EMAIL
+			CollectionAssert.AreEqual(new uint[] { 164, 200, 201, 207 }, CodesFor(0xB3)); // VK_MEDIA_PLAY_PAUSE
+			CollectionAssert.AreEqual(new uint[] { 28, 96 }, CodesFor(0x0D)); // VK_RETURN: KEY_ENTER, KEY_KPENTER
+			CollectionAssert.AreEqual(new uint[] { 103 }, CodesFor(0x26)); // VK_UP
+			CollectionAssert.AreEqual(new uint[] { 72 }, CodesFor(0x68)); // VK_NUMPAD8
+			CollectionAssert.IsEmpty(CodesFor(0)); // no such key
+
+			// NumLock and Shift cancelling out is what folds KEY_KP8 into VK_UP, so that is exactly when a query
+			// about VK_UP must also consider Numpad8's code (and never the other way round).
+			Assert.AreEqual(0x68u, TwinOf(0x26, numLockOn: false, shiftDown: false));
+			Assert.AreEqual(0x68u, TwinOf(0x26, numLockOn: true, shiftDown: true));
+			Assert.AreEqual(0u, TwinOf(0x26, numLockOn: true, shiftDown: false));
+			Assert.AreEqual(0u, TwinOf(0x68, numLockOn: false, shiftDown: false));
+			Assert.AreEqual(0x65u, TwinOf(0x0C, numLockOn: false, shiftDown: false)); // VK_CLEAR -> VK_NUMPAD5
+			Assert.AreEqual(0u, TwinOf((uint)'A', numLockOn: false, shiftDown: false));
+		}
+#endif
+
+#if OSX
+		[Test, Category("Hotstring")]
+		public void MacKeyCodeMappingsCoverHelpContextMenuAndJisKeys()
+		{
+			Assert.AreEqual(0x2Fu, Keysharp.Internals.Input.Keyboard.KeyCodes.MapScToVk(0x72)); // kVK_Help
+			Assert.AreEqual(0x5Du, Keysharp.Internals.Input.Keyboard.KeyCodes.MapScToVk(0x6E)); // kVK_ContextualMenu
+			Assert.AreEqual(0xE2u, Keysharp.Internals.Input.Keyboard.KeyCodes.MapScToVk(0x5E)); // kVK_JIS_Underscore
+			Assert.AreEqual(0x6Cu, Keysharp.Internals.Input.Keyboard.KeyCodes.MapScToVk(0x5F)); // kVK_JIS_KeypadComma
+			Assert.AreEqual(0x15u, Keysharp.Internals.Input.Keyboard.KeyCodes.MapScToVk(0x68)); // kVK_JIS_Kana
+		}
+#endif
 
 		[Test, Category("Hotstring"), NonParallelizable]
 		public void HotstringDirectives()

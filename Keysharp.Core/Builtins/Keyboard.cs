@@ -33,8 +33,6 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-#if WINDOWS
-
 		/// <summary>
 		/// Retrieves the current position of the caret (text insertion point).
 		/// </summary>
@@ -52,6 +50,7 @@ namespace Keysharp.Builtins
 									   [ByRef] object outputVarY = null)
 		{
 			outputVarX ??= VarRef.Empty; outputVarY ??= VarRef.Empty;
+#if WINDOWS
             // I believe only the foreground window can have a caret position due to relationship with focused control.
             var targetWindow = WindowsAPI.GetForegroundWindow(); // Variable must be named targetwindow for ATTACH_THREAD_INPUT.
 
@@ -88,9 +87,37 @@ namespace Keysharp.Builtins
 			if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", (long)pt.X);
 			if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", (long)pt.Y);
 			return true;
-		}
+#else
+#if LINUX
+			// AT-SPI first (it covers every application, including this one when accessibility is on), then the
+			// script's own GTK controls, which need the UI thread and are invisible to AT-SPI when it is off.
+			var caret = (Found: LinuxAccessibility.TryGetCaretScreenPosition(out var x, out var y), X: x, Y: y);
 
+			if (!caret.Found)
+				caret = Script.InvokeOnUIThread(static () =>
+					(Found: LinuxAccessibility.TryGetOwnedCaretScreenPosition(out var ownedX, out var ownedY),
+					 X: ownedX, Y: ownedY));
+
+#elif OSX
+			var caret = (Found: MacAccessibility.TryGetCaretScreenPosition(out var x, out var y), X: x, Y: y);
 #endif
+
+			if (!caret.Found)
+			{
+				Script.SetPropertyValue(outputVarX, "__Value", 0L);
+				Script.SetPropertyValue(outputVarY, "__Value", 0L);
+				return false;
+			}
+
+			//Both sources report screen coordinates; convert back to whatever the current mode expects.
+			var originX = 0;
+			var originY = 0;
+			CoordToScreen(ref originX, ref originY, CoordMode.Caret);
+			Script.SetPropertyValue(outputVarX, "__Value", (long)(caret.X - originX));
+			Script.SetPropertyValue(outputVarY, "__Value", (long)(caret.Y - originY));
+			return true;
+#endif
+		}
 
 		/// <summary>
 		/// Retrieves the name/text of a key.
@@ -929,18 +956,14 @@ break_twice:;
 			var script = Script.TheScript;
 		#if LINUX
 			var kud = script.KeyboardUtilsData;
-			var cmdstr = toggle is ToggleValueType.Off
-				or ToggleValueType.MouseMoveOff
-				or ToggleValueType.Default ? "--enable" : "--disable";
-			List<int> list = null;
-			_ = kud.GetKeybdMouseDevices();
+			var stateChanged = false;
 
 			switch (toggle)
 			{
 				case ToggleValueType.On:
 				case ToggleValueType.Off:
 					script.KeyboardData.blockInput = toggle == ToggleValueType.On;
-					list = kud.kbMouseList;
+					stateChanged = true;
 					break;
 
 				case ToggleValueType.Send:
@@ -949,40 +972,76 @@ break_twice:;
 				case ToggleValueType.Default:
 					// These modes only store the policy; they do not block anything immediately.
 					// The send and mouse paths call ScriptBlockInput(On) at the start of each
-					// operation and ScriptBlockInput(Off) at the end, so the actual inputd
+					// operation and ScriptBlockInput(Off) at the end, so the actual native
 					// block is applied through the On/Off branch, not here.
 					script.KeyboardData.blockInputMode = toggle;
 					break;
 
 				case ToggleValueType.MouseMove:
-					list = kud.mouseList;
 					script.KeyboardData.blockMouseMove = true;
+					stateChanged = true;
 					break;
 
 				case ToggleValueType.MouseMoveOff:
-					list = kud.mouseList;
 					script.KeyboardData.blockMouseMove = false;
+					stateChanged = true;
 					break;
 				// default (NEUTRAL or TOGGLE_INVALID): do nothing.
 			}
+
+			if (!stateChanged)
+				return ResultType.Ok;
+
+			// Movement-only blocking is a mouse-hook concern. LinuxHookThread already
+			// suppresses physical move events while passing buttons, wheels and injected moves.
+			if (script.KeyboardData.blockMouseMove)
+				HotkeyDefinition.InstallMouseHook();
 
 			var inputdMask = Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.None;
 
 			if (script.KeyboardData.blockInput)
 				inputdMask = Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.Keyboard
 					| Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.Mouse;
-			else if (script.KeyboardData.blockMouseMove)
-				inputdMask = Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.Mouse;
 
-			var inputdMessage = string.Empty;
-			var inputdApplied = list != null
-				&& Keysharp.Internals.Input.Linux.KeysharpInputdManager.TrySetBlockInput(inputdMask, out inputdMessage);
+			var directBlockApplied = Keysharp.Internals.Input.Linux.KeysharpInputdManager.TrySetBlockInput(inputdMask, out _);
+			var mouseMoveApplied = !script.KeyboardData.blockMouseMove || script.HookThread.HasMouseHook();
+			var platformApplied = directBlockApplied && (script.KeyboardData.blockInput || mouseMoveApplied);
 
-			if (list != null && !inputdApplied)
+			if (platformApplied)
 			{
-				foreach (var id in list)
-					if ($"xinput {cmdstr} {id}".Bash() != 0)
-						Ks.OutputDebugLine($"BlockInput: xinput command failed for device {id}.");
+				// The hook/direct-block path may become available after the X11 fallback disabled
+				// devices. Release only devices which this script disabled through that fallback.
+				foreach (var id in script.KeyboardData.xinputBlockedDevices.ToArray())
+				{
+					var result = RunCommand("xinput", "--enable", id.ToString(CultureInfo.InvariantCulture));
+
+					if (result.Succeeded)
+						_ = script.KeyboardData.xinputBlockedDevices.Remove(id);
+					else
+						Ks.OutputDebugLine($"BlockInput: xinput command failed for device {id}: {result.ErrorMessage}");
+				}
+			}
+			else
+			{
+				_ = kud.GetKeybdMouseDevices();
+
+				foreach (var id in kud.kbMouseList.Concat(script.KeyboardData.xinputBlockedDevices).Distinct().ToArray())
+				{
+					var disable = script.KeyboardData.blockInput
+						|| (script.KeyboardData.blockMouseMove && kud.mouseList.Contains(id));
+					var result = RunCommand("xinput", disable ? "--disable" : "--enable",
+						id.ToString(CultureInfo.InvariantCulture));
+
+					if (result.Succeeded)
+					{
+						if (disable)
+							_ = script.KeyboardData.xinputBlockedDevices.Add(id);
+						else
+							_ = script.KeyboardData.xinputBlockedDevices.Remove(id);
+					}
+					else
+						Ks.OutputDebugLine($"BlockInput: xinput command failed for device {id}: {result.ErrorMessage}");
+				}
 			}
 		#elif WINDOWS
 			switch (toggle)
@@ -1061,6 +1120,35 @@ break_twice:;
 		/// <param name="vk">The key to examine.</param>
 		/// <param name="keyStateType">The type of state to examine: toggle or physical.</param>
 		/// <returns>true if down, else false</returns>
+#if LINUX
+		/// <summary>
+		/// Acquires the inputd capability that reading global key state needs, at the one boundary where the
+		/// script asked for it. Reading which keys the user is holding is monitoring data, and the daemon
+		/// enforces that: it answers GetKeyState/GetPointerButtons only for a client holding the matching hook
+		/// capability (403 otherwise), so polling can never become a back door around the hook permission.
+		/// <para>
+		/// This deliberately lives here rather than inside the query, because Send also reads the current
+		/// modifier state to decide what to press and release. Asking down there would turn every Send into a
+		/// keyboard-monitoring prompt — escalating "may type" into "may read everything you type", which is the
+		/// exact bundling the permission model exists to prevent. GetKeyState and KeyWait are the only callers
+		/// of this method, and both are things the script explicitly asked for.
+		/// </para>
+		/// <para>
+		/// The already-granted and already-declined steady states both resolve on a bitmask test without a lock,
+		/// an allocation or a round trip, so a KeyWait polling loop costs nothing after the first call.
+		/// </para>
+		/// </summary>
+		private static void EnsureKeyStateQueryPermission(uint vk)
+		{
+			var required = MouseUtils.IsMouseVK(vk)
+				? Keysharp.Internals.Input.Linux.KeysharpInputdClient.Capabilities.HookMouse
+				: Keysharp.Internals.Input.Linux.KeysharpInputdClient.Capabilities.HookKeyboard;
+
+			if (!Keysharp.Internals.Input.Linux.KeysharpInputdManager.HasInputCapability(required))
+				_ = Keysharp.Internals.Input.Linux.KeysharpInputdManager.EnsureCapabilities(required, "read input state");
+		}
+#endif
+
 		internal static bool ScriptGetKeyState(uint vk, KeyStateTypes keyStateType)
 		{
 			var ht = Script.TheScript.HookThread;
@@ -1068,6 +1156,10 @@ break_twice:;
 
 			if (vk == 0) // Assume "up" if indeterminate.
 				return false;
+
+#if LINUX
+			EnsureKeyStateQueryPermission(vk);
+#endif
 
 			switch (keyStateType)
 			{
@@ -1338,6 +1430,9 @@ break_twice:;
 		internal bool blockInput;
 		internal ToggleValueType blockInputMode = ToggleValueType.Default;
 		internal bool blockMouseMove;
+#if LINUX
+		internal readonly HashSet<int> xinputBlockedDevices = [];
+#endif
 		internal Dictionary<string, HotkeyDefinition> hotkeys = [];
 		internal Dictionary<string, HotstringDefinition> hotstrings = [];
 	}

@@ -22,6 +22,11 @@ namespace Keysharp.Internals.Window
 		Restore,
 		/// <summary>A window's title changed.</summary>
 		TitleChange,
+		/// <summary>The text caret (insertion point) moved inside a window. The handle is the caret owner's top-level
+		/// window, and the caret's screen rectangle rides on <see cref="WindowEventRaw.Bounds"/>. Unlike every other
+		/// event the backend must supply that rectangle — only it can observe the caret at event time — so a
+		/// <see cref="WindowEventRaw"/> of this type without bounds is dropped by <see cref="WinEventManager"/>.</summary>
+		CaretMove,
 		/// <summary>A window matching the criteria entered the matching set (appeared via create/show/title-change).
 		/// Derived by <see cref="WinEventManager"/> from the lower-level events; not a distinct native hook.</summary>
 		Exist,
@@ -45,7 +50,8 @@ namespace Keysharp.Internals.Window
 		Show        = 1 << 4,
 		Minimize    = 1 << 5,
 		Restore     = 1 << 6,
-		TitleChange = 1 << 7
+		TitleChange = 1 << 7,
+		CaretMove   = 1 << 8
 	}
 
 	internal static class WindowEventTypeExtensions
@@ -60,6 +66,7 @@ namespace Keysharp.Internals.Window
 			WindowEventType.Minimize    => WindowEventMask.Minimize,
 			WindowEventType.Restore     => WindowEventMask.Restore,
 			WindowEventType.TitleChange => WindowEventMask.TitleChange,
+			WindowEventType.CaretMove   => WindowEventMask.CaretMove,
 			// Exist/NotExist are derived (membership transitions), not backed by a dedicated native hook — the
 			// backend mask they require is computed from the underlying events in WinEventManager.SyncBackendMask.
 			_ => WindowEventMask.None
@@ -74,6 +81,10 @@ namespace Keysharp.Internals.Window
 	/// </summary>
 	internal readonly record struct WindowEventRaw(WindowEventType Type, nint Hwnd, long TimeMs)
 	{
+		/// <summary>Screen rectangle carried by the event: the window's bounds for
+		/// <see cref="WindowEventType.Move"/> (optional — the consumer queries it when null), and the caret's
+		/// rectangle for <see cref="WindowEventType.CaretMove"/> (mandatory — the caret is only observable at event
+		/// time, from the backend, so a caret event without it is dropped rather than re-queried).</summary>
 		internal Rectangle? Bounds { get; init; }
 
 		/// <summary>

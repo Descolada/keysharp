@@ -96,6 +96,27 @@ Use `--transpile` to see the exact C# that step 3 produces — this is the faste
 
 Use `#if WINDOWS`, `#if LINUX`, `#if OSX` preprocessor constants. These are set in each `.csproj`. Corresponding source exclusions (`<Compile Remove="...">`) are in `Keysharp.Core.csproj`. Do not add a Windows-only API without wrapping it in `#if WINDOWS`.
 
+## Documentation: keep it in sync with API changes
+
+Any change to the **script-visible API surface** must be accompanied by a documentation update. That includes adding, removing, or renaming a built-in function, method, property, class, directive, or built-in variable; changing parameters, return values, or defaults; and changing which platforms a feature works on.
+
+1. **`docs/capabilities.json`** — the source of truth for the capability matrix. Add or update the row (`category`, `feature`, `syntax`, per-platform status, `notes`, `tested-by`). Statuses are `full` / `partial` / `planned` / `unsupported` / `unknown`.
+2. **`docs/capabilities.md`** — **generated, do not hand-edit.** Regenerate it after every `capabilities.json` change:
+   ```powershell
+   # from repo root
+   pwsh scripts/generate-capabilities.ps1
+   ```
+   This rewrites `docs/capabilities.md` and re-injects the concise overview table into `README.md` between the `<!-- CAPABILITIES_OVERVIEW:START/END -->` markers.
+3. **`docs/reference.md`** — hand-maintained platform, implementation, and AutoHotkey v2 compatibility notes. Update it when the change affects per-platform support, setup/installation, or a documented difference from AutoHotkey v2.
+4. **`../KeysharpDocs`** — the separate user-facing reference site, cloned as a sibling of this repo (it **is** present in the current environment). When it exists, update it in the same change:
+   - Pages are hand-written HTML; most function/directive/object/statement pages live in `docs/lib/`.
+   - New or renamed pages also need entries in the manually maintained `docs/static/source/data_toc.js` and `data_index.js`. Do **not** hand-edit the generated `data_search.js`.
+   - Read that repo's `AGENTS.md`, `CONTRIBUTING.md`, and `SOURCE_OF_TRUTH.md` first — it enforces a strict evidence order for behavioral and platform claims (reproducible run on the named platform > Keysharp source/tests > `docs/reference.md` > reviewed `capabilities.json` rows).
+   - Validate with `pwsh scripts/Test-Docs.ps1` from the KeysharpDocs root.
+   - `pwsh scripts/verify-capabilities-parity.ps1` (run from this repo) cross-checks `docs/capabilities.json` against the KeysharpDocs index and writes `docs/capabilities-parity-report.{json,md}`.
+
+If KeysharpDocs is not present alongside this repo, still do steps 1–3 and note in the change description that the docs site needs the matching update.
+
 ## Conventions
 
 - Built-in AHK functions are `public static` methods in `Keysharp.Core/Builtins/` classes.
@@ -115,3 +136,4 @@ Use `#if WINDOWS`, `#if LINUX`, `#if OSX` preprocessor constants. These are set 
 | Fix timer behavior | `Internals/Threading/ScriptTimerManager.cs` |
 | Fix GUI | `Builtins/Gui/Gui.cs`, platform-specific `Windows/` or `Unix/` subfolder |
 | Add a test | Prefer `Keysharp.Tests/Code/<script-name>.ahk`, use `Keysharp.Tests/<Category>Tests.cs` if really needed |
+| Document an API change | `docs/capabilities.json` → regenerate `docs/capabilities.md`, then `docs/reference.md` and `../KeysharpDocs` — see [Documentation: keep it in sync with API changes](#documentation-keep-it-in-sync-with-api-changes) |

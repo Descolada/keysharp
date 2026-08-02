@@ -12,7 +12,8 @@ namespace Keysharp.Internals.Window.MacOS
 	/// <c>AXObserver</c>s: every running application (sans LSUIElement-prohibited background processes) gets one
 	/// observer, kept in sync with launches/terminations via <c>NSWorkspace</c> notifications. Each observer reports
 	/// window create/destroy/move/resize/minimize/restore/title-change for that app's windows, plus app activation
-	/// and focused-window changes, which together drive every <see cref="WindowEventType"/>.
+	/// and focused-window changes, which together drive every <see cref="WindowEventType"/> — and, only while a
+	/// CaretMove subscription exists (see <see cref="SetCaretEvents"/>), selected-text changes for CaretMove.
 	/// <para>
 	/// All Accessibility, observer and <c>NSWorkspace</c> calls here run on the main thread (the backend posts
 	/// <see cref="StartWindowEvents"/>/<see cref="StopWindowEvents"/> there, and both the AX run-loop-source callback
@@ -36,6 +37,7 @@ namespace Keysharp.Internals.Window.MacOS
 		private static readonly nint nWindowMiniaturized     = CreateCFString("AXWindowMiniaturized");
 		private static readonly nint nWindowDeminiaturized   = CreateCFString("AXWindowDeminiaturized");
 		private static readonly nint nTitleChanged           = CreateCFString("AXTitleChanged");
+		private static readonly nint nSelectedTextChanged    = CreateCFString("AXSelectedTextChanged");
 
 		[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 		private delegate void AXObserverCallbackDelegate(nint observer, nint element, nint notification, nint refcon);
@@ -93,6 +95,7 @@ namespace Keysharp.Internals.Window.MacOS
 		private static nint runLoopMode;                                        // kCFRunLoopCommonModes
 		private static nint lastActiveHwnd;                                     // de-dupes overlapping Active signals
 		private static bool windowEventsRunning;
+		private static bool caretEventsEnabled;                                 // AXSelectedTextChanged registered too?
 
 		/// <summary>Installs the AX-observer window-event stream (idempotent). Requires Accessibility permission;
 		/// returns having logged guidance if it is not granted. Must be called on the main thread.</summary>
@@ -134,6 +137,38 @@ namespace Keysharp.Internals.Window.MacOS
 			catch (Exception ex)
 			{
 				Ks.OutputDebugLine($"macOS window-event observer start failed: {ex.Message}");
+			}
+		}
+
+		/// <summary>Turns the caret half of the stream (AXSelectedTextChanged, behind <c>WinEvent.CaretMove</c>) on or
+		/// off across every application observer, adding or removing that one notification in place so the rest of the
+		/// stream is untouched. It is registered separately from the always-on notifications because it is the only
+		/// one whose traffic is per-keystroke, and no script should pay for it without a CaretMove subscription. Any
+		/// observer created later picks the current setting up in <see cref="AddAppObserver"/>. Must be called on the
+		/// main thread; safe to call before the stream is running (the flag alone then decides).</summary>
+		internal static void SetCaretEvents(bool enabled)
+		{
+			if (caretEventsEnabled == enabled)
+				return;
+
+			caretEventsEnabled = enabled;
+
+			try
+			{
+				foreach (var state in appObservers.Values)
+				{
+					if (state.observer == 0 || state.appElement == 0)
+						continue;
+
+					if (enabled)
+						_ = AXObserverAddNotification(state.observer, state.appElement, nSelectedTextChanged, (nint)state.pid);
+					else
+						_ = AXObserverRemoveNotification(state.observer, state.appElement, nSelectedTextChanged);
+				}
+			}
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"macOS caret-event registration failed: {ex.Message}");
 			}
 		}
 
@@ -277,6 +312,13 @@ namespace Keysharp.Internals.Window.MacOS
 			_ = AXObserverAddNotification(observer, appElement, nApplicationActivated, refconPid);
 			_ = AXObserverAddNotification(observer, appElement, nFocusedWindowChanged, refconPid);
 			_ = AXObserverAddNotification(observer, appElement, nWindowCreated, refconPid);
+
+			// Caret movement is only observed while a CaretMove subscription exists (see SetCaretEvents) — it is the
+			// one notification here that fires per keystroke. It is app-scoped like the three above: the notification
+			// is posted by whichever text element the user is editing, and registering it on the application element
+			// catches all of them without having to find and track that element.
+			if (caretEventsEnabled)
+				_ = AXObserverAddNotification(observer, appElement, nSelectedTextChanged, refconPid);
 
 			state.runLoopSource = AXObserverGetRunLoopSource(observer);
 
@@ -516,6 +558,10 @@ namespace Keysharp.Internals.Window.MacOS
 				{
 					Emit(WindowEventType.TitleChange, (nint)(uint)refcon);
 				}
+				else if (CFEqual(notification, nSelectedTextChanged))
+				{
+					OnCaretMoved(element, (int)refcon);
+				}
 				else if (CFEqual(notification, nWindowCreated))
 				{
 					// TrackWindow returns 0 when the CGWindowID isn't resolvable yet (AXWindowNumber not populated for a
@@ -551,6 +597,57 @@ namespace Keysharp.Internals.Window.MacOS
 			catch (Exception ex)
 			{
 				Ks.OutputDebugLine($"macOS window-event callback failed: {ex.Message}");
+			}
+		}
+
+		/// <summary>Turns an AXSelectedTextChanged notification into a CaretMove event. macOS has no caret-specific
+		/// notification: a caret move is a selection change to a zero-length range, so the caret rectangle is read
+		/// back from the element that posted it (collapsing whatever it now has selected — the manager suppresses the
+		/// repeats that a plain selection change therefore produces at an unchanged caret). The event is reported
+		/// against the element's containing window, falling back to the app's focused window for elements that don't
+		/// expose AXWindow; without a resolvable window there is nothing a WinTitle criteria could match, so it is
+		/// dropped.</summary>
+		private static void OnCaretMoved(nint element, int pid)
+		{
+			if (!TryGetCaretRect(element, out var caret))
+				return;
+
+			if (!TryResolveContainingWindowId(element, pid, out var id))
+				return;
+
+			Emit(WindowEventType.CaretMove, (nint)id, caret);
+		}
+
+		/// <summary>The CGWindowID of the window an element lives in: its AXWindow if it has one, else the focused
+		/// window of the owning application.</summary>
+		private static bool TryResolveContainingWindowId(nint element, int pid, out uint id)
+		{
+			id = 0;
+
+			if (element != 0 && TryCopyAttributeValue(element, attrWindow, out var window))
+			{
+				try
+				{
+					if (TryResolveWindowId(window, out id))
+						return true;
+				}
+				finally
+				{
+					CFRelease(window);
+				}
+			}
+
+			if (!appObservers.TryGetValue(pid, out var state)
+				|| !TryCopyAttributeValue(state.appElement, attrFocusedWindow, out var focused))
+				return false;
+
+			try
+			{
+				return TryResolveWindowId(focused, out id);
+			}
+			finally
+			{
+				CFRelease(focused);
 			}
 		}
 

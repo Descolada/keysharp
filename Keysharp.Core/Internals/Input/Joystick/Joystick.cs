@@ -140,7 +140,9 @@ namespace Keysharp.Internals.Input.Joystick
 #elif LINUX
 			LinuxJoystick.PollJoysticks();
 #else
-			throw new NotImplementedException();
+			// No joystick backend on this platform, so there is nothing to poll and joystick hotkeys never fire —
+			// the same outcome as a supported platform with no joystick connected. Deliberately silent: this is the
+			// polling entry point, so anything logged here would repeat at the poll interval.
 #endif
 		}
 
@@ -260,9 +262,27 @@ namespace Keysharp.Internals.Input.Joystick
 #elif LINUX
 			return LinuxJoystick.ScriptGetJoyState(joy, joystickID);
 #else
-			throw new NotImplementedException();
+			// No joystick backend on this platform. Report the control as unavailable rather than throwing: this is
+			// reachable from ordinary script code (GetKeyState("Joy1"), KeyWait), and false/blank is already the
+			// documented contract for "couldn't determine the position/state" — the same answer the Linux backend
+			// gives when the requested joystick isn't connected. Throwing here surfaced a raw .NET exception type
+			// that isn't part of the script error model and couldn't be handled portably.
+			LogUnsupportedOnce();
+			return false;
 #endif
 		}
+
+#if !WINDOWS && !LINUX
+		private static int loggedUnsupported;
+
+		/// <summary>Notes once that this platform has no joystick backend. Once, because KeyWait polls
+		/// <see cref="ScriptGetJoyState"/> in a loop and would otherwise repeat the message at the sleep interval.</summary>
+		private static void LogUnsupportedOnce()
+		{
+			if (Interlocked.Exchange(ref loggedUnsupported, 1) == 0)
+				Ks.OutputDebugLine("Joystick support is not implemented on this platform; joystick controls report as unavailable.");
+		}
+#endif
 	}
 
 	internal enum JoyControls

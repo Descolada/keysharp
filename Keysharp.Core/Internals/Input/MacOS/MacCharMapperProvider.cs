@@ -568,7 +568,7 @@ namespace Keysharp.Internals.Input.Unix
 				0x5A => VK_F20,
 
 				// Navigation / editing
-				0x72 => VK_INSERT,     // kVK_Help; closest Windows equivalent is Insert/Help
+				0x72 => VK_HELP,       // kVK_Help
 				0x73 => VK_HOME,
 				0x74 => VK_PRIOR,      // Page Up
 				0x75 => VK_DELETE,     // Forward Delete
@@ -611,11 +611,8 @@ namespace Keysharp.Internals.Input.Unix
 				0x5F => VK_SEPARATOR,  // kVK_JIS_KeypadComma
 				0x66 => VK_NONCONVERT,      // kVK_JIS_Eisu
 				0x68 => VK_KANA,      // kVK_JIS_Kana
+				0x6E => VK_APPS,      // kVK_ContextualMenu
 
-				// No useful Windows VK equivalent:
-				// 0x4D kVK_JIS_KeypadEquals? some tables leave this unused/ambiguous
-				// 0x6E kVK_ContextualMenu on some sources, but not reliable enough to map to VK_APPS
-				// 0x6B/0x71 etc. already used above for F14/F15.
 				_ => 0u
 			};
 

@@ -66,6 +66,14 @@ namespace Keysharp.Internals.Mapper.MacOS
 				Ks.OutputDebugLine($"Drive.Retract failed for {drive.Name}");
 		}
 
+		internal override void SetLabel(string label)
+		{
+			var result = RunCommand("/usr/sbin/diskutil", "renameVolume", drive.Name, label);
+
+			if (!result.Succeeded)
+				throw new IOException(result.ErrorMessage);
+		}
+
 		internal override void UnLock()
 		{
 			Ks.OutputDebugLine($"Unlocking the eject ability of a drive is not supported on macOS.");

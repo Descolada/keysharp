@@ -7,7 +7,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function StatusIcon([string]$status) {
+function StatusIcon([string]$status, [bool]$asterisk = $false) {
     $green = [char]::ConvertFromUtf32(0x1F7E2)
     $yellow = [char]::ConvertFromUtf32(0x1F7E1)
     $orange = [char]::ConvertFromUtf32(0x1F7E0)
@@ -15,7 +15,7 @@ function StatusIcon([string]$status) {
     $white = [char]::ConvertFromUtf32(0x26AA)
     switch ($status) {
         "full" { return "$green Full" }
-        "partial" { return "$yellow Partial" }
+        "partial" { return "$yellow Partial$(if ($asterisk) { '*' } else { '' })" }
         "planned" { return "$orange Planned" }
         "unsupported" { return "$red Unsupported" }
         default { return "$white Unknown" }
@@ -41,7 +41,8 @@ function BuildTableLines($inputRows) {
 	foreach ($row in $inputRows) {
 		$feature = EscapeMdCell([string]$row.feature)
 		$notes = EscapeMdCell([string]$row.notes)
-		$out.Add("| $feature | $(StatusIcon $row.windows) | $(StatusIcon $row.linux_x11) | $(StatusIcon $row.linux_wayland) | $(StatusIcon $row.macos) | $notes |")
+		$scriptOwnedControlOnly = [string]$row.feature -match '^Control.*\(\)$'
+		$out.Add("| $feature | $(StatusIcon $row.windows) | $(StatusIcon $row.linux_x11 $scriptOwnedControlOnly) | $(StatusIcon $row.linux_wayland $scriptOwnedControlOnly) | $(StatusIcon $row.macos $scriptOwnedControlOnly) | $notes |")
 	}
 	return $out
 }
@@ -61,7 +62,8 @@ $legendLines = @(
 	("- " + (StatusIcon "partial") + ": " + $root.legend.partial),
 	("- " + (StatusIcon "planned") + ": " + $root.legend.planned),
 	("- " + (StatusIcon "unsupported") + ": " + $root.legend.unsupported),
-	("- " + (StatusIcon "unknown") + ": " + $root.legend.unknown)
+	("- " + (StatusIcon "unknown") + ": " + $root.legend.unknown),
+	'- `Partial*` on non-Windows `Control*()` functions means script-owned Keysharp controls are supported, but controls in foreign applications are not.'
 )
 
 $docsLines = New-Object System.Collections.Generic.List[string]
@@ -120,6 +122,7 @@ $overviewSection = [string]::Join("`n", $overviewLines)
 
 $startMarker = "<!-- CAPABILITIES_OVERVIEW:START -->"
 $endMarker = "<!-- CAPABILITIES_OVERVIEW:END -->"
+$readmeInjected = $false
 if (Test-Path $ReadmePath) {
 	$readmeText = Get-Content $ReadmePath -Raw
 	$readmeNewline = if ($readmeText -match "`r`n") { "`r`n" } else { "`n" }
@@ -128,6 +131,7 @@ if (Test-Path $ReadmePath) {
 	if ([regex]::IsMatch($readmeText, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)) {
 		$newReadme = [regex]::Replace($readmeText, $pattern, $replacement, [System.Text.RegularExpressions.RegexOptions]::Singleline)
 		[System.IO.File]::WriteAllText($ReadmePath, $newReadme, [System.Text.UTF8Encoding]::new($false))
+		$readmeInjected = $true
 	}
 	else {
 		Write-Warning "README markers not found; skipped README injection."
@@ -139,5 +143,7 @@ else {
 
 Write-Host "Generated:"
 Write-Host "  $DocsOut"
-Write-Host "Injected concise overview into:"
-Write-Host "  $ReadmePath"
+if ($readmeInjected) {
+	Write-Host "Injected concise overview into:"
+	Write-Host "  $ReadmePath"
+}

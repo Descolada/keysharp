@@ -21,6 +21,8 @@ namespace Keysharp.Internals.Window
 		internal volatile bool paused;                        // a paused hook stays registered but doesn't fire
 		internal nint activeReported;                         // Active subs: hwnd last reported active, so a
 		                                                      // title-change re-fire of the same window doesn't duplicate
+		internal Rectangle? lastCaretRect;                    // CaretMove subs: last caret rectangle seen, so a native
+		                                                      // source repeating an unchanged position doesn't "move"
 
 		// Membership-tracking subscriptions (Exist, NotExist) keep the set of top-level windows that currently
 		// satisfy this subscription. Mirroring Descolada's WinEvent.MatchingWinList, the set is seeded at registration
@@ -336,25 +338,44 @@ namespace Keysharp.Internals.Window
 			// WindowQuery per unrelated window drag on the pump thread is wasteful, so defer the query to the first
 			// matching reg and memoize it for the rest. Nothing is queried when nothing matches. The Wayland backends
 			// carry the bounds on the event (raw.Bounds); X11/Windows do the cheap local query here. Only the
-			// script-object construction is deferred further (BuildMoveEventInfo via SetEventInfo).
+			// script-object construction is deferred further (BuildRectEventInfo via SetEventInfo).
 			var isMove = raw.Type == WindowEventType.Move;
-			Rectangle? moveBounds = null;
-			var moveBoundsResolved = false;
+			var isCaret = raw.Type == WindowEventType.CaretMove;
+
+			// A caret has no queryable identity after the fact — it belongs to whichever control had focus at event
+			// time — so its rectangle is captured by the backend and rides on the event. Nothing to report without it.
+			if (isCaret && raw.Bounds == null)
+				return;
+
+			Rectangle? eventBounds = null;
+			var boundsResolved = false;
 
 			foreach (var reg in snapshot)
 			{
 				if (!reg.active || !Matches(reg, raw.Hwnd))
 					continue;
 
-				if (isMove && !moveBoundsResolved)
+				if (isCaret)
+				{
+					// "CaretMove" promises an actual move, but native sources re-report an unchanged position (a
+					// re-notified selection change, a caret repaint, a focus round trip), so an identical rectangle is
+					// suppressed. Tracked per subscription rather than globally so a hook registered mid-stream still
+					// receives its first event.
+					if (reg.lastCaretRect == raw.Bounds)
+						continue;
+
+					reg.lastCaretRect = raw.Bounds;
+					eventBounds = raw.Bounds;
+				}
+				else if (isMove && !boundsResolved)
 				{
 					// Queried at event time (still synchronously inside this native intake), just only now that we know
 					// a subscription cares — preserving the event-time-capture rationale without paying it speculatively.
-					moveBounds = raw.Bounds ?? QueryBounds(raw.Hwnd);
-					moveBoundsResolved = true;
+					eventBounds = raw.Bounds ?? QueryBounds(raw.Hwnd);
+					boundsResolved = true;
 				}
 
-				FireOnce(reg, raw.Hwnd, raw.TimeMs, moveBounds);
+				FireOnce(reg, raw.Hwnd, raw.TimeMs, eventBounds);
 			}
 		}
 
@@ -509,7 +530,7 @@ namespace Keysharp.Internals.Window
 
 		// ---- dispatch -----------------------------------------------------------------------
 
-		private void FireOnce(WinEventRegistration reg, nint hwnd, long timeMs, Rectangle? moveBounds = null)
+		private void FireOnce(WinEventRegistration reg, nint hwnd, long timeMs, Rectangle? eventBounds = null)
 		{
 			// A paused hook (or globally paused manager) stays registered and keeps its matching-window set
 			// current, but doesn't fire or consume its remaining-count budget.
@@ -525,9 +546,10 @@ namespace Keysharp.Internals.Window
 				return;
 
 			// Every event uses the same callback shape: (hook, hwnd, time). Event-specific extras live in A_EventInfo
-			// instead — for Move, an object with { x, y, w, h } (the window's position/size, matching WinGetPos). The
-			// geometry was captured at event time by the caller (moveBounds); only building the script object is
-			// deferred (see RunOnSchedulerThread), so no allocation happens unless A_EventInfo is read.
+			// instead — for Move, an object with { x, y, w, h } (the window's position/size, matching WinGetPos), and
+			// for CaretMove the same shape holding the caret's screen rectangle. The geometry was captured at event
+			// time by the caller (eventBounds); only building the script object is deferred (see
+			// RunOnSchedulerThread), so no allocation happens unless A_EventInfo is read.
 			//
 			// Callback-time contract (locked, cross-platform): the 3rd arg is a 64-bit monotonic milliseconds-since-boot
 			// timestamp on the Environment.TickCount64 timebase, reporting when the event occurred wherever possible.
@@ -537,7 +559,7 @@ namespace Keysharp.Internals.Window
 			// Move/Show/Minimize). It never wraps (unlike Windows' raw 32-bit dwmsEventTime) and is comparable across
 			// backends, but is NOT wall-clock time — only meaningful relative to itself.
 			object[] args = [reg.scriptObject, hwnd.ToInt64(), timeMs];
-			_ = scheduler.Enqueue(ScriptEventQueue.Normal, 0, () => RunOnSchedulerThread(scheduler, reg, hwnd, timeMs, args, moveBounds));
+			_ = scheduler.Enqueue(ScriptEventQueue.Normal, 0, () => RunOnSchedulerThread(scheduler, reg, hwnd, timeMs, args, eventBounds));
 
 			if (reg.IsExhausted)
 				Unregister(reg);
@@ -560,12 +582,13 @@ namespace Keysharp.Internals.Window
 			return Rectangle.Empty;
 		}
 
-		/// <summary>Builds the A_EventInfo object for a Move event — <c>{ x, y, w, h }</c> in WinGetPos coordinates —
-		/// from the already-captured event-time bounds. Invoked lazily (only if the callback reads A_EventInfo); the
-		/// query that produced <paramref name="moveBounds"/> happened eagerly at event time, so this just allocates.</summary>
-		private static object BuildMoveEventInfo(Rectangle? moveBounds)
+		/// <summary>Builds the A_EventInfo object for a Move (the window's rectangle, in WinGetPos coordinates) or
+		/// CaretMove (the caret's screen rectangle) event — <c>{ x, y, w, h }</c> — from the already-captured
+		/// event-time bounds. Invoked lazily (only if the callback reads A_EventInfo); whatever produced
+		/// <paramref name="bounds"/> happened eagerly at event time, so this just allocates.</summary>
+		private static object BuildRectEventInfo(Rectangle? bounds)
 		{
-			var r = moveBounds ?? Rectangle.Empty;
+			var r = bounds ?? Rectangle.Empty;
 			var info = new KeysharpObject();
 			info.DefinePropInternal("x", new OwnPropsDesc(info, (long)r.X));
 			info.DefinePropInternal("y", new OwnPropsDesc(info, (long)r.Y));
@@ -574,7 +597,7 @@ namespace Keysharp.Internals.Window
 			return info;
 		}
 
-		private ScriptEventExecutionResult RunOnSchedulerThread(ScriptEventScheduler scheduler, WinEventRegistration reg, nint hwnd, long timeMs, object[] args, Rectangle? moveBounds)
+		private ScriptEventExecutionResult RunOnSchedulerThread(ScriptEventScheduler scheduler, WinEventRegistration reg, nint hwnd, long timeMs, object[] args, Rectangle? eventBounds)
 		{
 			// No reg.active re-check here: TryConsumeFire (at enqueue time) is the authoritative gate. Re-checking
 			// would drop callbacks that were already consumed/queued when the subscription auto-stops on its last
@@ -588,10 +611,10 @@ namespace Keysharp.Internals.Window
 			{
 				var tv = thread.ThreadVariables;
 
-				// Move exposes the window geometry via A_EventInfo (lazily); all other events keep the event time
-				// there, as before.
-				if (reg.type == WindowEventType.Move)
-					tv.SetEventInfo(() => BuildMoveEventInfo(moveBounds));
+				// Move (window geometry) and CaretMove (caret rectangle) expose their rectangle via A_EventInfo
+				// (lazily); all other events keep the event time there, as before.
+				if (reg.type is WindowEventType.Move or WindowEventType.CaretMove)
+					tv.SetEventInfo(() => BuildRectEventInfo(eventBounds));
 				else
 					tv.eventInfo = timeMs;
 

@@ -146,6 +146,12 @@ namespace Keysharp.Internals.Input.Linux
 			logicalKeys = [];
 			physicalKeys = [];
 
+			// Deliberately no EnsureCapabilities here: this must never prompt. Reading which keys the user is
+			// holding is monitoring data, so it cannot be bundled with synthesis — yet Send needs the current
+			// modifier state to decide what to press and release, and asking here would make every Send
+			// escalate to a keyboard-hook prompt. TryQuery therefore only inherits a HookKeyboard grant that
+			// already exists (an installed hook, or an explicit RequestCapabilities("InputMonitoring")), and
+			// otherwise reports failure so the caller falls back to another source. See LinuxKeyboard.
 			if (!TryQuery(
 					KeysharpInputdClient.Capabilities.HookKeyboard,
 					qc => (true, qc.QueryKeyState()),
@@ -172,9 +178,7 @@ namespace Keysharp.Internals.Input.Linux
 		{
 			x = y = xMin = xMax = yMin = yMax = 0;
 
-			if (!EnsureCapabilities(
-					KeysharpInputdClient.Capabilities.HookMouse,
-					"query pointer position").IsGranted)
+			if (!EnsureCapabilities(KeysharpInputdClient.Capabilities.HookMouse, "query pointer position").IsGranted)
 				return false;
 
 			if (!TryQuery(
@@ -217,9 +221,7 @@ namespace Keysharp.Internals.Input.Linux
 			if (bit == 0)
 				return false;
 
-			if (!EnsureCapabilities(
-					KeysharpInputdClient.Capabilities.HookMouse,
-					"query mouse button state").IsGranted)
+			if (!EnsureCapabilities(KeysharpInputdClient.Capabilities.HookMouse, "query mouse button state").IsGranted)
 				return false;
 
 			if (!TryQuery(
@@ -384,7 +386,8 @@ namespace Keysharp.Internals.Input.Linux
 		/// <summary>Ensures the client is connected and has hook (monitoring) capability.</summary>
 		internal static PermissionResult EnsureInputMonitoring(string operation = null)
 			=> EnsureCapabilities(
-				KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse,
+				ExpandInputPermissionRequest(
+					KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse),
 				operation ?? "keyboard/mouse monitoring");
 
 		internal static bool TrySetBlockInput(KeysharpInputdClient.BlockInputMask mask, out string message)
@@ -464,14 +467,36 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		internal static PermissionResult EnsureCapabilities(KeysharpInputdClient.Capabilities required, string operation = null, bool forcePrompt = false)
+		private const string DeclinedForRunMessage =
+			"Access to keysharp-inputd was declined for this run. Re-run the app to be prompted again " +
+			"(or grant it persistently with Allow).";
+
+		/// <summary>
+		/// Allocation-, lock- and IPC-free "do we already hold this?" test, for callers that run in a loop and
+		/// would otherwise pay for <see cref="EnsureCapabilities"/> on every iteration. A false answer only means
+		/// "not known to be granted" — the caller still has to go through <see cref="EnsureCapabilities"/> to
+		/// actually request it. Reading the client reference without <c>gate</c> is deliberate: the worst a race
+		/// with a reconnect can do is send one call down the slow path, which then takes the lock properly.
+		/// </summary>
+		internal static bool HasInputCapability(KeysharpInputdClient.Capabilities required)
+		{
+			var c = client;
+			return c != null && (c.GrantedCapabilities & required) == required;
+		}
+
+		/// <summary>Requests exactly <paramref name="required"/>. Callers that are about to install a hook (rather
+		/// than just read state) widen that themselves with <see cref="ExpandInputPermissionRequest"/>, so the one
+		/// prompt covers the whole set they will need — see LinuxHookThread and <see cref="TrySetBlockInput"/>.</summary>
+		internal static PermissionResult EnsureCapabilities(
+			KeysharpInputdClient.Capabilities required,
+			string operation = null,
+			bool forcePrompt = false)
 		{
 			operation ??= "input automation";
 
 			lock (gate)
 			{
-				var requested = ExpandInputPermissionRequest(required);
-				var requiredFromInputd = requested & InputdGrantedCapabilities;
+				var requiredFromInputd = required & InputdGrantedCapabilities;
 
 				// An explicit user re-request (forcePrompt) clears the declined latch and the endpoint retry budget.
 				if (forcePrompt)
@@ -483,12 +508,13 @@ namespace Keysharp.Internals.Input.Linux
 				// Already declined this run: deny WITHOUT a hello/prompt (unless the caps
 				// are actually granted already). This is what stops one Deny from
 				// cascading into a re-prompt storm as each subsystem re-asks.
+				// The message is a constant rather than interpolated: this branch is the steady state for a
+				// polling caller (GetKeyState in a loop) after a decline, so it must not allocate per call.
+				// The informative, operation-named message is still produced by the actual refusal below.
 				if (!forcePrompt && requiredFromInputd != KeysharpInputdClient.Capabilities.None
 					&& !MainClientHasCapability(requiredFromInputd)
 					&& (requiredFromInputd & declinedCapabilities) == requiredFromInputd)
-					return new PermissionResult(PermissionStatus.Denied,
-						$"Access to keysharp-inputd for '{operation}' was declined for this run. " +
-						$"Re-run the app to be prompted again (or grant it persistently with Allow).");
+					return new PermissionResult(PermissionStatus.Denied, DeclinedForRunMessage);
 
 				if (!TryEnsureConnected(operation, out var connectStatus, out var connectMessage))
 					return new PermissionResult(connectStatus, connectMessage);
@@ -496,7 +522,7 @@ namespace Keysharp.Internals.Input.Linux
 				try
 				{
 					if ((!forcePrompt && HasCapabilities(client, requiredFromInputd))
-						|| client.TryRequestCapabilities(requested, requiredFromInputd, out _, forcePrompt))
+						|| client.TryRequestCapabilities(required, requiredFromInputd, out _, forcePrompt))
 						return new PermissionResult(PermissionStatus.Granted);
 
 					// Denied by the daemon (user pressed Deny / dismissed the prompt).
@@ -504,7 +530,7 @@ namespace Keysharp.Internals.Input.Linux
 					declinedCapabilities |= requiredFromInputd;
 					return new PermissionResult(PermissionStatus.Denied,
 						$"keysharp-inputd did not grant the required capabilities for '{operation}'. " +
-						$"Required from inputd: {requiredFromInputd}, requested: {requested}, granted: {client.GrantedCapabilities}.");
+						$"Required from inputd: {requiredFromInputd}, requested: {required}, granted: {client.GrantedCapabilities}.");
 				}
 				catch (Exception ex) when (IsTransportException(ex))
 				{
@@ -613,7 +639,7 @@ namespace Keysharp.Internals.Input.Linux
 				return true;
 
 			return MainClientHasCapability(required)
-				&& qc.TryRequestCapabilities(ExpandInputPermissionRequest(required), out _);
+				&& qc.TryRequestCapabilities(required, out _);
 		}
 
 		internal static KeysharpInputdClient.Capabilities ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities requested)

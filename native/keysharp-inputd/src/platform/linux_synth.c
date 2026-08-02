@@ -660,38 +660,8 @@ static int scan_to_evdev_key(uint16_t scan, bool extended)
 
 static int enable_keyboard_keys(void)
 {
-    static const int keys[] = {
-        KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J,
-        KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T,
-        KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z,
-        KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0,
-        KEY_ESC, KEY_BACKSPACE, KEY_TAB, KEY_ENTER, KEY_SPACE,
-        KEY_LEFTCTRL, KEY_RIGHTCTRL, KEY_LEFTSHIFT, KEY_RIGHTSHIFT,
-        KEY_LEFTALT, KEY_RIGHTALT, KEY_LEFTMETA, KEY_RIGHTMETA,
-        KEY_COMPOSE, KEY_SYSRQ, KEY_PAUSE, KEY_SLEEP,
-        KEY_HENKAN, KEY_MUHENKAN, KEY_MODE,
-        KEY_SELECT, KEY_PRINT, KEY_OPEN, KEY_HELP,
-        KEY_CAPSLOCK, KEY_NUMLOCK, KEY_SCROLLLOCK,
-        KEY_INSERT, KEY_DELETE, KEY_HOME, KEY_END, KEY_PAGEUP, KEY_PAGEDOWN,
-        KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT,
-        KEY_MINUS, KEY_EQUAL, KEY_LEFTBRACE, KEY_RIGHTBRACE, KEY_BACKSLASH,
-        KEY_SEMICOLON, KEY_APOSTROPHE, KEY_GRAVE, KEY_COMMA, KEY_DOT, KEY_SLASH,
-        KEY_KP0, KEY_KP1, KEY_KP2, KEY_KP3, KEY_KP4,
-        KEY_KP5, KEY_KP6, KEY_KP7, KEY_KP8, KEY_KP9,
-        KEY_KPDOT, KEY_KPSLASH, KEY_KPASTERISK, KEY_KPMINUS, KEY_KPPLUS, KEY_KPCOMMA,
-        KEY_KPENTER,
-        KEY_F1, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6,
-        KEY_F7, KEY_F8, KEY_F9, KEY_F10, KEY_F11, KEY_F12,
-        KEY_F13, KEY_F14, KEY_F15, KEY_F16, KEY_F17, KEY_F18,
-        KEY_F19, KEY_F20, KEY_F21, KEY_F22, KEY_F23, KEY_F24,
-        KEY_BACK, KEY_FORWARD, KEY_REFRESH, KEY_STOP, KEY_SEARCH, KEY_FAVORITES,
-        KEY_HOMEPAGE, KEY_MUTE, KEY_VOLUMEDOWN, KEY_VOLUMEUP, KEY_NEXTSONG,
-        KEY_PREVIOUSSONG, KEY_STOPCD, KEY_PLAYPAUSE, KEY_EMAIL, KEY_MEDIA,
-        KEY_PROG1, KEY_PROG2,
-    };
-
-    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
-        if (enable_key(keys[i]) != 0) {
+    for (size_t i = 0; i < ksi_vk_evdev_key_count(); i++) {
+        if (enable_key((int)ksi_vk_evdev_key_at(i)) != 0) {
             return -1;
         }
     }

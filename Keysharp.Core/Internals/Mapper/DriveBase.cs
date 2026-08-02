@@ -6,14 +6,6 @@ namespace Keysharp.Internals.Mapper
 		protected DriveInfo drive;
 
 		internal abstract long Serial { get; }
-
-#if WINDOWS
-		internal string VolumeLabel
-		{
-			get => drive.VolumeLabel;
-			set => drive.VolumeLabel = value;
-		}
-#endif
 		internal abstract string StatusCD { get; }
 
 		internal DriveBase(DriveInfo udrive) => drive = udrive;
@@ -44,6 +36,11 @@ namespace Keysharp.Internals.Mapper
 		/// Retracts the CD Drive
 		/// </summary>
 		internal abstract void Retract();
+
+		/// <summary>
+		/// Changes the volume label.
+		/// </summary>
+		internal abstract void SetLabel(string label);
 
 		/// <summary>
 		/// Unlocks the drives Eject ability

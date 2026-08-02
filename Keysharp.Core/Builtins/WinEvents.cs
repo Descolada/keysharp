@@ -11,7 +11,8 @@ namespace Keysharp.Builtins
 		/// whose <see cref="Stop"/> method cancels it. Every callback has the same shape:
 		/// <c>(hook, hwnd, dwmsEventTime)</c>. Event-specific extras are exposed via <c>A_EventInfo</c> — for
 		/// <c>Move</c> that's an object with <c>{ x, y, w, h }</c> (the window's position and size, matching
-		/// <c>WinGetPos</c>), resolved lazily on first read.
+		/// <c>WinGetPos</c>), resolved lazily on first read, and for <c>CaretMove</c> the same shape holding the
+		/// caret's screen rectangle.
 		/// <para>
 		/// Appearance/disappearance are reported by the DetectHiddenWindows-aware <see cref="staticExist"/> /
 		/// <see cref="staticNotExist"/> pair: there is no separate Create/Close event because they were just Exist /
@@ -67,6 +68,23 @@ namespace Keysharp.Builtins
 			/// <summary>Fires when a window's title changes.</summary>
 			[Static] public static object TitleChange(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.TitleChange, callback, winTitle, winText, excludeTitle, excludeText, count);
+
+			/// <summary>Fires when the text caret (insertion point) moves inside a window — typing, clicking into text,
+			/// arrow keys, scrolling a text view, or focus moving to another text field. <c>hwnd</c> is the caret
+			/// owner's <em>top-level</em> window (not the focused edit control), so the usual WinTitle criteria apply,
+			/// and <c>A_EventInfo</c> holds the caret's rectangle as <c>{ x, y, w, h }</c> in <em>screen</em>
+			/// coordinates — regardless of <c>CoordMode "Caret"</c>, which only affects <c>CaretGetPos</c>.
+			/// Consecutive events that report an unchanged rectangle are suppressed, and an event whose caret position
+			/// can't be resolved is dropped, so the callback only ever sees a real move to a known position.
+			/// <para>
+			/// This rides on the same accessibility plumbing as <c>CaretGetPos</c> and inherits its coverage: Windows
+			/// uses the MSAA caret (<c>EVENT_OBJECT_LOCATIONCHANGE</c> on <c>OBJID_CARET</c>), Linux the AT-SPI
+			/// <c>object:text-caret-moved</c> signal, macOS the Accessibility <c>AXSelectedTextChanged</c>
+			/// notification. Applications that draw their own caret without exposing it to accessibility (many
+			/// browser-based/Electron editors, some game and terminal UIs) report nothing on any platform, and the
+			/// Linux/macOS sources additionally need AT-SPI enabled / Accessibility permission granted.</para></summary>
+			[Static] public static object CaretMove(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
+				=> Subscribe(WindowEventType.CaretMove, callback, winTitle, winText, excludeTitle, excludeText, count);
 
 			// ---- global pause -------------------------------------------------------------------------------
 

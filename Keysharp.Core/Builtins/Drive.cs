@@ -272,23 +272,29 @@ namespace Keysharp.Builtins
 			_ = DriveHelper(drive.As(), false);
 			return DefaultObject;
 		}
-#if WINDOWS
 		/// <summary>
 		/// Changes the volume label of the specified drive.<br/>
-		/// This needs administrator privileges to run.
+		/// The operation may require administrator/root privileges.
 		/// </summary>
 		/// <param name="drive">The drive letter followed by a colon and an optional backslash (might also work on UNC paths and mapped drives).</param>
 		/// <param name="newLabel">If omitted, the drive will have no label. Otherwise, specify the new label to set.</param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any failure is detected.</exception>
 		public static object DriveSetLabel(object drive, object newLabel = null)
 		{
-			var label = newLabel.As();
-			var di = new DriveInfo(drive.As());
-			var d = Platform.Drive.CreateDrive(di);
-			d.VolumeLabel = string.IsNullOrEmpty(label) ? "" : label;
-			return DefaultObject;
+			var driveName = drive.As();
+
+			try
+			{
+				var label = newLabel.As();
+				var d = Platform.Drive.CreateDrive(new DriveInfo(driveName));
+				d.SetLabel(label);
+				return DefaultObject;
+			}
+			catch (Exception ex)
+			{
+				return Errors.OSErrorOccurred(ex, $"Failed to change the volume label for {driveName}.");
+			}
 		}
-#endif
 		/// <summary>
 		/// Restores the eject feature of the specified drive.
 		/// </summary>

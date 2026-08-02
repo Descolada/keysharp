@@ -49,6 +49,8 @@ namespace Keysharp.Internals.Mapper.Windows
 
 		internal override void Retract() => EjectRetract(WindowsAPI.IOCTL_STORAGE_LOAD_MEDIA, 0L, 0L);
 
+		internal override void SetLabel(string label) => drive.VolumeLabel = label;
+
 		internal override void UnLock() => EjectRetract(WindowsAPI.IOCTL_STORAGE_EJECTION_CONTROL, 0L, 0L);
 
 		private void EjectRetract(uint control, long l, long lo)

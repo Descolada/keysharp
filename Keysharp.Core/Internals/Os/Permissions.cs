@@ -154,10 +154,10 @@ namespace Keysharp.Internals.Os
 		{
 			var result = new PermissionResult(PermissionStatus.NotApplicable);
 			if (accessibilityAutomation) result = Combine(result, RequestAccessibilityAutomation(prompt, operation));
-			if (monitoring)    result = Combine(result, RequestInputMonitoring(prompt, operation));
+			if (monitoring || blockInput) result = Combine(result, RequestInputMonitoring(prompt, operation));
 			if (injection)     result = Combine(result, RequestInputInjection(prompt, operation));
 			if (screenCapture) result = Combine(result, RequestScreenCapture(prompt, operation));
-			return result; // blockInput not applicable on macOS
+			return result;
 		}
 	}
 #endif
@@ -186,7 +186,9 @@ namespace Keysharp.Internals.Os
 			if (prompt == false)
 				return KeysharpInputdManager.PeekInputCapability(caps);
 
-			return KeysharpInputdManager.EnsureCapabilities(caps, operation ?? "keyboard/mouse monitoring", forcePrompt: prompt == true);
+			// Hooking a device also needs replay/synthesis, so the prompt covers the whole set up front.
+			return KeysharpInputdManager.EnsureCapabilities(KeysharpInputdManager.ExpandInputPermissionRequest(caps),
+					operation ?? "keyboard/mouse monitoring", forcePrompt: prompt == true);
 		}
 
 		public override PermissionResult RequestInputInjection(bool? prompt = null, string operation = null)
@@ -219,12 +221,15 @@ namespace Keysharp.Internals.Os
 			if (accessibilityAutomation) flags |= KeysharpInputdClient.Capabilities.AccessibilityAutomation;
 			if (monitoring)    flags |= KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse;
 			if (injection)     flags |= KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse;
-			if (blockInput)    flags |= KeysharpInputdClient.Capabilities.BlockInput;
+			if (blockInput)
+				flags |= KeysharpInputdClient.Capabilities.BlockInput | KeysharpInputdClient.Capabilities.HookMouse;
 
 			var result = new PermissionResult(PermissionStatus.NotApplicable);
 
 			if (flags != KeysharpInputdClient.Capabilities.None)
-				result = Combine(result, KeysharpInputdManager.EnsureCapabilities(flags, operation ?? "RequestCapabilities", forcePrompt: prompt == true));
+				result = Combine(result, KeysharpInputdManager.EnsureCapabilities(
+						KeysharpInputdManager.ExpandInputPermissionRequest(flags),
+						operation ?? "RequestCapabilities", forcePrompt: prompt == true));
 
 			if (screenCapture)
 				result = Combine(result, RequestScreenCapture(prompt, operation));

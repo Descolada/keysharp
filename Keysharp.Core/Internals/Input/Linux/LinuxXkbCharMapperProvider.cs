@@ -82,10 +82,20 @@ namespace Keysharp.Internals.Input.Unix
 
 			["AB01"] = (uint)'Z', ["AB02"] = (uint)'X', ["AB03"] = (uint)'C', ["AB04"] = (uint)'V',
 			["AB05"] = (uint)'B', ["AB06"] = (uint)'N', ["AB07"] = (uint)'M', ["AB08"] = VK_OEM_COMMA,
-			["AB09"] = VK_OEM_PERIOD, ["AB10"] = VK_OEM_2,
+			["AB09"] = VK_OEM_PERIOD, ["AB10"] = VK_OEM_2, ["AB11"] = VK_OEM_102,
 
 			["SPCE"] = VK_SPACE,
-			["LSGT"] = VK_OEM_8,
+			["LSGT"] = VK_OEM_102,
+			["AE13"] = VK_OEM_5,
+			["HENK"] = VK_CONVERT,
+			["MUHE"] = VK_NONCONVERT,
+			["HKTG"] = VK_KANA,
+			["KATA"] = VK_KANA,
+			["HIRA"] = VK_KANA,
+			["HNGL"] = VK_KANA,
+			["HJCV"] = VK_HANJA,
+			["JPCM"] = VK_SEPARATOR,
+			["COMP"] = VK_APPS,
 		};
 
 		internal LinuxXkbCharMapperProvider(Func<uint?> activeLayoutOverride = null)

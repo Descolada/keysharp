@@ -256,6 +256,70 @@ namespace Keysharp.Tests
 
 		[Test, Category("Gui")]
 		[Apartment(ApartmentState.STA)]
+		public void ColumnedMenuKeepsItsSizeAcrossDisplays()
+		{
+			// Mirrors guitest.ks's Presentation menu: a MenuBar submenu with radio items, a separator and two
+			// column breaks. A columned menu is sized explicitly, so anything measured from the laid-out bounds
+			// feeds back in and the menu grows a little every time it is shown.
+			var callback = new KeysharpFunc((Func<object, object, object, object>)((_, _, _) => 0L));
+			var menu = new Keysharp.Builtins.Menu();
+			_ = menu.Add("Radio choice &1", callback, "Radio");
+			_ = menu.Add("Radio choice &2", callback, "Radio");
+			_ = menu.Add("Radio choice &3", callback, "Radio");
+			_ = menu.Check("Radio choice &1");
+			_ = menu.Add();
+			var firstColumn = (ToolStripMenuItem)menu.Add("Toggle my chec&kmark", callback);
+			_ = menu.Add("Break: column two", callback, "Break");
+			_ = menu.Add("Second-column item", callback);
+			// Deliberately the widest item in the menu, and in the last column rather than the first.
+			var lastColumn = (ToolStripMenuItem)menu.Add("BarBreak: column three", callback, "BarBreak");
+			_ = menu.Add("Third-column item", callback);
+
+			var menuBar = new Keysharp.Builtins.MenuBar();
+			var host = (ToolStripMenuItem)menuBar.Add("&Presentation", menu, "Right");
+			var drop = host.DropDown;
+
+			try
+			{
+				drop.Show(new Point(0, 0));
+				drop.Close();
+				var initial = drop.Size;
+
+				// Each column is sized to its own widest item, not to the widest in the whole menu, so a column
+				// whose longest label is shorter must come out narrower.
+				Assert.Less(firstColumn.Width, lastColumn.Width,
+					"columns must be sized independently, not all to the widest item in the menu.");
+
+				// A separator belongs to one column, as a native menu draws it. WinForms stretches it across the
+				// whole window regardless of the width it is given, so the renderer clips it to this width.
+				var separator = drop.Items.OfType<ToolStripSeparator>().Single();
+				Assert.AreEqual(firstColumn.Width, Keysharp.Builtins.Menu.GetPresentation(separator).ColumnWidth,
+					"a separator must be clipped to the column it sits in.");
+				Assert.Greater(separator.Width, firstColumn.Width,
+					"this assumes WinForms is still stretching separators; if not, the clipping is dead code.");
+
+				for (var i = 0; i < 3; i++)
+				{
+					// What guitest.ks's PickPresentationRadio does on every selection.
+					for (var n = 1; n <= 3; n++)
+						_ = menu.UnCheck($"Radio choice &{n}");
+
+					_ = menu.Check($"Radio choice &{(i % 3) + 1}");
+					drop.Show(new Point(0, 0));
+					drop.Close();
+					Assert.AreEqual(initial, drop.Size, $"the menu changed size on display {i + 2}.");
+				}
+			}
+			finally
+			{
+				menuBar.MenuStrip.Dispose();
+				menuBar.MenuItem.Dispose();
+				menu.MenuItem.Dispose();
+			}
+		}
+
+		[Test, Category("Gui")]
+		[Apartment(ApartmentState.STA)]
 		public void MenuPresentationOptionsAndWaitDefault()
 		{
 			var callback = new KeysharpFunc((Func<object, object, object, object>)((_, _, _) => 0L));

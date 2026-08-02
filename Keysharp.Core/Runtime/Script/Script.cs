@@ -278,6 +278,9 @@ namespace Keysharp.Runtime
 #endif
 		private DllData dllData;
 		private DriveTypeMapper driveTypeMapper;
+#if !WINDOWS
+		private EnvData envData;
+#endif
 		private ExecutableMemoryPoolManager exeMemoryPoolManager;
 		private FlowData flowData;
 		private FunctionData functionData;
@@ -312,6 +315,9 @@ namespace Keysharp.Runtime
 #endif
 		internal DllData DllData => dllData ?? (dllData = new ());
 		internal DriveTypeMapper DriveTypeMapper => driveTypeMapper ?? (driveTypeMapper = new ());
+#if !WINDOWS
+		internal EnvData EnvData => envData ?? (envData = new ());
+#endif
 		internal ExecutableMemoryPoolManager ExecutableMemoryPoolManager => exeMemoryPoolManager ?? (exeMemoryPoolManager = new ());
 		internal FlowData FlowData => flowData ?? (flowData = new ());
 		internal FunctionData FunctionData => functionData ?? (functionData = new ());

@@ -1201,16 +1201,22 @@ namespace Keysharp.Builtins
 
 			try
 			{
-				var path = Path.GetDirectoryName(s);
-				var dir = new DirectoryInfo(path);
-				var filename = Path.GetFileName(s);
 #if LINUX
-				if ($"gio trash {s}".Bash() != 0)
-					return Errors.OSErrorOccurred("", $"gio trash failed for pattern {s}");
+				foreach (var target in Conversions.ToFiles(s, true, true, false))
+				{
+					var result = RunCommand("gio", "trash", target);
+
+					if (!result.Succeeded)
+						return Errors.OSErrorOccurred(new InvalidOperationException(result.ErrorMessage),
+							$"gio trash failed for {target}.");
+				}
 #elif OSX
 				foreach (var target in Conversions.ToFiles(s, true, true, false))
 					MovePathToMacTrash(target);
 #elif WINDOWS
+				var path = Path.GetDirectoryName(s);
+				var dir = new DirectoryInfo(path);
+				var filename = Path.GetFileName(s);
 
 				foreach (var file in dir.EnumerateFiles(filename))
 					FileSystem.DeleteFile(file.FullName, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
@@ -1237,8 +1243,10 @@ namespace Keysharp.Builtins
 			try
 			{
 #if LINUX
-				if ("gio trash --empty".Bash() != 0)
-					return Errors.OSErrorOccurred("", "gio trash --empty failed.");
+				var result = RunCommand("gio", "trash", "--empty");
+
+				if (!result.Succeeded)
+					return Errors.OSErrorOccurred(new InvalidOperationException(result.ErrorMessage), "gio trash --empty failed.");
 #elif OSX
 				var trash = GetMacTrashPath();
 

@@ -4,7 +4,6 @@ using Keysharp.Internals.Input.Linux;
 using Keysharp.Internals.Input.Hooks.Unix;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
-using EventCode = Keysharp.Internals.Input.Linux.Devices.EventCode;
 
 namespace Keysharp.Internals.Input.Hooks.Linux
 {
@@ -106,24 +105,6 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 				"'keysharp-inputd --install-input-access') to enable global input capture on Wayland.");
 		}
 
-		// Maps a numpad key's evdev keycode (delivered by the daemon as the scan code) to the
-		// navigation VK it produces when NumLock is off; returns 0 for any non-numpad key.
-		private static uint NumpadNavigationVk(uint sc) => sc switch
-		{
-			(uint)EventCode.Kp7 => VK_HOME,   // KEY_KP7   -> NumpadHome
-			(uint)EventCode.Kp8 => VK_UP,     // KEY_KP8   -> NumpadUp
-			(uint)EventCode.Kp9 => VK_PRIOR,  // KEY_KP9   -> NumpadPgUp
-			(uint)EventCode.Kp4 => VK_LEFT,   // KEY_KP4   -> NumpadLeft
-			(uint)EventCode.Kp5 => VK_CLEAR,  // KEY_KP5   -> NumpadClear
-			(uint)EventCode.Kp6 => VK_RIGHT,  // KEY_KP6   -> NumpadRight
-			(uint)EventCode.Kp1 => VK_END,    // KEY_KP1   -> NumpadEnd
-			(uint)EventCode.Kp2 => VK_DOWN,   // KEY_KP2   -> NumpadDown
-			(uint)EventCode.Kp3 => VK_NEXT,   // KEY_KP3   -> NumpadPgDn
-			(uint)EventCode.Kp0 => VK_INSERT, // KEY_KP0   -> NumpadIns
-			(uint)EventCode.KpDot => VK_DELETE, // KEY_KPDOT -> NumpadDel
-			_ => 0u
-		};
-
 		private static bool IsInputdInjected(uint flags, uint injectedFlag)
 			=> (flags & injectedFlag) != 0;
 
@@ -159,12 +140,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			var numLockOn = Keysharp.Internals.InputdKeyboard.HookFlagsNumLockOn(ev.Flags);
 			var shiftDown = (kbdMsSender.modifiersLRLogical & (MOD_LSHIFT | MOD_RSHIFT)) != 0;
 
-			if (numLockOn == shiftDown)
-			{
-				var navVk = NumpadNavigationVk(sc);
-				if (navVk != 0)
-					vk = navVk;
-			}
+			vk = KeyCodes.ApplyNumpadState(vk, numLockOn, shiftDown);
 
 			if (vk == 0)
 				return false;

@@ -8,6 +8,7 @@ Status legend:
 - 🟠 Planned: Not implemented yet, but intended
 - 🔴 Unsupported: Not supported
 - ⚪ Unknown: Not yet verified
+- `Partial*` on non-Windows `Control*()` functions means script-owned Keysharp controls are supported, but controls in foreign applications are not.
 
 | Capability | Windows | Linux (X11) | Linux (Wayland) | macOS | Notes |
 |---|---|---|---|---|---|
@@ -95,7 +96,7 @@ Status legend:
 | __Set | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Meta-function invoked when setting a missing property. |
 | { ... } (Block) | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates a block scope for one or more statements. |
 | { ... } / Object | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates an Object literal. |
-| {Blind} | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Send option which preserves modifier state while sending keys. |
+| {Blind} | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Send option which preserves modifier state while sending keys; parsed and applied by the shared cross-platform sender. |
 | \\| | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Bitwise OR operator |
 | \\|\\| | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Logical OR operator |
 | \\|= | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Compound assignment operator |
@@ -120,6 +121,7 @@ Status legend:
 | >>> | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Logical right shift operator |
 | >>>= | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Compound assignment operator |
 | 1, 2, 3 | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Comma operator evaluates expressions left-to-right and returns the last value. |
+| A_AhkBuildVersion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Build version stamped onto the running script assembly. |
 | A_AhkPath | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The full path to the executable compiling the script. For compiled scripts, it's the path to the compiled executable. |
 | A_AhkVersion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The version of the program used to compile the script. |
 | A_AllowMainWindow | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
@@ -127,6 +129,14 @@ Status legend:
 | A_AppData | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_AppDataCommon | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_Args | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable containing command-line arguments passed to the script. |
+| A_AsmCompany | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly company metadata set by #AssemblyCompany. |
+| A_AsmConfiguration | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly configuration metadata set by #AssemblyConfiguration. |
+| A_AsmCopyright | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly copyright metadata set by #AssemblyCopyright. |
+| A_AsmDescription | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly description metadata set by #AssemblyDescription. |
+| A_AsmProduct | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly product metadata set by #AssemblyProduct. |
+| A_AsmTitle | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly title metadata set by #AssemblyTitle. |
+| A_AsmTrademark | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly trademark metadata set by #AssemblyTrademark. |
+| A_AsmVersion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly version metadata set by #AssemblyVersion. |
 | A_Clipboard | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | A_Clipboard is a built-in variable that reflects the current contents of the Windows clipboard. |
 | A_ClipboardTimeout | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets/sets clipboard operation timeout used by Keysharp. |
 | A_CommandLine | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the current script command line. |
@@ -168,6 +178,7 @@ Status legend:
 | A_GuiTheme | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Gets/sets the application-wide WinForms GUI theme. Accepted values: Classic, System, Dark. Windows only; no-op on other platforms. |
 | A_HasExited | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether script termination has been requested/completed. |
 | A_HotIf | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
+| A_HotIfTimeout | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the timeout for evaluating #HotIf criteria. |
 | A_HotkeyInterval | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_HotkeyModifierTimeout | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_Hour | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The current 2 digit hour 00 - 23. |
@@ -177,11 +188,13 @@ Status legend:
 | A_IconTip | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets or returns the tool tip text of the system tray icon. |
 | A_Index | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_InitialWorkingDir | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
+| A_InputLevel | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the current thread input level. |
 | A_Is64bitOS | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_IsAdmin | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_IsCompiled | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | True if the program is running as a compiled executable, else false if it's running as a script passed to Keysharp.exe. |
 | A_IsCritical | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns 1 if the script is in critical priority mode, else 0. |
 | A_IsPaused | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable indicating whether the current script/thread is paused. |
+| A_IsPersistent | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Reports whether the script is persistent. |
 | A_IsSuspended | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns 1 if the script is suspended, else 0. |
 | A_IsUnicode | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Whether the program uses unicode strings. Always returns true because C# programs are always unicode. |
 | A_KeybdHookInstalled | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
@@ -190,6 +203,7 @@ Status legend:
 | A_KeyDuration | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets or returns the delay that will occur between the key down and key up events of each keystroke sent by Send and ControlSend. |
 | A_KeyDurationPlay | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets or returns the delay that will occur between the key down and key up events of each keystroke sent by Send and ControlSend in SendPlay mode. |
 | A_KeysharpCorePath | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the path to Keysharp.Core. |
+| A_KeysharpPath | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Alias of A_AhkPath containing the running executable path. |
 | A_KsVersion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the Keysharp runtime version. |
 | A_Language | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_LastError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
@@ -212,6 +226,7 @@ Status legend:
 | A_LoopFileTimeAccessed | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The time the file was last accessed. Format YYYYMMDDHH24MISS. |
 | A_LoopFileTimeCreated | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The time the file was created. Format YYYYMMDDHH24MISS. |
 | A_LoopFileTimeModified | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The time the file was last modified. Format YYYYMMDDHH24MISS. |
+| A_LoopKey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Current key exposed by Keysharp loop helpers. |
 | A_LoopReadLine | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_LoopRegKey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_LoopRegName | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
@@ -220,6 +235,8 @@ Status legend:
 | A_LoopRegValue | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | A new property to get the value of a registry item when using Loop Reg, which is more succinct than typing Value:= RegRead(). |
 | A_MaxHotkeysPerInterval | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_MaxThreads | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets/sets the script-wide max thread count setting. |
+| A_MaxThreadsBuffer | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets whether new threads are buffered at the thread limit. |
+| A_MaxThreadsPerHotkey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the default thread limit per hotkey or hotstring. |
 | A_MDay | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_MenuMaskKey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_Min | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The current 2 digit minute 00- 23. |
@@ -232,14 +249,17 @@ Status legend:
 | A_MouseHookInstalled | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_MSec | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Current 3 digit millisecond 000 - 999. |
 | A_MyDocuments | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
+| A_NewLine | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Platform-native newline sequence. |
 | A_NoTrayIcon | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets/sets whether the tray icon is hidden. |
 | A_Now | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The current local time in YYYYMMDDHH24MISS format. |
 | A_NowMs | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets current local timestamp including milliseconds. |
 | A_NowUTC | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The current Coordinated Universal Time (UTC) in YYYYMMDDHH24MISS format. |
 | A_NowUtcMs | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets current UTC timestamp including milliseconds. |
+| A_OSType | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Current platform symbol: WINDOWS, LINUX or OSX. |
 | A_OSVersion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_PeekFrequency | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the current thread's message-check interval in milliseconds. |
 | A_PriorHotkey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
+| A_Priority | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the default priority copied into new script threads. |
 | A_PriorKey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ProgramFiles | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_Programs | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
@@ -328,125 +348,128 @@ Status legend:
 | Asin() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the arc sine. Throws an exception if the argument value is not between -1 and 1. |
 | Atan() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the arc tangent. |
 | ATan2() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the arc tangent by using two numbers. |
-| Base | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Retrieves the value's base object. |
+| Base | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves the value's base object. |
 | Base64Decode() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Decodes a Base64 string to binary data. |
 | Base64Encode() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Encodes binary data to a Base64 string. |
-| BlockInput() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The BlockInput function disables or enables the user's ability to interact with the computer via keyboard and mouse. |
+| BlockInput() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Disables or enables physical keyboard and mouse input while allowing synthetic input. Linux suppresses movement-only mode through its existing keysharp-inputd mouse hook and uses the daemon block mask for all-input mode; the X11 xinput fallback is device-wide and cannot preserve buttons while blocking only movement. macOS uses event taps and requires Input Monitoring permission. |
 | Break | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Exits the current loop. |
-| Buffer() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The Buffer object encapsulates a block of memory for use with advanced techniques such as DllCall, structures, StrPut and raw file I/O. |
+| Buffer() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Buffer object encapsulates a block of memory for use with advanced techniques such as DllCall, structures, StrPut and raw file I/O. |
 | Buffer.__Item[] | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Indexer for reading/writing bytes in Buffer by offset. |
 | Buffer.__New() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Constructs a new Buffer object. |
 | Buffer.ToBase64() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns Buffer contents as a Base64 string. |
 | Buffer.ToByteArray() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns Buffer contents as a byte array. |
 | Buffer.ToHex() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns Buffer contents as a hexadecimal string. |
-| CallbackCreate() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The CallbackCreate function creates a machine-code address that when called, redirects the call to a function in the script. ParamCount may instead be an array of parameter types followed by the return type, in which case the callback receives and returns natively typed values; a return type of 'void' means it returns no value. |
-| CallbackFree() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The CallbackCreate function creates a machine-code address that when called, redirects the call to a function in the script. |
-| CaretGetPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The CaretGetPos function retrieves the current position of the caret (text insertion point). |
+| CallbackCreate() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates a native callback address which redirects to a script function. Supports both parameter-count callbacks and typed parameter/return signatures on every platform. |
+| CallbackFree() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Releases a callback created by CallbackCreate on every platform. |
+| CaretGetPos() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves the caret position. Linux uses native GTK geometry for script-owned controls and AT-SPI for foreign applications, normalizing Wayland-local coordinates through compositor window geometry when needed. macOS uses the Accessibility API and requires Accessibility permission. |
 | Case | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Case branch label used by switch. |
 | Catch | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Handles an exception thrown by try/throw. |
 | Ceil() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the ceiling value of a number, rounding away from zero for positive numbers, and toward zero for negative numbers. |
 | Chr | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the string (usually a single character) corresponding to the character code indicated by the specified number. |
-| Click() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The Click function clicks a mouse button at the specified coordinates. It can also hold down a mouse button, turn the mouse wheel, or move the mouse. |
-| Clipboard | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Clipboard functionality is implemented with platform-specific limitations outside Windows. |
-| ClipboardAll() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ClipboardAll class facilitates saving and restoring everything on the clipboard (such as pictures and formatting). |
+| Click() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Clicks, holds, releases, wheels, or moves the mouse through the platform input backend. Wayland requires a supported compositor input backend or keysharp-inputd; macOS requires Accessibility permission. |
+| Clipboard | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Text, image, URI, custom MIME, wait, and change-notification operations use the native platform clipboard backends. See ClipboardAll() for the Wayland multi-format restore limitation. |
+| ClipboardAll() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | Captures and restores all advertised clipboard formats on Windows, X11, and macOS. The Wayland extension fallback can restore only one selected MIME representation at a time. |
 | ClipCursor() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Confines physical cursor movement to a screen-coordinate rectangle with exclusive right/bottom edges; call without arguments to release. Coordinates ignore CoordMode Mouse. Artificial cursor movement is allowed. Linux requires the keysharp-inputd mouse hook and uses suppress-and-warp-back enforcement, so the cursor may briefly cross the boundary. Wayland also requires a compositor backend that can query and move the global cursor. macOS suppresses out-of-bounds movement and requires Input Monitoring and Accessibility permissions. |
-| ClipWait() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ClipWait function waits until the clipboard contains data. |
-| Clr() | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Creates/returns a CLR interop facade for loading and invoking .NET types. |
-| Clr.GetNamespaceName() | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns namespace name for a managed wrapper/type. |
-| Clr.GetTypeName() | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns type name for a managed wrapper/object. |
-| Clr.Load() | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Loads a managed assembly for CLR interop. |
-| Clr.ManagedAssembly | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Represents a loaded managed assembly wrapper. |
-| Clr.ManagedInstance | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Represents a managed object instance wrapper. |
-| Clr.ManagedInstance.__Enum() | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Enumerates members exposed by a managed instance wrapper. |
-| Clr.ManagedNamespace | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Represents a managed namespace wrapper used for type resolution. |
-| Clr.Type() | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Derived from current implementation (experimental Clr surface). |
-| ClrManagedType | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Wrapper describing a managed type for reflection/invocation. |
+| ClipWait() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Waits until the native platform clipboard contains data. |
+| Clr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates the platform-independent CLR interop facade for loading and invoking .NET types. |
+| Clr.GetNamespaceName() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the namespace name for a managed wrapper or type; implemented by the shared managed runtime. |
+| Clr.GetTypeName() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the type name for a managed wrapper or object; implemented by the shared managed runtime. |
+| Clr.Load() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Loads a managed assembly for CLR interop through the shared .NET runtime. |
+| Clr.ManagedAssembly | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Platform-independent wrapper for a loaded managed assembly. |
+| Clr.ManagedInstance | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Platform-independent managed object instance wrapper. |
+| Clr.ManagedInstance.__Enum() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerates members exposed by the platform-independent managed instance wrapper. |
+| Clr.ManagedNamespace | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Platform-independent managed namespace wrapper used for type resolution. |
+| Clr.ManagedType | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Platform-independent managed type wrapper for reflection and invocation. |
+| Clr.Type() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Resolves managed types through the platform-independent CLR interop surface. |
 | Collect() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Forces garbage collection and finalizer processing. |
 | COM APIs | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | COM is available on Windows only. |
-| ComCall() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComCall function calls a native COM interface method by index. A return type of 'void' means the call returns no value. |
-| ComObjActive() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjActive function retrieves a registered COM object. |
-| ComObjArray() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjArray function creates a SafeArray for use with COM. |
-| ComObjConnect() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjConnect function connects a COM object's event source to the script, enabling events to be handled. |
-| ComObject() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObject function creates a COM object. |
-| ComObjFlags() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjFlags function retrieves or changes flags which control a COM wrapper object's behaviour. |
-| ComObjFromPtr() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjFromPtr function wraps a raw IDispatch pointer (COM object) for use by the script. |
-| ComObjGet() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjGet function returns a reference to an object provided by a COM component. |
-| ComObjQuery() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjQuery function queries a COM object for an interface or service. |
-| ComObjType() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjType function retrieves type information from a COM object. |
-| ComObjValue() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComObjValue function retrieves the value or pointer stored in a COM wrapper object. |
-| ComValue() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ComValue class wraps a value, SafeArray or COM object for use by the script or for passing to a COM method. |
+| ComCall() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComCall function calls a native COM interface method by index. A return type of 'void' means the call returns no value. |
+| ComObjActive() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComObjActive function retrieves a registered COM object. |
+| ComObjArray() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComObjArray function creates a SafeArray for use with COM. |
+| ComObjArray.__Enum() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Enumerates a COM SAFEARRAY. COM is available only on Windows. |
+| ComObjArray.__Item | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Gets or sets a COM SAFEARRAY element. COM is available only on Windows. |
+| ComObjConnect() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComObjConnect function connects a COM object's event source to the script, enabling events to be handled. |
+| ComObject() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComObject function creates a COM object. |
+| ComObjFlags() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComObjFlags function retrieves or changes flags which control a COM wrapper object's behaviour. |
+| ComObjFromPtr() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComObjFromPtr function wraps a raw IDispatch pointer (COM object) for use by the script. |
+| ComObjGet() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComObjGet function returns a reference to an object provided by a COM component. |
+| ComObjQuery() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComObjQuery function queries a COM object for an interface or service. |
+| ComObjType() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComObjType function retrieves type information from a COM object. |
+| ComObjValue() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComObjValue function retrieves the value or pointer stored in a COM wrapper object. |
+| ComValue() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ComValue class wraps a value, SafeArray or COM object for use by the script or for passing to a COM method. |
 | ComValueRef | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Reference wrapper type for COM values. |
 | contains | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Substring containment operator. |
 | Continue | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Skips to the next loop iteration. |
-| ControlAddItem() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlAddItem function adds a new entry at the bottom of a list box, combo box, or drop-down list. |
-| ControlChooseIndex() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlChooseIndex function selects an entry in a list box, combo box, or drop-down list, or a tab control page, by index. |
-| ControlChooseString() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlChooseString function selects an entry in a list box, combo box, or drop-down list, or a tab control page, by string. |
-| ControlClick() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlClick function sends a mouse button or mouse wheel event to a window or control. |
-| ControlDeleteItem() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlDeleteItem function deletes an entry from a list box, combo box, or drop-down list by index. |
-| ControlFindItem() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ControlFindItem function searches for an entry in a list box, combo box, or drop-down list by string, and returns its index. |
-| ControlFocus() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ControlFocus function sets keyboard focus to a control. |
-| ControlGetChecked() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ControlGetChecked function returns 1 if a check box or radio button is checked, or 0 if unchecked. |
-| ControlGetChoice() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetChoice function returns the text of the currently selected entry in a list box, combo box, or drop-down list. |
-| ControlGetClassNN() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetClassNN function returns the class ClassNN (class name and sequence number) of a control. |
-| ControlGetEnabled() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetEnabled function returns 1 if a control is enabled, or 0 if disabled. |
-| ControlGetExStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control. |
-| ControlGetFocus() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetFocus function retrieves which control of the target window has keyboard focus, if any. |
-| ControlGetHwnd() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetHwnd function returns the window handle (HWND) of a control. |
-| ControlGetIndex() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetIndex function returns the index of the currently selected entry in a list box, combo box, or drop-down list, or the index of the active page in a tab control. |
-| ControlGetItems() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetItems function returns an array of entries from a list box, combo box, or drop-down list. |
-| ControlGetPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetPos function retrieves the position and size of a control. |
-| ControlGetStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control. |
-| ControlGetText() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetText function retrieves text from a control. |
-| ControlGetVisible() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlGetVisible function returns 1 if a control is visible, or 0 if hidden. |
-| ControlHide() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlHide function hides a control. |
-| ControlHideDropDown() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlHideDropDown function hides the popup list of a combo box or drop-down list. |
-| ControlMove() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlMove function moves and/or resizes a control. |
-| ControlSend() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlSend and ControlSendText functions send simulated keystrokes or text to a window or control. |
-| ControlSendText() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlSend and ControlSendText functions send simulated keystrokes or text to a window or control. |
-| ControlSetChecked() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlSetChecked function checks or unchecks a check box or radio button. |
-| ControlSetEnabled() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlSetEnabled function enables or disables a control. |
-| ControlSetExStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control. |
-| ControlSetStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control. |
-| ControlSetText() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlSetText function changes the text of a control. |
-| ControlShow() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlShow function shows a control if it was previously hidden. |
-| ControlShowDropDown() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ControlShowDropDown function shows the popup list of a combo box or drop-down list. |
-| CoordMode() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The CoordMode function sets coordinate mode for various built-in functions to be relative to either the active window or the screen. |
-| Modifiers on either term of a custom combination | 🟢 Full | ⚪ Unknown | ⚪ Unknown | ⚪ Unknown | Keysharp extension: both terms of a custom combination may carry modifiers (`<^a & b::`, `a & <^b::`). Those on the prefix are tested against the modifiers held when the prefix key went down and kept until it is released, so a key whose firmware asserts modifiers and drops them immediately still works as a prefix; those on the suffix are tested against the live state as the suffix is pressed. A combination asking for neither continues to ignore the modifier state. This covers keyboards whose Copilot key emits LWin+LShift+F23 and whose Office key emits LCtrl+LShift+LAlt+LWin. |
-| Copilot declaration/remap alias | 🟢 Full | ⚪ Unknown | ⚪ Unknown | ⚪ Unknown | Keysharp extension: in static hotkey and remap declarations only, `Copilot` lowers to the generic `<#<+F23` chord. When used as a remap source, the firmware-generated LWin and LShift modifiers are released but not restored. It is intentionally not a runtime key name for Hotkey(), Send, KeyWait, GetKeyState, InputHook or related APIs. There is no Office alias. |
-| CopyImageToClipboard() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Built-in function. |
+| ControlAddItem() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlAddItem function adds a new entry at the bottom of a list box, combo box, or drop-down list. |
+| ControlChooseIndex() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlChooseIndex function selects an entry in a list box, combo box, or drop-down list, or a tab control page, by index. |
+| ControlChooseString() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlChooseString function selects an entry in a list box, combo box, or drop-down list, or a tab control page, by string. |
+| ControlClick() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlClick function sends a mouse button or mouse wheel event to a window or control. |
+| ControlDeleteItem() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlDeleteItem function deletes an entry from a list box, combo box, or drop-down list by index. |
+| ControlFindItem() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlFindItem function searches for an entry in a list box, combo box, or drop-down list by string, and returns its index. |
+| ControlFocus() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlFocus function sets keyboard focus to a control. |
+| ControlGetChecked() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetChecked function returns 1 if a check box or radio button is checked, or 0 if unchecked. |
+| ControlGetChoice() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetChoice function returns the text of the currently selected entry in a list box, combo box, or drop-down list. |
+| ControlGetClassNN() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetClassNN function returns the class ClassNN (class name and sequence number) of a control. |
+| ControlGetEnabled() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetEnabled function returns 1 if a control is enabled, or 0 if disabled. |
+| ControlGetExStyle() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control. |
+| ControlGetFocus() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetFocus function retrieves which control of the target window has keyboard focus, if any. |
+| ControlGetHwnd() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetHwnd function returns the window handle (HWND) of a control. |
+| ControlGetIndex() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetIndex function returns the index of the currently selected entry in a list box, combo box, or drop-down list, or the index of the active page in a tab control. |
+| ControlGetItems() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetItems function returns an array of entries from a list box, combo box, or drop-down list. |
+| ControlGetPos() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetPos function retrieves the position and size of a control. |
+| ControlGetStyle() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetStyle and ControlGetExStyle functions return an integer representing the style or extended style of a control. |
+| ControlGetText() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetText function retrieves text from a control. |
+| ControlGetVisible() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlGetVisible function returns 1 if a control is visible, or 0 if hidden. |
+| ControlHide() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlHide function hides a control. |
+| ControlHideDropDown() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlHideDropDown function hides the popup list of a combo box or drop-down list. |
+| ControlMove() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlMove function moves and/or resizes a control. |
+| ControlSend() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSend and ControlSendText functions send simulated keystrokes or text to a window or control. |
+| ControlSendText() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSend and ControlSendText functions send simulated keystrokes or text to a window or control. |
+| ControlSetChecked() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSetChecked function checks or unchecks a check box or radio button. |
+| ControlSetEnabled() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSetEnabled function enables or disables a control. |
+| ControlSetExStyle() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control. |
+| ControlSetStyle() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSetStyle and ControlSetExStyle functions change the style or extended style of a control. |
+| ControlSetText() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlSetText function changes the text of a control. |
+| ControlShow() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlShow function shows a control if it was previously hidden. |
+| ControlShowDropDown() | 🟢 Full | 🟡 Partial* | 🟡 Partial* | 🟡 Partial* | The ControlShowDropDown function shows the popup list of a combo box or drop-down list. |
+| CoordMode() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The CoordMode function sets coordinate mode for various built-in functions to be relative to either the active window or the screen. |
+| Copilot declaration/remap alias | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Keysharp extension: in static hotkey and remap declarations only, `Copilot` lowers to the generic `<#<+F23` chord. When used as a remap source, the firmware-generated LWin and LShift modifiers are released but not restored. It is intentionally not a runtime key name for Hotkey(), Send, KeyWait, GetKeyState, InputHook or related APIs. There is no Office alias. |
+| CopyImageToClipboard() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Copies image data through the native platform clipboard backend. |
 | Cos() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the cosine of a number. |
 | Cosh() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the hyperbolic cosine of a number. |
 | CRC32() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes CRC32 checksum for input data. |
-| Critical() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The Critical statement prevents the current thread from being interrupted by other threads, or enables it to be interrupted. |
+| Critical() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Critical statement prevents the current thread from being interrupted by other threads, or enables it to be interrupted. |
 | Date Time Built-in Variables | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Language/runtime capability. |
 | DateAdd() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The DateAdd function adds or subtracts time from a date-time value. |
 | DateDiff() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The DateDiff function compares two date-time values and returns the difference. |
 | Default | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Default branch label used by switch. |
-| DetectHiddenText() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The DetectHiddenText function determines whether invisible text in a window is "seen" for the purpose of finding the window. |
-| DetectHiddenWindows() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The DetectHiddenWindows function determines whether invisible windows are "seen" by the script. |
-| DirCopy() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Copies a folder along with all its sub-folders and files (similar to xcopy). Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| DirCreate() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Creates a folder, and all of its parent folders if needed. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| DirDelete() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Deletes a folder, optionally recursive. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
+| DefineProp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Defines or modifies an own property without invoking an overridden method. |
+| DelegateHolder | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Callback object type returned by CallbackCreate; exposes the native address through Ptr. |
+| DetectHiddenText() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The DetectHiddenText function determines whether invisible text in a window is "seen" for the purpose of finding the window. |
+| DetectHiddenWindows() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The DetectHiddenWindows function determines whether invisible windows are "seen" by the script. |
+| DirCopy() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Copies a folder along with all its sub-folders and files (similar to xcopy). |
+| DirCreate() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates a folder, and all of its parent folders if needed. |
+| DirDelete() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Deletes a folder, optionally recursive. |
 | Directives and preprocessing | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | OS-specific directives supported via compile constants. |
-| DirExist() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Checks for the existence of a folder and returns its attributes. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| DirMove() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Moves a folder along with all its sub-folders and files. It can also rename a folder. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| DirSelect() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Displays a standard dialog that allows the user to select a folder. Differs in that it does not support folder access locking, selecting a folder in the tree, showing an edit box because the user can just type in the combo box, option 7, or hiding the New Folder button. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| DllCall() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The DllCall function calls a function inside a DLL, such as a standard Windows API function. A numeric type class such as Int32 can be used in place of the equivalent built-in type name, and converts directly rather than being instantiated. A return type of 'void' means the call returns no value. |
-| Download() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The Download function downloads a file from the Internet. |
-| DriveEject() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Ejects or retracts the tray of the specified CD/DVD drive. |
-| DriveGetCapacity() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns the total capacity of the drive which contains the specified path, in megabytes. |
-| DriveGetFileSystem() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns the type of the specified drive's file system. |
-| DriveGetLabel() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns the volume label of the specified drive. |
-| DriveGetList() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns a string of letters, one character for each drive letter in the system. |
-| DriveGetSerial() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns the volume serial number of the specified drive. |
-| DriveGetSpaceFree() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The DriveGetSpaceFree function returns the free disk space of the drive which contains the specified path, in megabytes. |
-| DriveGetStatus() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns the status of the drive which contains the specified path. |
-| DriveGetStatusCD() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns the media status of the specified CD/DVD drive. |
-| DriveGetType() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns the type of the drive which contains the specified path. |
-| DriveLock() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Prevents the eject feature of the specified drive from working. |
-| DriveRetract() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The DriveEject and DriveRetract functions eject or retract the tray of the specified CD/DVD drive. DriveEject can also eject a removable drive. |
-| DriveSetLabel() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Changes the volume label of the specified drive. |
-| DriveUnlock() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Restores the eject feature of the specified drive. |
+| DirExist() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Checks for the existence of a folder and returns its attributes. |
+| DirMove() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Moves a folder along with all its sub-folders and files. It can also rename a folder. |
+| DirSelect() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Displays the native folder-selection dialog on every platform. Some legacy Windows folder-dialog option flags have no portable equivalent. |
+| DllCall() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Calls a native shared-library function on every platform. Numeric type classes can replace built-in type names, and a return type of 'void' returns no value. |
+| Download() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Download function downloads a file from the Internet. |
+| DriveEject() | 🟢 Full | 🟢 Full | 🟢 Full | 🟡 Partial | Ejects or retracts the tray of the specified CD/DVD drive. |
+| DriveGetCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the total capacity of the drive which contains the specified path, in megabytes. |
+| DriveGetFileSystem() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the type of the specified drive's file system. |
+| DriveGetLabel() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the volume label of the specified drive. |
+| DriveGetList() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns a string of letters, one character for each drive letter in the system. |
+| DriveGetSerial() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the volume serial number of the specified drive. |
+| DriveGetSpaceFree() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The DriveGetSpaceFree function returns the free disk space of the drive which contains the specified path, in megabytes. |
+| DriveGetStatus() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the status of the drive which contains the specified path. |
+| DriveGetStatusCD() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Retrieves CD/DVD media playback status through Windows MCI. Linux has no media-playback-status backend, and the feature is permanently unsupported on macOS. |
+| DriveGetType() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the type of the drive which contains the specified path. |
+| DriveLock() | 🟢 Full | 🟢 Full | 🟢 Full | 🔴 Unsupported | Prevents media ejection. Linux uses the eject utility; eject locking is permanently unsupported on macOS. |
+| DriveRetract() | 🟢 Full | 🟢 Full | 🟢 Full | 🟡 Partial | The DriveEject and DriveRetract functions eject or retract the tray of the specified CD/DVD drive. DriveEject can also eject a removable drive. |
+| DriveSetLabel() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Changes a volume label. Windows uses DriveInfo, Linux dispatches to the installed filesystem-specific label utility, and macOS uses diskutil renameVolume. Unix operations can require elevated privileges; filesystem/backend coverage needs manual verification. |
+| DriveUnlock() | 🟢 Full | 🟢 Full | 🟢 Full | 🔴 Unsupported | Restores media ejection. Linux uses the eject utility; eject locking is permanently unsupported on macOS. |
 | Edit() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Opens text in the default editor. |
 | EditGetCurrentCol() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The EditGetCurrentCol function returns the column number in an edit control where the caret resides. |
 | EditGetCurrentLine() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The EditGetCurrentLine function returns the line number in an edit control where the caret resides. |
@@ -456,182 +479,194 @@ Status legend:
 | EditPaste() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The EditPaste function pastes a string at the caret in an edit control. |
 | Else | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Alternate branch executed when if condition is false. |
 | Enumerator | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerator object used for iteration. |
-| EnvGet() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns the value of the specified environment variable if it exists, else it returns an empty string. |
-| EnvSet() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Sets the specified environment variable to the specified value. Using a value of null deletes the variable. |
+| EnvGet() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the value of the specified environment variable if it exists, else it returns an empty string. |
+| EnvSet() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the specified environment variable to the specified value. Using a value of null deletes the variable. |
+| EnvUpdate() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Windows broadcasts WM_SETTINGCHANGE. Linux publishes pending EnvSet changes to the D-Bus activation environment and systemd user manager; D-Bus deletions become empty values because its update API cannot unset them. macOS publishes pending changes to the current launchd session. Existing processes are unchanged and these updates are not persistent. |
 | Error | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | Exit | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Exits the current pseudo-thread immediately when ThreadId is omitted. ThreadId may be an exact KS.A_ThreadId or a zero-based index in the current real thread's active pseudo-thread stack. An underlying target exits at its next cooperative event/message check. Later requests overwrite its pending exit code. Returns the exact targeted ID; an explicit target which does not match throws ValueError. |
-| ExitApp() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The ExitApp function terminates the script. |
+| ExitApp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The ExitApp function terminates the script. |
 | Exp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes e raised to the nth power. |
 | Export | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | An Export declaration marks a function, class or variable for wildcard import, and optionally marks it as the default export. |
 | extends | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keyword used to derive a class from a base class. |
 | False | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Boolean false constant. |
 | File | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | File object type. |
-| File and directory operations | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | macOS recycle/trash and privacy-scoped file access still evolving. |
-| FileAppend() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Writes text or binary data to the end of a file (first creating the file, if necessary). Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileCopy() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Copies one or more files. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileCreateShortcut() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Creates a shortcut (.lnk) file. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. Shortcut implementations are platform-specific and not fully parity-validated. |
+| File and directory operations | 🟢 Full | 🟢 Full | 🟢 Full | 🟡 Partial | macOS recycle/trash and privacy-scoped file access still evolving. |
+| FileAppend() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Writes text or binary data to the end of a file (first creating the file, if necessary). |
+| FileCopy() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Copies one or more files. |
+| FileCreateShortcut() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Windows creates .lnk files. Linux and macOS create symbolic links or freedesktop .desktop launchers; Windows-only icon-number, hotkey, and run-state metadata is not represented, and macOS aliases are not created. |
 | FileCreateTemp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates an empty temporary file and returns its full path. |
-| FileDelete() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Deletes one or more files. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
+| FileDelete() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Deletes one or more files. |
 | FileDirName() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns directory portion of a file path. |
-| FileEncoding() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Sets the default encoding for FileRead, Loop Read, FileAppend, and FileOpen. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileExist() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Checks for the existence of a file or folder and returns its attributes. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
+| FileEncoding() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the default encoding for FileRead, Loop Read, FileAppend, and FileOpen. |
+| FileExist() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Checks for the existence of a file or folder and returns its attributes. |
 | FileFullPath() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns absolute normalized full path. |
-| FileGetAttrib() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Reports whether a file or folder is read-only, hidden, etc. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileGetShortcut() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Retrieves information about a shortcut (.lnk) file, such as its target file. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. Shortcut metadata extraction differs by platform format and backend. |
-| FileGetSize() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Retrieves the size of a file. Also allows for passing "t" to return the size in terms of terrabytes. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileGetTime() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Retrieves the datetime stamp of a file or folder. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileGetVersion() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Retrieves the version of a file. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. Version metadata availability differs by platform file formats. |
-| FileInstall() | 🔴 Unsupported | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | All scripts are converted into compiled executables, so this doesn't apply. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileMove() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Moves or renames one or more files. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileOpen() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileRead() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Retrieves the contents of a file. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileRecycle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sends a file or directory to the recycle bin if possible, or permanently deletes it. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. Recycle/Trash behavior depends on desktop APIs and permission context. |
-| FileRecycleEmpty() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Empties the recycle bin. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. Recycle/Trash behavior depends on desktop APIs and permission context. |
-| FileSelect() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Displays a standard dialog that allows the user to open or save file(s). Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileSetAttrib() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Changes the attributes of one or more files or folders. Wildcards are supported. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
-| FileSetTime() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Changes the datetime stamp of one or more files or folders. Wildcards are supported. Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
+| FileGetAttrib() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Reports whether a file or folder is read-only, hidden, etc. |
+| FileGetShortcut() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Windows reads .lnk metadata. Linux and macOS read symbolic links or freedesktop .desktop launchers; Windows-only icon-number and run-state metadata is unavailable, and argument extraction from .desktop Exec fields is approximate. |
+| FileGetSize() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves the size of a file. Also allows for passing "t" to return the size in terms of terrabytes. |
+| FileGetTime() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves the datetime stamp of a file or folder. |
+| FileGetVersion() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Retrieves the version of a file. Version metadata availability differs by platform file formats. |
+| FileInstall() | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | All scripts are converted into compiled executables, so this doesn't apply. |
+| FileMove() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Moves or renames one or more files. |
+| FileOpen() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Platform statuses inherited from curated 'File and directory operations'; per-function validation pending. |
+| FileRead() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves the contents of a file. |
+| FileRecycle() | 🟢 Full | 🟢 Full | 🟢 Full | 🟡 Partial | Windows uses the recycle bin and Linux uses the freedesktop Trash through GIO. macOS currently moves only to the user ~/.Trash folder, without per-volume trash or Finder Put Back metadata. |
+| FileRecycleEmpty() | 🟢 Full | 🟢 Full | 🟢 Full | 🟡 Partial | Windows empties the recycle bin and Linux empties the freedesktop Trash through GIO. macOS currently empties only the user ~/.Trash folder, not per-volume trash folders. |
+| FileSelect() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Displays the native open/save file dialog, including cancellation and multiple selection, on every platform. |
+| FileSetAttrib() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Changes the attributes of one or more files or folders. Wildcards are supported. |
+| FileSetTime() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Changes the datetime stamp of one or more files or folders. Wildcards are supported. |
 | Finally | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Runs after try/catch regardless of whether an exception occurred. |
 | Float() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Float function converts a numeric string or integer value to a floating-point number. |
+| Float32 | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Predefined numeric struct type for typed fields and native calls. |
+| Float64 | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Predefined numeric struct type for typed fields and native calls. |
 | Floor() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes a number rounded down to the nearest integer. Rounds toward zero for positive numbers and away from zero for negative numbers. |
 | For | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Iterates over enumerable values or key/value pairs. |
-| Foreign window management (non-Keysharp apps) | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | On Linux, Control* functions are not supported for foreign apps; use the included AtSpi library for cross-process window/control interaction. macOS currently relies on Accessibility APIs with permission requirements. |
+| Foreign window management (non-Keysharp apps) | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | On Linux, Control* functions are not supported for foreign apps; use the included AtSpi library for cross-process window/control interaction. macOS currently relies on Accessibility APIs with permission requirements. |
 | Format() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Formats text by substituting placeholders with argument values. |
 | FormatCs() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Formats text using C#-style format placeholders (1-based indexing adaptation). |
 | FormatTime | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Formats a datetime string according to the parameters. All C# formatting options are supported. Supports all V2 functionality except for the Dn and Tn options. If you want to specify a specific format, do it in the format parameter. |
 | Func | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Function object type. |
-| GetKeyName() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GetKeyName function retrieves the name/text of a key. |
-| GetKeySC() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GetKeySC function retrieves the scan code of a key. |
-| GetKeyState() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GetKeyState function returns 1 (true) or 0 (false) depending on whether the specified keyboard key or mouse/controller button is down or up. Also retrieves controller status. |
-| GetKeyVK() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GetKeyVK function retrieves the virtual key code of a key. |
+| FuncObj | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Managed function-object type name accepted by compatibility type checks alongside Func. |
+| GetKeyboardLayout() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns a readable platform-native identifier for the active keyboard layout. |
+| GetKeyInfo() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns layout-aware portable VK, platform-native SC, key name, and modifier information on every platform. |
+| GetKeyName() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the portable name or text of a key from Windows scan codes, Linux evdev codes, or macOS kVK codes. |
+| GetKeySC() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the platform-native physical key code: a Windows scan code, Linux evdev KEY_* code, or macOS kVK code. Returns 0 for a portable key which has no native physical code on that platform. |
+| GetKeyState() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns logical, physical, and toggle state. Linux queries keysharp-inputd first for keyboard keys and all five mouse buttons without installing a hook (input-monitoring permission is required), with X11 core queries as a basic fallback and no XInput2 path. macOS uses combined-session and HID-system state APIs. |
+| GetKeyVK() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns Keysharp's portable Windows-compatible VK for a named key or platform-native physical key code. |
 | GetMethod() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The GetMethod function retrieves the implementation function of a method. |
-| Global keyboard hooks | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Linux uses evdev/uinput, macOS uses CGEventTap. |
-| Global mouse hooks | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Suppression/injection semantics differ by platform. |
-| Goto | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Goto doesn't support expressions in Keysharp. |
-| GroupActivate() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GroupActivate function activates the next window in a window group that was defined with the GroupAdd function. |
-| GroupAdd() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GroupAdd function adds a window specification to a window group, creating the group if necessary. |
-| GroupClose() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GroupClose function closes the active window if it was just activated by the GroupActivate or GroupDeactivate function. |
-| GroupDeactivate() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GroupDeactivate function is similar to the GroupActivate function but activates the next window not in the group. |
-| Gui control types | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | GUI control types are elements of interaction which can be added to a GUI window using the Gui object's Add method. |
-| Gui() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The Gui object provides an interface to create a window, add controls, modify the window, and retrieve information about the window. Such windows can be used as data entry forms or custom user interfaces. |
-| Gui.__Enum() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns an enumerator for GUI controls. |
-| Gui.__Item | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Indexer property for retrieving controls by name or key. |
-| Gui.__New() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Constructs a new GUI window object. |
-| Gui.Add() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Adds a control to the GUI. |
-| Gui.BackColor | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets or sets the GUI background color. |
-| Gui.Call() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Shows the GUI when the object is called like a function. |
-| Gui.Control.Add() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Adds an item to controls that support item lists. |
-| Gui.Control.Choose() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Selects an item in the control. |
-| Gui.Control.ClassNN | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | ClassNN identifier of the control. |
-| Gui.Control.Delete() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Deletes items from controls that support item lists. |
-| Gui.Control.Enabled | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets or sets whether the control is enabled. |
-| Gui.Control.Focus() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets keyboard focus to the control. |
-| Gui.Control.Focused | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Whether the control currently has focus. |
-| Gui.Control.GetPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets the control position and size. |
-| Gui.Control.Gui | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Parent GUI object for the control. |
-| Gui.Control.Hwnd | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Native window handle of the control. |
-| Gui.Control.Move() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Moves or resizes the control. |
-| Gui.Control.Name | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Associated control name. |
-| Gui.Control.OnCommand() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Registers a WM_COMMAND callback for the control. |
-| Gui.Control.OnEvent() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Registers a control event callback. |
-| Gui.Control.OnMessage() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Registers a window-message callback for the control. |
-| Gui.Control.OnNotify() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Registers a WM_NOTIFY callback for the control. |
-| Gui.Control.Opt() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Applies options to the control. |
-| Gui.Control.Redraw() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Redraws the control. |
-| Gui.Control.SetCue() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets cue banner (placeholder text) for the control. |
-| Gui.Control.SetFont() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets the control font. |
-| Gui.Control.Text | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets or sets the control text. |
-| Gui.Control.Type | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Control type name. |
-| Gui.Control.Value | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets or sets the control value. |
-| Gui.Control.Visible | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets or sets whether the control is visible. |
-| Gui.Destroy() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Destroys the GUI window and releases associated resources. |
-| Gui.Flash() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Flashes the GUI window to attract attention. |
-| Gui.FocusedCtrl | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Currently focused control in the GUI. |
-| Gui.GetClientPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets the GUI client-area position and size. |
-| Gui.GetPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets the GUI window position and size. |
-| Gui.Hide() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Hides the GUI window. |
-| Gui.Hwnd | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Native window handle of the GUI. |
-| Gui.MarginX | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Default horizontal margin for layout. |
-| Gui.MarginY | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Default vertical margin for layout. |
-| Gui.Maximize() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Maximizes the GUI window. |
-| Gui.MenuBar | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets or sets the menu bar attached to the GUI. |
-| Gui.Minimize() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Minimizes the GUI window. |
-| Gui.Move() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Moves or resizes the GUI window. |
-| Gui.Name | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Associated GUI name. |
-| Gui.OnEvent() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Registers a GUI event callback. |
-| Gui.OnMessage() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Registers a window-message callback for the GUI. |
-| Gui.Opt() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Applies GUI window options. |
-| Gui.Restore() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Restores the GUI window from minimized or maximized state. |
-| Gui.SetFont() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets the default font for subsequent controls. |
-| Gui.Show() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Shows the GUI window. |
-| Gui.Submit() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Submits control values and returns them to script variables. |
-| Gui.Tab.UseTab() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Selects the active tab page for subsequent control additions. |
-| Gui.Title | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets or sets the GUI window title. |
-| Gui.Visible | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets/sets GUI visibility state. |
-| GuiCtrlFromHwnd() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GuiCtrlFromHwnd function retrieves the GuiControl object of a GUI control associated with the specified window handle. |
-| GuiFromHwnd() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GuiFromHwnd function retrieves the Gui object of a GUI window associated with the specified window handle. |
+| Global keyboard hooks | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Linux uses evdev/uinput, macOS uses CGEventTap. |
+| Global mouse hooks | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Suppression/injection semantics differ by platform. |
+| Goto | 🟡 Partial | 🟡 Partial | 🟡 Partial | 🟡 Partial | Goto doesn't support expressions in Keysharp. |
+| GroupActivate() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The GroupActivate function activates the next window in a window group that was defined with the GroupAdd function. |
+| GroupAdd() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The GroupAdd function adds a window specification to a window group, creating the group if necessary. |
+| GroupClose() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The GroupClose function closes the active window if it was just activated by the GroupActivate or GroupDeactivate function. |
+| GroupDeactivate() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The GroupDeactivate function is similar to the GroupActivate function but activates the next window not in the group. |
+| Gui control types | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | GUI control types are elements of interaction which can be added to a GUI window using the Gui object's Add method. |
+| Gui() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The Gui object provides an interface to create a window, add controls, modify the window, and retrieve information about the window. Such windows can be used as data entry forms or custom user interfaces. |
+| Gui.__Enum() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns an enumerator for GUI controls. |
+| Gui.__Item | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Indexer property for retrieving controls by name or key. |
+| Gui.__New() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Constructs a new GUI window object. |
+| Gui.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds a control to the GUI. |
+| Gui.BackColor | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets the GUI background color. |
+| Gui.Call() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Shows the GUI when the object is called like a function. |
+| Gui.Control.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds an item to controls that support item lists. |
+| Gui.Control.Choose() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Selects an item in the control. |
+| Gui.Control.ClassNN | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | ClassNN identifier of the control. |
+| Gui.Control.Delete() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Deletes items from controls that support item lists. |
+| Gui.Control.Enabled | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets whether the control is enabled. |
+| Gui.Control.Focus() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets keyboard focus to the control. |
+| Gui.Control.Focused | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Whether the control currently has focus. |
+| Gui.Control.GetPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the control position and size. |
+| Gui.Control.Gui | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Parent GUI object for the control. |
+| Gui.Control.Hwnd | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Native window handle of the control. |
+| Gui.Control.Move() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Moves or resizes the control. |
+| Gui.Control.Name | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Associated control name. |
+| Gui.Control.OnCommand() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a WM_COMMAND callback for the control. |
+| Gui.Control.OnEvent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a control event callback. |
+| Gui.Control.OnMessage() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a window-message callback for the control. |
+| Gui.Control.OnNotify() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a WM_NOTIFY callback for the control. |
+| Gui.Control.Opt() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Applies options to the control. |
+| Gui.Control.Redraw() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Redraws the control. |
+| Gui.Control.SetCue() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets cue banner (placeholder text) for the control. |
+| Gui.Control.SetFont() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets the control font. |
+| Gui.Control.Text | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets the control text. |
+| Gui.Control.Type | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Control type name. |
+| Gui.Control.Value | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets the control value. |
+| Gui.Control.Visible | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets whether the control is visible. |
+| Gui.Destroy() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Destroys the GUI window and releases associated resources. |
+| Gui.Flash() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Flashes the GUI window to attract attention. |
+| Gui.FocusedCtrl | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Currently focused control in the GUI. |
+| Gui.GetClientPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the GUI client-area position and size. |
+| Gui.GetPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the GUI window position and size. |
+| Gui.Hide() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Hides the GUI window. |
+| Gui.Hwnd | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Native window handle of the GUI. |
+| Gui.MarginX | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Default horizontal margin for layout. |
+| Gui.MarginY | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Default vertical margin for layout. |
+| Gui.Maximize() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Maximizes the GUI window. |
+| Gui.MenuBar | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets the menu bar attached to the GUI. |
+| Gui.Minimize() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Minimizes the GUI window. |
+| Gui.Move() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Moves or resizes the GUI window. |
+| Gui.Name | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Associated GUI name. |
+| Gui.OnEvent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a GUI event callback. |
+| Gui.OnMessage() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Registers a window-message callback for the GUI. |
+| Gui.Opt() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Applies GUI window options. |
+| Gui.Restore() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Restores the GUI window from minimized or maximized state. |
+| Gui.SetFont() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets the default font for subsequent controls. |
+| Gui.Show() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Shows the GUI window. |
+| Gui.Submit() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Submits control values and returns them to script variables. |
+| Gui.Tab.UseTab() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Selects the active tab page for subsequent control additions. |
+| Gui.Title | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets or sets the GUI window title. |
+| Gui.Visible | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets/sets GUI visibility state. |
+| GuiCtrlFromHwnd() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The GuiCtrlFromHwnd function retrieves the GuiControl object of a GUI control associated with the specified window handle. |
+| GuiFromHwnd() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The GuiFromHwnd function retrieves the Gui object of a GUI window associated with the specified window handle. |
 | HasBase() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The HasBase function returns a non-zero number if the specified value is derived from the specified base object. |
 | HashMap | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific map class extending Map without sorted enumeration. |
 | HashMap.__New() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific HashMap constructor (inherits Map methods/properties). |
 | HasMethod() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The HasMethod function returns a non-zero number if the specified value has a method by the specified name. |
 | HasProp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The HasProp function returns a non-zero number if the specified value has a property by the specified name. |
-| HotIf() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The HotIf and HotIfWin functions specify the criteria for subsequently created or modified hotkey variants and hotstring variants. |
-| HotIfWinActive() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets hotkey context for active windows. |
-| HotIfWinExist() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets hotkey context for existing windows. |
-| HotIfWinNotActive() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets hotkey context for windows that are not active. |
-| HotIfWinNotExist() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets hotkey context for windows that do not exist. |
-| Hotkey() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The Hotkey function creates, modifies, enables, or disables a hotkey while the script is running. |
-| Hotkeys/Hotstrings | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Depends on hook and key-state parity. |
-| Hotstring() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The Hotstring function creates, modifies, enables, or disables a hotstring while the script is running. |
+| Highlight | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Cross-platform reusable screen-region highlighter built on Overlay. |
+| HotIf() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The HotIf and HotIfWin functions specify the criteria for subsequently created or modified hotkey variants and hotstring variants. |
+| HotIfWinActive() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets hotkey context for active windows. |
+| HotIfWinExist() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets hotkey context for existing windows. |
+| HotIfWinNotActive() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets hotkey context for windows that are not active. |
+| HotIfWinNotExist() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets hotkey context for windows that do not exist. |
+| Hotkey() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The Hotkey function creates, modifies, enables, or disables a hotkey while the script is running. |
+| Hotkeys/Hotstrings | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Depends on hook and key-state parity. |
+| Hotstring() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The Hotstring function creates, modifies, enables, or disables a hotstring while the script is running. |
 | If | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Conditional statement. |
 | IL_Add() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Adds an image to an image list, optionally can resize or split the image. |
 | IL_Create() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates an image list and returns its unique ID. Differs in that it only takes one parameter, LargeIcons, because the first two parameters, InitialCount and GrowCount, have been omitted because C# handles memory internally. |
 | IL_Destroy() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Removes an ImageList from the global list of ImageLists. Note, this does not dispose it, it just removes the reference. The garbage collector will handle final disposal when the reference count goes to 0. |
-| Image | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Cross-platform image class for capturing, loading, or creating an image, then drawing, transforming, searching, and reading/writing its pixels before saving it or handing out a bitmap handle. Full on Windows, partial on Linux (X11); Wayland and macOS are unverified. Replaces the earlier ImageCapture() function. |
-| ImageSearch() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Searches a region of the screen for an image. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been. Also does not support file types of.ani,.emf,.exif or.wmf. Only 32-bit color is supported. |
+| Image | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Cross-platform image class for capturing, loading, or creating an image, then drawing, transforming, searching, and reading/writing its pixels before saving it or handing out a bitmap handle. Full on Windows, partial on Linux (X11); Wayland and macOS are unverified. Replaces the earlier ImageCapture() function. |
+| ImageSearch() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Searches a region of the screen for an image. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been. Also does not support file types of.ani,.emf,.exif or.wmf. Only 32-bit color is supported. |
 | Import | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Import declaration imports a module, or imports names from a module. |
 | in | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Membership operator. |
 | IndexError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | IniDelete() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Deletes a value from a standard format.ini file. |
 | IniRead() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Reads a value, section or list of section names from a standard format.ini file. |
 | IniWrite() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Writes a value or section to a standard format.ini file. |
-| InputBox() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The InputBox function displays an input box to ask the user to enter a string. |
-| InputHook() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The InputHook function creates an object which can be used to collect or intercept keyboard input. |
-| InputHook.BackspaceIsUndo | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Treats Backspace as undo for collected input. |
-| InputHook.CaseSensitive | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Whether match checks are case-sensitive. |
-| InputHook.EndKey | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Key that ended the input hook. |
-| InputHook.EndMods | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Modifier-state snapshot when input ended. |
-| InputHook.EndReason | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Reason the input hook ended. |
-| InputHook.FindAnywhere | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Matches phrases anywhere in the input buffer. |
-| InputHook.InProgress | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Whether the input hook is currently running. |
-| InputHook.Input | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Text captured so far by the input hook. |
-| InputHook.KeyOpt() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets key-specific behavior options for the input hook. |
-| InputHook.Match | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Phrase that matched and ended input, if any. |
-| InputHook.MinSendLevel | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Minimum SendLevel accepted by the hook. |
-| InputHook.NotifyNonText | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Whether non-text key notifications are enabled. |
-| InputHook.OnChar | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Callback invoked for character input. |
-| InputHook.OnEnd | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Callback invoked when input capture ends. |
-| InputHook.OnKeyDown | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Callback invoked on key-down events. |
-| InputHook.OnKeyUp | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Callback invoked on key-up events. |
-| InputHook.OnMouseMove | 🟢 Full | 🟡 Partial | 🟡 Partial | ⚪ Unknown | `OnMouseMove(hook, dx, dy)` queues every move report, including `(0, 0)`. Windows derives deltas from desktop-clamped hook positions, so outward movement at an edge can be zero; macOS uses Quartz deltas. Linux requires a matching keysharp-inputd 1.1 daemon and mouse-hook permission (without either, no moves are reported): relative values are raw device-specific evdev counts, while physical absolute values are changes in normalized `[0,65535]` axes. Linux `A_EventInfo` includes `DeviceId` (0 synthetic, positive physical) and `IsAbsolute`; synthetic absolute deltas are zero because no relative sample exists. Windows and macOS instead provide global-screen `X`/`Y` when available and omit `DeviceId`; `X/Y` need not equal the prior position plus `dx/dy`, and macOS reports the frozen cursor position while movement is suppressed. |
-| InputHook.Start() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Starts capturing input. |
-| InputHook.Stop() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Stops capturing input. |
-| InputHook.Timeout | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Maximum capture duration in seconds. |
-| InputHook.Wait() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Waits until capture ends or times out. |
-| InputHook.VisibleNonText | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Whether visible non-text keys are collected. |
-| InputHook.VisibleText | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Whether visible text characters are collected. |
-| InstallKeybdHook() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The InstallKeybdHook function installs or uninstalls the keyboard hook. |
-| InstallMouseHook() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The InstallMouseHook function installs or uninstalls the mouse hook. |
+| InputBox() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The InputBox function displays an input box to ask the user to enter a string. |
+| InputHook() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The InputHook function creates an object which can be used to collect or intercept keyboard input. |
+| InputHook.BackspaceIsUndo | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Treats Backspace as undo for collected input. |
+| InputHook.CaseSensitive | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Whether match checks are case-sensitive. |
+| InputHook.EndKey | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Key that ended the input hook. |
+| InputHook.EndMods | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Modifier-state snapshot when input ended. |
+| InputHook.EndReason | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Reason the input hook ended. |
+| InputHook.FindAnywhere | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Matches phrases anywhere in the input buffer. |
+| InputHook.InProgress | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Whether the input hook is currently running. |
+| InputHook.Input | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Text captured so far by the input hook. |
+| InputHook.KeyOpt() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets key-specific behavior options for the input hook. |
+| InputHook.Match | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Phrase that matched and ended input, if any. |
+| InputHook.MinSendLevel | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Minimum SendLevel accepted by the hook. |
+| InputHook.NotifyNonText | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Whether non-text key notifications are enabled. |
+| InputHook.OnChar | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Callback invoked for character input. |
+| InputHook.OnEnd | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Callback invoked when input capture ends. |
+| InputHook.OnKeyDown | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Callback invoked on key-down events. |
+| InputHook.OnKeyUp | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Callback invoked on key-up events. |
+| InputHook.OnMouseMove | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | OnMouseMove(hook, dx, dy) queues every move report, including (0, 0). Windows derives deltas from desktop-clamped hook positions, so outward movement at an edge can be zero; macOS uses Quartz deltas. Linux requires a matching keysharp-inputd 1.1 daemon and mouse-hook permission (without either, no moves are reported): relative values are raw device-specific evdev counts, while physical absolute values are changes in normalized [0,65535] axes. Linux A_EventInfo includes DeviceId (0 synthetic, positive physical) and IsAbsolute; synthetic absolute deltas are zero because no relative sample exists. Windows and macOS instead provide global-screen X/Y when available and omit DeviceId; X/Y need not equal the prior position plus dx/dy, and macOS reports the frozen cursor position while movement is suppressed. |
+| InputHook.Start() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Starts capturing input. |
+| InputHook.Stop() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Stops capturing input. |
+| InputHook.Timeout | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Maximum capture duration in seconds. |
+| InputHook.Wait() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Waits until capture ends or times out. |
+| InputHook.VisibleNonText | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Whether visible non-text keys are collected. |
+| InputHook.VisibleText | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Whether visible text characters are collected. |
+| InstallKeybdHook() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The InstallKeybdHook function installs or uninstalls the keyboard hook. |
+| InstallMouseHook() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The InstallMouseHook function installs or uninstalls the mouse hook. |
 | InStr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Searches for a string within another string, returning the 1-based index where it was found. Use negative numbers for searching in reverse order. |
+| Int16 | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Predefined numeric struct type for typed fields and native calls. |
+| Int32 | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Predefined numeric struct type for typed fields and native calls. |
+| Int64 | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Predefined numeric struct type for typed fields and native calls. |
+| Int8 | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Predefined numeric struct type for typed fields and native calls. |
 | Integer() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the integer portion of a number. |
+| IntPtr | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Predefined numeric struct type for typed fields and native calls. |
 | is | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Type check operator |
 | is not | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Type check operator |
 | IsAlnum() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns true if a string is alphanumeric. |
 | IsAlpha() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns true if a string contains only letters. |
-| IsClipboardEmpty() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Built-in function. |
+| IsClipboardEmpty() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Checks the native platform clipboard for advertised data. |
 | IsDigit() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns true if a string contains only digits. |
 | IsFloat() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns true if a value is a floating-point number. |
 | IsInteger() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns true if a value is an integer. |
-| IsLabel() | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Does not support expressions. |
+| IsLabel() | 🟡 Partial | 🟡 Partial | 🟡 Partial | 🟡 Partial | Does not support expressions. |
 | IsLower() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns true if a string is lowercase. |
 | IsNumber() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns true if a value is numeric. |
 | IsObject() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The IsObject function returns a non-zero number if the specified value is an object. |
@@ -642,25 +677,26 @@ Status legend:
 | IsUpper() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns true if a string is uppercase. |
 | IsXDigit() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns true if a string contains only hexadecimal digits. |
 | Join() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Joins arguments into a string using a separator. |
-| Keyboard/Mouse send (synthetic input) | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Requires platform permissions on macOS. |
+| Json | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Encodes script values as JSON and decodes JSON into script values. |
+| Keyboard/Mouse send (synthetic input) | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Requires platform permissions on macOS. |
 | KeyError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class for missing keys/items. |
-| KeyHistory() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The KeyHistory function displays script info and a history of the most recent keystrokes and mouse clicks. |
-| KeyWait() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The KeyWait function waits for a key or mouse/controller button to be released or pressed down. |
-| ListHotkeys() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ListHotkeys function displays the hotkeys in use by the current script, whether their subroutines are currently running, and whether they use a hook. |
-| ListLines() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The ListLines function enables or disables line logging or displays the script lines most recently executed. |
-| ListVars() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The ListVars function displays the script's variables: their names and current contents. |
-| ListView.Add() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Adds a row to a ListView control. |
-| ListView.Delete() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Deletes one row or all rows in a ListView. |
-| ListView.DeleteCol() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Deletes a column from a ListView control. |
-| ListView.GetCount() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets item, selected-item, or column count in a ListView. |
-| ListView.GetNext() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets the next row matching selection/focus criteria. |
-| ListView.GetText() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets text from a ListView row and column. |
-| ListView.Insert() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Inserts a row at a specific position in a ListView. |
-| ListView.InsertCol() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Inserts a column into a ListView. |
-| ListView.Modify() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Changes ListView row state, text, or icon. |
-| ListView.ModifyCol() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Changes ListView column options and width. |
-| ListView.SetImageList() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Assigns an image list for ListView icons. |
-| ListViewGetContent() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ListViewGetContent function returns content data from a list-view control, such as rows, columns, or count values. |
+| KeyHistory() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The KeyHistory function displays script info and a history of the most recent keystrokes and mouse clicks. |
+| KeyWait() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The KeyWait function waits for a key or mouse/controller button to be released or pressed down. |
+| ListHotkeys() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The ListHotkeys function displays the hotkeys in use by the current script, whether their subroutines are currently running, and whether they use a hook. |
+| ListLines() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The ListLines function enables or disables line logging or displays the script lines most recently executed. |
+| ListVars() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The ListVars function displays the script's variables: their names and current contents. |
+| ListView.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds a row to a ListView control. |
+| ListView.Delete() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Deletes one row or all rows in a ListView. |
+| ListView.DeleteCol() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Deletes a column from a ListView control. |
+| ListView.GetCount() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets item, selected-item, or column count in a ListView. |
+| ListView.GetNext() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the next row matching selection/focus criteria. |
+| ListView.GetText() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets text from a ListView row and column. |
+| ListView.Insert() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Inserts a row at a specific position in a ListView. |
+| ListView.InsertCol() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Inserts a column into a ListView. |
+| ListView.Modify() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Changes ListView row state, text, or icon. |
+| ListView.ModifyCol() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Changes ListView column options and width. |
+| ListView.SetImageList() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Assigns an image list for ListView icons. |
+| ListViewGetContent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The ListViewGetContent function returns content data from a list-view control, such as rows, columns, or count values. |
 | Ln() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the base e (natural) logarithm of a number. Throws an exception if a negative number is passed in. |
 | LoadPicture() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Loads an image, icon or cursor. Differs in that instead of writing to a ref argument, it returns a structure whose fields are Handle and ImageType. |
 | LockRun() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Runs code under a lock to prevent concurrent execution overlap. |
@@ -673,7 +709,7 @@ Status legend:
 | Loop Files | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerates files/folders matching a pattern. |
 | Loop Parse | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Parses the string either one character at a time, or broken into pieces based on the delimiter. Note this accepts strings as delimiters, unlike AHK which did not. |
 | Loop Read | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Reads though a file one line at a time. Optionally supports an output file, which can then be used with FileAppend with no filename argument. |
-| Loop Reg | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Reads through registry keys and values, optionally recursive. Additionally supports HKEY_PERFORMANCE_DATA, and an accessor A_LoopRegValue to get the values. Supports data types except the following, which will return UNKNOWN: REG_LINK, REG_RESOURCE_LIST, REG_FULL_RESOURCE_DESCRIPTOR, REG_RESOURCE_REQUIREMENTS_LIST, REG_DWORD_BIG_ENDIAN. |
+| Loop Reg | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Reads through registry keys and values, optionally recursive. Additionally supports HKEY_PERFORMANCE_DATA, and an accessor A_LoopRegValue to get the values. Supports data types except the following, which will return UNKNOWN: REG_LINK, REG_RESOURCE_LIST, REG_FULL_RESOURCE_DESCRIPTOR, REG_RESOURCE_REQUIREMENTS_LIST, REG_DWORD_BIG_ENDIAN. |
 | LTrim() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Trims characters from the end of a string. |
 | Mail() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sends email via configured SMTP settings. |
 | Map | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Map object type. |
@@ -696,33 +732,34 @@ Status legend:
 | MD5() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes MD5 hash for input data. |
 | MemberError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | MemoryError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| Menu() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The Menu/MenuBar object provides an interface to create and modify a menu or menu bar, add and modify menu items, and retrieve information about the menu or menu bar. |
-| Menu.Add() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Adds an item to a menu. |
-| Menu.AddStandard() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Adds standard tray menu items. |
-| Menu.Check() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Checks a menu item. |
-| Menu.ClickCount | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Number of clicks required to trigger a tray menu item. |
-| Menu.Default | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Default menu item name or position. |
-| Menu.Delete() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Deletes one menu item or all items. |
-| Menu.Disable() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Disables a menu item. |
-| Menu.Enable() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Enables a menu item. |
-| Menu.Handle | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Native menu handle. |
-| Menu.Insert() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Inserts a menu item at a specific position. |
-| Menu.MenuItemCount | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns number of items in a menu. |
-| Menu.MenuItemName() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns item text/name for a menu entry. |
-| Menu.Rename() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Renames a menu item. |
-| Menu.SetColor() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets menu background color. |
-| Menu.SetIcon() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets icon for a menu item. |
-| Menu.Show() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Shows the menu at a screen position. |
-| Menu.ToggleCheck() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Toggles checked state of a menu item. |
-| Menu.ToggleEnable() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Toggles enabled state of a menu item. |
-| Menu.ToggleItemVis() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Toggles visibility of a menu item. |
-| Menu.Uncheck() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Unchecks a menu item. |
-| MenuBar() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The Menu/MenuBar object provides an interface to create and modify a menu or menu bar, add and modify menu items, and retrieve information about the menu or menu bar. |
-| MenuFromHandle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The MenuFromHandle function retrieves the Menu or MenuBar object corresponding to a Win32 menu handle. |
-| MenuSelect() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The MenuSelect function invokes a menu item from the menu bar of the specified window. |
+| Menu() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The Menu/MenuBar object provides an interface to create and modify a menu or menu bar, add and modify menu items, and retrieve information about the menu or menu bar. |
+| Menu.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds an item to a menu. |
+| Menu.AddStandard() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds standard tray menu items. |
+| Menu.Check() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Checks a menu item. |
+| Menu.ClickCount | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Number of clicks required to trigger a tray menu item. |
+| Menu.Default | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Default menu item name or position. |
+| Menu.Delete() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Deletes one menu item or all items. |
+| Menu.Disable() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Disables a menu item. |
+| Menu.Enable() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Enables a menu item. |
+| Menu.Handle | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Native menu handle. |
+| Menu.Insert() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Inserts a menu item at a specific position. |
+| Menu.MenuItemCount | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns number of items in a menu. |
+| Menu.MenuItemName() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns item text/name for a menu entry. |
+| Menu.Rename() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Renames a menu item. |
+| Menu.SetColor() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets menu background color. |
+| Menu.SetIcon() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets icon for a menu item. |
+| Menu.Show() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Shows the menu at a screen position. |
+| Menu.ToggleCheck() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Toggles checked state of a menu item. |
+| Menu.ToggleEnable() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Toggles enabled state of a menu item. |
+| Menu.ToggleItemVis() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Toggles visibility of a menu item. |
+| Menu.Uncheck() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Unchecks a menu item. |
+| MenuBar() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The Menu/MenuBar object provides an interface to create and modify a menu or menu bar, add and modify menu items, and retrieve information about the menu or menu bar. |
+| MenuFromHandle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MenuFromHandle function retrieves the Menu or MenuBar object corresponding to a Win32 menu handle. |
+| MenuSelect() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MenuSelect function invokes a menu item from the menu bar of the specified window. |
 | MethodError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | Min() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the smaller of two numbers. If either is not numeric, the empty string is returned. The smaller value of an array is computed if one is passed in. |
 | Mod() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the remainder when the first number is divided by the second number. Throws an exception if the second number is 0. |
+| Modifiers on either term of a custom combination | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Keysharp extension: both terms of a custom combination may carry modifiers (`<^a & b::`, `a & <^b::`). Those on the prefix are tested against the modifiers held when the prefix key went down and kept until it is released, so a key whose firmware asserts modifiers and drops them immediately still works as a prefix; those on the suffix are tested against the live state as the suffix is pressed. A combination asking for neither continues to ignore the modifier state. This covers keyboards whose Copilot key emits LWin+LShift+F23 and whose Office key emits LCtrl+LShift+LAlt+LWin. |
 | MonitorFromPoint() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the monitor containing a native screen point, or the nearest monitor when the point lies in a gap. |
 | MonitorGet() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the selected monitor index and writes its native screen-coordinate bounds to the supplied output variables. |
 | MonitorGetCount() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the total number of monitors. |
@@ -730,52 +767,54 @@ Status legend:
 | MonitorGetPrimary() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the number of the primary monitor. |
 | MonitorGetScale() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the monitor's authored-size scale in native screen units; 1.0 is 100%. It scales dimensions, never absolute positions. |
 | MonitorGetWorkArea() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the selected monitor index and writes its native screen-coordinate work area to the supplied output variables. |
-| MouseClick() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The MouseClick function clicks or holds down a mouse button, or turns the mouse wheel. |
-| MouseClickDrag() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The MouseClickDrag function clicks and holds the specified mouse button, moves the mouse to the destination coordinates, then releases the button. |
-| MouseGetPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The MouseGetPos function retrieves the current position of the mouse cursor, and optionally which window and control it is hovering over. |
-| MouseMove() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The MouseMove function moves the mouse cursor. |
-| MsgBox() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Displays the specified text in a small window containing one or more buttons. Differs in that the following option values are not supported: 6, 768, 4096, 8192, 262144, 16384 (meaning, no help button). Also, when the timeout options is used, or an owner window is set, the text will be right justified. |
+| MouseClick() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MouseClick function clicks or holds down a mouse button, or turns the mouse wheel. |
+| MouseClickDrag() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MouseClickDrag function clicks and holds the specified mouse button, moves the mouse to the destination coordinates, then releases the button. |
+| MouseGetPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MouseGetPos function retrieves the current position of the mouse cursor, and optionally which window and control it is hovering over. |
+| MouseMove() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MouseMove function moves the mouse cursor. |
+| MsgBox() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Displays the specified text in a small window containing one or more buttons. Differs in that the following option values are not supported: 6, 768, 4096, 8192, 262144, 16384 (meaning, no help button). Also, when the timeout options is used, or an owner window is set, the text will be right justified. |
+| NormalizeEol() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Normalizes all line endings to a requested or platform-default sequence. |
 | not | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Logical NOT operator. |
 | Number() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Number function converts a numeric string to a pure integer or floating-point number. |
-| NumGet() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The NumGet function returns the binary number stored at the specified address+offset. |
-| NumPut() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The NumPut function stores one or more numbers in binary format at the specified address+offset. |
+| NumGet() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The NumGet function returns the binary number stored at the specified address+offset. |
+| NumPut() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The NumPut function stores one or more numbers in binary format at the specified address+offset. |
 | ObjAddRef() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ObjAddRef and ObjRelease functions increment or decrement an object's reference count. |
 | ObjBindMethod() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The ObjBindMethod function creates a BoundFunc object which calls a method of a given object. |
 | Object() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates a new Object; optional key/value arguments initialize own properties. |
 | Object.__Ref() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns a property-reference (PropRef) object. |
-| Object.OwnPropCount() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns number of own properties defined directly on the object. |
+| Object.OwnPropCount() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns number of own properties defined directly on the object. |
 | ObjFree() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Releases object references associated with a pointer/COM wrapper context. |
-| ObjFromPtr() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Creates or retrieves an object wrapper from a raw pointer. |
-| ObjFromPtrAddRef() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Creates/retrieves an object wrapper from a pointer and increments its reference count. |
+| ObjFromPtr() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Creates or retrieves an object wrapper from a raw pointer. |
+| ObjFromPtrAddRef() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Creates/retrieves an object wrapper from a pointer and increments its reference count. |
 | ObjGetBase | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves the value's base object. Differs in that it only returns the name of the base type as a string. |
 | ObjGetCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the current capacity of the object's internal own-property storage. |
 | ObjGetDataPtr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the address of the object's structured data (typed properties). |
 | ObjGetDataSize() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the size of the object's structure (typed properties), in bytes. |
 | ObjHasOwnProp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether the object defines the specified own property name. |
+| ObjHasProp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Checks for a property without invoking an overridden HasProp method. |
 | ObjOwnPropCount() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the number of own properties currently defined on the object. |
 | ObjOwnProps | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerates an object's own properties. |
-| ObjPtr() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Returns the raw pointer address of an object. |
-| ObjPtrAddRef() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Returns object pointer address and increments its reference count. |
-| ObjRelease() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ObjAddRef and ObjRelease functions increment or decrement an object's reference count. |
+| ObjPtr() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Returns the raw pointer address of an object. |
+| ObjPtrAddRef() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Returns object pointer address and increments its reference count. |
+| ObjRelease() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ObjAddRef and ObjRelease functions increment or decrement an object's reference count. |
 | ObjSetBase() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets an object's base object. The native type cannot change and the base chain may not become circular. Neither object may have typed properties, since those fix the memory layout; a prototype which has none is writable. |
 | ObjSetCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Unlike AHK doesn't set the exact capacity, but ensures the internal own props objects can hold the requested number of props. |
 | ObjSetDataPtr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the address of the object's structured data. (Slated for removal in AHK; prefer Struct.At.) |
-| OnClipboardChange() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Wires up an event to be called when the clipboard contents are change. |
+| OnClipboardChange() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Registers callbacks for native platform clipboard content changes. |
 | OnError() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The OnError function registers a function to be called automatically whenever an unhandled error occurs. |
-| OnExit() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The OnExit function registers a function to be called automatically whenever the script exits. |
+| OnExit() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The OnExit function registers a function to be called automatically whenever the script exits. |
 | OnMessage() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The OnMessage function registers a function to be called automatically whenever the script receives the specified message. |
 | or | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Logical OR operator. |
 | Ord() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the numeric two byte unicode value for the first character in a string. This differs from V2 in that it also takes an optional second parameter which specified the 1-based index in the string to return the numeric value for, rather than only doing it for the first character. |
 | OSError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| OutputDebug() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The OutputDebug function sends a string to the debugger (if any) for display. |
+| OutputDebug() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The OutputDebug function sends a string to the debugger (if any) for display. |
 | OutputDebugLine() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Writes a debug line with newline terminator. |
-| Overlay | 🟢 Full | 🟢 Full | 🟢 Full | ⚪ Unknown | Click-through, always-on-top screen overlay backed by a raster canvas, drawn with the same primitives as Image; the cross-platform primitive that Highlight (and ToolTip on Linux/macOS) build on. Full on Windows and Linux (X11, plus Wayland with a capable compositor); macOS is unverified. |
+| Overlay | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Click-through, always-on-top screen overlay backed by a raster canvas and used by Highlight and ToolTip. Verified on Windows, Linux X11/Wayland and macOS. |
 | Parser and runtime execution | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Parser, preprocessing, and script execution runtime are implemented. |
 | ParseScript() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Parses script text and returns parse/compile result metadata. |
-| Pause() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The Pause function pauses the script's current thread or sets the pause state of the underlying thread. |
-| Persistent() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The Persistent function prevents the script from exiting automatically when its last thread completes, allowing it to stay running in an idle state. |
-| PixelGetColor() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns the pixel value at the specified coordinate as a hexadecimal string like 0x010203. Differs because the mode parameter is not supported because it is not needed. |
-| PixelSearch() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Searches a region of the screen for a pixel of the specified color. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been. |
+| Pause() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Pause function pauses the script's current thread or sets the pause state of the underlying thread. |
+| Persistent() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Persistent function prevents the script from exiting automatically when its last thread completes, allowing it to stay running in an idle state. |
+| PixelGetColor() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns the pixel value at the specified coordinate as a hexadecimal string like 0x010203. Differs because the mode parameter is not supported because it is not needed. |
+| PixelSearch() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Searches a region of the screen for a pixel of the specified color. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been. |
 | PostMessage() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The PostMessage function places a message in the message queue of a window or control. |
 | ProcessClose() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Forces the first matching process to close. |
 | ProcessExist() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Checks if the specified process exists. |
@@ -802,18 +841,20 @@ Status legend:
 | RealThread.Call() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Invokes work on the underlying real thread context. |
 | RealThread.ContinueWith() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Schedules continuation after thread task completion. |
 | RealThread.Wait() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Waits for real thread completion. |
-| RegCreateKey() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The RegCreateKey function creates a registry key without writing a value. |
-| RegDelete | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Deletes a value from the registry. |
-| RegDeleteKey() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Deletes a key from the registry. |
+| RegCreateKey() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The RegCreateKey function creates a registry key without writing a value. |
+| RegDelete | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Deletes a value from the registry. |
+| RegDeleteKey() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Deletes a key from the registry. |
 | RegExMatch() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Searches a string for a regular expression match. When there is no match the output variable is left unset (blank in v2.0 compatibility mode). |
 | RegExMatchCs() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Runs .NET/C# regex match and returns match details. |
 | RegExMatchInfo | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Match object returned by RegExMatch. |
+| RegExMatchInfoCs | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Match object returned by the Keysharp case-sensitive .NET regular-expression helper. |
 | RegExReplace() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Replaces text matching a regular expression pattern. |
 | RegExReplaceCs() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Runs .NET/C# regex replace. |
 | Registry APIs | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Windows Registry APIs are Windows-only. |
-| RegRead() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Reads a value from the registry. Supports REG_QWORD in addition to the other types. |
-| RegWrite | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Writes a value to the registry. Supports REG_QWORD in addition to the other types. |
-| Reload() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The Reload function replaces the currently running instance of the script with a new one. |
+| RegRead() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Reads a value from the registry. Supports REG_QWORD in addition to the other types. |
+| RegWrite | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Writes a value to the registry. Supports REG_QWORD in addition to the other types. |
+| Reload() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Reload function replaces the currently running instance of the script with a new one. |
+| RequestCapabilities() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Requests or queries platform permissions and returns the status of each capability. |
 | Return | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns from a function/subroutine, optionally with a value. |
 | Round() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes a number rounded to either the nearest integer, a specified number of decimal places, or a specified number of digits. |
 | RTrim() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Trims characters from the beginning of a string. |
@@ -821,176 +862,182 @@ Status legend:
 | RunAs() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Specifies a set of user credentials to use for all subsequent uses of Run and RunWait. |
 | RunScript() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Executes script source text/file in a script engine context. |
 | RunWait() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Run and RunWait functions run an external program. RunWait will wait until the program finishes before continuing. |
-| Screen capture and pixel/image functions | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Pixel/image search and screen capture depend on platform-specific backends. |
-| Script-owned window management | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Built on WinForms/Eto; some controls and behavior still differ. |
+| Screen capture and pixel/image functions | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Pixel/image search and screen capture depend on platform-specific backends. |
+| Script-owned window management | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Built on WinForms/Eto; some controls and behavior still differ. |
 | SecureRandom() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Generates cryptographically secure random numbers. |
-| Send() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sends simulated keystrokes. |
-| SendEvent() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sends keystrokes via Event mode. |
-| SendInput() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sends keystrokes via Input mode. |
-| SendLevel() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets the send level for generated input. |
-| SendMessage() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The SendMessage function sends a message to a window or control and waits for acknowledgement. |
-| SendMode() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets the default send mode. |
-| SendPlay() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sends keystrokes via Play mode. |
-| SendText() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sends text without translating key names. |
+| Send() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sends simulated keystrokes. |
+| SendEvent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sends keystrokes via Event mode. |
+| SendInput() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sends keystrokes via Input mode. |
+| SendLevel() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets the send level for generated input. |
+| SendMessage() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The SendMessage function sends a message to a window or control and waits for acknowledgement. |
+| SendMode() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets the default send mode. |
+| SendPlay() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sends keystrokes via Play mode. |
+| SendText() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sends text without translating key names. |
 | SetCapsLockState() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SetCapsLockState, SetNumLockState and SetScrollLockState functions set the state of the corresponding key. Can also force the key to stay on or off. |
 | SetControlDelay() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SetControlDelay function sets the delay that will occur after each control-modifying function. |
-| SetDefaultMouseSpeed() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The SetDefaultMouseSpeed function sets the mouse speed that will be used if unspecified in Click, MouseMove, MouseClick and MouseClickDrag. |
-| SetKeyDelay() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The SetKeyDelay function sets the delay that will occur after each keystroke sent by the Send or ControlSend functions. |
-| SetMouseDelay() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The SetMouseDelay function sets the delay that will occur after each mouse movement or click. |
+| SetDefaultMouseSpeed() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The SetDefaultMouseSpeed function sets the mouse speed that will be used if unspecified in Click, MouseMove, MouseClick and MouseClickDrag. |
+| SetKeyDelay() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The SetKeyDelay function sets the delay that will occur after each keystroke sent by the Send or ControlSend functions. |
+| SetMouseDelay() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The SetMouseDelay function sets the delay that will occur after each mouse movement or click. |
 | SetNumLockState() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SetCapsLockState, SetNumLockState and SetScrollLockState functions set the state of the corresponding key. Can also force the key to stay on or off. |
-| SetRegView() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Sets the registry view used by registry functions, allowing them in a 64-bit script to access the 32-bit registry view. |
+| SetRegView() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Sets the registry view used by registry functions, allowing them in a 64-bit script to access the 32-bit registry view. |
 | SetScrollLockState() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SetCapsLockState, SetNumLockState and SetScrollLockState functions set the state of the corresponding key. Can also force the key to stay on or off. |
 | SetStoreCapsLockMode() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SetStoreCapsLockMode function determines whether to restore the state of the CapsLock key after a Send function. |
 | SetTimer() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SetTimer function causes a function to be called automatically and repeatedly at a specified time interval. |
-| SetTitleMatchMode() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The SetTitleMatchMode function sets the matching behavior of the WinTitle parameter in built-in functions such as WinWait. |
+| SetTitleMatchMode() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SetTitleMatchMode function sets the matching behavior of the WinTitle parameter in built-in functions such as WinWait. |
 | SetWinDelay() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SetWinDelay function sets the delay that will occur after each windowing function, such as WinActivate. |
-| SetWorkingDir() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Changes the script's current working directory. |
+| SetWorkingDir() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Changes the script's current working directory. |
 | SHA1() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes SHA-1 hash for input data. |
 | SHA256() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes SHA-256 hash for input data. |
 | SHA384() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes SHA-384 hash for input data. |
 | SHA512() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes SHA-512 hash for input data. |
 | ShowDebug() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Shows or toggles debug UI/log output. |
-| Shutdown() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Shuts down, restarts, or logs off the system. |
+| Shutdown() | 🟢 Full | 🟢 Full | 🟢 Full | 🟡 Partial | Shuts down, restarts, or logs off the system. macOS uses System Events; its normal actions are implemented, but AHK's force flag has no direct equivalent and is ignored with a diagnostic. |
 | Sin() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the hyperbolic sine of a number. |
 | Sinh() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the hyperbolic sine of a number. |
 | Sleep() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Sleep function waits the specified amount of time before continuing. |
 | Sort() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Arranges a variable's contents in alphabetical, numerical, or random order (optionally removing duplicates). The back slash option also supports specifying a forward slash / so it can be used for paths on non-Windows systems. |
-| Sound APIs | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | Audio device/endpoint support differs by platform. |
-| SoundBeep() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Emits a tone from the PC speaker. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
-| SoundGetInterface() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Retrieves a native COM interface of a sound device or component. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. Returns a native COM interface and is Windows-specific. |
-| SoundGetMute() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Retrieves a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
-| SoundGetName() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Retrieves the name of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
-| SoundGetVolume() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Retrieves a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
-| SoundPlay() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Plays a sound, video, or other supported file type. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
-| SoundSetMute() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Changes a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
-| SoundSetVolume() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Changes a volume setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| Sound APIs | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Audio device/endpoint support differs by platform. |
+| SoundBeep() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Emits a tone from the PC speaker. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundGetInterface() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Retrieves a native COM interface of a sound device or component and is Windows-specific. |
+| SoundGetMute() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Retrieves a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundGetName() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Retrieves the name of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundGetVolume() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Retrieves a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundPlay() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Plays a sound, video, or other supported file type. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundSetMute() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Changes a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundSetVolume() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | Changes a volume setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
 | SplitPath() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Separates a file name or URL into its name, directory, extension, and drive. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been. |
 | Sqrt() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the square root of a number. Throws an exception if the argument is negative. |
-| StatusBarGetText() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The StatusbarGetText function retrieves the text from a standard status bar control. |
-| StatusBarWait() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The StatusBarWait function waits until a window's status bar contains the specified string. |
-| StrCompare() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Compares two strings alphabetically. Note this supports local, human readable comparison as well. |
-| StrGet() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Copies a string from a memory address or buffer, optionally converting it from a given code page. |
-| String() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Converts a value to a string. For an object, the result is whatever its ToString() returned, so a ToString() which returns no value makes String() return no value too rather than raising. |
+| StatusBarGetText() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Retrieves text from a native Win32 status bar control. No non-Windows status-bar accessibility backend is implemented. |
+| StatusBarWait() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Waits for native Win32 status-bar text and depends on StatusBarGetText; no non-Windows status-bar accessibility backend is implemented. |
+| StrCompare() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Compares two strings alphabetically. Note this supports local, human readable comparison as well. |
+| StrGet() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Copies a string from a memory address or buffer, optionally converting it from a given code page. |
+| String() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Converts a value to a string. For an object, the result is whatever its ToString() returned, so a ToString() which returns no value makes String() return no value too rather than raising. |
 | String.EndsWith() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether a string ends with the specified suffix. |
 | String.StartsWith() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether a string starts with the specified prefix. |
 | StringBuffer() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates a mutable string buffer object. |
-| StrLen() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Retrieves the count of how many characters are in a string. |
-| StrLower() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Converts a string to lowercase. |
+| StrLen() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves the count of how many characters are in a string. |
+| StrLower() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Converts a string to lowercase. |
 | StrPtr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The StrPtr function returns the current memory address of a string. |
-| StrPut() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Writes string data to a buffer/address using specified encoding. |
-| StrReplace() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Replaces occurrences of a substring and returns the updated string. |
-| StrSplit() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Retrieves one or more characters from the specified position in a string. |
+| StrPut() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Writes string data to a buffer/address using specified encoding. |
+| StrReplace() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Replaces occurrences of a substring and returns the updated string. |
+| StrSplit() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves one or more characters from the specified position in a string. |
 | StrTitle() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The StrLower, StrUpper and StrTitle functions convert a string to lowercase, uppercase or title case. |
+| Struct.__Ref() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves a nested struct or virtual property reference. |
 | struct.__Value | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Backing value property for struct instances. |
-| StructFromPtr() | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Removed in AHK v2.1-alpha; superseded by Struct.At. |
+| Struct.Array | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Base class for fixed-length, fixed-element-type structured arrays. |
+| Struct.Ptr | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Pointer class/property used for pointer-to-struct fields, native parameters and struct addresses. |
 | structures | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | User-defined structures via the struct keyword: typed fields, nesting, At, numeric types, pointer classes, #StructPack alignment, and structured arrays (Int32[10] / Struct.Array). |
-| StrUpper() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Converts a string to uppercase. |
+| StrUpper() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Converts a string to uppercase. |
 | SubStr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves one or more characters from the specified position in a string. |
 | super | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keyword that accesses base-class methods and properties. |
-| Suspend() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The Suspend function disables or enables all or selected hotkeys and hotstrings. |
+| Suspend() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Suspend function disables or enables all or selected hotkeys and hotstrings. |
 | Switch | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Selects one case branch based on a value/expression. |
-| SysGet() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Gets various system information. Can accept either an integer or an enum. |
-| SysGetIPAddresses() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The SysGetIPAddresses function returns an array of the system's IPv4 addresses. |
+| SysGet() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets system information. Non-Windows builds implement monitor dimensions/count, mouse presence/buttons, network state and selected session metrics; Win32-only system metrics have no portable equivalent and are not implemented. |
+| SysGetIPAddresses() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SysGetIPAddresses function returns an array of the system's IPv4 addresses. |
 | ZeroDivisionError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| TabControl.SetTabIcon() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Sets icon for a tab page in tab controls. |
+| TabControl.SetTabIcon() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Sets icon for a tab page in tab controls. |
 | Tan() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the tangent of a number. |
 | Tanh() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the hyperbolic tangent of a number. |
 | TargetError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | Thread | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Thread settings and controls. |
-| Throw | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Rethrowing with throw is only allowed directly within the scope of catch, not from an arbitrary point (eg from functions). |
+| Throw | 🟡 Partial | 🟡 Partial | 🟡 Partial | 🟡 Partial | Rethrowing with throw is only allowed directly within the scope of catch, not from an arbitrary point (eg from functions). |
 | TimeoutError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| ToolTip() | 🟢 Full | 🟡 Partial | 🟡 Partial | ⚪ Unknown | Creates an always-on-top window anywhere on the screen. On Linux and macOS it is drawn via the cross-platform Overlay primitive; on Wayland that needs a capable compositor (KWin, GNOME, or Cinnamon with the Keysharp extension). |
-| Tray icon and menu | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Tray/menu behavior varies by desktop environment and platform APIs. |
-| TraySetIcon() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Changes the script's tray icon. |
-| TrayTip() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Creates a toast message window near the tray icon. Differs in that there is no way to mute the system sound specify a large icon. The duration will be 5 seconds by default, but an additional option dur can be used to specify the duration in seconds, such as dur7. The registry key EnableBalloonTips is not observed for disabling the notification. The option 4 has no effect because the tray icon is always shown at the top of the toast. |
-| TreeView.Add() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Adds an item to a TreeView. |
-| TreeView.Delete() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Deletes one item or all items in a TreeView. |
-| TreeView.Get() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets state information for a TreeView item. |
-| TreeView.GetChild() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets the first child item of a TreeView node. |
-| TreeView.GetCount() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets the total item count in a TreeView. |
-| TreeView.GetNext() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets the next sibling item in a TreeView. |
-| TreeView.GetNode() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns TreeView node object by node id/handle. |
-| TreeView.GetParent() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets the parent item of a TreeView node. |
-| TreeView.GetPrev() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets the previous sibling item in a TreeView. |
-| TreeView.GetSelection() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets the currently selected TreeView item. |
-| TreeView.GetText() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Gets text of a TreeView item. |
-| TreeView.Modify() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Changes TreeView item text, icon, or state. |
-| TreeView.SetImageList() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Assigns an image list for TreeView icons. |
+| ToolTip() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Creates an always-on-top window anywhere on the screen. On Linux and macOS it is drawn via the cross-platform Overlay primitive; on Wayland that needs a capable compositor (KWin, GNOME, or Cinnamon with the Keysharp extension). |
+| Tray icon and menu | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Tray/menu behavior varies by desktop environment and platform APIs. |
+| TraySetIcon() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Changes the script's tray icon. |
+| TrayTip() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Creates a toast message window near the tray icon. Differs in that there is no way to mute the system sound specify a large icon. The duration will be 5 seconds by default, but an additional option dur can be used to specify the duration in seconds, such as dur7. The registry key EnableBalloonTips is not observed for disabling the notification. The option 4 has no effect because the tray icon is always shown at the top of the toast. |
+| TreeView.Add() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Adds an item to a TreeView. |
+| TreeView.Delete() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Deletes one item or all items in a TreeView. |
+| TreeView.Get() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets state information for a TreeView item. |
+| TreeView.GetChild() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the first child item of a TreeView node. |
+| TreeView.GetCount() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the total item count in a TreeView. |
+| TreeView.GetNext() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the next sibling item in a TreeView. |
+| TreeView.GetNode() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns TreeView node object by node id/handle. |
+| TreeView.GetParent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the parent item of a TreeView node. |
+| TreeView.GetPrev() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the previous sibling item in a TreeView. |
+| TreeView.GetSelection() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets the currently selected TreeView item. |
+| TreeView.GetText() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets text of a TreeView item. |
+| TreeView.Modify() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Changes TreeView item text, icon, or state. |
+| TreeView.SetImageList() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Assigns an image list for TreeView icons. |
 | Trim() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Trims characters from the beginning and end of a string. |
 | True | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Boolean true constant. |
 | Try | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Starts exception-handling scope for statements that may throw. |
 | Type | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Type function returns the class name of a value. |
 | TypeError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
+| UInt16 | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Predefined numeric struct type for typed fields and native calls. |
+| UInt32 | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Predefined numeric struct type for typed fields and native calls. |
+| UInt8 | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Predefined numeric struct type for typed fields and native calls. |
 | UnsetError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | UnsetItemError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | Until | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Loop-until condition syntax for terminating a loop when condition becomes true. |
 | ValueError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| VarSetStrCapacity() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Does nothing because the.NET runtime manages all memory. |
+| VarSetStrCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Does nothing because the.NET runtime manages all memory. |
 | VerCompare() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The VerCompare function compares two version strings. |
 | While | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | While-loop statement. |
-| WinActivate() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinActivate function activates the specified window. |
-| WinActivateBottom() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinActivateBottom function is similar to the WinActivate function but it activates the bottommost matching window rather than the topmost. |
-| WinActive() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinActive function checks if the specified window is active and returns its unique ID (HWND). |
-| WinClose() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinClose function closes the specified window. |
-| WinEvent | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Keysharp-specific Ks class for cross-platform window-event subscriptions (modeled on Descolada's WinEvent library). Import with #import "Ks" { WinEvent }. Windows uses SetWinEventHook; Linux hooks GDK's X11 event loop on the UI thread (covers X11 and XWayland; native Wayland sources are not yet wired); macOS currently reports active-application changes only. |
-| WinEvent.Active() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Subscribes to active/foreground window changes; also fires when the active window's title changes (so late-matching criteria are caught). Callback receives (hook, hwnd, dwmsEventTime). |
+| WinActivate() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinActivate function activates the specified window. |
+| WinActivateBottom() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinActivateBottom function is similar to the WinActivate function but it activates the bottommost matching window rather than the topmost. |
+| WinActive() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinActive function checks if the specified window is active and returns its unique ID (HWND). |
+| WinClose() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinClose function closes the specified window. |
+| WinEvent | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific Ks class for cross-platform window-event subscriptions. Windows uses SetWinEventHook; Linux uses X11 or native compositor sources; macOS uses Accessibility AXObserver streams and requires Accessibility permission. |
+| WinEvent.Active() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to active/foreground window changes; also fires when the active window's title changes (so late-matching criteria are caught). Callback receives (hook, hwnd, dwmsEventTime). |
+| WinEvent.CaretMove() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to text caret (insertion point) movement. hwnd is the caret owner's top-level window and A_EventInfo holds the caret rectangle { x, y, w, h } in screen coordinates; unchanged positions are suppressed. Sourced from the same accessibility plumbing as CaretGetPos, so coverage matches it: Windows uses the MSAA caret (EVENT_OBJECT_LOCATIONCHANGE on OBJID_CARET), Linux the AT-SPI object:text-caret-moved signal, macOS the AXSelectedTextChanged notification. Applications that draw their own caret without exposing it to accessibility report nothing. |
 | WinEvent.Count | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Remaining number of times the callback will fire (-1 = unlimited). |
 | WinEvent.EventType | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The event kind this subscription listens for, e.g. "Active" or "Move". |
-| WinEvent.Exist() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to a matching window appearing (created, shown, or its title changed so it now matches); fires once per matching window and respects DetectHiddenWindows. Subsumes the reference library's Create. macOS requires AXObserver wiring (not yet implemented). |
+| WinEvent.Exist() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to a matching window appearing (created, shown, or its title changed so it now matches); fires once per matching window and respects DetectHiddenWindows. Subsumes the reference library's Create. macOS uses per-application AXObserver streams and requires Accessibility permission. |
 | WinEvent.IsActive | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Whether the subscription is still receiving events. |
 | WinEvent.IsPaused | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets whether a single hook (instance) or all hooks (static) are paused. |
-| WinEvent.Minimize() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to window minimize/iconify. |
-| WinEvent.Move() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to window move/resize. Every event is delivered as-is (not coalesced). |
-| WinEvent.NotExist() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to a matching window disappearing (destroyed, hidden/cloaked, or its title changed so it no longer matches). Subsumes the reference library's Close. Tracks the set of matching top-level windows while they are alive (mirroring the reference library) so it fires reliably even though the window may be gone by the time the event arrives. |
+| WinEvent.Minimize() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to window minimize/iconify. |
+| WinEvent.Move() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to window move/resize. Every event is delivered as-is (not coalesced). |
+| WinEvent.NotExist() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to a matching window disappearing (destroyed, hidden/cloaked, or its title changed so it no longer matches). Subsumes the reference library's Close. Tracks the set of matching top-level windows while they are alive (mirroring the reference library) so it fires reliably even though the window may be gone by the time the event arrives. |
 | WinEvent.Pause() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Pauses (1), unpauses (0) or toggles (-1) a single hook (instance) or all hooks (static). A paused hook stays registered but does not fire. Returns the resulting paused state. |
-| WinEvent.Restore() | 🟢 Full | 🟠 Planned | 🟠 Planned | 🟠 Planned | Subscribes to window restore from minimized. Not yet emitted by the X11 backend. |
+| WinEvent.Restore() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to restoration from a minimized state. X11 derives it from _NET_WM_STATE_HIDDEN transitions, Wayland maps compositor restore events, and macOS uses AXWindowDeminiaturized. |
 | WinEvent.Stop() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Cancels the subscription. Also runs on __Delete, but GC timing is unpredictable so call it (or let the owning thread tear down) explicitly. |
-| WinEvent.TitleChange() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟠 Planned | Subscribes to window title changes. |
-| WinExist() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinExist function checks if the specified window exists and returns the unique ID (HWND) of the first matching window. |
-| WinFromPoint() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns window handle located at screen coordinates. |
-| WinGetAlwaysOnTop() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinGetAlwaysOnTop function returns a non-zero value if the specified window is always-on-top. On macOS, only supported for windows owned by the calling process; always returns false for windows owned by other applications. |
-| WinGetClass() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetClass function retrieves the specified window's class name. |
-| WinGetClientPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetClientPos function retrieves the position and size of the specified window's client area. |
-| WinGetControls() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetControls function returns an array of ClassNNs for all controls in the specified window. |
-| WinGetControlsHwnd() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetControlsHwnd function returns an array of unique IDs (HWNDs) for all controls in the specified window. |
-| WinGetCount() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetCount function returns the number of existing windows that match the specified criteria. |
-| WinGetEnabled() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | Retrieves the enabled/disabled state of the specified window. On macOS this always reflects whether the window exists, not its true enabled state, since there is no API to query it. |
-| WinGetExStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | Retrieves the extended style of the specified window. macOS has no equivalent of Win32 extended window styles; always returns 0. |
-| WinGetID() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetID function returns the unique ID (HWND) of the specified window. |
-| WinGetIDLast() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetIDLast function returns the unique ID (HWND) of the last/bottommost window if there is more than one match. |
-| WinGetList() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetList function returns an array of unique IDs (HWNDs) for all existing windows that match the specified criteria. |
-| WinGetMinMax() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetMinMax function returns a non-zero number if the specified window is maximized or minimized. |
-| WinGetPID() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetPID function returns the Process ID (PID) of the specified window. |
-| WinGetPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetPos function retrieves the position and size of the specified window. |
-| WinGetProcessName() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetProcessName function returns the name of the process that owns the specified window. |
-| WinGetProcessPath() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetProcessPath function returns the full path and name of the process that owns the specified window. |
-| WinGetStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | Retrieves the style of the specified window. macOS has no equivalent of Win32 window styles; always returns 0. |
-| WinGetText | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetText function retrieves the text from the specified window. |
-| WinGetTitle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetTitle function retrieves the title of the specified window. |
-| WinGetTransColor() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | Retrieves the current transparent color of the specified window. macOS has no equivalent of a window transparency color key; always returns 0. |
-| WinGetTransparent() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | The WinGetTransparent function returns the degree of transparency of the specified window. |
-| WinHide() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinHide function hides the specified window. On macOS, windows owned by the calling process are hidden individually; for windows owned by other applications, macOS provides no per-window hide API, so the entire owning application is hidden instead. |
-| WinKill() | 🟢 Full | 🟡 Partial | 🟡 Partial | ⚪ Unknown | The WinKill function forces the specified window to close. On Wayland a real force-kill is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent), falling back to a graceful close request. |
-| WinMaximize() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinMaximize function enlarges the specified window to its maximum size. |
-| WinMaximizeAll() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Maximizes all top-level windows. |
-| WinMinimize() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinMinimize function collapses the specified window into a button on the task bar. |
-| WinMinimizeAll() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows. |
-| WinMinimizeAllUndo() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows. |
-| WinMove() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinMove function changes the position and/or size of the specified window. |
+| WinEvent.TitleChange() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to window title changes. |
+| WinExist() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinExist function checks if the specified window exists and returns the unique ID (HWND) of the first matching window. |
+| WinFromPoint() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Returns window handle located at screen coordinates. |
+| WinGetAlwaysOnTop() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetAlwaysOnTop function returns a non-zero value if the specified window is always-on-top. On macOS, only supported for windows owned by the calling process; always returns false for windows owned by other applications. |
+| WinGetClass() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetClass function retrieves the specified window's class name. |
+| WinGetClientPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetClientPos function retrieves the position and size of the specified window's client area. |
+| WinGetControls() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetControls function returns an array of ClassNNs for all controls in the specified window. |
+| WinGetControlsHwnd() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetControlsHwnd function returns an array of unique IDs (HWNDs) for all controls in the specified window. |
+| WinGetCount() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetCount function returns the number of existing windows that match the specified criteria. |
+| WinGetEnabled() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Retrieves the enabled/disabled state of the specified window. On macOS this always reflects whether the window exists, not its true enabled state, since there is no API to query it. |
+| WinGetExStyle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Retrieves the extended style of the specified window. macOS has no equivalent of Win32 extended window styles; always returns 0. |
+| WinGetID() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetID function returns the unique ID (HWND) of the specified window. |
+| WinGetIDLast() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetIDLast function returns the unique ID (HWND) of the last/bottommost window if there is more than one match. |
+| WinGetList() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetList function returns an array of unique IDs (HWNDs) for all existing windows that match the specified criteria. |
+| WinGetMinMax() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetMinMax function returns a non-zero number if the specified window is maximized or minimized. |
+| WinGetPID() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetPID function returns the Process ID (PID) of the specified window. |
+| WinGetPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetPos function retrieves the position and size of the specified window. |
+| WinGetProcessName() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetProcessName function returns the name of the process that owns the specified window. |
+| WinGetProcessPath() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetProcessPath function returns the full path and name of the process that owns the specified window. |
+| WinGetStyle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Retrieves the style of the specified window. macOS has no equivalent of Win32 window styles; always returns 0. |
+| WinGetText | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetText function retrieves the text from the specified window. |
+| WinGetTitle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinGetTitle function retrieves the title of the specified window. |
+| WinGetTransColor() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Retrieves the current transparent color of the specified window. macOS has no equivalent of a window transparency color key; always returns 0. |
+| WinGetTransparent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinGetTransparent function returns the degree of transparency of the specified window. |
+| WinHide() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinHide function hides the specified window. On macOS, windows owned by the calling process are hidden individually; for windows owned by other applications, macOS provides no per-window hide API, so the entire owning application is hidden instead. |
+| WinKill() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinKill function forces the specified window to close. On Wayland a real force-kill is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent), falling back to a graceful close request. |
+| WinMaximize() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMaximize function enlarges the specified window to its maximum size. |
+| WinMaximizeAll() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Maximizes all top-level windows. |
+| WinMinimize() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMinimize function collapses the specified window into a button on the task bar. |
+| WinMinimizeAll() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows. |
+| WinMinimizeAllUndo() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows. |
+| WinMove() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMove function changes the position and/or size of the specified window. |
 | WinMoveBottom() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows. On Wayland this is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS, only supported for windows owned by the calling process, via NSWindow.orderBack(); macOS provides no API to lower another process's window. |
 | WinMoveTop() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinMoveTop function brings the specified window to the top of the stack without explicitly activating it. On Wayland this is provided natively on KWin (compositor scripting) or by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS this is done via the Accessibility AXRaise action, which raises the window within its owning application without activating that application. |
-| WinRedraw() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | The WinRedraw function redraws the specified window. macOS provides no public API to force a redraw of another window; this is currently a no-op that just confirms the window exists. |
-| WinRestore() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinRestore function unminimizes or unmaximizes the specified window if it is minimized or maximized. |
-| WinSetAlwaysOnTop() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows). On macOS, only supported for windows owned by the calling process; macOS provides no API to change another process's window level, and raising it via Accessibility would require repeatedly stealing focus, so it is a no-op for windows owned by other applications. |
-| WinSetEnabled() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | The WinSetEnabled function enables or disables the specified window. macOS provides no public API to disable another window's input handling. |
-| WinSetExStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | The WinSetStyle and WinSetExStyle functions change the style or extended style of the specified window, respectively. macOS has no equivalent of Win32 window styles/extended styles. |
+| WinRedraw() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Redraws the specified window. macOS has no public API to force another application to redraw its window, so the feature is permanently unsupported there. |
+| WinRestore() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinRestore function unminimizes or unmaximizes the specified window if it is minimized or maximized. |
+| WinSetAlwaysOnTop() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows). On macOS, only supported for windows owned by the calling process; macOS provides no API to change another process's window level, and raising it via Accessibility would require repeatedly stealing focus, so it is a no-op for windows owned by other applications. |
+| WinSetEnabled() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Enables or disables the specified window. macOS has no faithful public equivalent of Win32 EnableWindow for another application, so the feature is intentionally unsupported there. |
+| WinSetExStyle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Changes extended Win32-style window attributes where a backend can map them. Raw Win32 extended-style integers have no Cocoa equivalent and are permanently unsupported on macOS. |
 | WinSetRegion() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The WinSetRegion function changes the shape of the specified window to be the specified rectangle, ellipse, or polygon. This is implemented purely via the Win32 GDI region APIs (HRGN/SetWindowRgn) and is Windows-only; non-rectangular window shaping has no equivalent implementation on Linux or macOS. |
-| WinSetStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | The WinSetStyle and WinSetExStyle functions change the style or extended style of the specified window, respectively. macOS has no equivalent of Win32 window styles/extended styles. |
-| WinSetTitle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinSetTitle function changes the title of the specified window. On macOS, windows owned by the calling process have their title set directly; for windows owned by other applications, setting AXTitle via the Accessibility API is attempted, but most applications treat it as read-only and the call has no effect. |
-| WinSetTransColor() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | The WinSetTransColor function makes all pixels of the chosen color invisible inside the specified window. macOS has no equivalent of a window transparency color key. |
+| WinSetStyle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Changes Win32-style window attributes where a backend can map them. Raw Win32 style integers have no Cocoa equivalent and are permanently unsupported on macOS. |
+| WinSetTitle() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinSetTitle function changes the title of the specified window. On macOS, windows owned by the calling process have their title set directly; for windows owned by other applications, setting AXTitle via the Accessibility API is attempted, but most applications treat it as read-only and the call has no effect. |
+| WinSetTransColor() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🔴 Unsupported | Makes pixels of a selected color transparent. Cocoa has no window color-key equivalent, so this feature is permanently unsupported on macOS. |
 | WinSetTransparent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinSetTransparent function makes the specified window semi-transparent. On Wayland this is provided natively on KWin (compositor scripting) or by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS, only supported for windows owned by the calling process, via NSWindow.alphaValue; macOS provides no public API to change another process's window opacity. |
-| WinShow() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinShow function unhides the specified window. On macOS, windows owned by the calling process are restored individually; for windows owned by other applications, the entire owning application is unhidden (the inverse of WinHide's fallback). |
-| WinWait() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | The WinWait function waits until the specified window exists. |
-| WinWaitActive() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |
-| WinWaitClose() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | The WinWaitClose function waits until no matching windows can be found. |
-| WinWaitNotActive() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |
+| WinShow() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The WinShow function unhides the specified window. On macOS, windows owned by the calling process are restored individually; for windows owned by other applications, the entire owning application is unhidden (the inverse of WinHide's fallback). |
+| WinWait() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinWait function waits until the specified window exists. |
+| WinWaitActive() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |
+| WinWaitClose() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinWaitClose function waits until no matching windows can be found. |
+| WinWaitNotActive() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |

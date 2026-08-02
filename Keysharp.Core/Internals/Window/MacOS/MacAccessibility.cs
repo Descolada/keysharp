@@ -11,6 +11,8 @@ namespace Keysharp.Internals.Window.MacOS
 		private const int kAXErrorSuccess = 0;
 		private const int kAXValueCGPointType = 1;
 		private const int kAXValueCGSizeType = 2;
+		private const int kAXValueCGRectType = 3;
+		private const int kAXValueCFRangeType = 4;
 		private const uint kCGHIDEventTap = 0;
 
 		private enum CGEventType : uint
@@ -42,6 +44,20 @@ namespace Keysharp.Internals.Window.MacOS
 		}
 
 		[StructLayout(LayoutKind.Sequential)]
+		private struct CGRectD
+		{
+			public CGPointD Origin;
+			public CGSizeD Size;
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		private struct CFRangeNative
+		{
+			public nint Location;
+			public nint Length;
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
 		private struct CGPointNative
 		{
 			public double X;
@@ -57,6 +73,10 @@ namespace Keysharp.Internals.Window.MacOS
 			private static readonly nint attrWindows = CreateCFString("AXWindows");
 			private static readonly nint attrFocusedApplication = CreateCFString("AXFocusedApplication");
 			private static readonly nint attrFocusedWindow = CreateCFString("AXFocusedWindow");
+			private static readonly nint attrFocusedUIElement = CreateCFString("AXFocusedUIElement");
+			private static readonly nint attrSelectedTextRange = CreateCFString("AXSelectedTextRange");
+			private static readonly nint attrBoundsForRange = CreateCFString("AXBoundsForRange");
+			private static readonly nint attrWindow = CreateCFString("AXWindow");
 			private static readonly nint attrWindowNumber = CreateCFString("AXWindowNumber");
 			private static readonly nint attrTitle = CreateCFString("AXTitle");
 			private static readonly nint attrPosition = CreateCFString("AXPosition");
@@ -95,6 +115,10 @@ namespace Keysharp.Internals.Window.MacOS
 
 			[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 			private static partial int AXUIElementCopyAttributeValue(nint element, nint attribute, out nint value);
+
+		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+		private static partial int AXUIElementCopyParameterizedAttributeValue(nint element, nint parameterizedAttribute,
+			nint parameter, out nint value);
 
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static partial int AXUIElementSetAttributeValue(nint element, nint attribute, nint value);
@@ -164,11 +188,22 @@ namespace Keysharp.Internals.Window.MacOS
 		[return: MarshalAs(UnmanagedType.I1)]
 		private static partial bool AXValueGetValue(nint value, int theType, out CGSizeD size);
 
+		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private static partial bool AXValueGetValue(nint value, int theType, out CGRectD rect);
+
+		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private static partial bool AXValueGetValue(nint value, int theType, out CFRangeNative range);
+
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", EntryPoint = "AXValueCreate")]
 		private static partial nint AXValueCreatePoint(int theType, in CGPointD point);
 
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", EntryPoint = "AXValueCreate")]
 		private static partial nint AXValueCreateSize(int theType, in CGSizeD size);
+
+		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", EntryPoint = "AXValueCreate")]
+		private static partial nint AXValueCreateRange(int theType, in CFRangeNative range);
 
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 		private static partial void CFRelease(nint cfTypeRef);
@@ -774,6 +809,118 @@ namespace Keysharp.Internals.Window.MacOS
 				}
 			}
 
+			internal static bool TryGetCaretScreenPosition(out int x, out int y)
+			{
+				x = 0;
+				y = 0;
+
+				if (!EnsureAccessibilityAccess("query caret position"))
+					return false;
+
+				var systemElement = AXUIElementCreateSystemWide();
+
+				if (systemElement == 0)
+					return false;
+
+				try
+				{
+					if (!TryCopyAttributeValue(systemElement, attrFocusedUIElement, out var focusedElement))
+						return false;
+
+					try
+					{
+						if (!TryGetCaretRect(focusedElement, out var caret))
+							return false;
+
+						x = caret.X;
+						y = caret.Y;
+						return true;
+					}
+					finally
+					{
+						CFRelease(focusedElement);
+					}
+				}
+				finally
+				{
+					CFRelease(systemElement);
+				}
+			}
+
+			/// <summary>The caret (insertion point) rectangle of a text element, in screen coordinates. The element's
+			/// selected text range is collapsed to a zero-length range at the insertion end, which makes
+			/// AXBoundsForRange report the caret itself rather than the bounds of any selected text. Elements that
+			/// aren't text — or that don't expose these attributes — return false rather than an empty rectangle.
+			/// Shared by <see cref="TryGetCaretScreenPosition"/> (which asks the system-wide focused element) and the
+			/// AXSelectedTextChanged observer behind <c>WinEvent.CaretMove</c> (which asks the notified element), so
+			/// the query and the event always report the same position.</summary>
+			internal static bool TryGetCaretRect(nint element, out Rectangle rect)
+			{
+				rect = Rectangle.Empty;
+
+				if (element == 0 || !TryCopyAttributeValue(element, attrSelectedTextRange, out var selectedRangeValue))
+					return false;
+
+				try
+				{
+					if (!AXValueGetValue(selectedRangeValue, kAXValueCFRangeType, out CFRangeNative selectedRange))
+						return false;
+					if (selectedRange.Location < 0 || selectedRange.Length < 0
+							|| selectedRange.Location > nint.MaxValue - selectedRange.Length)
+						return false;
+
+					// Ask for a zero-length range at the insertion end. AXBoundsForRange then
+					// returns the caret rectangle instead of the bounds of selected text.
+					selectedRange.Location += selectedRange.Length;
+					selectedRange.Length = 0;
+					var caretRangeValue = AXValueCreateRange(kAXValueCFRangeType, in selectedRange);
+
+					if (caretRangeValue == 0)
+						return false;
+
+					try
+					{
+						if (!TryCopyParameterizedAttributeValue(element, attrBoundsForRange,
+								caretRangeValue, out var boundsValue))
+							return false;
+
+						try
+						{
+							if (!AXValueGetValue(boundsValue, kAXValueCGRectType, out CGRectD bounds))
+								return false;
+							if (!double.IsFinite(bounds.Origin.X) || !double.IsFinite(bounds.Origin.Y)
+									|| !double.IsFinite(bounds.Size.Width) || !double.IsFinite(bounds.Size.Height)
+									|| bounds.Size.Width < 0 || bounds.Size.Height < 0)
+								return false;
+
+							var left = Math.Round(bounds.Origin.X);
+							var top = Math.Round(bounds.Origin.Y);
+							var width = Math.Round(bounds.Size.Width);
+							var height = Math.Round(bounds.Size.Height);
+
+							if (left < int.MinValue || left > int.MaxValue || top < int.MinValue || top > int.MaxValue
+									|| width > int.MaxValue || height > int.MaxValue)
+								return false;
+
+							rect = new Rectangle((int)left, (int)top, (int)width, (int)height);
+							return true;
+						}
+						finally
+						{
+							CFRelease(boundsValue);
+						}
+					}
+					finally
+					{
+						CFRelease(caretRangeValue);
+					}
+				}
+				finally
+				{
+					CFRelease(selectedRangeValue);
+				}
+			}
+
 			internal static bool TryGetFocusedWindowHandle(out nint handle)
 			{
 				handle = 0;
@@ -1174,7 +1321,30 @@ namespace Keysharp.Internals.Window.MacOS
 		private static bool TryCopyAttributeValue(nint element, nint attr, out nint value)
 		{
 			value = 0;
-			return AXUIElementCopyAttributeValue(element, attr, out value) == kAXErrorSuccess && value != 0;
+
+			if (AXUIElementCopyAttributeValue(element, attr, out value) == kAXErrorSuccess && value != 0)
+				return true;
+
+			if (value != 0)
+				CFRelease(value);
+
+			value = 0;
+			return false;
+		}
+
+		private static bool TryCopyParameterizedAttributeValue(nint element, nint attr, nint parameter, out nint value)
+		{
+			value = 0;
+
+			if (AXUIElementCopyParameterizedAttributeValue(element, attr, parameter, out value) == kAXErrorSuccess
+					&& value != 0)
+				return true;
+
+			if (value != 0)
+				CFRelease(value);
+
+			value = 0;
+			return false;
 		}
 
 		private static bool IsAttributeSettable(nint element, nint attr)

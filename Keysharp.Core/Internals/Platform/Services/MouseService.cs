@@ -73,15 +73,24 @@ namespace Keysharp.Internals
 		// XWarpPointer is pixel-accurate, unlike inputd's normalised uinput abs path.
 		public override bool TryMoveAbsolute(int x, int y) => TryX11Warp(x, y);
 
-		// Physical button state straight from the X server: XQueryPointer's mask carries Button1/2/3
-		// (left/middle/right). Works with no grab/hook — the daemon only grabs the mouse when a mouse hook is
-		// subscribed, so whenever this fallback is reached the pointer state X reports is authoritative.
-		// XButton1/2 (side buttons) aren't in the core pointer mask, so they return false (caller falls back).
+		// inputd supplies logical and physical state for all five buttons without installing a hook. If it is
+		// unavailable or permission is denied, the X11 core pointer mask can still answer the three standard
+		// buttons. XButton1/2 deliberately have no XInput2 fallback.
 		public override bool TryGetButtonStateLogical(uint vk, out bool down)
-			=> TryQueryX11ButtonState(vk, out down);
+		{
+			if (KeysharpInputdManager.TryGetButtonStateLogical(vk, out down))
+				return true;
+
+			return TryQueryX11ButtonState(vk, out down);
+		}
 
 		public override bool TryGetButtonStatePhysical(uint vk, out bool down)
-			=> TryQueryX11ButtonState(vk, out down);
+		{
+			if (KeysharpInputdManager.TryGetButtonStatePhysical(vk, out down))
+				return true;
+
+			return TryQueryX11ButtonState(vk, out down);
+		}
 
 		private static bool TryQueryX11ButtonState(uint vk, out bool down)
 		{

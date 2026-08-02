@@ -6,15 +6,23 @@ namespace Keysharp.Internals.Input.Keyboard
 	/// <summary>
 	/// Windows VK ⇄ Linux evdev (inputd) scan code tables. Fixed mappings used by the
 	/// inputd backend. Part of the unified <see cref="KeyCodes"/> facade.
+	/// <para>
+	/// This is a second copy of the daemon's table in <c>native/keysharp-inputd/src/platform/vk_evdev.c</c>, and
+	/// the two must agree: the daemon stamps the VK on every hook event it delivers, while this table answers
+	/// the client-side questions (key names, VK→code synthesis, key-state bitmaps) — so a divergence would make
+	/// one key report one VK when pressed and a different one when queried. They cannot be shared because they
+	/// live in different processes and languages; both sides are covered by tests
+	/// (<c>LinuxEvdevMappingsCoverPortableAndAlternateKeyCodes</c> here, and the VK/evdev case in
+	/// <c>native/keysharp-inputd/tests/daemon_unit_tests.c</c>), so add every new mapping to both.
+	/// </para>
 	/// </summary>
 	internal static partial class KeyCodes
 	{
 		internal static uint VkToEvdev(uint vk, bool returnSecondary = false)
 		{
-			// Only VK_RETURN maps to two evdev keys — the main Enter (KEY_ENTER = 28) and the numpad Enter
-			// (KEY_KPENTER = 96); see EvdevToVk, where both 28 and 96 resolve back to VK_RETURN. Every other VK
-			// owns a single evdev code (the numpad digits/operators and the navigation keys each have their own
-			// distinct VK, unlike Windows where e.g. Up and NumpadUp share VK_UP), so it has no secondary.
+			// Only VK_RETURN has two AHK key names: the main Enter (KEY_ENTER = 28) and NumpadEnter
+			// (KEY_KPENTER = 96). Evdev has other synonymous physical codes, such as KEY_MAIL and
+			// KEY_EMAIL, but those represent one AHK key name and are recognised by EvdevToVk.
 			// Mirroring the Windows mapper, a secondary request for a VK that has none returns 0 — callers use
 			// that both as the "this VK maps to two scan codes" test and to fall back to the primary code.
 			if (returnSecondary)
@@ -67,6 +75,8 @@ namespace Keysharp.Internals.Input.Keyboard
 				VK_SCROLL => 70u,
 				VK_CONVERT => 92u,
 				VK_NONCONVERT => 94u,
+				VK_KANA => 93u,
+				VK_HANJA => 123u,
 				VK_MODECHANGE => 0x175u,
 				VK_LCONTROL or VK_CONTROL => 29u,
 				VK_RCONTROL => 97u,
@@ -115,7 +125,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				VK_OEM_5 => 43u,
 				VK_OEM_6 => 27u,
 				VK_OEM_7 => 40u,
-				VK_OEM_8 => 86u,
+				VK_OEM_102 => 86u,
 				// Volume / media / browser / application keys (input-event-codes.h KEY_*)
 				VK_VOLUME_MUTE => 113u,         // KEY_MUTE
 				VK_VOLUME_DOWN => 114u,         // KEY_VOLUMEDOWN
@@ -181,6 +191,8 @@ namespace Keysharp.Internals.Input.Keyboard
 				70u => VK_SCROLL,
 				92u => VK_CONVERT,
 				94u => VK_NONCONVERT,
+				90u or 91u or 93u or 122u => VK_KANA,
+				123u => VK_HANJA,
 				0x175u => VK_MODECHANGE,
 				29u => VK_LCONTROL,
 				97u => VK_RCONTROL,
@@ -190,7 +202,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				100u => VK_RMENU,
 				125u => VK_LWIN,
 				126u => VK_RWIN,
-				127u => VK_APPS,
+				127u or 139u => VK_APPS,
 				142u => VK_SLEEP,
 				59u => VK_F1, 60u => VK_F2, 61u => VK_F3, 62u => VK_F4,
 				63u => VK_F5, 64u => VK_F6, 65u => VK_F7, 66u => VK_F8,
@@ -210,27 +222,27 @@ namespace Keysharp.Internals.Input.Keyboard
 				73u => VK_NUMPAD9,
 				55u => VK_MULTIPLY,
 				78u => VK_ADD,
-				121u => VK_SEPARATOR,
+				95u or 121u => VK_SEPARATOR,
 				74u => VK_SUBTRACT,
 				83u => VK_DECIMAL,
 				98u => VK_DIVIDE,
 				39u => VK_OEM_1,
-				13u => VK_OEM_PLUS,
+				13u or 117u => VK_OEM_PLUS,
 				51u => VK_OEM_COMMA,
 				12u => VK_OEM_MINUS,
 				52u => VK_OEM_PERIOD,
 				53u => VK_OEM_2,
 				41u => VK_OEM_3,
 				26u => VK_OEM_4,
-				43u => VK_OEM_5,
+				43u or 124u => VK_OEM_5,
 				27u => VK_OEM_6,
 				40u => VK_OEM_7,
-				86u => VK_OEM_8,
+				86u or 89u => VK_OEM_102,
 				// Volume / media / browser / application keys (input-event-codes.h KEY_*)
 				113u => VK_VOLUME_MUTE,
 				114u => VK_VOLUME_DOWN,
 				115u => VK_VOLUME_UP,
-				164u => VK_MEDIA_PLAY_PAUSE,
+				164u or 200u or 201u or 207u => VK_MEDIA_PLAY_PAUSE,
 				163u => VK_MEDIA_NEXT_TRACK,
 				165u => VK_MEDIA_PREV_TRACK,
 				166u => VK_MEDIA_STOP,
@@ -240,8 +252,8 @@ namespace Keysharp.Internals.Input.Keyboard
 				173u => VK_BROWSER_REFRESH,
 				217u => VK_BROWSER_SEARCH,
 				156u => VK_BROWSER_FAVORITES,
-				172u => VK_BROWSER_HOME,
-				155u => VK_LAUNCH_MAIL,
+				150u or 172u => VK_BROWSER_HOME,
+				155u or 215u => VK_LAUNCH_MAIL,
 				226u => VK_LAUNCH_MEDIA_SELECT,
 				148u => VK_LAUNCH_APP1,
 				149u => VK_LAUNCH_APP2,

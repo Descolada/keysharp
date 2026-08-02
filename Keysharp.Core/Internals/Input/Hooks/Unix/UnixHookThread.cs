@@ -2,6 +2,7 @@ using Keysharp.Builtins;
 #if !WINDOWS
 using System;
 using System.Collections.Generic;
+using Keysharp.Internals.Input.Keyboard;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 using static Keysharp.Internals.Input.Keyboard.KeyboardMouseSender;
@@ -132,20 +133,20 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		internal void ConfigureScanCodeNames()
 		{
 			AddScKeyName("NumpadEnter", KeyCodes.MapVkToSc(VK_RETURN, true));
-			AddScKeyName("Delete", KeyCodes.MapVkToSc(VK_DELETE));
-			AddScKeyName("Del", KeyCodes.MapVkToSc(VK_DELETE));
-			AddScKeyName("Insert", KeyCodes.MapVkToSc(VK_INSERT));
-			AddScKeyName("Ins", KeyCodes.MapVkToSc(VK_INSERT));
-			AddScKeyName("Up", KeyCodes.MapVkToSc(VK_UP));
-			AddScKeyName("Down", KeyCodes.MapVkToSc(VK_DOWN));
-			AddScKeyName("Left", KeyCodes.MapVkToSc(VK_LEFT));
-			AddScKeyName("Right", KeyCodes.MapVkToSc(VK_RIGHT));
-			AddScKeyName("Home", KeyCodes.MapVkToSc(VK_HOME));
-			AddScKeyName("End", KeyCodes.MapVkToSc(VK_END));
-			AddScKeyName("PgUp", KeyCodes.MapVkToSc(VK_PRIOR));
-			AddScKeyName("PageUp", KeyCodes.MapVkToSc(VK_PRIOR));
-			AddScKeyName("PgDn", KeyCodes.MapVkToSc(VK_NEXT));
-			AddScKeyName("PageDown", KeyCodes.MapVkToSc(VK_NEXT));
+			AddScKeyName("Delete", KeyCodes.MapVkToSc(VK_DELETE, true));
+			AddScKeyName("Del", KeyCodes.MapVkToSc(VK_DELETE, true));
+			AddScKeyName("Insert", KeyCodes.MapVkToSc(VK_INSERT, true));
+			AddScKeyName("Ins", KeyCodes.MapVkToSc(VK_INSERT, true));
+			AddScKeyName("Up", KeyCodes.MapVkToSc(VK_UP, true));
+			AddScKeyName("Down", KeyCodes.MapVkToSc(VK_DOWN, true));
+			AddScKeyName("Left", KeyCodes.MapVkToSc(VK_LEFT, true));
+			AddScKeyName("Right", KeyCodes.MapVkToSc(VK_RIGHT, true));
+			AddScKeyName("Home", KeyCodes.MapVkToSc(VK_HOME, true));
+			AddScKeyName("End", KeyCodes.MapVkToSc(VK_END, true));
+			AddScKeyName("PgUp", KeyCodes.MapVkToSc(VK_PRIOR, true));
+			AddScKeyName("PageUp", KeyCodes.MapVkToSc(VK_PRIOR, true));
+			AddScKeyName("PgDn", KeyCodes.MapVkToSc(VK_NEXT, true));
+			AddScKeyName("PageDown", KeyCodes.MapVkToSc(VK_NEXT, true));
 		}
 
 		// -------------------- lifecycle --------------------
@@ -174,8 +175,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				return;
 
 			var sc = KeyCodes.MapVkToSc(vk);
-			if (sc == 0)
-				sc = KeyCodes.MapVkToSc(vk);
 
 			if (!keyboardEnabled)
 				return;

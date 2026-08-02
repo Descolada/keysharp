@@ -906,6 +906,10 @@ namespace Keysharp.Tests
 				Assert.IsTrue(File.Exists("./FileRecycle/file1.txt"));
 				Assert.IsTrue(File.Exists("./FileRecycle/file2.txt"));
 				Assert.IsTrue(File.Exists("./FileRecycle/file3txt"));
+				var quotedPath = "./FileRecycle/file with ' quote.txt";
+				File.WriteAllText(quotedPath, "argument safety");
+				_ = Files.FileRecycle(quotedPath);
+				Assert.IsFalse(File.Exists(quotedPath));
 				_ = Files.FileRecycle("./FileRecycle/file1.txt");
 				Assert.IsTrue(!File.Exists("./FileRecycle/file1.txt"));
 				Assert.IsTrue(File.Exists("./FileRecycle/file2.txt"));

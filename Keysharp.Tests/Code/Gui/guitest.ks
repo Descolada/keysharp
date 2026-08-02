@@ -43,6 +43,7 @@ global gInputHookLastReason := ""
 global gWinEventHooks := []
 global gWinEventCount := 0
 global gWinEventMoveCount := 0
+global gWinEventCaretCount := 0
 global gMouseHookObj := ""
 global gMouseDownCount := 0
 global gMouseUpCount := 0
@@ -3071,7 +3072,7 @@ MyGui.UseGroup()
 Tab.UseTab("Windows")
 winEventGroup := MyGui.AddGroupBox("xc+570 yc+10 w560", "WinEvent (Ks.WinEvent) Window Event Subscriptions")
 MyGui.UseGroup(winEventGroup)
-MyGui.AddText("xc+16 yc+24 w528 h54", "Subscribes to Active / Exist / NotExist / Move / Minimize / Restore / TitleChange through Ks.WinEvent and logs them. Move events are counted (not logged) to avoid flooding. After starting, switch, open, close, minimize, restore, and drag windows.")
+MyGui.AddText("xc+16 yc+24 w528 h54", "Subscribes to Active / Exist / NotExist / Move / Minimize / Restore / TitleChange / CaretMove through Ks.WinEvent and logs them. Move and CaretMove events are counted (not logged) to avoid flooding. After starting, switch, open, close, minimize, restore, and drag windows, and type into a text field.")
 btnStartWinEvent := MyGui.AddButton("xc+16 y+10 w200 h28", "Start WinEvent Probe")
 btnStartWinEvent.OnEvent("Click", (*) => StartWinEventProbe())
 btnStopWinEvent := MyGui.AddButton("x+10 yp w200 h28", "Stop WinEvent Probe")
@@ -3357,17 +3358,27 @@ ResetStatuses() {
 }
 
 ; Single callback for every WinEvent subscription. The event kind is read from hook.EventType,
-; so one handler covers Active/Exist/NotExist/Move/Minimize/Restore/TitleChange. Move fires very
-; frequently (once per drag step), so it is counted and surfaced in the status line rather than
-; written to the log, while every other event is logged with the affected window's title.
+; so one handler covers Active/Exist/NotExist/Move/Minimize/Restore/TitleChange/CaretMove. Move and
+; CaretMove fire very frequently (once per drag step / per keystroke), so they are counted and
+; surfaced in the status line rather than written to the log, while every other event is logged with
+; the affected window's title. Both also carry a rectangle in A_EventInfo, which the status line shows
+; for CaretMove so the reported caret position can be eyeballed against where the caret actually is.
 OnWinEvent(hook, hwnd, dwmsEventTime) {
-	global gWinEventCount, gWinEventMoveCount
+	global gWinEventCount, gWinEventMoveCount, gWinEventCaretCount
 
 	evType := hook.EventType
 
 	if (evType = "Move") {
 		gWinEventMoveCount++
 		SetStatus("window_winevent", "WinEvent: " gWinEventCount " events, " gWinEventMoveCount " moves (last hwnd " Format("0x{:X}", hwnd) ")")
+		return
+	}
+
+	if (evType = "CaretMove") {
+		gWinEventCaretCount++
+		caret := A_EventInfo
+		SetStatus("window_winevent", "WinEvent: " gWinEventCount " events, " gWinEventCaretCount " caret moves (last at "
+			caret.x "," caret.y " " caret.w "x" caret.h " in hwnd " Format("0x{:X}", hwnd) ")")
 		return
 	}
 
@@ -3390,11 +3401,12 @@ OnWinEvent(hook, hwnd, dwmsEventTime) {
 }
 
 StartWinEventProbe() {
-	global gWinEventHooks, gWinEventCount, gWinEventMoveCount
+	global gWinEventHooks, gWinEventCount, gWinEventMoveCount, gWinEventCaretCount
 
 	StopWinEventProbe()
 	gWinEventCount := 0
 	gWinEventMoveCount := 0
+	gWinEventCaretCount := 0
 
 	try {
 		gWinEventHooks.Push(WinEvent.Active(OnWinEvent))
@@ -3404,8 +3416,9 @@ StartWinEventProbe() {
 		gWinEventHooks.Push(WinEvent.Minimize(OnWinEvent))
 		gWinEventHooks.Push(WinEvent.Restore(OnWinEvent))
 		gWinEventHooks.Push(WinEvent.TitleChange(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.CaretMove(OnWinEvent))
 		SetStatus("window_winevent", "WinEvent: probe started — switch, open, close, and drag windows")
-		AppendLog("WinEvent probe started (" gWinEventHooks.Length " subscriptions). Activate, open, close, minimize, restore, and drag windows.")
+		AppendLog("WinEvent probe started (" gWinEventHooks.Length " subscriptions). Activate, open, close, minimize, restore, and drag windows, and type in a text field.")
 	} catch as err {
 		SetStatus("window_winevent", "WinEvent: BLOCKED/ERROR")
 		AppendLog("WinEvent probe failed: " err.Message)

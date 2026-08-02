@@ -1,5 +1,5 @@
 <#
-Verifies parity between `docs/capabilities.json` and the AutoHotkey docs index.
+Verifies parity between `docs/capabilities.json` and the Keysharp docs index.
 
 What it does:
 - Loads capabilities from `docs/capabilities.json`.
@@ -8,7 +8,7 @@ What it does:
 - Writes machine-readable and markdown reports with missing/extra/mismatch stats.
 
 Default paths:
-- `DocsRoot` is relative (`..\..\AutoHotkeyDocs\docs`).
+- `DocsRoot` is the sibling KeysharpDocs repository (`..\KeysharpDocs\docs`).
 
 Outputs:
 - `docs/capabilities-parity-report.json`
@@ -16,7 +16,7 @@ Outputs:
 #>
 param(
 	[string]$CapabilitiesPath = "docs/capabilities.json",
-	[string]$DocsRoot = "..\..\AutoHotkeyDocs\docs",
+	[string]$DocsRoot = "..\KeysharpDocs\docs",
 	[string]$OutJson = "docs/capabilities-parity-report.json",
 	[string]$OutMd = "docs/capabilities-parity-report.md"
 )

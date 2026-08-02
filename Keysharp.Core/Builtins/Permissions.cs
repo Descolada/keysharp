@@ -102,9 +102,14 @@ namespace Keysharp.Builtins
 		private static PermissionResult QueryBlockInputCapability()
 		{
 #if LINUX
-				// Status query — peek, never prompt.
-				return Keysharp.Internals.Input.Linux.KeysharpInputdManager.PeekInputCapability(
-					Keysharp.Internals.Input.Linux.KeysharpInputdClient.Capabilities.BlockInput);
+			// Status query — peek, never prompt. BlockInput's movement-only mode is served by the mouse hook,
+			// so both capabilities are part of the answer.
+			return Keysharp.Internals.Input.Linux.KeysharpInputdManager.PeekInputCapability(
+				Keysharp.Internals.Input.Linux.KeysharpInputdClient.Capabilities.BlockInput
+				| Keysharp.Internals.Input.Linux.KeysharpInputdClient.Capabilities.HookMouse);
+#elif OSX
+			// BlockInput is implemented by the same active event tap used for input monitoring.
+			return Script.TheScript.Permissions.RequestInputMonitoring(prompt: false, operation: "BlockInput");
 #else
 			return new PermissionResult(PermissionStatus.NotApplicable);
 #endif

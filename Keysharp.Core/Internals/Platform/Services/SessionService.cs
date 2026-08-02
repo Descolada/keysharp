@@ -89,8 +89,18 @@ namespace Keysharp.Internals
 	{
 		public bool ExitProgram(uint flags, uint reason)
 		{
-			Ks.OutputDebugLine("ExitProgram is not implemented for macOS yet.");
-			return false;
+			var action = (flags & 2) == 2
+				? "restart"
+				: (flags & (1 | 8)) != 0
+					? "shut down"
+					: "log out";
+
+			// System Events has no equivalent of ExitWindowsEx's force bit. Keep the
+			// operation safe and interactive instead of terminating applications.
+			if ((flags & 4) == 4)
+				Ks.OutputDebugLine("Shutdown force mode is not available on macOS; requesting a normal session action.");
+
+			return $"tell application \"System Events\" to {action}".AppleScript() == 0;
 		}
 	}
 #endif

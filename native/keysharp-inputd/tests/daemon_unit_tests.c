@@ -1,11 +1,14 @@
 #include <stdbool.h>
 #include <errno.h>
+#include <linux/input-event-codes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
+
+#include "platform/vk_evdev.h"
 
 bool g_verbose = false;
 
@@ -422,6 +425,25 @@ static bool test_capless_query_does_not_prepare_input_devices(void)
     return true;
 }
 
+static bool test_vk_evdev_mapping_covers_portable_and_alternate_codes(void)
+{
+    CHECK(ksi_vk_to_evdev(0x03u) == KEY_CANCEL);
+    CHECK(ksi_vk_to_evdev(0x15u) == KEY_KATAKANAHIRAGANA);
+    CHECK(ksi_vk_to_evdev(0x19u) == KEY_HANJA);
+    CHECK(ksi_vk_to_evdev(0xB4u) == KEY_MAIL);
+    CHECK(ksi_vk_to_evdev(0xE2u) == KEY_102ND);
+    CHECK(ksi_evdev_to_vk(KEY_KATAKANA) == 0x15u);
+    CHECK(ksi_evdev_to_vk(KEY_HANGEUL) == 0x15u);
+    CHECK(ksi_evdev_to_vk(KEY_KPJPCOMMA) == 0x6Cu);
+    CHECK(ksi_evdev_to_vk(KEY_KPEQUAL) == 0xBBu);
+    CHECK(ksi_evdev_to_vk(KEY_YEN) == 0xDCu);
+    CHECK(ksi_evdev_to_vk(KEY_MENU) == 0x5Du);
+    CHECK(ksi_evdev_to_vk(KEY_WWW) == 0xACu);
+    CHECK(ksi_evdev_to_vk(KEY_EMAIL) == 0xB4u);
+    CHECK(ksi_evdev_to_vk(KEY_RO) == 0xE2u);
+    return true;
+}
+
 static bool test_lane_event_allocation_benchmark(void)
 {
     const unsigned int iterations = 100000u;
@@ -460,6 +482,7 @@ int main(void)
         const char *name;
         bool (*run)(void);
     } tests[] = {
+        { "VK/evdev mapping covers portable and alternate codes", test_vk_evdev_mapping_covers_portable_and_alternate_codes },
         { "stale nested transaction preserves its whole batch", test_nested_parent_mismatch_fails_open_as_one_batch },
         { "hook snapshot follows install order", test_subscriber_snapshot_uses_hook_install_order },
         { "only active seat user receives callbacks", test_only_active_seat_user_enters_hook_snapshot },

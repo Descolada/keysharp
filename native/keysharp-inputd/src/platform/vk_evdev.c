@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 /*
- * Single source of truth for VK ↔ evdev KEY_* mappings.
+ * Single source of truth for the daemon's VK ↔ evdev KEY_* mappings.
  *
  * Each row maps one Windows virtual-key code to one evdev KEY_* code.
  * ksi_vk_to_evdev  returns the first match for a given VK  (canonical synthesis key).
@@ -16,6 +16,12 @@
  *
  * Note: VK_CLEAR (0x0C) maps to KEY_CLEAR, not KEY_KP5.
  *       KEY_KP5 is VK_NUMPAD5 (0x65).
+ *
+ * The Keysharp client keeps an equivalent table in
+ * Keysharp.Core/Internals/Input/Keyboard/KeyCodes.Evdev.cs, because it has to answer the same
+ * questions in-process (key names, synthesis, key-state bitmaps) without a round trip here.
+ * The two must agree, or a key reports one VK from a hook event and another from a state
+ * query — add every new mapping to both, and to both sides' tests.
  */
 
 typedef struct {
@@ -65,6 +71,7 @@ static const ksi_vk_evdev_entry ksi_vk_evdev_table[] = {
     { 0x39u, KEY_9 },
 
     /* Control keys */
+    { 0x03u, KEY_CANCEL },
     { 0x08u, KEY_BACKSPACE },
     { 0x09u, KEY_TAB },
     { 0x0Cu, KEY_CLEAR },       /* VK_CLEAR — not KEY_KP5 */
@@ -97,6 +104,11 @@ static const ksi_vk_evdev_entry ksi_vk_evdev_table[] = {
     { 0x91u, KEY_SCROLLLOCK },
 
     /* IME */
+    { 0x15u, KEY_KATAKANAHIRAGANA },
+    { 0x15u, KEY_KATAKANA },
+    { 0x15u, KEY_HIRAGANA },
+    { 0x15u, KEY_HANGEUL },
+    { 0x19u, KEY_HANJA },
     { 0x1Cu, KEY_HENKAN },
     { 0x1Du, KEY_MUHENKAN },
     { 0x1Fu, KEY_MODE },
@@ -116,6 +128,7 @@ static const ksi_vk_evdev_entry ksi_vk_evdev_table[] = {
     { 0x5Bu, KEY_LEFTMETA },
     { 0x5Cu, KEY_RIGHTMETA },
     { 0x5Du, KEY_COMPOSE },
+    { 0x5Du, KEY_MENU },
     { 0x5Fu, KEY_SLEEP },
 
     /* Function keys */
@@ -158,6 +171,7 @@ static const ksi_vk_evdev_entry ksi_vk_evdev_table[] = {
     { 0x6Au, KEY_KPASTERISK },
     { 0x6Bu, KEY_KPPLUS },
     { 0x6Cu, KEY_KPCOMMA },
+    { 0x6Cu, KEY_KPJPCOMMA },
     { 0x6Du, KEY_KPMINUS },
     { 0x6Eu, KEY_KPDOT },
     { 0x6Fu, KEY_KPSLASH },
@@ -170,6 +184,7 @@ static const ksi_vk_evdev_entry ksi_vk_evdev_table[] = {
     { 0xAAu, KEY_SEARCH },
     { 0xABu, KEY_FAVORITES },
     { 0xACu, KEY_HOMEPAGE },
+    { 0xACu, KEY_WWW },
     { 0xADu, KEY_MUTE },
     { 0xAEu, KEY_VOLUMEDOWN },
     { 0xAFu, KEY_VOLUMEUP },
@@ -177,6 +192,10 @@ static const ksi_vk_evdev_entry ksi_vk_evdev_table[] = {
     { 0xB1u, KEY_PREVIOUSSONG },
     { 0xB2u, KEY_STOPCD },
     { 0xB3u, KEY_PLAYPAUSE },
+    { 0xB3u, KEY_PLAYCD },
+    { 0xB3u, KEY_PAUSECD },
+    { 0xB3u, KEY_PLAY },
+    { 0xB4u, KEY_MAIL },
     { 0xB4u, KEY_EMAIL },
     { 0xB5u, KEY_MEDIA },
     { 0xB6u, KEY_PROG1 },
@@ -185,6 +204,7 @@ static const ksi_vk_evdev_entry ksi_vk_evdev_table[] = {
     /* Punctuation / OEM keys */
     { 0xBAu, KEY_SEMICOLON },
     { 0xBBu, KEY_EQUAL },
+    { 0xBBu, KEY_KPEQUAL },
     { 0xBCu, KEY_COMMA },
     { 0xBDu, KEY_MINUS },
     { 0xBEu, KEY_DOT },
@@ -192,8 +212,11 @@ static const ksi_vk_evdev_entry ksi_vk_evdev_table[] = {
     { 0xC0u, KEY_GRAVE },
     { 0xDBu, KEY_LEFTBRACE },
     { 0xDCu, KEY_BACKSLASH },
+    { 0xDCu, KEY_YEN },
     { 0xDDu, KEY_RIGHTBRACE },
     { 0xDEu, KEY_APOSTROPHE },
+    { 0xE2u, KEY_102ND },
+    { 0xE2u, KEY_RO },
 };
 
 #define KSI_VK_EVDEV_TABLE_SIZE \
@@ -219,4 +242,16 @@ uint32_t ksi_evdev_to_vk(unsigned int evdev_code)
     }
 
     return 0u;
+}
+
+size_t ksi_vk_evdev_key_count(void)
+{
+    return KSI_VK_EVDEV_TABLE_SIZE;
+}
+
+unsigned int ksi_vk_evdev_key_at(size_t index)
+{
+    return index < KSI_VK_EVDEV_TABLE_SIZE
+        ? ksi_vk_evdev_table[index].evdev
+        : 0u;
 }

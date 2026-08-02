@@ -74,6 +74,48 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Misc")]
+		public async Task PointerButtonQueryReturnsLogicalAndPhysicalXButtons()
+		{
+			var path = $"/tmp/keysharp-inputd-test-{Environment.ProcessId}-{Guid.NewGuid():N}.sock";
+			var previous = Environment.GetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable);
+			using var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+			listener.Bind(new UnixDomainSocketEndPoint(path));
+			listener.Listen(1);
+			Environment.SetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable, path);
+
+			try
+			{
+				var server = Task.Run(async () =>
+				{
+					using var socket = await listener.AcceptAsync();
+					var hello = ReceiveFrame(socket);
+					SendFrame(socket, KeysharpInputdClient.MessageType.ClientHello,
+						hello.CorrelationId, new byte[24]);
+
+					var query = ReceiveFrame(socket);
+					Assert.AreEqual(KeysharpInputdClient.MessageType.GetPointerButtons, query.Type);
+					var payload = new byte[16];
+					payload[0] = 1;
+					BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(8), (1u << 0) | (1u << 3));
+					BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(12), 1u << 4);
+					SendFrame(socket, KeysharpInputdClient.MessageType.PointerButtonsResult,
+						query.CorrelationId, payload);
+				});
+
+				using var client = KeysharpInputdClient.Connect();
+				Assert.IsTrue(client.TryGetPointerButtons(out var buttons));
+				Assert.AreEqual((1u << 0) | (1u << 3), buttons.LogicalButtons);
+				Assert.AreEqual(1u << 4, buttons.PhysicalButtons);
+				await server.WaitAsync(TimeSpan.FromSeconds(5));
+			}
+			finally
+			{
+				Environment.SetEnvironmentVariable(KeysharpInputdClient.SocketEnvironmentVariable, previous);
+				try { File.Delete(path); } catch { }
+			}
+		}
+
+		[Test, Category("Misc")]
 		public async Task HookStreamPumpsNestedEventsInStackOrder()
 		{
 			var path = $"/tmp/keysharp-inputd-test-{Environment.ProcessId}-{Guid.NewGuid():N}.sock";

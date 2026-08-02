@@ -5,6 +5,62 @@ namespace Keysharp.Internals
 		/// <summary>Process/thread + icon-resource primitives. Compile-time per-OS.</summary>
 		internal static partial class Process
 		{
+			/// <summary><paramref name="Started"/> separates "the executable isn't there" from "it ran and failed",
+			/// which callers on optional helper tools need to tell apart.</summary>
+			internal readonly record struct CommandResult(int ExitCode, string StandardOutput, string StandardError, bool Started = true)
+			{
+				internal bool Succeeded => Started && ExitCode == 0;
+
+				internal string ErrorMessage => !string.IsNullOrWhiteSpace(StandardError)
+					? StandardError.Trim()
+					: !string.IsNullOrWhiteSpace(StandardOutput)
+						? StandardOutput.Trim()
+						: $"Process exited with code {ExitCode}.";
+			}
+
+			/// <summary>Runs an executable directly, without a command shell, and captures both output streams.</summary>
+			internal static CommandResult RunCommand(string fileName, params string[] arguments)
+			{
+				using var process = new System.Diagnostics.Process
+				{
+					StartInfo = new ProcessStartInfo
+					{
+						FileName = fileName,
+						RedirectStandardOutput = true,
+						RedirectStandardError = true,
+						UseShellExecute = false,
+						CreateNoWindow = true
+					}
+				};
+
+				foreach (var argument in arguments)
+					process.StartInfo.ArgumentList.Add(argument);
+
+				try
+				{
+					if (!process.Start())
+						return new(-1, string.Empty, $"Failed to start {fileName}.", false);
+				}
+				catch (Exception ex)   // Win32Exception when the executable isn't installed, and friends.
+				{
+					return new(-1, string.Empty, ex.Message, false);
+				}
+
+				try
+				{
+					// Both streams are drained concurrently before waiting, or a child that fills one pipe's
+					// buffer would block forever while we wait for it to exit.
+					var outputTask = process.StandardOutput.ReadToEndAsync();
+					var errorTask = process.StandardError.ReadToEndAsync();
+					process.WaitForExit();
+					return new(process.ExitCode, outputTask.GetAwaiter().GetResult(), errorTask.GetAwaiter().GetResult());
+				}
+				catch (Exception ex)
+				{
+					return new(-1, string.Empty, ex.Message);
+				}
+			}
+
 #if WINDOWS
 			public static uint CurrentThreadId() => Os.Windows.WindowsAPI.GetCurrentThreadId();
 

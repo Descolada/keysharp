@@ -22,16 +22,20 @@ namespace Keysharp.Builtins
 			internal bool Right;
 			internal bool Rtl;
 
+			//Set on separators in a columned menu, which WinForms would otherwise stretch across the whole
+			//window; 0 means "not in a columned menu". See KeysharpMenuRenderer.OnRenderSeparator.
+			internal int ColumnWidth;
+
 			//Both flavors begin a new column; BarBreak additionally draws a divider in front of it.
 			internal bool StartsColumn => Break || BarBreak;
 		}
 
-		internal static MenuItemPresentation GetPresentation(ToolStripMenuItem item) =>
+		internal static MenuItemPresentation GetPresentation(ToolStripItem item) =>
 			item.Tag as MenuItemPresentation ?? (MenuItemPresentation)(item.Tag = new MenuItemPresentation());
 
 		//"Break" and "BarBreak" are mutually exclusive: a column starts either with a divider or without one.
 		//Removing one leaves the other alone, matching AHK's per-flag MFT_MENUBREAK/MFT_MENUBARBREAK clearing.
-		private static void SetColumnBreak(ToolStripMenuItem item, bool adding, bool withBar)
+		private static void SetColumnBreak(ToolStripItem item, bool adding, bool withBar)
 		{
 			var presentation = GetPresentation(item);
 
@@ -70,6 +74,22 @@ namespace Keysharp.Builtins
 				e.Graphics.SmoothingMode = oldSmoothing;
 			}
 
+			//A separator belongs to one column, exactly as a native menu draws it. WinForms sizes separators to
+			//the whole window regardless of the width given to them, so the drawing is clipped to the column.
+			protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+			{
+				if (e.Item.Tag is not MenuItemPresentation { ColumnWidth: > 0 } presentation || presentation.ColumnWidth >= e.Item.Width)
+				{
+					base.OnRenderSeparator(e);
+					return;
+				}
+
+				var clip = e.Graphics.Clip;
+				e.Graphics.SetClip(new Rectangle(0, 0, presentation.ColumnWidth, e.Item.Height));
+				base.OnRenderSeparator(e);
+				e.Graphics.Clip = clip;
+			}
+
 			//Draws the MFT_MENUBARBREAK divider. This runs on every repaint, so a menu with no BarBreak item
 			//must cost no more than the scan itself.
 			protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
@@ -98,9 +118,11 @@ namespace Keysharp.Builtins
 		private static readonly ToolStripRenderer menuRenderer = new KeysharpMenuRenderer();
 
 		/// <summary>
-		/// Reproduces MFT_MENUBREAK/MFT_MENUBARBREAK. ToolStrip has no native multi-column support, so the
-		/// columns come from letting its flow layout wrap at each item that begins one.
+		/// Reproduces MFT_MENUBREAK/MFT_MENUBARBREAK. ToolStrip has no native multi-column support, so the items
+		/// are placed with a wrapping flow layout and every size is derived from their own preferred sizes.
 		/// Runs when the menu is about to open, so it sees the final item list exactly once per display.
+		/// Nothing here may be measured from the laid-out Bounds: a multi-column menu keeps the explicit size it
+		/// is given, so feeding a measured result back in would grow the menu a little on every display.
 		/// </summary>
 		private static void ApplyColumns(ToolStripDropDown dropDown)
 		{
@@ -112,39 +134,80 @@ namespace Keysharp.Builtins
 			if (!flow.WrapContents && !items.Skip(1).Any(static item => item.Tag is MenuItemPresentation { StartsColumn: true }))
 				return;
 
-			ToolStripItem previous = null;
-			var gap = 0;
-			var columns = 1;
-
+			//Undo any pinning left by a previous display so the menu measures at its natural size again.
 			foreach (var item in items)
 			{
 				flow.SetFlowBreak(item, false);
+				item.AutoSize = true;
+				item.Margin = new Padding(0, item.Margin.Top, item.Margin.Right, item.Margin.Bottom);
 
+				if (item.Tag is MenuItemPresentation existing)
+					existing.ColumnWidth = 0;
+			}
+
+			flow.WrapContents = false;
+			dropDown.AutoSize = true;
+
+			//Nothing visible left to arrange — every item was deleted or hidden since the last display, which is
+			//only reachable here because the leftover WrapContents got us past the check above. The reset already
+			//restored the plain single column, and the measuring below has no items to take a maximum over.
+			if (items.Length == 0)
+				return;
+
+			//A ToolStripDropDownMenu stretches every item to the widest one in the menu and reports that width
+			//as each item's preferred size, so the items cannot be measured individually. Their text can be, and
+			//the surrounding chrome (check/image margin, padding, submenu arrows) is what the menu's own natural
+			//width adds on top of the widest text.
+			var texts = items.ToDictionary(item => item, item => TextRenderer.MeasureText(item.Text ?? "", item.Font ?? dropDown.Font).Width);
+			var heights = items.ToDictionary(static item => item, static item => item.GetPreferredSize(Size.Empty).Height);
+			var chrome = Math.Max(0, dropDown.GetPreferredSize(Size.Empty).Width - texts.Values.Max());
+			var columns = new List<(List<ToolStripItem> Items, int Gap)> { ([], 0) };
+
+			foreach (var item in items)
+			{
 				//The first visible item already starts the first column and so cannot begin another.
-				if (previous != null && item.Tag is MenuItemPresentation { StartsColumn: true } presentation)
+				if (columns[^1].Items.Count > 0 && item.Tag is MenuItemPresentation { StartsColumn: true } presentation)
+					columns.Add(([], presentation.BarBreak ? ColumnGap : 0));
+
+				columns[^1].Items.Add(item);
+			}
+
+			//Already restored to a plain single column above.
+			if (columns.Count == 1)
+				return;
+
+			//Each column is sized to its own widest item, as a native menu does.
+			var totalWidth = 0;
+			var maxHeight = 0;
+
+			foreach (var (columnItems, gap) in columns)
+			{
+				var width = chrome + columnItems.Max(item => texts[item]);
+				var height = 0;
+
+				foreach (var item in columnItems)
 				{
-					flow.SetFlowBreak(previous, true);
-					gap = presentation.BarBreak ? ColumnGap : 0;
-					++columns;
+					var margin = item.Margin;
+					item.Margin = new Padding(gap, margin.Top, margin.Right, margin.Bottom);
+					item.AutoSize = false;
+					item.Size = new Size(width, heights[item]);
+					height += item.Height + margin.Vertical;
+
+					//WinForms ignores the width above for separators and stretches them across the window, so
+					//the renderer has to clip them back to their own column.
+					if (item is ToolStripSeparator)
+						GetPresentation(item).ColumnWidth = width;
 				}
 
-				var margin = item.Margin;
-				item.Margin = new Padding(gap, margin.Top, margin.Right, margin.Bottom);
-				previous = item;
+				//Ends the column explicitly, so the wrap points never depend on the window's height.
+				flow.SetFlowBreak(columnItems[^1], true);
+				totalWidth += width + gap;
+				maxHeight = Math.Max(maxHeight, height);
 			}
 
-			flow.WrapContents = columns > 1;
-			//AutoSize cannot measure a wrapped flow layout, so a multi-column menu is sized from its items.
-			//The first pass lays them out at the still-tall autosized height, which is what makes the explicit
-			//flow breaks (rather than the height) decide where the columns fall.
-			dropDown.AutoSize = columns == 1;
-
-			if (columns > 1)
-			{
-				dropDown.PerformLayout();
-				dropDown.Size = new Size(items.Max(static item => item.Bounds.Right) + dropDown.Padding.Right,
-										 items.Max(static item => item.Bounds.Bottom) + dropDown.Padding.Bottom);
-			}
+			flow.WrapContents = true;
+			dropDown.AutoSize = false;
+			dropDown.Size = new Size(totalWidth + dropDown.Padding.Horizontal, maxHeight + dropDown.Padding.Vertical);
 		}
 #endif
 

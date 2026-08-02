@@ -4,8 +4,9 @@ using Keysharp.Builtins;
 namespace Keysharp.Internals.Window.Windows
 {
 	/// <summary>
-	/// Windows <see cref="IWindowEventBackend"/> built on <c>SetWinEventHook</c> (WINEVENT_OUTOFCONTEXT). One
-	/// hook is installed per requested category; a single shared <c>WINEVENTPROC</c> normalizes each native
+	/// Windows <see cref="IWindowEventBackend"/> built on <c>SetWinEventHook</c> (WINEVENT_OUTOFCONTEXT). Hooks are
+	/// installed for the native event ids the requested categories need (refcounted, since a category may need
+	/// several ids and two categories may share one); a single shared <c>WINEVENTPROC</c> normalizes each native
 	/// event into a <see cref="WindowEventRaw"/>. Out-of-context hooks are delivered to the message queue of the
 	/// thread that installed them, so install/uninstall is marshalled onto the UI thread (which runs the
 	/// WinForms message loop); the proc therefore fires on the UI thread during normal message dispatch and
@@ -15,8 +16,10 @@ namespace Keysharp.Internals.Window.Windows
 	{
 		// WINEVENTPROC dwFlags.
 		private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
-		// Object identifiers: we only care about whole top-level windows, not child controls/caret/etc.
+		// Object identifiers: apart from the text caret (CaretMove), we only care about whole top-level windows,
+		// not child controls/cursor/menu items/etc.
 		private const int OBJID_WINDOW = 0;
+		private const int OBJID_CARET = -8;
 		private const int CHILDID_SELF = 0;
 
 		// Native event ids we map (see winuser.h).
@@ -34,12 +37,26 @@ namespace Keysharp.Internals.Window.Windows
 		private static readonly WindowEventMask[] AllBits =
 		[
 			WindowEventMask.Active, WindowEventMask.Create, WindowEventMask.Close, WindowEventMask.Move,
-			WindowEventMask.Show, WindowEventMask.Minimize, WindowEventMask.Restore, WindowEventMask.TitleChange
+			WindowEventMask.Show, WindowEventMask.Minimize, WindowEventMask.Restore, WindowEventMask.TitleChange,
+			WindowEventMask.CaretMove
 		];
 
-		// HWINEVENTHOOK handles keyed by category (a category may install several hooks, e.g. Close watches
-		// destroy/hide/cloak). Only touched on the UI thread.
-		private readonly Dictionary<WindowEventMask, nint[]> hooks = new();
+		/// <summary>One installed native hook: its HWINEVENTHOOK (0 if the install failed) and how many categories
+		/// currently want the underlying event id.</summary>
+		private sealed class HookEntry
+		{
+			internal nint handle;
+			internal int refs;
+		}
+
+		// Installed hooks keyed by *native event id* rather than category, because categories can share one: Move and
+		// CaretMove are both EVENT_OBJECT_LOCATIONCHANGE (told apart by idObject in the proc), and installing the same
+		// id twice would deliver every location change twice — double-firing Move subscriptions the moment a CaretMove
+		// hook existed. So each id is installed once and refcounted; a failed install is still refcounted so the
+		// add/release pairing (and thus the other categories' hooks) stays correct. Only touched on the UI thread,
+		// as is installedBits (which categories are currently installed).
+		private readonly Dictionary<uint, HookEntry> hooks = new();
+		private WindowEventMask installedBits = WindowEventMask.None;
 		// Held for the backend lifetime so the GC cannot collect the delegate the OS calls.
 		private readonly WindowsAPI.WinEventProc proc;
 		private bool disposed;
@@ -67,22 +84,13 @@ namespace Keysharp.Internals.Window.Windows
 
 			foreach (var bit in AllBits)
 			{
-				if ((mask & bit) == 0 || hooks.ContainsKey(bit))
+				if ((mask & bit) == 0 || (installedBits & bit) != 0)
 					continue;
 
-				var handles = new List<nint>();
-
 				foreach (var id in EventIdsFor(bit))
-				{
-					var handle = WindowsAPI.SetWinEventHook(id, id, 0, proc, 0, 0, WINEVENT_OUTOFCONTEXT);
+					AddRef(id, bit);
 
-					if (handle != 0)
-						handles.Add(handle);
-					else
-						Ks.OutputDebugLine($"SetWinEventHook failed for {bit} (event 0x{id:X}).");
-				}
-
-				hooks[bit] = handles.ToArray();
+				installedBits |= bit;
 			}
 		}
 
@@ -90,28 +98,64 @@ namespace Keysharp.Internals.Window.Windows
 		{
 			foreach (var bit in AllBits)
 			{
-				if ((mask & bit) == 0 || !hooks.TryGetValue(bit, out var handles))
+				if ((mask & bit) == 0 || (installedBits & bit) == 0)
 					continue;
 
-				foreach (var handle in handles)
-					_ = WindowsAPI.UnhookWinEvent(handle);
+				foreach (var id in EventIdsFor(bit))
+					ReleaseRef(id);
 
-				_ = hooks.Remove(bit);
+				installedBits &= ~bit;
 			}
+		}
+
+		/// <summary>Installs the hook for a native event id on first use, or just counts an extra user of an id that
+		/// is already hooked (see <see cref="hooks"/>).</summary>
+		private void AddRef(uint id, WindowEventMask bit)
+		{
+			if (hooks.TryGetValue(id, out var entry))
+			{
+				entry.refs++;
+				return;
+			}
+
+			var handle = WindowsAPI.SetWinEventHook(id, id, 0, proc, 0, 0, WINEVENT_OUTOFCONTEXT);
+
+			if (handle == 0)
+				Ks.OutputDebugLine($"SetWinEventHook failed for {bit} (event 0x{id:X}).");
+
+			hooks[id] = new HookEntry { handle = handle, refs = 1 };
+		}
+
+		/// <summary>Drops one user of a native event id, uninstalling the hook once the last one goes away.</summary>
+		private void ReleaseRef(uint id)
+		{
+			if (!hooks.TryGetValue(id, out var entry) || --entry.refs > 0)
+				return;
+
+			if (entry.handle != 0)
+				_ = WindowsAPI.UnhookWinEvent(entry.handle);
+
+			_ = hooks.Remove(id);
 		}
 
 		// ---- native callback (runs on the UI thread) ---------------------------------------
 
 		private void OnWinEvent(nint hWinEventHook, uint eventType, nint hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
 		{
-			// Ignore non-window objects: caret, cursor, menu items, scrollbars, list items, etc. all arrive with
-			// a non-window idObject or a non-self idChild.
-			if (hwnd == 0 || idObject != OBJID_WINDOW || idChild != CHILDID_SELF)
-				return;
-
 			var sink = Sink;
 
-			if (sink == null)
+			if (hwnd == 0 || sink == null)
+				return;
+
+			if (idObject == OBJID_CARET)
+			{
+				OnCaretEvent(sink, eventType, hwnd, idChild, dwEventThread, dwmsEventTime);
+				return;
+			}
+
+			// Ignore the remaining non-window objects: cursor, menu items, scrollbars, list items, etc. all arrive
+			// with a non-window idObject or a non-self idChild.
+			if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF)
 				return;
 
 			var type = TypeFor(eventType);
@@ -133,6 +177,45 @@ namespace Keysharp.Internals.Window.Windows
 				return;
 
 			sink(new WindowEventRaw(type.Value, hwnd, ToMonotonicMs(dwmsEventTime)));
+		}
+
+		/// <summary>
+		/// Handles an <c>OBJID_CARET</c> notification. The caret shares EVENT_OBJECT_LOCATIONCHANGE with window moves,
+		/// so this runs whenever a Move subscription has that hook installed too and must bail out unless CaretMove is
+		/// actually wanted. The caret belongs to the focused control — usually a child window — but the reported handle
+		/// is its top-level ancestor, so the standard WinTitle criteria match and the callback gets the same kind of
+		/// handle every other WinEvent hands it. The rectangle must be captured now (the caret is not queryable after
+		/// the fact) and a caret that has already vanished is simply not reported.
+		/// </summary>
+		private void OnCaretEvent(Action<WindowEventRaw> sink, uint eventType, nint hwnd, int idChild, uint dwEventThread, uint dwmsEventTime)
+		{
+			if (eventType != EVENT_OBJECT_LOCATIONCHANGE || idChild != CHILDID_SELF
+				|| (installedBits & WindowEventMask.CaretMove) == 0
+				|| !TryGetCaretRect(dwEventThread, out var caret))
+				return;
+
+			var top = WindowsAPI.GetAncestor(hwnd, gaFlags.GA_ROOT);
+			sink(new WindowEventRaw(WindowEventType.CaretMove, top != 0 ? top : hwnd, ToMonotonicMs(dwmsEventTime)) { Bounds = caret });
+		}
+
+		/// <summary>The caret rectangle of <paramref name="threadId"/> in screen coordinates, read through
+		/// GUITHREADINFO — the same source <c>CaretGetPos</c> uses, so the two always agree. <c>rcCaret</c> is relative
+		/// to the client area of the caret's own window, hence the conversion.</summary>
+		private static bool TryGetCaretRect(uint threadId, out Rectangle rect)
+		{
+			rect = Rectangle.Empty;
+			var info = GUITHREADINFO.Default;   // must be built this way: cbSize has to be populated
+
+			if (!WindowsAPI.GetGUIThreadInfo(threadId, ref info) || info.hwndCaret == 0)
+				return false;
+
+			var pt = new POINT(info.rcCaret.Left, info.rcCaret.Top);
+
+			if (!WindowsAPI.ClientToScreen(info.hwndCaret, ref pt))
+				return false;
+
+			rect = new Rectangle(pt.X, pt.Y, info.rcCaret.Right - info.rcCaret.Left, info.rcCaret.Bottom - info.rcCaret.Top);
+			return true;
 		}
 
 		/// <summary>
@@ -176,6 +259,9 @@ namespace Keysharp.Internals.Window.Windows
 			WindowEventMask.Minimize    => [EVENT_SYSTEM_MINIMIZESTART],
 			WindowEventMask.Restore     => [EVENT_SYSTEM_MINIMIZEEND],
 			WindowEventMask.TitleChange => [EVENT_OBJECT_NAMECHANGE],
+			// Same native event as Move; OBJID_CARET vs OBJID_WINDOW separates them in the proc, and the id is
+			// refcounted so the two categories share a single hook.
+			WindowEventMask.CaretMove   => [EVENT_OBJECT_LOCATIONCHANGE],
 			_ => []
 		};
 	}

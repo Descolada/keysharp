@@ -53,6 +53,11 @@ namespace Keysharp.Internals.Window.Linux
 		[DllImport("libgdk-3.so.0")]
 		private static extern void gdk_x11_display_error_trap_pop_ignored(nint display);
 
+		// CaretMove doesn't come from X11 at all — the caret is an accessibility concept, so it is served by the
+		// display-server-agnostic AT-SPI source (which the Wayland backend owns one of too). Every other category is
+		// X11's, and the GDK filter is only attached when at least one of those is wanted.
+		private readonly LinuxAccessibility.CaretEventSource caretSource = new();
+
 		private readonly Lock gate = new();
 		private WindowEventMask enabledMask = WindowEventMask.None;
 		private GdkFilterFuncNative filter;    // kept alive while attached so GDK can call it
@@ -83,6 +88,9 @@ namespace Keysharp.Internals.Window.Linux
 
 		public void Start(WindowEventMask mask)
 		{
+			if ((mask & WindowEventMask.CaretMove) != 0)
+				caretSource.Start(EmitCaretEvent);
+
 			lock (gate)
 			{
 				if (disposed)
@@ -90,7 +98,7 @@ namespace Keysharp.Internals.Window.Linux
 
 				enabledMask |= mask;
 
-				if (filterAttached)
+				if (filterAttached || !NeedsX11Filter(enabledMask))
 					return;
 			}
 
@@ -99,12 +107,15 @@ namespace Keysharp.Internals.Window.Linux
 
 		public void Stop(WindowEventMask mask)
 		{
+			if ((mask & WindowEventMask.CaretMove) != 0)
+				caretSource.Stop();
+
 			bool detach;
 
 			lock (gate)
 			{
 				enabledMask &= ~mask;
-				detach = enabledMask == WindowEventMask.None;
+				detach = !NeedsX11Filter(enabledMask);
 			}
 
 			if (detach)
@@ -118,18 +129,26 @@ namespace Keysharp.Internals.Window.Linux
 			lock (gate)
 				enabledMask = WindowEventMask.None;
 
+			caretSource.Dispose();
 			Script.PostToUIThread(DetachOnUI);
 		}
+
+		/// <summary>Whether any category the X11 filter actually serves is enabled — i.e. anything but CaretMove,
+		/// which comes from AT-SPI instead. A caret-only subscription must not put a global filter on GDK's event
+		/// stream for events nothing would look at.</summary>
+		private static bool NeedsX11Filter(WindowEventMask mask) => (mask & ~WindowEventMask.CaretMove) != WindowEventMask.None;
+
+		private void EmitCaretEvent(WindowEventRaw ev) => Sink?.Invoke(ev);
 
 		// ---- UI-thread attach/detach (runs on the GDK main loop) ----------------------------
 
 		private void AttachOnUI()
 		{
 			lock (gate)
-				// enabledMask == None means a Stop cleared every category before this queued attach ran — skip it (a
+				// No X11-served category left means a Stop cleared them all before this queued attach ran — skip it (a
 				// queued DetachOnUI will settle the state). Combined with DetachOnUI re-checking enabledMask, the last
 				// enabledMask writer wins on the UI thread, so a rapid Stop→Start can't end up detached-while-enabled.
-				if (disposed || filterAttached || enabledMask == WindowEventMask.None)
+				if (disposed || filterAttached || !NeedsX11Filter(enabledMask))
 					return;
 
 			gdkDisplay = gdk_display_get_default();
@@ -197,7 +216,7 @@ namespace Keysharp.Internals.Window.Linux
 				// but saw filterAttached still true and skipped posting AttachOnUI, relying on this re-check. If a
 				// category is enabled again, keep the filter attached (detaching now would leave the new subscription
 				// dead — the original bug). Only a real teardown (disposed) detaches while something is still enabled.
-				if (!disposed && enabledMask != WindowEventMask.None)
+				if (!disposed && NeedsX11Filter(enabledMask))
 					return;
 
 				f = filter;

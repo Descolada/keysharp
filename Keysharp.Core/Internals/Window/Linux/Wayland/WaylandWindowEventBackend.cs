@@ -26,6 +26,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	internal sealed class WaylandWindowEventBackend : IWindowEventBackend
 	{
 		private readonly IWaylandBackend backend;
+		// No compositor exposes caret movement — the caret is an accessibility concept — so CaretMove is served by
+		// the same display-server-agnostic AT-SPI source the X11 backend uses, and a caret-only subscription never
+		// touches the compositor channel at all.
+		private readonly LinuxAccessibility.CaretEventSource caretSource = new();
 		private readonly Lock gate = new();
 		private WindowEventMask enabledMask = WindowEventMask.None;
 		private IDisposable subscription;
@@ -39,6 +43,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		public void Start(WindowEventMask mask)
 		{
+			if ((mask & WindowEventMask.CaretMove) != 0)
+				caretSource.Start(EmitCaretEvent);
+
 			lock (gate)
 			{
 				if (disposed)
@@ -46,7 +53,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				enabledMask |= mask;
 
-				if (subscription != null)
+				if (subscription != null || !NeedsCompositor(enabledMask))
 					return;
 
 				// Spin up the dispatcher before subscribing so no event is dropped between the two.
@@ -93,13 +100,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		public void Stop(WindowEventMask mask)
 		{
+			if ((mask & WindowEventMask.CaretMove) != 0)
+				caretSource.Stop();
+
 			IDisposable toDispose = null;
 
 			lock (gate)
 			{
 				enabledMask &= ~mask;
 
-				if (enabledMask == WindowEventMask.None)
+				if (!NeedsCompositor(enabledMask))
 				{
 					toDispose = subscription;
 					subscription = null;
@@ -125,9 +135,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				subscription = null;
 			}
 
+			caretSource.Dispose();
 			toDispose?.Dispose();
 			StopWorker();
 		}
+
+		/// <summary>Whether any category the compositor channel actually serves is enabled — i.e. anything but
+		/// CaretMove, which comes from AT-SPI instead.</summary>
+		private static bool NeedsCompositor(WindowEventMask mask) => (mask & ~WindowEventMask.CaretMove) != WindowEventMask.None;
+
+		private void EmitCaretEvent(WindowEventRaw ev) => Sink?.Invoke(ev);
 
 		private void StopWorker()
 		{

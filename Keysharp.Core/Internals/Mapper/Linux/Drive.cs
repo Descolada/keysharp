@@ -57,6 +57,39 @@ namespace Keysharp.Internals.Mapper.Linux
 				Ks.OutputDebugLine($"Drive.Retract failed for {drive.Name}");
 		}
 
+		internal override void SetLabel(string label)
+		{
+			// DriveInfo.Name is normally a mount point on Linux. Label utilities generally
+			// need the backing block device, so resolve it through findmnt first.
+			var lookup = RunCommand("findmnt", "--noheadings", "--output", "SOURCE", "--target", drive.Name);
+
+			if (!lookup.Succeeded)
+				throw new IOException($"Could not resolve the block device for {drive.Name}: {lookup.ErrorMessage}");
+			if (string.IsNullOrWhiteSpace(lookup.StandardOutput))
+				throw new IOException($"findmnt returned no block device for {drive.Name}.");
+
+			var source = lookup.StandardOutput.Trim();
+			var format = drive.DriveFormat.ToLowerInvariant();
+			(string FileName, string[] Arguments)? command = format switch
+			{
+				"ext2" or "ext3" or "ext4" => ("e2label", [source, label]),
+				"btrfs" => ("btrfs", ["filesystem", "label", drive.Name, label]),
+				"xfs" => ("xfs_admin", ["-L", label, source]),
+				"vfat" or "fat" or "fat32" or "msdos" => ("fatlabel", [source, label]),
+				"ntfs" or "ntfs3" => ("ntfslabel", [source, label]),
+				"exfat" => ("exfatlabel", [source, label]),
+				_ => null
+			};
+
+			if (command == null)
+				throw new PlatformNotSupportedException($"Changing a {drive.DriveFormat} volume label is not supported on Linux.");
+
+			var result = RunCommand(command.Value.FileName, command.Value.Arguments);
+
+			if (!result.Succeeded)
+				throw new IOException(result.ErrorMessage);
+		}
+
 		internal override void UnLock()
 		{
 			if ($"eject -i 0 {drive.Name}".Bash() != 0)

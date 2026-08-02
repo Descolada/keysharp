@@ -8,8 +8,9 @@ namespace Keysharp.Internals.Window.MacOS
 	/// and focused-window changes), Create, Close, Move, Show, Minimize, Restore and TitleChange — as CGWindowID
 	/// handles. Because that stream is a single shared AX/run-loop installation rather than per-category hooks, this
 	/// backend treats the mask as all-or-nothing: it spins the stream up when the first category is requested and
-	/// tears it down when the last one is removed. The full Accessibility permission is required; without it the
-	/// observer stream logs guidance and stays empty.
+	/// tears it down when the last one is removed. CaretMove is the sole exception — its AXSelectedTextChanged
+	/// notification fires per keystroke, so it is registered and removed on its own. The full Accessibility permission
+	/// is required; without it the observer stream logs guidance and stays empty.
 	/// </summary>
 	internal sealed class WindowEventBackend : IWindowEventBackend
 	{
@@ -34,11 +35,20 @@ namespace Keysharp.Internals.Window.MacOS
 				var sink = Sink;
 				Script.PostToUIThread(() => MacAccessibility.StartWindowEvents(sink));
 			}
+
+			// CaretMove is the one category that isn't all-or-nothing: AXSelectedTextChanged fires per keystroke, so
+			// it is registered on (and removed from) the observers separately rather than always being part of the
+			// stream. Posted after any start above, so the observers exist by the time it runs.
+			if ((mask & WindowEventMask.CaretMove) != 0)
+				Script.PostToUIThread(() => MacAccessibility.SetCaretEvents(true));
 		}
 
 		public void Stop(WindowEventMask mask)
 		{
 			installed &= ~mask;
+
+			if ((mask & WindowEventMask.CaretMove) != 0)
+				Script.PostToUIThread(() => MacAccessibility.SetCaretEvents(false));
 
 			if (installed == WindowEventMask.None)
 				Script.PostToUIThread(MacAccessibility.StopWindowEvents);
@@ -48,6 +58,7 @@ namespace Keysharp.Internals.Window.MacOS
 		{
 			disposed = true;
 			installed = WindowEventMask.None;
+			Script.PostToUIThread(() => MacAccessibility.SetCaretEvents(false));
 			Script.PostToUIThread(MacAccessibility.StopWindowEvents);
 		}
 	}

@@ -245,7 +245,7 @@ Status legend:
 | Global mouse hooks | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Suppression/injection semantics differ by platform. |
 | Hotkeys/Hotstrings | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Depends on hook and key-state parity. |
 | Script-owned window management | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Built on WinForms/Eto; some controls and behavior still differ. |
-| Foreign window management (non-Keysharp apps) | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | On Linux, Control* functions are not supported for foreign apps; use the included AtSpi library for cross-process window/control interaction. macOS currently relies on Accessibility APIs with permission requirements. |
+| Foreign window management (non-Keysharp apps) | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | On Linux and macOS, Control* functions support only script-owned Keysharp controls, not foreign-app controls. On Linux, use the included AtSpi library for cross-process control interaction; macOS window management separately uses Accessibility APIs. |
 | Tray icon and menu | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Tray/menu behavior varies by desktop environment and platform APIs. |
 | Screen capture and pixel/image functions | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Pixel/image search and screen capture depend on platform-specific backends. |
 | Clipboard | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Clipboard functionality is implemented with platform-specific limitations outside Windows. |
@@ -566,11 +566,12 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		Wait([timeout]) ; Wait until the thread object which was passed to the constructor completes. Optionally return after a specified timeout period in milliseconds elapses.
 	}
 ```
-* New `WinEvent` class for subscribing to window events (active/foreground change, appearance, disappearance, move/resize, minimize, restore, and title change) across platforms, modeled on the popular AutoHotkey `WinEvent` library by Descolada.
+* New `WinEvent` class for subscribing to window events (active/foreground change, appearance, disappearance, move/resize, minimize, restore, title change, and caret movement) across platforms, modeled on the popular AutoHotkey `WinEvent` library by Descolada.
 	+ It is part of the `Ks` module; import it with `#import "Ks" { WinEvent }`.
 	+ Each subscription is created by calling a `WinEvent` static method, which returns a subscription object whose callback fires until it is stopped. The argument order mirrors the reference library: `count` (default `-1` = unlimited) comes right after `winTitle`, with the rarely-used `winText`/`excludeTitle`/`excludeText` criteria last. The criteria use standard `WinTitle` matching, and `count` limits how many times the callback fires.
-	+ The callback receives `(hookObject, hwnd, dwmsEventTime)`.
+	+ The callback receives `(hookObject, hwnd, dwmsEventTime)`. Event-specific extras arrive in `A_EventInfo` instead: `Move` puts the window's new position and size there as an object with `x`, `y`, `w` and `h` (matching `WinGetPos`), and `CaretMove` the caret's rectangle in the same shape but in screen coordinates. Every other event type keeps the event time in `A_EventInfo`.
 	+ The registration-time values of `DetectHiddenWindows`, `DetectHiddenText`, and the title-match mode are captured and used for matching (as in the reference library); `Exist` additionally forces hidden detection on. `Active` also fires when the active window's title changes, and `NotExist` fires when a window is destroyed or — for a `DetectHiddenWindows`-off subscription — hidden or cloaked. `Exist`/`NotExist` replace the reference library's `Create`/`Close` (those were just `Exist`/`NotExist` with `DetectHiddenWindows` on).
+	+ `CaretMove` reports the caret owner's *top-level* window (not the focused edit control), suppresses events whose caret position is unchanged, and rides on the same accessibility plumbing as `CaretGetPos` — so an application that draws its own caret without exposing it to accessibility reports nothing on any platform, and the Linux/macOS sources additionally need AT-SPI enabled / Accessibility permission granted.
 	+ Subscriptions are auto-stopped on `__Delete`, but because garbage collection is unpredictable, call `Stop()` (or let the owning thread tear down) when you are done with one.
 ```
 	class WinEvent
@@ -583,6 +584,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		static Minimize(callback [, winTitle, count, ...]) => WinEvent     ; A window was minimized.
 		static Restore(callback [, winTitle, count, ...]) => WinEvent      ; A window was restored from the minimized state.
 		static TitleChange(callback [, winTitle, count, ...]) => WinEvent  ; A window's title changed.
+		static CaretMove(callback [, winTitle, count, ...]) => WinEvent    ; The text caret moved inside a window; A_EventInfo holds its screen rectangle.
 
 		; Global pause
 		static Pause(newState := 1) => Boolean  ; Pause (1), unpause (0) or toggle (-1) all hooks; returns the new paused state.
@@ -659,7 +661,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * `TreeView` supports a new method `GetNode(nodeIndex) => TreeNode` which retrieves a raw winforms TreeNode object based on a passed in ID.
 * Gui controls support taking a boolean `Autosize` (default: `false`) argument in the `Add()` method to allow them to optimally size themselves.
 * `Gui` has a new property named `Visible` which get/set whether the window is visible or not.
-* `EnvUpdate()` is retained to provide for a cross platform way to update environment variables.
+* `EnvUpdate()` is retained as a cross-platform environment notification mechanism. Windows broadcasts `WM_SETTINGCHANGE`; Linux publishes pending `EnvSet()` changes to the D-Bus activation environment and systemd user manager; macOS publishes them to the current launchd session. Linux and macOS updates affect future session-managed processes only and are not persistent.
 * The 40 character limit for hotstring abbreviations has been removed. There is no limit to the length.
 * `FileGetSize()` supports `G` and `T` for gigabytes and terabytes.
 * `DateAdd()` and `DateDiff()` support taking a value of `"L"` for the `TimeUnits` parameter to add miLliseconds or return the elapsed time in milliseconds, respectively.

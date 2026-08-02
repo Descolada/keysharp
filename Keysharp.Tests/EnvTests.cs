@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using CollectionAssert = NUnit.Framework.Legacy.CollectionAssert;
 
 namespace Keysharp.Tests
 {
@@ -265,6 +266,67 @@ namespace Keysharp.Tests
 			Assert.AreEqual(val, string.Empty);
 			Assert.IsTrue(TestScript("env-envset", true));
 		}
+
+#if !WINDOWS
+		[Test, Category("Env"), NonParallelizable]
+		public void EnvSetTracksChangesForEnvUpdate()
+		{
+			var key = $"KEYSHARP_ENVUPDATE_{Guid.NewGuid():N}";
+			var original = Environment.GetEnvironmentVariable(key);
+
+			try
+			{
+				_ = Env.EnvSet(key, "first value");
+				var firstSnapshot = s.EnvData.SnapshotPendingChanges();
+				Assert.AreEqual("first value", firstSnapshot[key]);
+
+				// Simulate EnvSet racing with publication. Acknowledging an older snapshot must
+				// not discard the newer value that still needs to be published.
+				_ = Env.EnvSet(key, "second value");
+				s.EnvData.AcknowledgePublishedChanges(firstSnapshot);
+				var secondSnapshot = s.EnvData.SnapshotPendingChanges();
+				Assert.AreEqual("second value", secondSnapshot[key]);
+
+				_ = Env.EnvSet(key, null);
+				var deletionSnapshot = s.EnvData.SnapshotPendingChanges();
+				Assert.IsTrue(deletionSnapshot.ContainsKey(key));
+				Assert.IsNull(deletionSnapshot[key]);
+			}
+			finally
+			{
+				Environment.SetEnvironmentVariable(key, original);
+			}
+		}
+
+		[Test, Category("Env"), NonParallelizable]
+		public void EnvUpdateBuildsSessionManagerCommands()
+		{
+			var changes = new Dictionary<string, string>
+			{
+				["KEYSHARP_ENV_DELETE"] = null,
+				["KEYSHARP_ENV_SET"] = "value with spaces"
+			};
+			var commands = Env.BuildEnvironmentUpdateCommands(changes);
+
+#if LINUX
+			Assert.AreEqual(2, commands.Count);
+			Assert.AreEqual("dbus-update-activation-environment", commands[0].FileName);
+			CollectionAssert.AreEqual(
+				new[] { "--systemd", "KEYSHARP_ENV_DELETE=", "KEYSHARP_ENV_SET=value with spaces" },
+				commands[0].Arguments);
+			Assert.AreEqual("systemctl", commands[1].FileName);
+			CollectionAssert.AreEqual(
+				new[] { "--user", "unset-environment", "KEYSHARP_ENV_DELETE" },
+				commands[1].Arguments);
+#elif OSX
+			Assert.AreEqual(2, commands.Count);
+			Assert.AreEqual("/bin/launchctl", commands[0].FileName);
+			CollectionAssert.AreEqual(new[] { "unsetenv", "KEYSHARP_ENV_DELETE" }, commands[0].Arguments);
+			Assert.AreEqual("/bin/launchctl", commands[1].FileName);
+			CollectionAssert.AreEqual(new[] { "setenv", "KEYSHARP_ENV_SET", "value with spaces" }, commands[1].Arguments);
+#endif
+		}
+#endif
 
 		[Test, Category("Env"), NonParallelizable]
 		public void EnvUpdate()

@@ -92,9 +92,78 @@ namespace Keysharp.Internals
 	internal static class LinuxKeyboards
 	{
 		internal static IKeyboard Resolve()
-			=> !Platform.Desktop.IsWaylandSession && Platform.Desktop.IsX11Available
+			=> new LinuxKeyboard(!Platform.Desktop.IsWaylandSession && Platform.Desktop.IsX11Available
 				? new X11Keyboard()
-				: new InputdKeyboard();
+				: null);
+	}
+
+	/// <summary>
+	/// Uses inputd as the compositor-independent source of logical and physical keyboard state.
+	/// X11 core queries remain a best-effort fallback when the daemon is unavailable or permission is denied.
+	/// </summary>
+	internal sealed class LinuxKeyboard(IKeyboard fallback) : IKeyboard
+	{
+		private readonly InputdKeyboard inputd = new();
+
+		public bool TryGetModifierLRStateLogical(out uint mods, byte[] keymapBuffer = null)
+		{
+			if (inputd.TryGetModifierLRStateLogical(out mods, keymapBuffer))
+				return true;
+
+			if (fallback != null)
+				return fallback.TryGetModifierLRStateLogical(out mods, keymapBuffer);
+
+			mods = 0u;
+			return false;
+		}
+
+		public bool TryGetModifierLRStatePhysical(out uint mods)
+		{
+			if (inputd.TryGetModifierLRStatePhysical(out mods))
+				return true;
+
+			if (fallback != null)
+				return fallback.TryGetModifierLRStatePhysical(out mods);
+
+			mods = 0u;
+			return false;
+		}
+
+		public bool TryGetKeyStateLogical(uint vk, out bool isDown)
+		{
+			if (inputd.TryGetKeyStateLogical(vk, out isDown))
+				return true;
+
+			if (fallback != null)
+				return fallback.TryGetKeyStateLogical(vk, out isDown);
+
+			isDown = false;
+			return false;
+		}
+
+		public bool TryGetKeyStatePhysical(uint vk, out bool isDown)
+		{
+			if (inputd.TryGetKeyStatePhysical(vk, out isDown))
+				return true;
+
+			if (fallback != null)
+				return fallback.TryGetKeyStatePhysical(vk, out isDown);
+
+			isDown = false;
+			return false;
+		}
+
+		public bool TryGetIndicatorStatesLogical(out bool capsOn, out bool numOn, out bool scrollOn)
+		{
+			if (inputd.TryGetIndicatorStatesLogical(out capsOn, out numOn, out scrollOn))
+				return true;
+
+			if (fallback != null)
+				return fallback.TryGetIndicatorStatesLogical(out capsOn, out numOn, out scrollOn);
+
+			capsOn = numOn = scrollOn = false;
+			return false;
+		}
 	}
 
 	internal sealed class InputdKeyboard : IKeyboard
@@ -139,7 +208,7 @@ namespace Keysharp.Internals
 				return false;
 
 			if (!Keysharp.Internals.Input.Linux.KeysharpInputdManager.TryGetKeyState(
-				out var mods, out _, out _, out _, out var logicalKeys, out _))
+				out var mods, out _, out var numLock, out _, out var logicalKeys, out _))
 				return false;
 
 			var modifierMask = ModifierLRMaskFromVK(vk);
@@ -150,12 +219,8 @@ namespace Keysharp.Internals
 				return true;
 			}
 
-			var evdev = KeyCodes.VkToEvdev(vk);
-
-			if (evdev == 0)
-				return false;
-
-			return TryGetEvdevBit(logicalKeys, evdev, out isDown);
+			var shiftDown = (mods & (MOD_LSHIFT | MOD_RSHIFT)) != 0;
+			return TryGetVkFromEvdevBitmap(vk, logicalKeys, numLock, shiftDown, out isDown);
 		}
 
 		public bool TryGetKeyStatePhysical(uint vk, out bool isDown)
@@ -166,10 +231,11 @@ namespace Keysharp.Internals
 				return false;
 
 			if (!Keysharp.Internals.Input.Linux.KeysharpInputdManager.TryGetKeyState(
-				out _, out _, out _, out _, out _, out var physicalKeys))
+				out var mods, out _, out var numLock, out _, out _, out var physicalKeys))
 				return false;
 
-			return TryGetVkFromEvdevBitmap(vk, physicalKeys, out isDown);
+			var shiftDown = (mods & (MOD_LSHIFT | MOD_RSHIFT)) != 0;
+			return TryGetVkFromEvdevBitmap(vk, physicalKeys, numLock, shiftDown, out isDown);
 		}
 
 		public bool TryGetIndicatorStatesLogical(out bool capsOn, out bool numOn, out bool scrollOn)
@@ -218,6 +284,14 @@ namespace Keysharp.Internals
 		}
 
 		private static bool TryGetVkFromEvdevBitmap(uint vk, byte[] keys, out bool isDown)
+			=> TryGetVkFromEvdevBitmap(vk, keys, numLockOn: false, shiftDown: false, out isDown);
+
+		private static bool TryGetVkFromEvdevBitmap(
+			uint vk,
+			byte[] keys,
+			bool numLockOn,
+			bool shiftDown,
+			out bool isDown)
 		{
 			isDown = false;
 
@@ -243,12 +317,37 @@ namespace Keysharp.Internals
 					return true;
 			}
 
-			var evdev = KeyCodes.VkToEvdev(vk);
-
-			if (evdev == 0)
+			// An empty bitmap is not "nothing is down": QueryKeyState leaves it empty when the daemon's reply
+			// carries no key bitmaps at all (an older protocol version). Report "can't answer" so the caller
+			// falls back to another source instead of being told every key is up.
+			if (keys == null || keys.Length == 0)
 				return false;
 
-			return TryGetEvdevBit(keys, evdev, out isDown);
+			// A VK can be produced by several evdev codes (KEY_COMPOSE/KEY_MENU both mean VK_APPS), so every code
+			// that maps back to it is checked rather than just the canonical one.
+			var codes = KeyCodes.ScanCodesForVk(vk);
+
+			if (codes.Length == 0)
+				return false;
+
+			// The hook reports the NumLock/Shift-adjusted VK, so a keypad key whose name is currently folded into
+			// its navigation twin is never down under its own name, and the twin answers for both.
+			if (KeyCodes.ApplyNumpadState(vk, numLockOn, shiftDown) != vk)
+				return true;
+
+			var twin = KeyCodes.NumpadTwinVk(vk, numLockOn, shiftDown);
+			isDown = AnyEvdevBitSet(keys, codes)
+					 || (twin != 0 && AnyEvdevBitSet(keys, KeyCodes.ScanCodesForVk(twin)));
+			return true;
+		}
+
+		private static bool AnyEvdevBitSet(byte[] keys, ReadOnlySpan<uint> evdevCodes)
+		{
+			foreach (var evdev in evdevCodes)
+				if (TryGetEvdevBit(keys, evdev, out var down) && down)
+					return true;
+
+			return false;
 		}
 	}
 
@@ -461,13 +560,23 @@ namespace Keysharp.Internals
 				}
 			}
 
-			if (!KeyCodes.TryMapVkToMacCode(vk, out var macCode))
-				return false;
-
 			try
 			{
-				isDown = Keysharp.Internals.Input.MacOS.MacNativeInput.CGEventSourceKeyState(sourceState, (ushort)macCode);
-				return true;
+				// A portable VK can have more than one physical kVK code (Return/keypad Enter and
+				// ANSI/keypad equals are common examples). Query every code that maps back to it so
+				// GetKeyState reflects the complete key, while GetKeySC still reports the primary one.
+				var codes = KeyCodes.ScanCodesForVk(vk);
+
+				foreach (var macCode in codes)
+				{
+					if (Keysharp.Internals.Input.MacOS.MacNativeInput.CGEventSourceKeyState(sourceState, (ushort)macCode))
+					{
+						isDown = true;
+						break;
+					}
+				}
+
+				return codes.Length != 0;
 			}
 			catch
 			{

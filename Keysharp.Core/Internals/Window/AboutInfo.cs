@@ -9,13 +9,12 @@ namespace Keysharp.Internals.Window
 	{
 		internal const string Title = "About Keysharp";
 
-		internal const string Url = "https://github.com/mfeemster/keysharp/tree/master";
+		internal const string Url = "https://github.com/keysharp-org/Keysharp";
 
 		internal const string Description = @"A C# port and improvement of AutoHotkey.
 
 Authors:
 	Matt Feemster 2020 - present
-	Descolada 2024 - present
 	IronAHK developers 2010 - 2015
 
 Testers:

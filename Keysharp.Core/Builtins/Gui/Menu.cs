@@ -448,7 +448,7 @@ namespace Keysharp.Builtins
 
 			var helpFunc = (params object[] args) =>
 			{
-				_ = Processes.Run("https://github.com/Descolada/keysharp/issues");
+				_ = Processes.Run("https://github.com/keysharp-org/Keysharp/issues");
 				return DefaultObject;
 			};
 			_ = Add("&Help", new KeysharpFunc(helpFunc.Method, helpFunc.Target));

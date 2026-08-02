@@ -35,7 +35,7 @@ Target framework is **net10.0** (net10.0-windows on Windows). Platform is **x64*
 dotnet build Keysharp.sln -c Debug
 
 # Linux — requires sibling Eto fork cloned at ../Eto
-# git clone -b Keysharp https://github.com/Descolada/Eto.git ../Eto
+# git clone -b Keysharp https://github.com/keysharp-org/Eto.git ../Eto
 dotnet build Keysharp.sln -c Debug
 ```
 

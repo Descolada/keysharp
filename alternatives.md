@@ -288,7 +288,7 @@ It would serve no valuable purpose to create yet another experimental project. I
 	
 	
 	https://sharphook.tolik.io/v5.3.6/ https://sharphook.tolik.io/articles/native.html
-		(06.07.2026 Descolada: this was tries, but introduced native dependencies and was lacking certain features like propagating SendLevel)
+		(06.07.2026: this was tries, but introduced native dependencies and was lacking certain features like propagating SendLevel)
 	
 	https://pythonawesome.com/hook-and-simulate-global-keyboard-events-on-windows-and-linux/
 	https://github.com/boppreh/keyboard

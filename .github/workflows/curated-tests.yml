@@ -34,7 +34,7 @@ env:
   # the daemon, prompt for input-access permission. The curated set must run without any user interaction, so
   # hook-dependent tests do not belong in it. The full (interactive) test run does not apply this exclusion.
   CURATED_TEST_FILTER: (Category=Assign|Category=BuiltInVars|Category=Class|Category=Collections|Category=Directives|Category=Flow|Category=Function|Category=Hotstring|Category=Math|Category=Misc|Category=Module|Category=Operator|Category=String|Category=Types|Category=FileAndDir|Category=Network|FullyQualifiedName~SchedulerTests|FullyQualifiedName~MessageFilterTests) & Category!=RequiresHook
-  ETO_REPOSITORY: https://github.com/Descolada/Eto.git
+  ETO_REPOSITORY: https://github.com/keysharp-org/Eto.git
   ETO_BRANCH: Keysharp
 
 jobs:

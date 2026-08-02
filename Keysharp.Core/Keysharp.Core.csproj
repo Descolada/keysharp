@@ -52,7 +52,7 @@
 		<PackageReference Include="Eto.Forms" Version="2.10.2" />
 -->
 		<!-- This custom branch fixes a bug with image functions not working if a tray menu is created in Linux,
-		as well as allows implementing the MsgBox timeout feature. Available here: https://github.com/Descolada/Eto/tree/MessgeBoxShowAsync  -->
+		as well as allows implementing the MsgBox timeout feature. Available here: https://github.com/keysharp-org/Eto/tree/MessgeBoxShowAsync  -->
 		<ProjectReference Include="..\..\Eto\src\Eto\Eto.csproj" />
 	</ItemGroup>
 

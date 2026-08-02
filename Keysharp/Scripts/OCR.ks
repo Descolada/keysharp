@@ -5,7 +5,7 @@
         Recognizes text in an image and returns a structured result (lines + words, each with its
         text and bounding box / position on screen), plus convenience helpers for highlighting,
         clicking, searching and sorting results. This is a bare-bones port of the UWP-based OCR.ahk
-        by Descolada, re-architected so the recognition *engine* is pluggable. The image is supplied
+        for AutoHotkey, re-architected so the recognition *engine* is pluggable. The image is supplied
         by the cross-platform KS Image class, so OCR itself does no screen capture.
 
     Engines:

@@ -5,7 +5,7 @@ namespace Keysharp.Builtins
 	public partial class Ks
 	{
 		/// <summary>
-		/// Cross-platform window-event subscriptions, modeled on Descolada's AHK <c>WinEvent</c> library.
+		/// Cross-platform window-event subscriptions, modeled on the AHK <c>WinEvent</c> library.
 		/// Each factory (<see cref="staticActive"/>, <see cref="staticExist"/>, <see cref="staticMove"/>, …)
 		/// registers a callback that fires when a matching window event occurs and returns a subscription object
 		/// whose <see cref="Stop"/> method cancels it. Every callback has the same shape:

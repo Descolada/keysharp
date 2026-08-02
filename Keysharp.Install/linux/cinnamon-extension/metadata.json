@@ -4,5 +4,5 @@
   "description": "Exposes Cinnamon Wayland window management, window events, and mouse input simulation via D-Bus for Keysharp.",
   "version": 1,
   "cinnamon-version": ["6.0", "6.2", "6.4", "6.6", "6.8"],
-  "url": "https://github.com/Descolada/keysharp"
+  "url": "https://github.com/keysharp-org/Keysharp"
 }

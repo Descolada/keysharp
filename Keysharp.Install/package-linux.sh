@@ -163,8 +163,8 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${DEB_ARCH}
-Maintainer: Descolada
-Homepage: https://github.com/Descolada/keysharp
+Maintainer: Keysharp Team
+Homepage: https://github.com/keysharp-org/Keysharp
 Depends: ${DEB_DEPENDS}
 Description: ${DEB_DESCRIPTION}
 EOF
@@ -174,12 +174,11 @@ write_deb_copyright() {
   cat > "$1" <<'EOF'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: keysharp
-Upstream-Contact: Descolada
-Source: https://github.com/Descolada/keysharp
+Upstream-Contact: Keysharp Team
+Source: https://github.com/keysharp-org/Keysharp
 
 Files: *
 Copyright: 2020-Present Matt Feemster <matt.feemster@gmail.com>
-           2024-Present Descolada
            2010-2015 A. <inspiration3@gmail.com>, Tobias Kappé <tobias@ntlabs.org>
            And other contributors.
 License: BSD-2-Clause

@@ -24,14 +24,14 @@ Windows has the best feature implementation rate and very high AutoHotkey v2 com
 * GUI rendering, because WinForms is used as the backend. WinForms uses lazy initialization which means for example that GUIs render blank before they've been showed. Additionally WinForms has some differences concerning Z-ordering of controls and label rendering.
 
 ### Installing on Windows
-* Download and run the Keysharp installer from the [Releases](https://github.com/Descolada/keysharp/releases) page.
+* Download and run the Keysharp installer from the [Releases](https://github.com/keysharp-org/Keysharp/releases) page.
 	+ The install path can be optionally added to the $PATH varible, so you can run it from the command line from anywhere.
 		+ The path entry will be removed upon uninstall.
 	+ It also registers Keysharp.exe as the default program to open `.ks` and `.cks` files. So after installing, double click any `.ks` source script or `.cks` compiled script to run it.
 	+ On Windows, the installer adds a right-click "Compile" action for `.ahk` and `.ks` source scripts, which writes a `.cks` compiled script next to the source file.
 
 ### Portable run on Windows
-* Download and unzip the zip file from the [Releases](https://github.com/Descolada/keysharp/releases) page.
+* Download and unzip the zip file from the [Releases](https://github.com/keysharp-org/Keysharp/releases) page.
 	+ CD to the unzipped folder.
 	+ Run `.\Keysharp.exe yourfilename.ahk`
 
@@ -57,7 +57,7 @@ Linux support is in active development. The following table summarises what work
 | **Wayland – other compositors**<br>Sway, Hyprland, COSMIC, Wayfire, labwc, etc. | Protocol-dependent window listing, active-window detection, activation, and screen capture | Input synthesis, hooks, `BlockInput`, hotkeys/hotstrings via `keysharp-inputd` | Depends on foreign-toplevel and screencopy protocol support |
 
 ### Installing on Linux
-* Download and extract the Keysharp installer tarball from the [Releases](https://github.com/Descolada/keysharp/releases) page.
+* Download and extract the Keysharp installer tarball from the [Releases](https://github.com/keysharp-org/Keysharp/releases) page.
 + Either run the .deb file to install, or run the install.sh script with sudo: `sudo bash ./install.sh` which does the following:
 	+ Installs the Linux runtime dependencies and attempts to install the .NET 10 runtime if it is missing.
 		+ If your distribution does not provide the .NET 10 runtime package, install it manually using the instructions [here](https://learn.microsoft.com/en-us/dotnet/core/install/linux).
@@ -78,7 +78,7 @@ Then use `/home/YOUR_USERNAME/.local/bin/AutoHotkey.exe` as the interpreter path
 
 ### Building from source on Linux
 * Install the .NET 10 SDK (not just the runtime) as described in "Installing on Linux"
-* In the same parent folder as keysharp, clone the Keysharp branch of [Descolada's fork of Eto](https://github.com/Descolada/Eto/tree/Keysharp); if keysharp is at `foo/keysharp`, clone Eto to `foo/Eto` by running `git clone -b Keysharp https://github.com/Descolada/Eto.git` from within `foo`.
+* In the same parent folder as keysharp, clone the Keysharp branch of [the Keysharp fork of Eto](https://github.com/keysharp-org/Eto/tree/Keysharp); if keysharp is at `foo/keysharp`, clone Eto to `foo/Eto` by running `git clone -b Keysharp https://github.com/keysharp-org/Eto.git` from within `foo`.
 * Run `Keysharp.Install/package-linux.sh`
 * A build folder and a tarball of said build folder will be placed in `dist/keysharp-linux-x64` and `dist/keysharp-linux-x64.tar.gz` respectively. If `dpkg-deb` is installed, a Debian package such as `dist/keysharp_<version>_amd64.deb` will also be created.
 * The build folder and tarball can be installed via the steps in "Installing on Linux" above. The `.deb` can be installed with `sudo apt install ./dist/keysharp_<version>_amd64.deb`.
@@ -105,7 +105,7 @@ Permissions are requested automatically when first needed, or up front with `#Re
 
 ### Installing on macOS
 
-macOS 15 or later is required. Separate `osx-arm64` assets for Apple Silicon and `osx-x64` assets for Intel Macs are available on the [Releases](https://github.com/Descolada/keysharp/releases) page.
+macOS 15 or later is required. Separate `osx-arm64` assets for Apple Silicon and `osx-x64` assets for Intel Macs are available on the [Releases](https://github.com/keysharp-org/Keysharp/releases) page.
 
 #### DMG — user install, no administrator password required
 
@@ -191,9 +191,9 @@ tccutil reset All org.keysharp.keyview
 ### Building from source on macOS
 
 * Install the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0).
-* In the same parent folder as `keysharp`, clone the Keysharp branch of [Descolada's fork of Eto](https://github.com/Descolada/Eto/tree/Keysharp). If `keysharp` is at `foo/keysharp`, clone Eto to `foo/Eto`:
+* In the same parent folder as `keysharp`, clone the Keysharp branch of [the Keysharp fork of Eto](https://github.com/keysharp-org/Eto/tree/Keysharp). If `keysharp` is at `foo/keysharp`, clone Eto to `foo/Eto`:
   ```sh
-  git clone -b Keysharp https://github.com/Descolada/Eto.git
+  git clone -b Keysharp https://github.com/keysharp-org/Eto.git
   ```
 * Run the packaging script to produce a release DMG and PKG:
   ```sh
@@ -289,7 +289,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 ### Behaviors and Functionality
 * Linux support is partial. See [Linux Platform Support](#linux-platform-support) above for a detailed breakdown by display server and compositor.
 	+ Control commands only work on windows created by the running Keysharp process. This is because "controls" don't exist in Linux the same way they do in Windows.
-		+ As an alternative it's recommended to use [AtSpi.ks](https://github.com/Descolada/keysharp/blob/master/Keysharp/Scripts/AtSpi.ks): running it directly displays AtSpiViewer which can be used to inspect windows, and it also contains methods to manipulate windows and controls similarly to Acc/UIA in Windows.
+		+ As an alternative it's recommended to use [AtSpi.ks](https://github.com/keysharp-org/Keysharp/blob/master/Keysharp/Scripts/AtSpi.ks): running it directly displays AtSpiViewer which can be used to inspect windows, and it also contains methods to manipulate windows and controls similarly to Acc/UIA in Windows.
 	+ GUI support is mostly implemented, but some controls are missing or incomplete.
 	+ Registry functions are not supported.
 * Keysharp follows the .NET memory model.
@@ -567,7 +567,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		Wait([timeout]) ; Wait until the thread object which was passed to the constructor completes. Optionally return after a specified timeout period in milliseconds elapses.
 	}
 ```
-* New `WinEvent` class for subscribing to window events (active/foreground change, appearance, disappearance, move/resize, minimize, restore, title change, and caret movement) across platforms, modeled on the popular AutoHotkey `WinEvent` library by Descolada.
+* New `WinEvent` class for subscribing to window events (active/foreground change, appearance, disappearance, move/resize, minimize, restore, title change, and caret movement) across platforms, modeled on the popular AutoHotkey `WinEvent` library.
 	+ It is part of the `Ks` module; import it with `#import "Ks" { WinEvent }`.
 	+ Each subscription is created by calling a `WinEvent` static method, which returns a subscription object whose callback fires until it is stopped. The argument order mirrors the reference library: `count` (default `-1` = unlimited) comes right after `winTitle`, with the rarely-used `winText`/`excludeTitle`/`excludeText` criteria last. The criteria use standard `WinTitle` matching, and `count` limits how many times the callback fires.
 	+ The callback receives `(hookObject, hwnd, dwmsEventTime)`. Event-specific extras arrive in `A_EventInfo` instead: `Move` puts the window's new position and size there as an object with `x`, `y`, `w` and `h` (matching `WinGetPos`), and `CaretMove` the caret's rectangle in the same shape but in screen coordinates. Every other event type keeps the event time in `A_EventInfo`.
@@ -855,4 +855,4 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 
 ## Contributing and Support
 
-Please use the [issue tracker](https://github.com/Descolada/keysharp/issues) for bug reports, compatibility gaps, and feature requests.
+Please use the [issue tracker](https://github.com/keysharp-org/Keysharp/issues) for bug reports, compatibility gaps, and feature requests.

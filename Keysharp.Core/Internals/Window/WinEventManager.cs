@@ -25,7 +25,7 @@ namespace Keysharp.Internals.Window
 		                                                      // source repeating an unchanged position doesn't "move"
 
 		// Membership-tracking subscriptions (Exist, NotExist) keep the set of top-level windows that currently
-		// satisfy this subscription. Mirroring Descolada's WinEvent.MatchingWinList, the set is seeded at registration
+		// satisfy this subscription. Mirroring the AHK WinEvent library's MatchingWinList, the set is seeded at registration
 		// and kept current as windows enter/leave (Create/Show/Restore/TitleChange add; Close/Minimize/TitleChange
 		// remove). Exist fires when a window enters the set, NotExist when one leaves (both respecting
 		// DetectHiddenWindows), so the set lets each fire on genuine transitions rather than the raw lifecycle event.
@@ -58,7 +58,7 @@ namespace Keysharp.Internals.Window
 				matchGate = new Lock();
 			}
 
-			// Snapshot the window-search context from the registering thread, mirroring Descolada's WinEvent
+			// Snapshot the window-search context from the registering thread, mirroring the AHK WinEvent library
 			// (which captures A_DetectHiddenWindows/Text and the title-match mode at registration). Show forces
 			// hidden detection on, because a freshly shown window is often still hidden for a short time. All other
 			// event types respect the thread's DetectHiddenWindows setting.
@@ -152,7 +152,7 @@ namespace Keysharp.Internals.Window
 
 				// Seed the matching-window set so a Close fires for windows that existed before the subscription,
 				// and so Exist/NotExist only fire on genuine transitions (not for windows already matching at
-				// registration). Mirrors Descolada's WinEvent seeding its MatchingWinList up front.
+				// registration). Mirrors the AHK WinEvent library seeding its MatchingWinList up front.
 				if (reg.TracksMembership)
 					SeedMatches(reg);
 

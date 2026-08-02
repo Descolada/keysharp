@@ -6,7 +6,7 @@ Keysharp is a cross-platform C# implementation of [AutoHotkey v2](https://www.au
 
 Most scripts run unmodified on Windows. Across platforms, anything using **DllCall, COM, or the registry will not work** on Linux and macOS.
 
-- [Download a release](https://github.com/Descolada/keysharp/releases)
+- [Download a release](https://github.com/keysharp-org/Keysharp/releases)
 - [Platform compatibility](#platform-compatibility)
 - [Full setup & build guide](docs/reference.md)
 - [AutoHotkey v2 differences](docs/reference.md#differences)
@@ -36,7 +36,7 @@ For per-platform setup, permissions, portable/standalone runs, command-line swit
 
 ## Install
 
-Prebuilt packages are on the [Releases](https://github.com/Descolada/keysharp/releases) page. All platforms require the [.NET 10 runtime](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) (the Linux and macOS installers help set this up).
+Prebuilt packages are on the [Releases](https://github.com/keysharp-org/Keysharp/releases) page. All platforms require the [.NET 10 runtime](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) (the Linux and macOS installers help set this up).
 
 ### Windows
 
@@ -93,7 +93,7 @@ Prebuilt packages are on the [Releases](https://github.com/Descolada/keysharp/re
 
 ## Building From Source
 
-Keysharp targets .NET 10. Linux and macOS builds also need the sibling [Keysharp Eto fork](https://github.com/Descolada/Eto/tree/Keysharp) cloned next to this repository.
+Keysharp targets .NET 10. Linux and macOS builds also need the sibling [Keysharp Eto fork](https://github.com/keysharp-org/Eto/tree/Keysharp) cloned next to this repository.
 
 | Platform | Command |
 |---|---|
@@ -115,4 +115,4 @@ Keysharp builds on work from IronAHK, AutoHotkey, Eto.Forms, Scintilla, NAudio, 
 
 ## Contributing and Support
 
-Please use the [issue tracker](https://github.com/Descolada/keysharp/issues) for bug reports, compatibility gaps, and feature requests.
+Please use the [issue tracker](https://github.com/keysharp-org/Keysharp/issues) for bug reports, compatibility gaps, and feature requests.

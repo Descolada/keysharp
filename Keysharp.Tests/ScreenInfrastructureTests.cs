@@ -185,6 +185,8 @@ namespace Keysharp.Tests
 			internal bool Disposed;
 			internal int MaxConcurrentCalls => Volatile.Read(ref maxConcurrentCalls);
 
+			public Action<OverlayPointerEvent> PointerSink { get; set; }
+
 			public nint Handle => Disposed ? 0 : 123;
 
 			public bool Show(Bitmap image, ScreenRect bounds, bool clickThrough)

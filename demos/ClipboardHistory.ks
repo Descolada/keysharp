@@ -184,8 +184,8 @@ class ClipboardHistory {
 		local img := Image.Create(w, h, , scale)
         img.FillRoundRect(0, 0, w, h, 12, "0xF01C1F28")
         img.DrawRoundRect(1, 1, w - 2, h - 2, 12, "0xFF3C4353", 1.5)
-        img.DrawText("Clipboard History", pad, pad, "0xFF5EC8FF", "Arial 12 bold")
-        img.DrawText("1–9 · ↑↓ + Enter · Esc", w - 196, pad + 3, "0xFF7A8698", "Arial 9")
+        img.DrawText("Clipboard History", pad, pad, "0xFF5EC8FF", "s12 bold", "Arial")
+        img.DrawText("1–9 · ↑↓ + Enter · Esc", w - 196, pad + 3, "0xFF7A8698", "s9", "Arial")
         img.DrawLine(pad, pad + titleH - 8, w - pad, pad + titleH - 8, "0xFF333A48", 1)
 
         local y := pad + titleH
@@ -194,10 +194,10 @@ class ClipboardHistory {
             if sel
                 img.FillRoundRect(8, y - 1, w - 16, rowH - 3, 6, "0xFF17A3F0")
             local num := (i <= 9) ? i ".  " : "    "
-            img.DrawText(num this.Preview(text, 86), pad + 4, y + 4, sel ? "0xFF07101C" : "0xFFD6DBE4", "Arial 10")
+            img.DrawText(num this.Preview(text, 86), pad + 4, y + 4, sel ? "0xFF07101C" : "0xFFD6DBE4", "s10", "Arial")
             y += rowH
         }
-        img.DrawText("Newest first  ·  showing " n " of " this.clips.Length, pad, y + 2, "0xFF6E7A8C", "Arial 9")
+        img.DrawText("Newest first  ·  showing " n " of " this.clips.Length, pad, y + 2, "0xFF6E7A8C", "s9", "Arial")
 
 		if !IsObject(this.picker)
 			this.picker := Overlay()

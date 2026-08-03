@@ -123,7 +123,7 @@ namespace Keysharp.Tests
 				Assert.Ignore("Image tests need an initialized graphics backend.");
 
 			var img = KeysharpImage.Create(null, 100, 40) as KeysharpImage;
-			_ = img.DrawText("Hi", 2, 2, "Black", "Sans 14");
+			_ = img.DrawText("Hi", 2, 2, "Black", "s14", "Sans");
 			var rgba = img.GetPixelData(4L) as Keysharp.Builtins.Buffer;
 			var anyAlpha = false;
 
@@ -233,19 +233,33 @@ namespace Keysharp.Tests
 				// Cropping moves the image's top-left, so its screen origin shifts by the crop offset (in
 				// logical units). At ScaleX/Y == 1 the shift equals the crop offset directly.
 				var img = KeysharpImage.FromFile(null,path) as KeysharpImage;
-				Assert.AreEqual(0L, img.X);
-				Assert.AreEqual(0L, img.Y);
+				Assert.AreEqual(0L, img.OriginX);
+				Assert.AreEqual(0L, img.OriginY);
 				_ = img.Crop(5, 2, 8, 4);
-				Assert.AreEqual(5L, img.X);
-				Assert.AreEqual(2L, img.Y);
+				Assert.AreEqual(5L, img.OriginX);
+				Assert.AreEqual(2L, img.OriginY);
 
 				// Cropping AFTER a scale must divide the crop offset (in image pixels) by the now-2x
 				// ScaleX/ScaleY to get logical units — the path a ScaleX==1 crop never exercises.
 				var scaled = KeysharpImage.FromFile(null,path) as KeysharpImage;
 				_ = scaled.Scale(2);
 				_ = scaled.Crop(4, 2, 6, 4);
-				Assert.AreEqual(2L, scaled.X);   // 4 image px / ScaleX 2 = 2 logical
-				Assert.AreEqual(1L, scaled.Y);   // 2 image px / ScaleY 2 = 1 logical
+				Assert.AreEqual(2L, scaled.OriginX);   // 4 image px / ScaleX 2 = 2 logical
+				Assert.AreEqual(1L, scaled.OriginY);   // 2 image px / ScaleY 2 = 1 logical
+
+				// Rotate invalidates the whole mapping (origin AND scale read ""); Flip only the origin.
+				// SetOrigin re-anchors both explicitly.
+				_ = scaled.Rotate(90);
+				Assert.AreEqual("", scaled.OriginX);
+				Assert.AreEqual("", scaled.ScaleX);
+				_ = scaled.SetOrigin(30, 40, 2);
+				Assert.AreEqual(30L, scaled.OriginX);
+				Assert.AreEqual(40L, scaled.OriginY);
+				Assert.AreEqual(2.0, scaled.ScaleX);
+				Assert.AreEqual(2.0, scaled.ScaleY);   // scaleY defaults to scaleX
+				_ = scaled.Flip();
+				Assert.AreEqual("", scaled.OriginX);
+				Assert.AreEqual(2.0, scaled.ScaleX);   // flip preserves pixel density
 			}
 			finally { File.Delete(path); }
 		}
@@ -273,13 +287,13 @@ namespace Keysharp.Tests
 				_ = copy.Scale(2);
 				// Copy reflects the transforms...
 				Assert.AreEqual(2.0, copy.ScaleX);
-				Assert.AreEqual(2L, copy.X);
+				Assert.AreEqual(2L, copy.OriginX);
 				Assert.AreEqual(20L, copy.Width);
 				// ...the original is untouched.
 				Assert.AreEqual(20L, img.Width);
 				Assert.AreEqual(10L, img.Height);
 				Assert.AreEqual(1.0, img.ScaleX);
-				Assert.AreEqual(0L, img.X);
+				Assert.AreEqual(0L, img.OriginX);
 			}
 			finally { File.Delete(path); }
 		}
@@ -438,17 +452,14 @@ namespace Keysharp.Tests
 				needleBmp.Dispose();
 
 				var img = KeysharpImage.FromFile(null,haystack) as KeysharpImage;
-				var match = MakeRef();
-				var found = img.Search(match, needle);
-				Assert.AreEqual(1L, found, "Search should return true on a hit.");
-				Assert.AreEqual(10L, MProp(match.__Value, "x"));
-				Assert.AreEqual(3L, MProp(match.__Value, "y"));
+				var match = img.Search(needle);
+				Assert.AreNotEqual("", match, "Search should return a match object on a hit.");
+				Assert.AreEqual(10L, MProp(match, "x"));
+				Assert.AreEqual(3L, MProp(match, "y"));
 
-				// A miss returns false and leaves &match falsy ("").
+				// A miss returns "" (falsy), so `if m := img.Search(...)` works in scripts.
 				var noMatch = KeysharpImage.Create(null, 6, 6, "Magenta") as KeysharpImage;
-				var miss = MakeRef();
-				Assert.AreEqual(0L, img.Search(miss, noMatch));
-				Assert.AreEqual("", miss.__Value);
+				Assert.AreEqual("", img.Search(noMatch));
 			}
 			finally { File.Delete(haystack); File.Delete(needle); }
 		}
@@ -468,20 +479,17 @@ namespace Keysharp.Tests
 			_ = img.FillRect(10, 6, 3, 3, "Red");
 			var needle = KeysharpImage.Create(null, 3, 3, "Red") as KeysharpImage;
 
-			var first = MakeRef();
-			Assert.AreEqual(1L, img.Search(first, needle));
-			Assert.AreEqual(2L, MProp(first.__Value, "x"));
-			Assert.AreEqual(2L, MProp(first.__Value, "y"));
+			var first = img.Search(needle);
+			Assert.AreEqual(2L, MProp(first, "x"));
+			Assert.AreEqual(2L, MProp(first, "y"));
 
-			var last = MakeRef();
-			Assert.AreEqual(1L, img.Search(last, needle, 0, null, 4));
-			Assert.AreEqual(10L, MProp(last.__Value, "x"));
-			Assert.AreEqual(6L, MProp(last.__Value, "y"));
+			var last = img.Search(needle, null, null, null, null, 0, null, 4);
+			Assert.AreEqual(10L, MProp(last, "x"));
+			Assert.AreEqual(6L, MProp(last, "y"));
 
-			var wild = MakeRef();
-			Assert.AreEqual(1L, img.Search(wild, needle, 0, "Red"));
-			Assert.AreEqual(0L, MProp(wild.__Value, "x"));
-			Assert.AreEqual(0L, MProp(wild.__Value, "y"));
+			var wild = img.Search(needle, null, null, null, null, 0, "Red");
+			Assert.AreEqual(0L, MProp(wild, "x"));
+			Assert.AreEqual(0L, MProp(wild, "y"));
 		}
 
 		[Test, Category("Image")]
@@ -493,25 +501,23 @@ namespace Keysharp.Tests
 			var img = KeysharpImage.Create(null, 16, 10, "Black") as KeysharpImage;
 			_ = img.SetPixel(7, 4, 0x30A060L);
 
-			var hit = MakeRef();
-			Assert.AreEqual(1L, img.SearchPixel(hit, 0x30A060L));
-			Assert.AreEqual(7L, MProp(hit.__Value, "x"));
-			Assert.AreEqual(4L, MProp(hit.__Value, "y"));
+			var hit = img.SearchPixel(0x30A060L);
+			Assert.AreEqual(7L, MProp(hit, "x"));
+			Assert.AreEqual(4L, MProp(hit, "y"));
 			// match.color is the ACTUAL matched pixel's full ARGB (opaque here, so 0xFF-prefixed).
-			Assert.AreEqual(0xFF30A060L, MProp(hit.__Value, "color"));
+			Assert.AreEqual(0xFF30A060L, MProp(hit, "color"));
 
-			// Within variation: a nearby color still matches; far off does not (returns false + falsy match).
-			var near = MakeRef();
-			Assert.AreEqual(1L, img.SearchPixel(near, 0x32A262L, 4));
-			Assert.AreEqual(7L, MProp(near.__Value, "x"));
+			// Within variation: a nearby color still matches; far off does not (returns "").
+			var near = img.SearchPixel(0x32A262L, null, null, null, null, 4);
+			Assert.AreEqual(7L, MProp(near, "x"));
 
-			var none = MakeRef();
-			Assert.AreEqual(0L, img.SearchPixel(none, 0xFFFFFFL));
-			Assert.AreEqual("", none.__Value);
+			Assert.AreEqual("", img.SearchPixel(0xFFFFFFL));
 
-			// 3 or 4 args (neither whole-image nor region) is a ValueError.
-			Assert.Throws<Keysharp.Builtins.KeysharpException>(() => img.SearchPixel(MakeRef(), 1L, 2L, 3L));
-			Assert.Throws<Keysharp.Builtins.KeysharpException>(() => img.SearchPixel(MakeRef(), 1L, 2L, 3L, 4L));
+			// Directions 2-4 pick the scan's starting corner (same lone pixel either way); 5-9 apply only
+			// to image search and are a ValueError for a pixel scan.
+			var corner = img.SearchPixel(0x30A060L, null, null, null, null, null, 4L);
+			Assert.AreEqual(7L, MProp(corner, "x"));
+			Assert.Throws<Keysharp.Builtins.KeysharpException>(() => img.SearchPixel(0x30A060L, null, null, null, null, null, 5L));
 		}
 
 		[Test, Category("Image")]
@@ -541,7 +547,7 @@ namespace Keysharp.Tests
 
 			// Styled specs must parse (family with spaces + size + style keywords) and render pixels.
 			var img = KeysharpImage.Create(null, 120, 40) as KeysharpImage;
-			_ = img.DrawText("Hi", 2, 2, "Black", "Sans 14 bold italic");
+			_ = img.DrawText("Hi", 2, 2, "Black", "s14 bold italic", "Sans");
 			var rgba = img.GetPixelData(4L) as Keysharp.Builtins.Buffer;
 			var anyAlpha = false;
 
@@ -795,13 +801,13 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void ImageOpacityHalvesAlpha()
+		public void ImageAlphaHalvesAlpha()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
 
 			var img = KeysharpImage.Create(null, 4, 4, "0xFF112233") as KeysharpImage;
-			_ = img.Opacity(0.5);
+			_ = img.Alpha(0.5);
 			Assert.AreEqual(128L, RgbaByte(img, 0, 0, 3));   // round(255 * 0.5) = 128
 			// RGB is preserved.
 			Assert.AreEqual(0x11L, RgbaByte(img, 0, 0, 0));
@@ -849,9 +855,7 @@ namespace Keysharp.Tests
 			_ = img.FillRect(10, 6, 3, 3, "Red");
 			var needle = KeysharpImage.Create(null, 3, 3, "Red") as KeysharpImage;
 
-			var matchesRef = MakeRef();
-			Assert.AreEqual(1L, img.SearchAll(matchesRef, needle));
-			var all = matchesRef.__Value as Keysharp.Builtins.Array;
+			var all = img.SearchAll(needle) as Keysharp.Builtins.Array;
 			Assert.IsNotNull(all);
 			Assert.AreEqual(2, all.Count);
 
@@ -863,12 +867,11 @@ namespace Keysharp.Tests
 			Assert.AreEqual(10L, MProp(m2, "x"));
 			Assert.AreEqual(6L, MProp(m2, "y"));
 
-			// No matches -> returns false and sets &matches to an EMPTY Array (not "").
+			// No matches -> an EMPTY Array (not ""), so scripts check matches.Length.
 			var none = KeysharpImage.Create(null, 6, 6, "Blue") as KeysharpImage;
-			var emptyRef = MakeRef();
-			Assert.AreEqual(0L, none.SearchAll(emptyRef, needle));
-			Assert.IsInstanceOf<Keysharp.Builtins.Array>(emptyRef.__Value);
-			Assert.AreEqual(0, ((Keysharp.Builtins.Array)emptyRef.__Value).Count);
+			var empty = none.SearchAll(needle) as Keysharp.Builtins.Array;
+			Assert.IsNotNull(empty);
+			Assert.AreEqual(0, empty.Count);
 		}
 
 		[Test, Category("Image")]
@@ -885,34 +888,32 @@ namespace Keysharp.Tests
 			var needle = KeysharpImage.Create(null, 3, 3, "Red") as KeysharpImage;
 
 			// Region (10,5,10,8) contains only the (12,7) block.
-			var m = MakeRef();
-			Assert.AreEqual(1L, img.Search(m, 10, 5, 10, 8, needle));
-			Assert.AreEqual(12L, MProp(m.__Value, "x"));
-			Assert.AreEqual(7L, MProp(m.__Value, "y"));
+			var m = img.Search(needle, 10, 5, 10, 8);
+			Assert.AreEqual(12L, MProp(m, "x"));
+			Assert.AreEqual(7L, MProp(m, "y"));
 
 			// A region around only the top-left block excludes the bottom-right one.
-			var m2 = MakeRef();
-			Assert.AreEqual(1L, img.Search(m2, 0, 0, 8, 8, needle));
-			Assert.AreEqual(2L, MProp(m2.__Value, "x"));
-			Assert.AreEqual(2L, MProp(m2.__Value, "y"));
+			var m2 = img.Search(needle, 0, 0, 8, 8);
+			Assert.AreEqual(2L, MProp(m2, "x"));
+			Assert.AreEqual(2L, MProp(m2, "y"));
+
+			// A PARTIAL region (origin only) runs to the far edge: from (10,5) only the bottom-right block.
+			var partial = img.Search(needle, 10, 5);
+			Assert.AreEqual(12L, MProp(partial, "x"));
+			Assert.AreEqual(7L, MProp(partial, "y"));
 
 			// SearchAll over the whole image finds both; a region finds only the one inside it.
-			var allRef = MakeRef();
-			Assert.AreEqual(1L, img.SearchAll(allRef, needle));
-			Assert.AreEqual(2, ((Keysharp.Builtins.Array)allRef.__Value).Count);
+			Assert.AreEqual(2, ((Keysharp.Builtins.Array)img.SearchAll(needle)).Count);
 
-			var regionRef = MakeRef();
-			Assert.AreEqual(1L, img.SearchAll(regionRef, 10, 5, 10, 8, needle));
-			var regionArr = (Keysharp.Builtins.Array)regionRef.__Value;
+			var regionArr = (Keysharp.Builtins.Array)img.SearchAll(needle, 10, 5, 10, 8);
 			Assert.AreEqual(1, regionArr.Count);
 			Assert.AreEqual(12L, MProp(regionArr[1L], "x"));
 			Assert.AreEqual(7L, MProp(regionArr[1L], "y"));
 
 			// SearchPixel region form also reports absolute coordinates.
-			var px = MakeRef();
-			Assert.AreEqual(1L, img.SearchPixel(px, 10, 5, 10, 8, "Red"));
-			Assert.AreEqual(12L, MProp(px.__Value, "x"));
-			Assert.AreEqual(7L, MProp(px.__Value, "y"));
+			var px = img.SearchPixel("Red", 10, 5, 10, 8);
+			Assert.AreEqual(12L, MProp(px, "x"));
+			Assert.AreEqual(7L, MProp(px, "y"));
 		}
 
 		[Test, Category("Image")]
@@ -930,32 +931,23 @@ namespace Keysharp.Tests
 			var needle = KeysharpImage.Create(null, 2, 2, "Black") as KeysharpImage;
 
 			// Origin AT the right edge -> width clamps to 0. This is the exact case that used to throw.
-			var p1 = MakeRef();
-			long r1 = 1;
-			Assert.DoesNotThrow(() => r1 = (long)img.SearchPixel(p1, 10, 0, 4, 4, "Black"));
-			Assert.AreEqual(0L, r1);
-			Assert.AreEqual("", p1.__Value);
+			object r1 = null;
+			Assert.DoesNotThrow(() => r1 = img.SearchPixel("Black", 10, 0, 4, 4));
+			Assert.AreEqual("", r1);
 
 			// Origin PAST the bottom edge, with high variation (a phantom transparent pixel would match).
-			var p2 = MakeRef();
-			Assert.AreEqual(0L, img.SearchPixel(p2, 0, 8, 4, 4, "Black", 255));
-			Assert.AreEqual("", p2.__Value);
+			Assert.AreEqual("", img.SearchPixel("Black", 0, 8, 4, 4, 255));
 
 			// Non-positive width.
-			var p3 = MakeRef();
-			Assert.AreEqual(0L, img.SearchPixel(p3, 0, 0, 0, 4, "Black"));
-			Assert.AreEqual("", p3.__Value);
+			Assert.AreEqual("", img.SearchPixel("Black", 0, 0, 0, 4));
 
-			// Search over an empty region -> false + falsy match, no throw.
-			var s = MakeRef();
-			Assert.AreEqual(0L, img.Search(s, 10, 0, 4, 4, needle));
-			Assert.AreEqual("", s.__Value);
+			// Search over an empty region -> "" (falsy), no throw.
+			Assert.AreEqual("", img.Search(needle, 10, 0, 4, 4));
 
-			// SearchAll over an empty region -> false + empty array, no throw.
-			var a = MakeRef();
-			Assert.AreEqual(0L, img.SearchAll(a, 0, 8, 4, 4, needle));
-			Assert.IsInstanceOf<Keysharp.Builtins.Array>(a.__Value);
-			Assert.AreEqual(0, ((Keysharp.Builtins.Array)a.__Value).Count);
+			// SearchAll over an empty region -> empty array, no throw.
+			var a = img.SearchAll(needle, 0, 8, 4, 4) as Keysharp.Builtins.Array;
+			Assert.IsNotNull(a);
+			Assert.AreEqual(0, a.Count);
 		}
 
 		[Test, Category("Image")]

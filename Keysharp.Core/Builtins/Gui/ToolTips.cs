@@ -260,7 +260,7 @@ namespace Keysharp.Builtins
 			// (null -> "Sans 10"). Creating a local Font here and disposing it — as this used to — freed a
 			// native handler shared with that cached font on Eto.Mac, so the queued DrawText below later
 			// drew with a disposed Font ("Cannot access a disposed object: Font"). See KeysharpImage.CreateFont.
-			var (tw, th) = Ks.KeysharpImage.MeasureTextCore(text ?? "", "");
+			var (tw, th) = Ks.KeysharpImage.MeasureTextCore(text ?? "", "", "");
 			var w = Math.Max(1, (int)Math.Ceiling(tw) + pad * 2);
 			var h = Math.Max(1, (int)Math.Ceiling(th) + pad * 2);
 			var screenW = Math.Max(1, (int)Math.Round(w * displayScale));

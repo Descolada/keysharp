@@ -151,7 +151,7 @@ namespace Keysharp.Tests
 
 			try
 			{
-				_ = overlay.SetImage(image);
+				_ = overlay.Update(image);
 				Assert.AreEqual(40L, overlay.W);
 				Assert.AreEqual(24L, overlay.H);
 			}

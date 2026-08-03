@@ -1,5 +1,19 @@
 namespace Keysharp.Internals
 {
+	/// <summary>The pointer-event kinds an interactive (non-click-through) overlay backing can raise.</summary>
+	internal enum OverlayPointerKind
+	{
+		MouseMove,
+		Click,          // left/primary button
+		DoubleClick,    // left/primary button
+		ContextMenu,    // right/secondary button
+	}
+
+	/// <summary>One pointer event on an overlay surface. X/Y are surface-local coordinates in the backing's
+	/// native window units — the same units the overlay's draw ops address, so no conversion is needed to
+	/// hit-test drawn content.</summary>
+	internal readonly record struct OverlayPointerEvent(OverlayPointerKind Kind, int X, int Y);
+
 	/// <summary>
 	/// One click-through image overlay's platform backing. Ownership rule: <see cref="Show"/> BORROWS the bitmap
 	/// it is handed -- it copies only what it needs to display (and to satisfy same-size moves), synchronously,
@@ -15,6 +29,11 @@ namespace Keysharp.Internals
 		/// cannot be interactive must return false so selection can fall back to one which can.</summary>
 		bool Show(Bitmap image, ScreenRect bounds, bool clickThrough);
 		bool Move(ScreenRect bounds);
+
+		/// <summary>Receiver for pointer events on an interactive (non-click-through) surface, or null when the
+		/// overlay has no registered handlers. Raised on the UI thread. Backings without a client-side input
+		/// window (compositor/layer surfaces) simply store the value and never raise it.</summary>
+		Action<OverlayPointerEvent> PointerSink { get; set; }
 
 		/// <summary>
 		/// Withdraw the on-screen surface. Returns true iff it is CONFIRMED gone (so the caller may forget the id);
@@ -48,10 +67,41 @@ namespace Keysharp.Internals
 		private readonly object sync = new ();
 		private readonly Dictionary<uint, OverlaySlot> overlays = new ();
 
+		// Pointer sinks by overlay id, kept OUTSIDE the slot so a sink registered before the first Show — or
+		// after a Hide disposed the backing — is (re)applied to whatever backing the id gets next.
+		private readonly Dictionary<uint, Action<OverlayPointerEvent>> pointerSinks = new ();
+
 		public abstract PixelSize GetCanvasSize(ScreenRect bounds);
 
 		/// <summary>Create the backing for a new overlay id (called under the map lock; must not do UI/IO work).</summary>
 		protected abstract IImageOverlayBacking CreateBacking(uint id);
+
+		public void SetImageOverlayPointerSink(uint id, Action<OverlayPointerEvent> sink)
+		{
+			if (id == 0)
+				return;
+
+			OverlaySlot slot;
+
+			lock (sync)
+			{
+				if (sink == null)
+					_ = pointerSinks.Remove(id);
+				else
+					pointerSinks[id] = sink;
+
+				_ = overlays.TryGetValue(id, out slot);
+			}
+
+			if (slot != null)
+			{
+				lock (slot.Gate)
+				{
+					if (IsCurrent(id, slot))
+						slot.Backing.PointerSink = sink;
+				}
+			}
+		}
 
 		public bool TryShowImageOverlay(uint id, ScreenRect bounds, Bitmap image, bool clickThrough)
 		{
@@ -73,6 +123,10 @@ namespace Keysharp.Internals
 				{
 					overlays[id] = slot = new OverlaySlot(CreateBacking(id));
 					created = true;
+
+					// A fresh backing must inherit the id's registered sink (a plain property store; no UI work).
+					if (pointerSinks.TryGetValue(id, out var sink))
+						slot.Backing.PointerSink = sink;
 				}
 			}
 

@@ -176,6 +176,22 @@ namespace Keysharp.Builtins
 		internal int VariadicIndex => mph.variadicParamIndex;
 		internal MethodPropertyHolder Mph => mph;
 
+		/// <summary>
+		/// Whether this function can be invoked with exactly <paramref name="argCount"/> arguments, as a callback
+		/// registration site (SetTimer, Hotkey, OnMessage, ...) will invoke it.
+		/// <para>
+		/// Only rejects what is provably wrong -- a function that *requires* more parameters than it will ever be
+		/// given. Declaring FEWER is allowed on purpose: a hotkey callback is handed the hotkey name but may ignore
+		/// it, exactly as in AutoHotkey. Variadic functions accept anything.
+		/// </para>
+		/// <para>
+		/// Exists so registration can fail loudly instead of silently: a callback with the wrong arity used to
+		/// register successfully and then throw on every invocation, where the exception was swallowed by the
+		/// callback dispatch path -- producing a timer or hotkey that simply never ran, with no diagnostic at all.
+		/// </para>
+		/// </summary>
+		internal bool CanAcceptArgCount(long argCount) => IsVariadic || MinParams <= argCount;
+
 		internal KeysharpFunc(string s, object o = null, object paramCount = null)
 			: this(GetMethodInfo(s, o, paramCount), o)
 		{

@@ -34,8 +34,23 @@ namespace Keysharp.Internals
 	{
 		private readonly uint id;
 		private IImageOverlayBacking inner;
+		private Action<OverlayPointerEvent> pointerSink;
 
 		internal LinuxImageOverlayBacking(uint id) => this.id = id;
+
+		// Forwarded to whichever concrete backing selection picked (only the Eto fallback ever raises it;
+		// layer/compositor surfaces have no client-side input window).
+		public Action<OverlayPointerEvent> PointerSink
+		{
+			get => pointerSink;
+			set
+			{
+				pointerSink = value;
+
+				if (inner != null)
+					inner.PointerSink = value;
+			}
+		}
 
 		public nint Handle => inner?.Handle ?? 0;
 
@@ -59,6 +74,7 @@ namespace Keysharp.Internals
 			}
 
 			var preferred = CreatePreferred();
+			preferred.PointerSink = pointerSink;
 
 			// Every backing borrows `image` (copies what it needs, never disposes it), so we can hand the same
 			// bitmap to the preferred backing and, if it genuinely can't render it, straight to the Eto fallback
@@ -80,7 +96,7 @@ namespace Keysharp.Internals
 			if (preferred is EtoImageOverlay)
 				return false;
 
-			var fallback = new EtoImageOverlay();
+			var fallback = new EtoImageOverlay { PointerSink = pointerSink };
 
 			if (fallback.Show(image, bounds, clickThrough))
 			{
@@ -153,6 +169,40 @@ namespace Keysharp.Internals
 
 		private readonly Dictionary<uint, Fragment> fragments = [];
 		private int shownW, shownH;
+		private Action<OverlayPointerEvent> pointerSink;
+
+		// Raised via the layer-shell client's wl_pointer listener: an interactive surface already has a full
+		// input region, and each fragment forwards its surface-local events here with its segment offset added
+		// (surface-local logical units ARE the overlay's native units on Wayland).
+		public Action<OverlayPointerEvent> PointerSink
+		{
+			get => pointerSink;
+			set
+			{
+				pointerSink = value;
+				ApplyPointerSinks();
+			}
+		}
+
+		// (Re)wires every fragment's surface-local sink with its current segment offset. Called whenever the
+		// sink or the fragment set/geometry changes; both happen under the owning slot gate, while the
+		// dispatcher thread only reads the per-fragment delegate.
+		private void ApplyPointerSinks()
+		{
+			foreach (var fragment in fragments.Values)
+			{
+				var segment = fragment.Segment;
+				fragment.Overlay.PointerSink = pointerSink == null ? null : (kind, sx, sy) =>
+				{
+					var sink = pointerSink;
+
+					if (sink != null)
+						sink(new OverlayPointerEvent(kind,
+							segment.SourceOffsetX + (int)Math.Round(sx),
+							segment.SourceOffsetY + (int)Math.Round(sy)));
+				};
+			}
+		}
 
 		public nint Handle
 		{
@@ -209,6 +259,7 @@ namespace Keysharp.Internals
 					existing.Segment = segment;
 					shownW = bounds.Width;
 					shownH = bounds.Height;
+					ApplyPointerSinks();   // the segment offset may have changed with the geometry
 					return true;
 				}
 
@@ -255,6 +306,7 @@ namespace Keysharp.Internals
 
 				shownW = bounds.Width;
 				shownH = bounds.Height;
+				ApplyPointerSinks();   // fresh fragments need the sink with their segment offsets
 
 				// Replacements are already configured and mapped, so retiring old surfaces cannot flash a blank frame.
 				foreach (var fragment in previous)
@@ -292,6 +344,7 @@ namespace Keysharp.Internals
 				if (!fragment.Overlay.Reposition(segment.Bounds, segment.Output))
 					return false;
 				fragment.Segment = segment;
+				ApplyPointerSinks();   // keep the captured segment offset in step with the move
 				return true;
 			}
 			catch { return false; }
@@ -359,6 +412,9 @@ namespace Keysharp.Internals
 		private bool hidden;
 
 		internal CompositorImageBacking(uint id) => this.id = id;
+
+		// Stored but never raised: a compositor-drawn actor has no client-side input window.
+		public Action<OverlayPointerEvent> PointerSink { get; set; }
 
 		public nint Handle => 0;
 

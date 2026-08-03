@@ -60,6 +60,20 @@ namespace Keysharp.Internals
 		private double shownBackingScale = 1;
 #endif
 
+		// Read per event by the handlers wired in EnsureForm, so a sink registered before/after the form
+		// exists (or across TryHide's teardown/recreation) needs no rewiring.
+		public Action<OverlayPointerEvent> PointerSink { get; set; }
+
+		// Toolkit-window units -> overlay native units, per axis. Mouse event locations arrive in the
+		// window's TOOLKIT coordinate space, which on a GDK-scaled X11 desktop differs from the overlay's
+		// native root-pixel space (ToToolkitBounds maps between them, so bounds/windowBounds carry the
+		// ratio). Identity on Wayland and macOS, where ToToolkitBounds is a pass-through. Written on the
+		// UI thread in Show, read on the UI thread by the mouse handlers.
+		private double pointerScaleX = 1.0, pointerScaleY = 1.0;
+
+		private OverlayPointerEvent MakePointerEvent(OverlayPointerKind kind, PointF location)
+			=> new(kind, (int)Math.Round(location.X * pointerScaleX), (int)Math.Round(location.Y * pointerScaleY));
+
 		public nint Handle => form?.Handle ?? 0;
 
 		public bool Show(Bitmap image, ScreenRect bounds, bool clickThrough)
@@ -79,6 +93,9 @@ namespace Keysharp.Internals
 					EnsureForm();
 					form.CanFocus = !clickThrough;
 					var windowBounds = ToToolkitBounds(bounds);
+					// Keep the pointer-coordinate mapping in step with this show's geometry (see the fields).
+					pointerScaleX = windowBounds.Width > 0 ? (double)bounds.Width / windowBounds.Width : 1.0;
+					pointerScaleY = windowBounds.Height > 0 ? (double)bounds.Height / windowBounds.Height : 1.0;
 					// From here PaintOwned owns `snap` (it keeps it as `displayed`, or disposes it after resizing), so
 					// mark ownership transferred BEFORE the call: a throw past this point must not ALSO dispose it on
 					// the catch path (that would double-free the bitmap the form now holds).
@@ -260,6 +277,40 @@ namespace Keysharp.Internals
 #else
 			imageView = new ImageView { BackgroundColor = Colors.Transparent };
 			form.Content = imageView;
+#endif
+			// Pointer events for OnEvent: only a non-click-through window receives them from the toolkit, so no
+			// extra gating is needed here beyond a registered sink. Coordinates are the toolkit's window-local
+			// units, which are the overlay's native draw units.
+			form.MouseUp += (s, e) =>
+			{
+				var sink = PointerSink;
+
+				if (sink == null)
+					return;
+
+				if (e.Buttons == Forms.MouseButtons.Primary)
+					sink(MakePointerEvent(OverlayPointerKind.Click, e.Location));
+				else if (e.Buttons == Forms.MouseButtons.Alternate)
+					sink(MakePointerEvent(OverlayPointerKind.ContextMenu, e.Location));
+			};
+			form.MouseDoubleClick += (s, e) =>
+			{
+				if (e.Buttons == Forms.MouseButtons.Primary)
+					PointerSink?.Invoke(MakePointerEvent(OverlayPointerKind.DoubleClick, e.Location));
+			};
+			form.MouseMove += (s, e) =>
+				PointerSink?.Invoke(MakePointerEvent(OverlayPointerKind.MouseMove, e.Location));
+#if OSX
+			// MouseMove on a never-key window (ShowActivated=false) needs acceptsMouseMovedEvents on the
+			// NSWindow — Cocoa otherwise routes motion only to the key window. First-CLICK delivery is a
+			// view-level acceptsFirstMouse question that cannot be set from here; it is flagged in
+			// docs/design-wayland-overlay-input.md as the one remaining macOS unknown for OnEvent.
+			try
+			{
+				if (form.ControlObject is MonoMac.AppKit.NSWindow nsw)
+					nsw.AcceptsMouseMovedEvents = true;
+			}
+			catch { }
 #endif
 			form.SetClickThrough(true);
 			// Take the overlay out of WM control (override-redirect): it is placed at exact pixels (no reposition

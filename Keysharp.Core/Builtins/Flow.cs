@@ -296,6 +296,14 @@ namespace Keysharp.Builtins
 				if (func == null)
 					return (long)Errors.TypeErrorOccurred(f, typeof(KeysharpFunc));
 
+				//Timer callbacks are invoked with no arguments, so a function that requires parameters can never
+				//run. Reject it HERE rather than at every tick: the invocation path swallows callback exceptions,
+				//so the only symptom used to be a timer that silently never fired.
+				if (!func.CanAcceptArgCount(0))
+					return (long)Errors.ValueErrorOccurred(
+						$"SetTimer callback requires at least {func.MinParams} parameter(s), but timer callbacks are called with none.",
+						func.Name, DefaultErrorLong);
+
 				timer = script.FlowData.timers.Find(func, ownerScheduler);
 			}
 

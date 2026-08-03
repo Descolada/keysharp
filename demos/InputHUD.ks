@@ -30,7 +30,7 @@
     option also surfaces input a hotkey/remap suppresses, so a remap's physical source and the LButton used
     to drag a HUD still register), telling physical from injected input via A_EventInfo.IsInjected, lock-key
     toggle state polled with GetKeyState(key, "T") and surfaced as green LEDs, Overlay canvases drawn with
-    Image primitives (FillRoundRect/FillEllipse/DrawText) and updated live via SetImage, live repositioning
+    Image primitives (FillRoundRect/FillEllipse/DrawText) and updated live via Update, live repositioning
     through atomic Overlay.Update calls — re-rendered at the current display's backing density times zoom to stay
     crisp and centre-anchored — and HotIf-scoped hotkeys so the drag/zoom
     only capture the click while the cursor is over a HUD (so normal clicks pass straight through).
@@ -53,7 +53,8 @@ class InputHUD {
     static U := 30                       ; key unit size in px
     static G := 5                        ; gap between keys
     static Pad := 12                     ; overlay inner padding
-    static Font := "Arial 10 bold"
+    static Font := "s10 bold"            ; Gui.SetFont-style options; the family is FontName below
+    static FontName := "Arial"
     static Bg      := "0xF01B1E26"       ; panel background (mostly opaque)
     static Border  := "0xFF3A3F4B"
     static KeyFill := "0xFF2C313C"       ; idle key
@@ -75,7 +76,7 @@ class InputHUD {
     static LedOffRim:= "0xFF434B5A"      ; OFF: faint rim
     static LedLab   := "0xFF828C9E"      ; status-strip label (unlit)
     static LedLabOn := "0xFFB9EED4"      ; status-strip label (lit)
-    static LedFont  := "Arial 8 bold"
+    static LedFont  := "s8 bold"
 
     ; ---- state -------------------------------------------------------------
     static ih := ""
@@ -246,10 +247,9 @@ class InputHUD {
         this.leds := []
         for i, lk in this.Locks {
             local cx := left + (i - 0.5) * band      ; centre of this LED's slot (i is 1-based)
-            local tw := 0, th := 0
-            tmp.MeasureText(lk[3], this.LedFont, &tw, &th)
+            local sz := tmp.MeasureText(lk[3], this.LedFont, this.FontName)
             this.leds.Push({name: lk[1], label: lk[3], x: cx - d / 2, y: this.Pad + 1, d: d,
-                            lx: cx - tw / 2, ly: this.Pad + 1 + d + 2})
+                            lx: cx - sz.w / 2, ly: this.Pad + 1 + d + 2})
         }
         tmp.Dispose()
     }
@@ -273,7 +273,8 @@ class InputHUD {
         local tw := 0, th := 0
         if (label != "") {
             local tmp := Image.Create(1, 1)
-            tmp.MeasureText(label, this.Font, &tw, &th)
+            local sz := tmp.MeasureText(label, this.Font, this.FontName)
+            tw := sz.w, th := sz.h
             tmp.Dispose()
         }
         ; A lock key on the board (only Caps, here) carries a toggle name so it gets an on-key toggle pip.
@@ -320,7 +321,7 @@ class InputHUD {
             if (src != "")
                 img.DrawRoundRect(k.px + 0.5, k.py + 0.5, k.pw - 1, this.U - 1, 6, src = "synth" ? this.SynEdge : this.LitEdge, 1.5)
             if (k.label != "")
-                img.DrawText(k.label, k.tx, k.ty, src = "synth" ? this.SynText : src = "phys" ? this.LitText : this.KeyText, this.Font)
+                img.DrawText(k.label, k.tx, k.ty, src = "synth" ? this.SynText : src = "phys" ? this.LitText : this.KeyText, this.Font, this.FontName)
             if (k.tog != "")                                          ; a lock key on the board: toggle pip in its corner
                 this.DrawLed(img, k.px + k.pw - 9, k.py + 3, 7, this.IsLockOn(k.tog), false)
         }
@@ -329,7 +330,7 @@ class InputHUD {
         for led in this.leds {
             local on := this.IsLockOn(led.name)
             this.DrawLed(img, led.x, led.y, led.d, on)
-            img.DrawText(led.label, led.lx, led.ly, on ? this.LedLabOn : this.LedLab, this.LedFont)
+            img.DrawText(led.label, led.lx, led.ly, on ? this.LedLabOn : this.LedLab, this.LedFont, this.FontName)
         }
     }
 
@@ -422,7 +423,7 @@ class InputHUD {
         img.FillRoundRect(bx - 3, by + btnH + 10, 6, 16, 3, this.BtnFill("x2"))
         img.FillRoundRect(bx - 3, by + btnH + 30, 6, 16, 3, this.BtnFill("x1"))
 
-        img.DrawText("Mouse", bx, ms.h - 16, this.KeyText, "Arial 9")
+        img.DrawText("Mouse", bx, ms.h - 16, this.KeyText, "s9", this.FontName)
     }
 
     ; Fill colour for a mouse-button rectangle by pressed origin: physical = blue, injected = amber, idle = grey.

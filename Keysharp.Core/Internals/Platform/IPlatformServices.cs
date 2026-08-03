@@ -191,6 +191,12 @@ namespace Keysharp.Internals
 		/// </summary>
 		bool TryShowImageOverlay(uint id, ScreenRect bounds, Bitmap image, bool clickThrough);
 
+		/// <summary>Registers (or, with null, removes) the receiver for pointer events on one overlay's surface.
+		/// The sink is stored by id — it survives backing recreation across Hide/Show — and is raised on the UI
+		/// thread with surface-local coordinates. Only backings with a client-side input window raise it, and only
+		/// while the overlay is not click-through.</summary>
+		void SetImageOverlayPointerSink(uint id, Action<OverlayPointerEvent> sink);
+
 		/// <summary>Move/resize an existing image overlay, reusing its last pixels (repositions in place where the
 		/// backing can, else re-applies the stored image at the new geometry).</summary>
 		bool TryMoveImageOverlay(uint id, ScreenRect bounds);

@@ -46,6 +46,12 @@ namespace Keysharp.Builtins
 			// image back to screen coordinates without the caller having to pass the capture rectangle again.
 			private int originX, originY;
 
+			// Whether the origin/scale metadata is still meaningful. Rotate invalidates both and Flip the origin
+			// (an arbitrary rotation/mirror has no well-defined screen mapping); the script-visible properties
+			// then read "" so misuse fails visibly instead of silently landing highlights in the wrong place.
+			// SetOrigin re-validates explicitly.
+			private bool originValid = true, scaleValid = true;
+
 			// Multiplier applied to every draw op's coordinates and font sizes (1.0 = draw in physical pixels).
 			// A target-density Overlay sets this so the caller can draw in local screen units while the
 			// canvas has an independently chosen pixel size. A matching transform keeps the result
@@ -438,30 +444,32 @@ namespace Keysharp.Builtins
 			/// fill; pass a 0xRRGGBB color (including numeric 0 for opaque black) for a solid fill.
 			///
 			/// <para>Unlike <see cref="Scale"/> and <see cref="Crop"/>, Rotate does NOT maintain the image->screen
-			/// coordinate mapping: it INVALIDATES <see cref="X"/>/<see cref="Y"/> (the screen origin) and
-			/// <see cref="ScaleX"/>/<see cref="ScaleY"/>, which are left at their pre-rotation values. A correct
-			/// origin/scale for an arbitrary rotation is ill-defined, so a consumer such as OCR must not rely on
-			/// X/Y/ScaleX/ScaleY after rotating.</para></summary>
+			/// coordinate mapping: <see cref="OriginX"/>/<see cref="OriginY"/> and
+			/// <see cref="ScaleX"/>/<see cref="ScaleY"/> read "" afterwards (a correct origin/scale for an
+			/// arbitrary rotation is ill-defined). <see cref="SetOrigin"/> can re-establish a mapping.</para></summary>
 			public object Rotate(object angle, object background = null)
 			{
 				ThrowIfDisposed();
 				var deg = angle.Ad();
 				var bg = ParseColorArg(background);
 				pending.Add((b => ImageHelper.RotateBitmap(b, deg, bg), false));
+				originValid = false;
+				scaleValid = false;
 				Invalidate();
 				return this;
 			}
 
 			/// <summary>Queues a mirror: horizontal (left-right) by default, vertical when <paramref name="horizontal"/> is false.
 			/// <para>Unlike <see cref="Scale"/> and <see cref="Crop"/>, Flip does NOT maintain the image->screen
-			/// coordinate mapping: <see cref="X"/>/<see cref="Y"/> (the screen origin) are left pointing at the
-			/// pre-flip top-left, which after a mirror is no longer the image's top-left. A consumer such as OCR
-			/// must not rely on X/Y after flipping. (ScaleX/ScaleY are unchanged — a flip preserves pixel density.)</para></summary>
+			/// coordinate mapping: <see cref="OriginX"/>/<see cref="OriginY"/> read "" afterwards (after a mirror
+			/// the pre-flip top-left is no longer the image's top-left). <see cref="ScaleX"/>/<see cref="ScaleY"/>
+			/// are unchanged — a flip preserves pixel density. <see cref="SetOrigin"/> can re-anchor the image.</para></summary>
 			public object Flip(object horizontal = null)
 			{
 				ThrowIfDisposed();
 				var h = horizontal == null || horizontal.Ab();
 				pending.Add((b => ImageHelper.FlipBitmap(b, h), false));
+				originValid = false;
 				Invalidate();
 				return this;
 			}
@@ -723,9 +731,11 @@ namespace Keysharp.Builtins
 				return path;
 			}
 
-			/// <summary>Queues text rendering. <paramref name="font"/> accepts "Name size" with optional
-			/// trailing style keywords: bold, italic, underline, strike (e.g. "Sans 16 bold italic").</summary>
-			public object DrawText(object text, object x, object y, object color = null, object font = null)
+			/// <summary>Queues text rendering. <paramref name="options"/> takes Gui.SetFont-style options
+			/// ("s16 bold italic underline strike", case-insensitive); <paramref name="fontName"/> the font
+			/// family name (a platform default when omitted) — the same two-argument font convention as
+			/// <c>Gui.SetFont(Options, FontName)</c>.</summary>
+			public object DrawText(object text, object x, object y, object color = null, object options = null, object fontName = null)
 			{
 				ThrowIfDisposed();
 				var s = text.As();
@@ -736,7 +746,8 @@ namespace Keysharp.Builtins
 				var px = x.Ad();
 				var py = y.Ad();
 				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
-				var fontSpec = font.As();
+				var fontOptions = options.As();
+				var fontFamily = fontName.As();
 
 				if (((uint)argb >> 24) == 0)
 					return this;
@@ -744,7 +755,7 @@ namespace Keysharp.Builtins
 				QueueDraw(b =>
 				{
 					using var g = DrawG(b);
-					var f = CreateFont(fontSpec);   // cached & reused; never disposed (see CreateFont)
+					var f = CreateFont(fontOptions, fontFamily);   // cached & reused; never disposed (see CreateFont)
 #if WINDOWS
 					using var brush = new SolidBrush(ImageHelper.ArgbToColor(argb));
 					g.DrawString(s, f, brush, (float)px, (float)py);
@@ -756,34 +767,40 @@ namespace Keysharp.Builtins
 				return this;
 			}
 
-			/// <summary>Measures the size <paramref name="text"/> would occupy when drawn with
-			/// <paramref name="font"/> (same "Name size" spec as DrawText), writing the width and height into
-			/// the given output variables. The size is in the image's own draw units (96-DPI pixels), matching
-			/// DrawText and the pixel-coordinate shapes — use it to centre or align text before drawing.</summary>
-			public object MeasureText(object text, object font = null, [ByRef] object width = null, [ByRef] object height = null)
+			/// <summary>Measures the size <paramref name="text"/> would occupy when drawn with the given font
+			/// (same <paramref name="options"/>/<paramref name="fontName"/> convention as <see cref="DrawText"/>)
+			/// and returns it as a <c>{w, h}</c> object. The size is in the image's own draw units (96-DPI
+			/// pixels), matching DrawText and the pixel-coordinate shapes — use it to centre or align text
+			/// before drawing.</summary>
+			public object MeasureText(object text, object options = null, object fontName = null)
 			{
 				ThrowIfDisposed();
-				var (w, h) = MeasureTextCore(text.As(), font.As());
-
-				if (width != null) Script.SetPropertyValue(width, "__Value", w);
-				if (height != null) Script.SetPropertyValue(height, "__Value", h);
-
-				return DefaultObject;
+				var (w, h) = MeasureTextCore(text.As(), options.As(), fontName.As());
+				return MakeSize(w, h);
 			}
 
-			// Pixel size of text in the given font spec, measured on a throwaway 96-DPI surface so it matches
+			// Pixel size of text in the given font, measured on a throwaway 96-DPI surface so it matches
 			// DrawText and the pixel shapes. (0,0) for empty text. Shared by Image and Overlay MeasureText;
 			// independent of any draw scale, so an Overlay gets back its LOGICAL text size.
-			internal static (double w, double h) MeasureTextCore(string text, string fontSpec)
+			internal static (double w, double h) MeasureTextCore(string text, string options, string fontName)
 			{
 				if (string.IsNullOrEmpty(text))
 					return (0.0, 0.0);
 
-				var f = CreateFont(fontSpec);   // cached & reused; never disposed (see CreateFont)
+				var f = CreateFont(options, fontName);   // cached & reused; never disposed (see CreateFont)
 				using var bmp = ImageHelper.NewArgbCanvas(1, 1);
 				using var g = ImageHelper.MakeGraphics(bmp);
 				var sz = ImageHelper.MeasureText(g, f, text);
 				return (sz.Width, sz.Height);
+			}
+
+			// A v2 {w, h} size object (read as sz.w / sz.h in scripts) — MeasureText's return shape.
+			internal static KeysharpObject MakeSize(double w, double h)
+			{
+				var o = new KeysharpObject();
+				o.DefinePropInternal("w", new OwnPropsDesc(o, w));
+				o.DefinePropInternal("h", new OwnPropsDesc(o, h));
+				return o;
 			}
 
 			/// <summary>Queues drawing another image onto this canvas.</summary>
@@ -846,9 +863,11 @@ namespace Keysharp.Builtins
 				return this;
 			}
 
-			/// <summary>Queues an opacity multiply: every pixel's alpha becomes <c>round(A * factor)</c> with
-			/// <paramref name="factor"/> clamped to [0, 1]; RGB is preserved. Lazy and chainable.</summary>
-			public object Opacity(object factor)
+			/// <summary>Queues an alpha multiply: every pixel's alpha becomes <c>round(A * factor)</c> with
+			/// <paramref name="factor"/> clamped to [0, 1]; RGB is preserved. Lazy and chainable. Grouped with
+			/// <see cref="Brightness"/>/<see cref="Contrast"/> (normalized-float channel transforms) — distinct
+			/// from <c>Overlay.Opacity</c>, which is whole-surface transparency on the AHK 0-255 scale.</summary>
+			public object Alpha(object factor)
 			{
 				ThrowIfDisposed();
 				var f = Math.Clamp(factor.Ad(), 0.0, 1.0);
@@ -925,7 +944,8 @@ namespace Keysharp.Builtins
 				// coordinates at the right physical scale. `mutable` is deliberately NOT copied: a copy is an
 				// independent lazy image, not another live drawing surface aliasing the same pixels.
 				var copy = new KeysharpImage { baseBitmap = new Bitmap(src), scaleX = scaleX, scaleY = scaleY,
-					originX = originX, originY = originY, drawScaleX = drawScaleX, drawScaleY = drawScaleY };
+					originX = originX, originY = originY, originValid = originValid, scaleValid = scaleValid,
+					drawScaleX = drawScaleX, drawScaleY = drawScaleY };
 				copy.SyncGcPressure();
 				return copy;
 			}
@@ -1078,19 +1098,51 @@ namespace Keysharp.Builtins
 
 			/// <summary>Image pixels per native screen unit along X at capture time (1.0 for files and
 			/// one-pixel-per-unit captures; ~2.0 for a Retina point-space capture). Multiply a native screen
-			/// width by this to get image pixels, or divide an image X coordinate by it to get native units.</summary>
-			public double ScaleX { get { ThrowIfDisposed(); return scaleX; } }
+			/// width by this to get image pixels, or divide an image X coordinate by it to get native units.
+			/// Reads "" after <see cref="Rotate"/> (the mapping is no longer defined) until
+			/// <see cref="SetOrigin"/> re-establishes it.</summary>
+			public object ScaleX { get { ThrowIfDisposed(); return scaleValid ? scaleX : ""; } }
 
 			/// <summary>Image pixels per native screen unit along Y. See <see cref="ScaleX"/>.</summary>
-			public double ScaleY { get { ThrowIfDisposed(); return scaleY; } }
+			public object ScaleY { get { ThrowIfDisposed(); return scaleValid ? scaleY : ""; } }
 
 			/// <summary>Screen-absolute X coordinate of this image's top-left at capture time (0 for file/bitmap
 			/// images, which have no on-screen origin). OCR uses it as the default x offset so highlights and
-			/// clicks land on the screen position the words actually occupy.</summary>
-			public long X { get { ThrowIfDisposed(); return originX; } }
+			/// clicks land on the screen position the words actually occupy. Reads "" after
+			/// <see cref="Rotate"/>/<see cref="Flip"/> (the origin is no longer defined) until
+			/// <see cref="SetOrigin"/> re-establishes it.</summary>
+			public object OriginX { get { ThrowIfDisposed(); return originValid ? (object)(long)originX : ""; } }
 
-			/// <summary>Screen-absolute Y coordinate of this image's top-left at capture time. See <see cref="X"/>.</summary>
-			public long Y { get { ThrowIfDisposed(); return originY; } }
+			/// <summary>Screen-absolute Y coordinate of this image's top-left at capture time. See <see cref="OriginX"/>.</summary>
+			public object OriginY { get { ThrowIfDisposed(); return originValid ? (object)(long)originY : ""; } }
+
+			/// <summary>Re-anchors this image's screen mapping: sets the screen-absolute origin of its top-left
+			/// and, optionally, the pixels-per-screen-unit scale (<paramref name="scaleY"/> defaults to
+			/// <paramref name="scaleX"/> when only one is given). Use it to give a <see cref="FromBuffer"/>/file
+			/// image a screen position, or to restore the mapping after <see cref="Rotate"/>/<see cref="Flip"/>
+			/// invalidated it. Returns this image.</summary>
+			public object SetOrigin(object x, object y, object scaleX = null, object scaleY = null)
+			{
+				ThrowIfDisposed();
+				originX = x.Ai();
+				originY = y.Ai();
+				originValid = true;
+
+				if (scaleX != null || scaleY != null)
+				{
+					var sx = scaleX != null ? scaleX.Ad() : this.scaleX;
+					var sy = scaleY != null ? scaleY.Ad() : sx;
+
+					if (!double.IsFinite(sx) || sx <= 0 || !double.IsFinite(sy) || sy <= 0)
+						return Errors.ValueErrorOccurred("SetOrigin scale factors must be finite positive numbers.");
+
+					this.scaleX = sx;
+					this.scaleY = sy;
+					scaleValid = true;
+				}
+
+				return this;
+			}
 
 			/// <summary>Returns the full 32-bit ARGB color of the pixel at (x, y) as an unsigned value in
 			/// 0xAARRGGBB order: an opaque red reads as 0xFFFF0000, a 50%-alpha pixel as 0x80RRGGBB. Mask
@@ -1135,56 +1187,38 @@ namespace Keysharp.Builtins
 			}
 
 			/// <summary>
-			/// Searches this image for <paramref name="args"/>'s needle (an Image, a file path, or a bitmap
-			/// handle) and writes the FIRST match into the leading <c>&amp;match</c> ByRef: on a hit
-			/// <c>match := {x, y}</c> (an object whose <c>x</c>/<c>y</c> are the match's top-left as 0-based,
-			/// ABSOLUTE image pixels — see <see cref="ScaleX"/>) and the call returns true (1); on a miss the
-			/// call returns false (0) and sets <c>match</c> to "".
+			/// Searches this image for <paramref name="needle"/> (an Image, a file path, or a bitmap handle)
+			/// and returns the FIRST match as an object whose <c>x</c>/<c>y</c> are the match's top-left as
+			/// 0-based, ABSOLUTE image pixels (see <see cref="ScaleX"/>), or "" (falsy) when there is no
+			/// match — so <c>if m := img.Search(needle)</c> is the idiomatic use.
 			///
-			/// <para>Two forms, dispatched by the number of arguments AFTER <c>&amp;match</c>:
-			/// <list type="bullet">
-			///   <item><b>Whole image</b> — <c>Search(&amp;match, needle [, variation, trans, direction])</c>
-			///   (1-4 args).</item>
-			///   <item><b>Region</b> — <c>Search(&amp;match, x, y, w, h, needle [, variation, trans, direction])</c>
-			///   (5+ args): search only inside the (x, y, w, h) rectangle (clamped to the image); returned
-			///   coordinates stay ABSOLUTE image pixels, not region-relative.</item>
-			/// </list>
-			/// Matching is RGB-only (alpha is ignored). <paramref name="args"/> optional tail:
-			/// <c>variation</c> (0-255 per-channel tolerance), <c>trans</c> (a needle color that matches anything,
-			/// ImageSearch's *TransN), <c>direction</c> (ImageSearch's *DirN scan order 1-9 selecting which match
-			/// wins).</para>
+			/// <para><paramref name="x"/>/<paramref name="y"/>/<paramref name="width"/>/<paramref name="height"/>
+			/// restrict the search to a region, clamped to the image. Each is independently optional: omitted
+			/// values default to 0 / the far edge, so <c>Search(n, 100, 100)</c> searches from (100, 100) to
+			/// the bottom-right corner. Returned coordinates stay ABSOLUTE image pixels, never region-relative.</para>
+			///
+			/// <para>Matching is RGB-only (alpha is ignored). <paramref name="variation"/> is the 0-255
+			/// per-channel tolerance; <paramref name="trans"/> a needle color that matches anything
+			/// (ImageSearch's *TransN); <paramref name="direction"/> (1-9, ImageSearch's *DirN) the scan
+			/// order that decides which match wins.</para>
 			/// </summary>
-			public object Search([ByRef] object match, params object[] args)
+			public object Search(object needle, object x = null, object y = null, object width = null, object height = null,
+				object variation = null, object trans = null, object direction = null)
 			{
 				ThrowIfDisposed();
-				args ??= System.Array.Empty<object>();
 
-				if (!ParseRegionArgs(args, 1, out var hasRegion, out int rx, out int ry, out int rw, out int rh, out int rest))
-				{
-					WriteMatch(match, "");
+				if (needle == null)
 					return Errors.ValueErrorOccurred("Search requires a needle image.");
-				}
-
-				var needle = args[rest];
-				var variation = args.Length > rest + 1 ? args[rest + 1] : null;
-				var trans = args.Length > rest + 2 ? args[rest + 2] : null;
-				var direction = args.Length > rest + 3 ? args[rest + 3] : null;
 
 				var haystack = Materialize();
 
 				if (haystack == null)
-				{
-					WriteMatch(match, "");
 					return Errors.ValueErrorOccurred("There is no image to search.");
-				}
 
 				var (needleBmp, own) = ResolveNeedle(needle);
 
 				if (needleBmp == null)
-				{
-					WriteMatch(match, "");
 					return Errors.ValueErrorOccurred("Could not load the search image.");
-				}
 
 				// Resolve the search surface INSIDE the try so a throw while cropping can't leak the owned needle
 				// (the finally disposes both; surface stays null on the throw path).
@@ -1193,33 +1227,21 @@ namespace Keysharp.Builtins
 
 				try
 				{
-					(surface, var offX, var offY, ownedSurface) = ResolveSearchSurface(haystack, hasRegion, rx, ry, rw, rh);
+					(surface, var offX, var offY, ownedSurface) = ResolveRegion(haystack, x, y, width, height);
 
 					// Empty region -> zero pixels -> no match.
 					if (surface == null)
-					{
-						WriteMatch(match, "");
-						return 0L;
-					}
+						return "";
 
-					var v = variation == null ? 0L : variation.Al();
 					var transColor = -1L;
 
 					if (trans != null && trans is not string { Length: 0 })
 						transColor = ParseColorArg(trans) & 0xFFFFFF;
 
 					var dir = direction == null ? 1 : (int)Math.Clamp(direction.Al(), 1L, 9L);
-					var finder = new ImageFinder(surface) { Variation = (byte)Math.Clamp(v, 0, 255) };
+					var finder = new ImageFinder(surface) { Variation = (byte)Math.Clamp(variation?.Al() ?? 0L, 0, 255) };
 					var loc = finder.Find(needleBmp, transColor, dir);
-
-					if (loc.HasValue)
-					{
-						WriteMatch(match, MakePoint(loc.Value.X + offX, loc.Value.Y + offY));
-						return 1L;
-					}
-
-					WriteMatch(match, "");
-					return 0L;
+					return loc.HasValue ? MakePoint(loc.Value.X + offX, loc.Value.Y + offY) : "";
 				}
 				finally
 				{
@@ -1232,80 +1254,58 @@ namespace Keysharp.Builtins
 			}
 
 			/// <summary>
-			/// Searches this image for EVERY occurrence of the needle and writes them into the leading
-			/// <c>&amp;matches</c> ByRef as an array of match objects: on ≥1 hit <c>matches := [{x, y}, {x, y}, …]</c>
-			/// (ABSOLUTE image pixels) and the call returns true (1); on none <c>matches := []</c> (empty array)
-			/// and the call returns false (0). Same two forms as <see cref="Search"/>:
-			/// <c>SearchAll(&amp;matches, needle [, variation, trans, direction])</c> or
-			/// <c>SearchAll(&amp;matches, x, y, w, h, needle [, …])</c> (5+ args ⇒ region). Matches are ordered by
-			/// <c>direction</c> (ImageSearch's *DirN, 1-9); overlapping matches are ALL returned. When every needle
-			/// pixel is the <c>trans</c> wildcard color, a single match at the region origin is returned. Matching
-			/// is RGB-only (alpha is ignored).
+			/// Searches this image for EVERY occurrence of <paramref name="needle"/> and returns them as an
+			/// array of <c>{x, y}</c> match objects (ABSOLUTE image pixels) — empty when there are none, so
+			/// check <c>matches.Length</c>. The region and matching arguments work exactly as in
+			/// <see cref="Search"/>. Matches are ordered by <paramref name="direction"/> (ImageSearch's *DirN,
+			/// 1-9); overlapping matches are ALL returned. When every needle pixel is the <paramref name="trans"/>
+			/// wildcard color, a single match at the region origin is returned. Matching is RGB-only.
 			/// </summary>
-			public object SearchAll([ByRef] object matches, params object[] args)
+			public object SearchAll(object needle, object x = null, object y = null, object width = null, object height = null,
+				object variation = null, object trans = null, object direction = null)
 			{
 				ThrowIfDisposed();
-				args ??= System.Array.Empty<object>();
 
-				if (!ParseRegionArgs(args, 1, out var hasRegion, out int rx, out int ry, out int rw, out int rh, out int rest))
-				{
-					WriteMatch(matches, new Array());
+				if (needle == null)
 					return Errors.ValueErrorOccurred("SearchAll requires a needle image.");
-				}
-
-				var needle = args[rest];
-				var variation = args.Length > rest + 1 ? args[rest + 1] : null;
-				var trans = args.Length > rest + 2 ? args[rest + 2] : null;
-				var direction = args.Length > rest + 3 ? args[rest + 3] : null;
 
 				var haystack = Materialize();
 
 				if (haystack == null)
-				{
-					WriteMatch(matches, new Array());
 					return Errors.ValueErrorOccurred("There is no image to search.");
-				}
 
 				var (needleBmp, own) = ResolveNeedle(needle);
 
 				if (needleBmp == null)
-				{
-					WriteMatch(matches, new Array());
 					return Errors.ValueErrorOccurred("Could not load the search image.");
-				}
 
 				// Resolve the search surface INSIDE the try so a throw while cropping can't leak the owned needle
 				// (the finally disposes both; surface stays null on the throw path).
 				Bitmap surface = null;
 				var ownedSurface = false;
+				var results = new Array();
 
 				try
 				{
-					(surface, var offX, var offY, ownedSurface) = ResolveSearchSurface(haystack, hasRegion, rx, ry, rw, rh);
+					(surface, var offX, var offY, ownedSurface) = ResolveRegion(haystack, x, y, width, height);
 
 					// Empty region -> zero pixels -> no matches.
 					if (surface == null)
-					{
-						WriteMatch(matches, new Array());
-						return 0L;
-					}
+						return results;
 
-					var v = variation == null ? 0L : variation.Al();
 					var transColor = -1L;
 
 					if (trans != null && trans is not string { Length: 0 })
 						transColor = ParseColorArg(trans) & 0xFFFFFF;
 
 					var dir = direction == null ? 1 : (int)Math.Clamp(direction.Al(), 1L, 9L);
-					var finder = new ImageFinder(surface) { Variation = (byte)Math.Clamp(v, 0, 255) };
+					var finder = new ImageFinder(surface) { Variation = (byte)Math.Clamp(variation?.Al() ?? 0L, 0, 255) };
 					var found = finder.FindAll(needleBmp, transColor, dir);
-					var results = new Array();
 
 					foreach (var p in found)
 						_ = results.Push(MakePoint(p.X + offX, p.Y + offY));
 
-					WriteMatch(matches, results);
-					return found.Count > 0 ? 1L : 0L;
+					return results;
 				}
 				finally
 				{
@@ -1319,89 +1319,60 @@ namespace Keysharp.Builtins
 
 			/// <summary>
 			/// Searches this image for the first pixel matching a color (a color name, 0xRRGGBB, or 0xAARRGGBB —
-			/// PixelSearch over a captured/loaded image instead of the live screen) and writes it into the leading
-			/// <c>&amp;match</c> ByRef: on a hit <c>match := {x, y, color}</c> where <c>x</c>/<c>y</c> are ABSOLUTE
-			/// image pixels and <c>color</c> is the ACTUAL matched pixel's full 0xAARRGGBB (the same value
-			/// <see cref="GetPixel"/> returns, alpha included), and the call returns true (1); on a miss it returns
-			/// false (0) and sets <c>match</c> to "". Matching is RGB-only (alpha is ignored); the scan is
-			/// left-to-right, top-to-bottom.
+			/// PixelSearch over a captured/loaded image instead of the live screen) and returns it as an object
+			/// <c>{x, y, color}</c> — <c>x</c>/<c>y</c> ABSOLUTE image pixels, <c>color</c> the ACTUAL matched
+			/// pixel's full 0xAARRGGBB (the same value <see cref="GetPixel"/> returns, alpha included) — or ""
+			/// (falsy) on a miss, so <c>if p := img.SearchPixel("Red")</c> is the idiomatic use. Matching is
+			/// RGB-only (alpha is ignored).
 			///
-			/// <para>Two forms, dispatched by argument count AFTER <c>&amp;match</c>:
-			/// <c>SearchPixel(&amp;match, color [, variation])</c> (1-2 args) or
-			/// <c>SearchPixel(&amp;match, x, y, w, h, color [, variation])</c> (5+ args ⇒ region, clamped to the
-			/// image; returned coordinates stay ABSOLUTE). A count of 3 or 4 is a ValueError.
-			/// <paramref name="variation"/> (0-255) allows per-channel tolerance.</para>
+			/// <para>The optional region works exactly as in <see cref="Search"/>.
+			/// <paramref name="variation"/> (0-255) allows per-channel tolerance. <paramref name="direction"/>
+			/// selects the scan's starting corner: 1 = top-left (default), 2 = top-right, 3 = bottom-left,
+			/// 4 = bottom-right; the image-search directions 5-9 do not apply to a pixel scan and raise a
+			/// ValueError.</para>
 			/// </summary>
-			public object SearchPixel([ByRef] object match, params object[] args)
+			public object SearchPixel(object color, object x = null, object y = null, object width = null, object height = null,
+				object variation = null, object direction = null)
 			{
 				ThrowIfDisposed();
-				args ??= System.Array.Empty<object>();
 
-				bool hasRegion;
-				int rx = 0, ry = 0, rw = 0, rh = 0, rest;
-
-				if (args.Length >= 5)
-				{
-					hasRegion = true;
-					rx = args[0].Ai(); ry = args[1].Ai(); rw = args[2].Ai(); rh = args[3].Ai();
-					rest = 4;
-				}
-				else if (args.Length is 1 or 2)
-				{
-					hasRegion = false;
-					rest = 0;
-				}
-				else if (args.Length == 0)
-				{
-					WriteMatch(match, "");
+				if (color == null)
 					return Errors.ValueErrorOccurred("SearchPixel requires a color.");
-				}
-				else // 3 or 4 args: neither a whole-image (1-2) nor a region (5+) call.
-				{
-					WriteMatch(match, "");
-					return Errors.ValueErrorOccurred("SearchPixel: invalid argument count. Use SearchPixel(&match, color [, variation]) or SearchPixel(&match, x, y, w, h, color [, variation]).");
-				}
 
-				var color = args[rest];
-				var variation = args.Length > rest + 1 ? args[rest + 1] : null;
+				var dir = direction == null ? 1L : direction.Al();
+
+				if (dir < 1 || dir > 4)
+					return Errors.ValueErrorOccurred("SearchPixel supports directions 1-4 (the scan's starting corner); 5-9 apply only to image search.");
 
 				var haystack = Materialize();
 
 				if (haystack == null)
-				{
-					WriteMatch(match, "");
 					return Errors.ValueErrorOccurred("There is no image to search.");
-				}
 
 				Bitmap surface = null;
 				var ownedSurface = false;
 
 				try
 				{
-					(surface, var offX, var offY, ownedSurface) = ResolveSearchSurface(haystack, hasRegion, rx, ry, rw, rh);
+					(surface, var offX, var offY, ownedSurface) = ResolveRegion(haystack, x, y, width, height);
 
 					// Empty region -> zero pixels -> no match (and avoids reading a phantom pixel off-image).
 					if (surface == null)
-					{
-						WriteMatch(match, "");
-						return 0L;
-					}
+						return "";
 
-					var v = variation == null ? 0L : variation.Al();
-					var finder = new ImageFinder(surface) { Variation = (byte)Math.Clamp(v, 0, 255) };
-					var loc = finder.Find(ImageHelper.ArgbToColor(ParseColorArg(color, unchecked((int)0xFF000000), allowTransparentEmpty: false)), ltr: true, ttb: true);
+					var finder = new ImageFinder(surface) { Variation = (byte)Math.Clamp(variation?.Al() ?? 0L, 0, 255) };
+					var loc = finder.Find(ImageHelper.ArgbToColor(ParseColorArg(color, unchecked((int)0xFF000000), allowTransparentEmpty: false)),
+						ltr: dir is 1 or 3, ttb: dir is 1 or 2);
 
 					if (loc.HasValue)
 					{
 						int ax = loc.Value.X + offX, ay = loc.Value.Y + offY;
 						// Report the actual pixel's full ARGB (what GetPixel would return), read from the haystack.
 						long argb = (long)(uint)haystack.GetPixel(ax, ay).ToArgb();
-						WriteMatch(match, MakePixel(ax, ay, argb));
-						return 1L;
+						return MakePixel(ax, ay, argb);
 					}
 
-					WriteMatch(match, "");
-					return 0L;
+					return "";
 				}
 				finally
 				{
@@ -1410,56 +1381,31 @@ namespace Keysharp.Builtins
 				}
 			}
 
-			// Dispatches the variadic search args into an optional leading (x,y,w,h) region and the index of the
-			// first remaining arg (the needle/color). `minRest` is how many args must follow the region (1 = a
-			// needle). >=4+minRest args ⇒ region form; 1..(3+minRest) ⇒ no region; 0 ⇒ false (caller errors).
-			private static bool ParseRegionArgs(object[] args, int minRest, out bool hasRegion, out int x, out int y, out int w, out int h, out int rest)
+			// Resolves the optional (x, y, width, height) region arguments into the bitmap the finder scans: the
+			// full materialized haystack when all four are omitted, else a clamped crop (each argument defaults
+			// independently — origin to 0, size to the far edge). Returns the pixel offset to add back to a match
+			// so reported coordinates stay ABSOLUTE, and whether the surface is a fresh copy the caller must
+			// dispose (the crop) or the shared haystack (must NOT dispose). Returns a NULL surface when the region
+			// is empty after clamping (a non-positive size, or an origin at/past an edge) — that genuinely contains
+			// zero pixels, so the caller short-circuits to "no match" rather than cropping to a degenerate 1x1
+			// canvas the finder would spuriously match (which would then throw when read back at absolute
+			// coordinates off the image).
+			private static (Bitmap surface, int offX, int offY, bool owned) ResolveRegion(Bitmap haystack,
+				object x, object y, object width, object height)
 			{
-				x = y = w = h = 0;
-
-				if (args.Length >= 4 + minRest)
-				{
-					hasRegion = true;
-					x = args[0].Ai(); y = args[1].Ai(); w = args[2].Ai(); h = args[3].Ai();
-					rest = 4;
-					return true;
-				}
-
-				hasRegion = false;
-				rest = 0;
-				return args.Length >= minRest;
-			}
-
-			// Builds the bitmap the finder actually scans: the full materialized haystack (no region), or a clamped
-			// (x,y,w,h) crop of it. Returns the pixel offset to add back to a match so reported coordinates stay
-			// ABSOLUTE, and whether the surface is a fresh copy the caller must dispose (the crop) or the shared
-			// haystack (must NOT dispose). Returns a NULL surface when the region is empty after clamping (a
-			// non-positive size, or an origin at/past an edge) — that genuinely contains zero pixels, so the caller
-			// short-circuits to "no match" rather than cropping to a degenerate 1x1 canvas the finder would
-			// spuriously match (which would then throw when read back at absolute coordinates off the image).
-			private static (Bitmap surface, int offX, int offY, bool owned) ResolveSearchSurface(Bitmap haystack, bool hasRegion, int x, int y, int w, int h)
-			{
-				if (!hasRegion)
+				if (x == null && y == null && width == null && height == null)
 					return (haystack, 0, 0, false);
 
 				// Match CropBitmap's clamping so the offset we add back equals the crop's real origin.
-				int rx = Math.Clamp(x, 0, haystack.Width);
-				int ry = Math.Clamp(y, 0, haystack.Height);
-				int rw = Math.Clamp(w, 0, haystack.Width - rx);
-				int rh = Math.Clamp(h, 0, haystack.Height - ry);
+				int rx = Math.Clamp(x?.Ai() ?? 0, 0, haystack.Width);
+				int ry = Math.Clamp(y?.Ai() ?? 0, 0, haystack.Height);
+				int rw = Math.Clamp(width != null ? width.Ai() : haystack.Width - rx, 0, haystack.Width - rx);
+				int rh = Math.Clamp(height != null ? height.Ai() : haystack.Height - ry, 0, haystack.Height - ry);
 
 				if (rw <= 0 || rh <= 0)
 					return (null, 0, 0, false);
 
 				return (ImageHelper.CropBitmap(haystack, rx, ry, rw, rh), rx, ry, true);
-			}
-
-			// Writes a search result through a &match ByRef, using the same mechanism as MeasureText. A null ByRef
-			// (the arg was omitted) is tolerated so the boolean return is still meaningful.
-			private static void WriteMatch(object match, object value)
-			{
-				if (match != null)
-					Script.SetPropertyValue(match, "__Value", value);
 			}
 
 			// A v2 {x, y} match object with own properties (accessed m.x / m.y in scripts).
@@ -1949,18 +1895,20 @@ namespace Keysharp.Builtins
 			private static RectangleF MakeRectF(double x, double y, double w, double h)
 				=> new ((float)x, (float)y, (float)w, (float)h);
 
-			// Fonts are cached by spec and never disposed. On Eto/GTK a Font's underlying handler is shared
-			// (from a system/toolkit cache), so disposing one — as the old `using var f = CreateFont(...)` did —
-			// left the next same-spec draw or measure pointing at a freed handle, throwing "Cannot access a
+			// Fonts are cached by (options, name) and never disposed. On Eto/GTK a Font's underlying handler is
+			// shared (from a system/toolkit cache), so disposing one — as the old `using var f = CreateFont(...)`
+			// did — left the next same-spec draw or measure pointing at a freed handle, throwing "Cannot access a
 			// disposed object: Font" after the first text was rendered. A script uses only a handful of distinct
 			// specs, so a permanent, reused cache is both cheap and the correct lifetime for a shared handle.
-			private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Font> fontCache = new ();
+			private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string, string), Font> fontCache = new ();
 
-			private static Font CreateFont(string spec) => fontCache.GetOrAdd(spec ?? "", CreateFontUncached);
+			private static Font CreateFont(string options, string name)
+				=> fontCache.GetOrAdd((options ?? "", name ?? ""), key => CreateFontUncached(key.Item1, key.Item2));
 
-			private static Font CreateFontUncached(string spec)
+			private static Font CreateFontUncached(string options, string name)
 			{
-				var (family, size, bold, italic, underline, strike) = ParseFontSpec(spec);
+				var (size, bold, italic, underline, strike) = ParseFontOptions(options);
+				var family = string.IsNullOrWhiteSpace(name) ? "Sans" : name.Trim();
 #if WINDOWS
 				var style = System.Drawing.FontStyle.Regular;
 
@@ -1986,42 +1934,38 @@ namespace Keysharp.Builtins
 #endif
 			}
 
-			// "Name size [bold] [italic] [underline] [strike]" — style keywords and the size are consumed
-			// from the end so multi-word family names ("DejaVu Sans 12 bold") parse correctly.
-			private static (string family, float size, bool bold, bool italic, bool underline, bool strike) ParseFontSpec(string spec)
+			// Gui.SetFont-style font options: "s16 bold italic underline strike" (case-insensitive), plus for
+			// SetFont parity: "norm" (resets the styles), "wN" (weight — >= 600 renders bold, the same threshold
+			// Windows uses) and "qN" (quality — accepted and ignored; it has no effect on an image canvas).
+			// A "cColor" token is rejected with guidance (the text color is DrawText's color argument), as is any
+			// other unrecognized token, so a typo'd option fails loudly instead of silently rendering wrong.
+			private static (float size, bool bold, bool italic, bool underline, bool strike) ParseFontOptions(string options)
 			{
-				var family = "Sans";
 				var size = 10f;
 				bool bold = false, italic = false, underline = false, strike = false;
 
-				if (string.IsNullOrWhiteSpace(spec))
-					return (family, size, bold, italic, underline, strike);
+				if (string.IsNullOrWhiteSpace(options))
+					return (size, bold, italic, underline, strike);
 
-				var tokens = spec.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-
-				while (tokens.Count > 0)
+				foreach (var tok in options.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
 				{
-					var last = tokens[^1];
-
-					if (last.Equals("bold", StringComparison.OrdinalIgnoreCase)) bold = true;
-					else if (last.Equals("italic", StringComparison.OrdinalIgnoreCase)) italic = true;
-					else if (last.Equals("underline", StringComparison.OrdinalIgnoreCase)) underline = true;
-					else if (last.Equals("strike", StringComparison.OrdinalIgnoreCase) || last.Equals("strikeout", StringComparison.OrdinalIgnoreCase)) strike = true;
-					else break;
-
-					tokens.RemoveAt(tokens.Count - 1);
+					if (tok.Equals("bold", StringComparison.OrdinalIgnoreCase)) bold = true;
+					else if (tok.Equals("italic", StringComparison.OrdinalIgnoreCase)) italic = true;
+					else if (tok.Equals("underline", StringComparison.OrdinalIgnoreCase)) underline = true;
+					else if (tok.Equals("strike", StringComparison.OrdinalIgnoreCase) || tok.Equals("strikeout", StringComparison.OrdinalIgnoreCase)) strike = true;
+					else if (tok.Equals("norm", StringComparison.OrdinalIgnoreCase)) { bold = italic = underline = strike = false; }
+					else if ((tok[0] is 's' or 'S') && float.TryParse(tok.AsSpan(1), NumberStyles.Float, CultureInfo.InvariantCulture, out var s))
+						size = Math.Max(1f, s);
+					else if ((tok[0] is 'w' or 'W') && int.TryParse(tok.AsSpan(1), out var weight))
+						bold = weight >= 600;
+					else if ((tok[0] is 'q' or 'Q') && int.TryParse(tok.AsSpan(1), out _)) { }
+					else if (tok[0] is 'c' or 'C')
+						_ = Errors.ValueErrorOccurred($"Font option \"{tok}\": pass the text color as DrawText's color argument, not as a font option.");
+					else
+						_ = Errors.ValueErrorOccurred($"Unrecognized font option \"{tok}\".");
 				}
 
-				if (tokens.Count > 0 && float.TryParse(tokens[^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedSize))
-				{
-					size = Math.Max(1f, parsedSize);
-					tokens.RemoveAt(tokens.Count - 1);
-				}
-
-				if (tokens.Count > 0)
-					family = string.Join(' ', tokens);
-
-				return (string.IsNullOrWhiteSpace(family) ? "Sans" : family, size, bold, italic, underline, strike);
+				return (size, bold, italic, underline, strike);
 			}
 
 			// Formats the capture scale for the window title as a percentage: a single value when X and Y
@@ -2036,7 +1980,8 @@ namespace Keysharp.Builtins
 			// whose high byte is set (> 0xFFFFFF) is taken as an explicit 0xAARRGGBB; otherwise it is a 0xRRGGBB
 			// and made fully opaque. NOTE: for a NUMERIC argument, 0xFF0000 and 0x00FF0000 are the same integer,
 			// so a transparent color (alpha 0) cannot be expressed numerically — it would read as opaque RRGGBB.
-			// Use "" or an 8-hex-digit STRING (e.g. "0x80FF0000") when you need a non-opaque alpha.
+			// Use "", the color name "Transparent" (KnownColor.Transparent parses to alpha 0 via TryParseColor),
+			// or an 8-hex-digit STRING (e.g. "0x80FF0000") when you need a non-opaque alpha.
 			private static int ParseColorArg(object o)
 				=> ParseColorArg(o, 0, allowTransparentEmpty: true);
 

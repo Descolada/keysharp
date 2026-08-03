@@ -237,6 +237,15 @@ namespace Keysharp.Builtins
 				var script = Script.TheScript;
 				var tv = script.Threads.CurrentThread;
 
+				//Hotkey callbacks are invoked with one argument (the hotkey name). A function requiring more can
+				//never run, so reject it at registration: the invocation path swallows callback exceptions, which
+				//used to turn this into a hotkey that silently did nothing. Declaring FEWER stays legal -- the
+				//name may be ignored, as in AutoHotkey.
+				if (fo != null && !fo.CanAcceptArgCount(1))
+					return Errors.ValueErrorOccurred(
+						$"Hotkey callback requires at least {fo.MinParams} parameter(s), but hotkey callbacks are called with one (the hotkey name).",
+						fo.Name);
+
 				if (fo == null && !string.IsNullOrEmpty(label) && ((hook_action = HotkeyDefinition.ConvertAltTab(label, true)) == 0))
 				{
 					var shk = script.HotkeyData.shk;

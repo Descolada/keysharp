@@ -8,7 +8,7 @@ namespace Keysharp.Builtins
 		/// A screen overlay backed by a raster canvas — click-through and always-on-top by default. Draw onto it with
 		/// the same shape/text primitives as <see cref="KeysharpImage"/> (<c>DrawRect</c>, <c>FillRect</c>, <c>DrawLine</c>,
 		/// <c>DrawEllipse</c>, <c>FillEllipse</c>, <c>DrawText</c>, <c>Clear</c>) or stamp an existing image with
-		/// <see cref="DrawImage"/> / <see cref="SetImage"/>, then <see cref="Show"/> it on screen. Use <see cref="Update"/>
+		/// <see cref="DrawImage"/> / <see cref="Update"/>, then <see cref="Show"/> it on screen. Use <see cref="Update"/>
 		/// to replace a live overlay's image, position, and native screen-space size in one backing operation. Drawing
 		/// while the overlay is visible updates it live. The canvas is owned by the overlay; <see cref="Destroy"/> (or dropping
 		/// all references) frees it. This is the single cross-platform overlay primitive that <c>Highlight</c> and,
@@ -16,7 +16,8 @@ namespace Keysharp.Builtins
 		/// <para>By default each draw op auto-repaints (one upload per op). Wrap a burst of primitives in
 		/// <see cref="BeginDraw"/>/<see cref="EndDraw"/> — or <see cref="Redraw"/> — to composite a whole HUD frame and
 		/// upload it exactly once. Set <see cref="ClickThrough"/> to <c>false</c> to make the overlay receive mouse
-		/// input (an interactive HUD) instead of passing clicks through to the windows beneath it.</para>
+		/// input (an interactive HUD) instead of passing clicks through to the windows beneath it, and register
+		/// mouse handlers with <see cref="OnEvent"/> (Click/DoubleClick/ContextMenu/MouseMove).</para>
 		/// </summary>
 		[UserDeclaredName("Overlay")]
 		public class KeysharpOverlay : KeysharpObject
@@ -56,7 +57,7 @@ namespace Keysharp.Builtins
 			public KeysharpOverlay(params object[] args) : base(args) { }
 
 			/// <summary>Overlay(x?, y?, w?, h?) stores the geometry; the canvas is created on the first
-			/// draw (or SetImage), and nothing is shown until Show. X/Y/W/H are native screen coordinates: PMv2/X11
+			/// draw (or Update), and nothing is shown until Show. X/Y/W/H are native screen coordinates: PMv2/X11
 			/// desktop pixels, Cocoa points, or Wayland logical units. The renderer chooses the pixel size of generated
 			/// canvases; supplied images already carry their raster dimensions.</summary>
 			public override object __New(params object[] args)
@@ -296,50 +297,33 @@ namespace Keysharp.Builtins
 			public object FillRoundRect(object rx, object ry, object rw, object rh, object radius, object color = null)
 				=> Draw(() => canvas.FillRoundRect(rx, ry, rw, rh, radius, color));
 
-			public object DrawText(object text, object tx, object ty, object color = null, object font = null)
-				=> Draw(() => canvas.DrawText(text, tx, ty, color, font));
+			/// <summary>Queues text rendering; the font is given as Gui.SetFont-style
+			/// <paramref name="options"/> ("s16 bold italic underline strike") plus a <paramref name="fontName"/>,
+			/// exactly as in <see cref="KeysharpImage.DrawText"/>.</summary>
+			public object DrawText(object text, object tx, object ty, object color = null, object options = null, object fontName = null)
+				=> Draw(() => canvas.DrawText(text, tx, ty, color, options, fontName));
 
-			/// <summary>Measures the size <paramref name="text"/> would occupy in <paramref name="font"/>, in the
-			/// overlay's local draw units (so it composes with the coordinates passed to DrawText/DrawRect),
-			/// writing the width and height into the output variables. Use it to centre or align text.</summary>
-			public object MeasureText(object text, object font = null, [ByRef] object width = null, [ByRef] object height = null)
+			/// <summary>Measures the size <paramref name="text"/> would occupy in the given font (same
+			/// <paramref name="options"/>/<paramref name="fontName"/> convention as <see cref="DrawText"/>) and
+			/// returns it as a <c>{w, h}</c> object, in the overlay's local draw units (so it composes with the
+			/// coordinates passed to DrawText/DrawRect). Use it to centre or align text.</summary>
+			public object MeasureText(object text, object options = null, object fontName = null)
 			{
-				var (mw, mh) = KeysharpImage.MeasureTextCore(text.As(), font.As());
-
-				if (width != null) Script.SetPropertyValue(width, "__Value", mw);
-				if (height != null) Script.SetPropertyValue(height, "__Value", mh);
-
-				return DefaultObject;
+				var (mw, mh) = KeysharpImage.MeasureTextCore(text.As(), options.As(), fontName.As());
+				return KeysharpImage.MakeSize(mw, mh);
 			}
 
 			/// <summary>Stamps another image (an Image, a file path, or a bitmap handle) onto the canvas.</summary>
 			public object DrawImage(object image, object ix = null, object iy = null, object iw = null, object ih = null)
 				=> Draw(() => canvas.DrawImage(image, ix, iy, iw, ih));
 
-			/// <summary>Replaces the whole canvas with a copy of <paramref name="source"/> (an Image, a file path,
-			/// or a bitmap handle). Later changes to that source do not affect this overlay.</summary>
-			public object SetImage(object source)
-			{
-				if (RejectRedrawMutation()) return this;
-				if (!TryCopyImage(source, nameof(SetImage), out var copy))
-					return this;
-
-				var geometry = ResolveGeometry(w, h, (int)copy.Width, (int)copy.Height);
-				SetDrawScale(copy, (int)copy.Width, (int)copy.Height, geometry.ScreenW, geometry.ScreenH);
-
-				canvas?.Dispose();
-				canvas = copy;
-
-				MaybeRefresh();
-				return this;
-			}
-
-			/// <summary>Atomically replaces the image and any supplied geometry. The complete replacement is prepared
-			/// off-screen and, when visible, handed to the platform in one upload; no blank canvas, intermediate move, or
-			/// intermediate resize is published. Omitted geometry keeps its current value. A failed upload preserves both
-			/// the previous on-screen frame and this overlay's previous state. Like <see cref="SetImage"/>, the source is
-			/// copied and remains owned by the caller. The image dimensions are its backing pixels; W/H are its native
-			/// on-screen size. Update does not change visibility: call <see cref="Show"/> when staging into a hidden overlay.</summary>
+			/// <summary>Atomically replaces the canvas image and any supplied geometry (omit the geometry to just
+			/// swap the image in place). The complete replacement is prepared off-screen and, when visible, handed
+			/// to the platform in one upload; no blank canvas, intermediate move, or intermediate resize is
+			/// published. A failed upload preserves both the previous on-screen frame and this overlay's previous
+			/// state. The source (an Image, a file path, or a bitmap handle) is copied and remains owned by the
+			/// caller. The image dimensions are its backing pixels; W/H are its native on-screen size. Update does
+			/// not change visibility: call <see cref="Show"/> when staging into a hidden overlay.</summary>
 			public object Update(object source, object newX = null, object newY = null, object newW = null,
 						 object newH = null)
 			{
@@ -378,6 +362,203 @@ namespace Keysharp.Builtins
 					isMapped = true;
 
 				return this;
+			}
+
+			#endregion
+
+			#region Events
+
+			// Registered pointer handlers by canonical event name ("click", "doubleclick", "contextmenu",
+			// "mousemove"). Each entry keeps the ORIGINAL script callback object for OnEvent(.., .., 0) removal
+			// (converting again yields a different wrapper, so identity must be tested against what was passed)
+			// and a CallbackRegistration whose active state holds script persistence, like other event hooks.
+			// handlerGate guards the map: OnEvent mutates on a script thread while HandlePointerEvent snapshots
+			// on the UI thread.
+			private readonly object handlerGate = new ();
+			private Dictionary<string, List<(object original, CallbackRegistration reg)>> eventHandlers;
+			private bool sinkArmed;
+
+			private static readonly string[] supportedEvents = ["click", "doubleclick", "contextmenu", "mousemove"];
+
+			/// <summary>Registers <paramref name="callback"/> for a mouse event on this overlay, in the style of
+			/// <c>Gui.OnEvent</c>. Events: <c>Click</c> (left button), <c>DoubleClick</c>, <c>ContextMenu</c>
+			/// (right button) and <c>MouseMove</c>. The callback receives <c>(overlay, x, y)</c> with x/y in the
+			/// overlay's local native units — the same units the draw ops use, so a hit-test against drawn
+			/// shapes needs no conversion. <paramref name="addRemove"/>: 1 (default) = call after previously
+			/// registered handlers, -1 = call before them, 0 = unregister the callback.
+			/// <para>The overlay must not be click-through to receive mouse input: set
+			/// <see cref="ClickThrough"/> := false, or the events never fire (input passes through to the
+			/// windows beneath). Events require a backing with a client-side window (<see cref="Hwnd"/> != 0);
+			/// a compositor-drawn overlay cannot receive input. Registered handlers keep the script persistent;
+			/// <see cref="Destroy"/> removes them all.</para></summary>
+			public object OnEvent(object eventName, object callback, object addRemove = null)
+			{
+				if (RejectRedrawMutation()) return this;
+				var rawName = eventName.As();
+				var name = rawName.ToLowerInvariant();
+
+				if (System.Array.IndexOf(supportedEvents, name) < 0)
+					return Errors.ValueErrorOccurred($"Overlay.OnEvent: unknown event \"{rawName}\". Supported: Click, DoubleClick, ContextMenu, MouseMove.");
+
+				var mode = addRemove == null ? 1L : addRemove.Al();
+
+				if (mode is not (1L or -1L or 0L))
+					return Errors.ValueErrorOccurred("Overlay.OnEvent: AddRemove must be 1, -1 or 0.");
+
+				var fo = Functions.GetKeysharpFunc(callback, null, null, true);
+
+				if (fo == null)
+					return Errors.TypeErrorOccurred(callback, typeof(KeysharpFunc));
+
+				var anyLeft = true;
+
+				lock (handlerGate)
+				{
+					eventHandlers ??= new Dictionary<string, List<(object, CallbackRegistration)>>();
+
+					if (!eventHandlers.TryGetValue(name, out var list))
+						eventHandlers[name] = list = [];
+
+					if (mode == 0L)
+					{
+						for (var i = list.Count - 1; i >= 0; i--)
+						{
+							if (ReferenceEquals(list[i].original, callback) || Equals(list[i].original, callback))
+							{
+								list[i].reg.Clear();   // releases the persistence hold
+								list.RemoveAt(i);
+							}
+						}
+					}
+					else
+					{
+						var entry = (callback, new CallbackRegistration(fo, Script.TheScript?.EventScheduler, true));
+
+						if (mode == -1L)
+							list.Insert(0, entry);
+						else
+							list.Add(entry);
+					}
+
+					anyLeft = eventHandlers.Any(kv => kv.Value.Count > 0);
+				}
+
+				// Arm (or disarm) the platform sink outside the handler lock: the service applies it under its
+				// own slot gate, and it survives backing recreation because it is stored by overlay id.
+				if (anyLeft)
+					EnsureSinkArmed();
+				else
+					DisarmSink();
+
+				return this;
+			}
+
+			private void EnsureSinkArmed()
+			{
+				if (sinkArmed)
+					return;
+
+				// The service's id-keyed sink map (and the live backing) hold this delegate for as long as the
+				// registration stands. Capture only a WEAK reference to the overlay: a strong capture would pin a
+				// dropped overlay forever — __Delete could then never run, so an event-overlay abandoned without
+				// Destroy would leak its canvas and keep holding script persistence, and a shown one would never
+				// auto-hide on collection. With the weak target the normal drop-all-references lifecycle keeps
+				// working; an event arriving after collection is a no-op until the destructor's Destroy clears
+				// the registration.
+				var weakSelf = new WeakReference<KeysharpOverlay>(this);
+				Platform.Overlay.SetImageOverlayPointerSink(OverlayId, ev =>
+				{
+					if (weakSelf.TryGetTarget(out var overlay))
+						overlay.HandlePointerEvent(ev);
+				});
+				sinkArmed = true;
+			}
+
+			private void DisarmSink()
+			{
+				if (!sinkArmed || overlayId == 0)
+					return;
+
+				Platform.Overlay.SetImageOverlayPointerSink(overlayId, null);
+				sinkArmed = false;
+			}
+
+			// Removes every handler (releasing their persistence holds) and the platform sink — Destroy's path.
+			private void ClearEventHandlers()
+			{
+				lock (handlerGate)
+				{
+					if (eventHandlers != null)
+					{
+						foreach (var list in eventHandlers.Values)
+							foreach (var (_, reg) in list)
+								reg.Clear();
+
+						eventHandlers = null;
+					}
+				}
+
+				DisarmSink();
+			}
+
+			// UI-thread entry: fans one backing pointer event out to that event's registered handlers, each on
+			// its owning scheduler as a queued pseudo-thread (the same dispatch shape as WinEvent/Gui events).
+			private void HandlePointerEvent(OverlayPointerEvent ev)
+			{
+				var name = ev.Kind switch
+				{
+					OverlayPointerKind.Click => "click",
+					OverlayPointerKind.DoubleClick => "doubleclick",
+					OverlayPointerKind.ContextMenu => "contextmenu",
+					_ => "mousemove",
+				};
+
+				(object original, CallbackRegistration reg)[] snapshot;
+
+				lock (handlerGate)
+				{
+					if (eventHandlers == null || !eventHandlers.TryGetValue(name, out var list) || list.Count == 0)
+						return;
+
+					snapshot = [.. list];
+				}
+
+				foreach (var (_, reg) in snapshot)
+				{
+					var scheduler = reg.OwnerScheduler ?? Script.TheScript?.EventScheduler;
+
+					if (scheduler == null || scheduler.IsDisposed)
+						continue;
+
+					var r = reg;
+					// One args array PER handler: a callback declaring a ByRef parameter writes into its argument
+					// slots, which must not leak into the next handler's arguments.
+					object[] args = [this, (long)ev.X, (long)ev.Y];
+					_ = scheduler.Enqueue(ScriptEventQueue.Normal, 0, () => RunPointerHandler(scheduler, r, args));
+				}
+			}
+
+			private static ScriptEventExecutionResult RunPointerHandler(ScriptEventScheduler scheduler, CallbackRegistration reg, object[] args)
+			{
+				using var thread = scheduler.StartPseudoThreadScope(0, false, false, false);
+
+				if (!thread.Started)
+					return thread.Result;
+
+				try
+				{
+					_ = reg.Callback.Call(args);
+				}
+				catch (Exception ex)
+				{
+					_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+				}
+				finally
+				{
+					Script.TheScript?.ExitIfNotPersistent();
+				}
+
+				return ScriptEventExecutionResult.Executed;
 			}
 
 			#endregion
@@ -441,6 +622,8 @@ namespace Keysharp.Builtins
 			public object Destroy()
 			{
 				if (RejectRedrawMutation()) return DefaultObject;
+				ClearEventHandlers();
+
 				if (overlayId != 0)
 				{
 					// Try a graceful, confirm-gated withdraw first...
@@ -486,7 +669,7 @@ namespace Keysharp.Builtins
 
 				if (w <= 0 || h <= 0)
 				{
-					_ = Errors.ValueErrorOccurred("Overlay has no size: construct it as Overlay(x, y, w, h) or call SetImage/DrawImage first.");
+					_ = Errors.ValueErrorOccurred("Overlay has no size: construct it as Overlay(x, y, w, h) or call Update/DrawImage first.");
 					return false;
 				}
 

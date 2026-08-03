@@ -13,6 +13,11 @@ namespace Keysharp.Internals
 	{
 		private LayeredOverlayForm form;
 		private int shownW, shownH;
+		// The form reads this through the GetPointerSink provider delegate wired at creation, so setting it
+		// before OR after the form exists (and across TryHide's form teardown/recreation) needs no rewiring.
+		private Action<OverlayPointerEvent> pointerSink;
+
+		public Action<OverlayPointerEvent> PointerSink { get => pointerSink; set => pointerSink = value; }
 
 		public nint Handle => form?.IsHandleCreated == true ? form.Handle : 0;
 
@@ -71,7 +76,7 @@ namespace Keysharp.Internals
 			return false;
 		}
 
-		private void EnsureForm() => form ??= new LayeredOverlayForm();
+		private void EnsureForm() => form ??= new LayeredOverlayForm { GetPointerSink = () => pointerSink };
 
 		private static Bitmap CreateDisplayBitmap(Bitmap source, int width, int height)
 		{
@@ -122,6 +127,43 @@ namespace Keysharp.Internals
 		// interactive (it then receives clicks). Drives BOTH the WS_EX_TRANSPARENT exstyle and the WM_NCHITTEST
 		// handler below, and can be toggled at runtime via SetClickThrough on an already-shown overlay.
 		private bool clickThrough = true;
+
+		// Provider for the owning backing's pointer sink (read per event so a sink registered after the form
+		// exists is seen without rewiring). Events only arrive while !clickThrough, but the guard below keeps
+		// a mid-toggle message from leaking through.
+		internal Func<Action<OverlayPointerEvent>> GetPointerSink;
+
+		private void RaisePointer(OverlayPointerKind kind, int x, int y)
+		{
+			if (clickThrough)
+				return;
+
+			GetPointerSink?.Invoke()?.Invoke(new OverlayPointerEvent(kind, x, y));
+		}
+
+		protected override void OnMouseClick(MouseEventArgs e)
+		{
+			base.OnMouseClick(e);
+
+			if (e.Button == MouseButtons.Left)
+				RaisePointer(OverlayPointerKind.Click, e.X, e.Y);
+			else if (e.Button == MouseButtons.Right)
+				RaisePointer(OverlayPointerKind.ContextMenu, e.X, e.Y);
+		}
+
+		protected override void OnMouseDoubleClick(MouseEventArgs e)
+		{
+			base.OnMouseDoubleClick(e);
+
+			if (e.Button == MouseButtons.Left)
+				RaisePointer(OverlayPointerKind.DoubleClick, e.X, e.Y);
+		}
+
+		protected override void OnMouseMove(MouseEventArgs e)
+		{
+			base.OnMouseMove(e);
+			RaisePointer(OverlayPointerKind.MouseMove, e.X, e.Y);
+		}
 
 		internal LayeredOverlayForm()
 		{

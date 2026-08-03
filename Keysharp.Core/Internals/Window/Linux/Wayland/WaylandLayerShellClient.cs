@@ -84,6 +84,25 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private volatile bool disposed;
 		private volatile bool connectionLost;
 
+		// wl_seat/wl_pointer for INTERACTIVE overlays (Overlay.OnEvent). An interactive layer surface already
+		// takes a full input region (WaylandImageOverlay.ResolveInputRegion), so the compositor routes pointer
+		// events to it; this listener is what turns those events into reports. All state below is touched only
+		// on the dispatcher thread under Sync (events) or in OnGlobal/Dispose (also under Sync).
+		private const uint SeatCapabilityPointer = 1;
+		private const uint PointerButtonLeft = 0x110;    // BTN_LEFT
+		private const uint PointerButtonRight = 0x111;   // BTN_RIGHT
+		private const uint PointerButtonStateReleased = 0;
+		private const long DoubleClickTimeMs = 400;      // no compositor double-click event exists; synthesized
+		private const double DoubleClickSlop = 4.0;      // like the desktop defaults: two clicks, close in time+space
+		private nint seat;
+		private uint seatRegistryName;
+		private nint pointerDevice;
+		private WaylandImageOverlay pointerFocus;
+		private double pointerX, pointerY;               // surface-local logical units, from enter/motion
+		private WaylandImageOverlay lastClickTarget;
+		private long lastClickTimeMs;
+		private double lastClickX, lastClickY;
+
 		private WaylandLayerShellClient() => selfHandle = GCHandle.Alloc(this);
 
 		internal bool IsAvailable => !disposed && !connectionLost && Display != 0
@@ -420,7 +439,113 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					LayerShell = WaylandNative.RegistryBind(registry, name,
 						WaylandNative.Interfaces.WlrLayerShell, LayerShellVersion);
 					break;
+
+				case "wl_seat" when seat == 0:
+					// v5 caps the pointer-listener vtable below at axis_discrete; newer seat versions add more
+					// pointer events, which would need a longer vtable, so deliberately do not bind past 5.
+					seatRegistryName = name;
+					seat = WaylandNative.RegistryBind(registry, name, WaylandNative.SeatInterface,
+						"wl_seat", Math.Min(version, 5u));
+
+					if (seat != 0 && WaylandNative.ProxyAddListener(seat, SeatListener.Pointer,
+							GCHandle.ToIntPtr(selfHandle)) != 0)
+					{
+						WaylandNative.ProxyDestroy(seat);
+						seat = 0;
+					}
+
+					break;
 			}
+		}
+
+		// ----- pointer input (interactive overlays) ------------------------------------------------
+
+		private void OnSeatCapabilities(uint capabilities)
+		{
+			var hasPointer = (capabilities & SeatCapabilityPointer) != 0;
+
+			if (hasPointer && pointerDevice == 0 && seat != 0)
+			{
+				pointerDevice = WaylandNative.SeatGetPointer(seat);
+
+				if (pointerDevice != 0 && WaylandNative.ProxyAddListener(pointerDevice, PointerListener.Pointer,
+						GCHandle.ToIntPtr(selfHandle)) != 0)
+					ReleasePointerDevice();
+			}
+			else if (!hasPointer)
+			{
+				ReleasePointerDevice();
+			}
+		}
+
+		private void ReleasePointerDevice()
+		{
+			if (pointerDevice != 0)
+			{
+				WaylandNative.PointerRelease(pointerDevice);
+				pointerDevice = 0;
+			}
+
+			pointerFocus = null;
+			lastClickTarget = null;
+		}
+
+		private void OnPointerEnter(nint surfaceHandle, double sx, double sy)
+		{
+			// Route by the entered wl_surface. `children` is a handful of overlays at most, and enter is rare
+			// (motion uses the cached focus), so a linear scan under Sync is fine.
+			pointerFocus = children.FirstOrDefault(c => c.Handle == surfaceHandle);
+			pointerX = sx;
+			pointerY = sy;
+		}
+
+		private void OnPointerLeave()
+		{
+			pointerFocus = null;
+		}
+
+		private void OnPointerMotion(double sx, double sy)
+		{
+			pointerX = sx;
+			pointerY = sy;
+			pointerFocus?.DeliverPointer(OverlayPointerKind.MouseMove, sx, sy);
+		}
+
+		private void OnPointerButton(uint button, uint state)
+		{
+			// wl_pointer.button carries no position; the last enter/motion coordinates are the click point.
+			// Click fires on RELEASE, matching the Windows/Eto backings.
+			if (state != PointerButtonStateReleased || pointerFocus == null)
+				return;
+
+			if (button == PointerButtonRight)
+			{
+				pointerFocus.DeliverPointer(OverlayPointerKind.ContextMenu, pointerX, pointerY);
+				return;
+			}
+
+			if (button != PointerButtonLeft)
+				return;
+
+			// Synthesized double-click (the second click reports DoubleClick INSTEAD of a second Click, the
+			// WinForms sequencing the other backings inherit from their toolkits).
+			var now = Environment.TickCount64;
+
+			if (ReferenceEquals(lastClickTarget, pointerFocus)
+					&& now - lastClickTimeMs <= DoubleClickTimeMs
+					&& Math.Abs(pointerX - lastClickX) <= DoubleClickSlop
+					&& Math.Abs(pointerY - lastClickY) <= DoubleClickSlop)
+			{
+				lastClickTarget = null;
+				pointerFocus.DeliverPointer(OverlayPointerKind.DoubleClick, pointerX, pointerY);
+				return;
+			}
+
+			lastClickTarget = pointerFocus;
+			lastClickTimeMs = now;
+			lastClickX = pointerX;
+			lastClickY = pointerY;
+			pointerFocus.DeliverPointer(OverlayPointerKind.Click, pointerX, pointerY);
 		}
 
 		private void BindOutput(uint name, uint version)
@@ -434,7 +559,19 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				outputs.Add(name, output);
 		}
 
-		private void OnGlobalRemove(uint name) => RemoveOutput(name);
+		private void OnGlobalRemove(uint name)
+		{
+			if (name == seatRegistryName && seat != 0)
+			{
+				ReleasePointerDevice();
+				WaylandNative.ProxyDestroy(seat);
+				seat = 0;
+				seatRegistryName = 0;
+				return;
+			}
+
+			RemoveOutput(name);
+		}
 
 		private void RemoveOutput(uint name)
 		{
@@ -462,6 +599,72 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			private delegate void GlobalHandler(nint data, nint registry, uint name, nint protocolInterface, uint version);
 			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 			private delegate void GlobalRemoveHandler(nint data, nint registry, uint name);
+		}
+
+		private static class SeatListener
+		{
+			private static readonly CapabilitiesHandler onCapabilities = Capabilities;
+			private static readonly NameHandler onName = Name;
+			internal static readonly nint Pointer = WaylandListenerTable.Allocate(onCapabilities, onName);
+
+			private static void Capabilities(nint data, nint seat, uint capabilities)
+				=> Self(data).OnSeatCapabilities(capabilities);
+			private static void Name(nint data, nint seat, nint name) { }
+
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate void CapabilitiesHandler(nint data, nint seat, uint capabilities);
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate void NameHandler(nint data, nint seat, nint name);
+		}
+
+		// wl_pointer events for the seat version bound above (<= 5): the vtable must cover every event of the
+		// bound version, so the axis family is present as no-ops. Coordinates are wl_fixed_t, surface-local.
+		private static class PointerListener
+		{
+			private static readonly EnterHandler onEnter = Enter;
+			private static readonly LeaveHandler onLeave = Leave;
+			private static readonly MotionHandler onMotion = Motion;
+			private static readonly ButtonHandler onButton = Button;
+			private static readonly AxisHandler onAxis = Axis;
+			private static readonly FrameHandler onFrame = Frame;
+			private static readonly AxisSourceHandler onAxisSource = AxisSource;
+			private static readonly AxisStopHandler onAxisStop = AxisStop;
+			private static readonly AxisDiscreteHandler onAxisDiscrete = AxisDiscrete;
+			internal static readonly nint Pointer = WaylandListenerTable.Allocate(onEnter, onLeave, onMotion,
+				onButton, onAxis, onFrame, onAxisSource, onAxisStop, onAxisDiscrete);
+
+			private static void Enter(nint data, nint pointer, uint serial, nint surface, int sx, int sy)
+				=> Self(data).OnPointerEnter(surface, WaylandNative.FixedToDouble(sx), WaylandNative.FixedToDouble(sy));
+			private static void Leave(nint data, nint pointer, uint serial, nint surface)
+				=> Self(data).OnPointerLeave();
+			private static void Motion(nint data, nint pointer, uint time, int sx, int sy)
+				=> Self(data).OnPointerMotion(WaylandNative.FixedToDouble(sx), WaylandNative.FixedToDouble(sy));
+			private static void Button(nint data, nint pointer, uint serial, uint time, uint button, uint state)
+				=> Self(data).OnPointerButton(button, state);
+			private static void Axis(nint data, nint pointer, uint time, uint axis, int value) { }
+			private static void Frame(nint data, nint pointer) { }
+			private static void AxisSource(nint data, nint pointer, uint source) { }
+			private static void AxisStop(nint data, nint pointer, uint time, uint axis) { }
+			private static void AxisDiscrete(nint data, nint pointer, uint axis, int discrete) { }
+
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate void EnterHandler(nint data, nint pointer, uint serial, nint surface, int sx, int sy);
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate void LeaveHandler(nint data, nint pointer, uint serial, nint surface);
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate void MotionHandler(nint data, nint pointer, uint time, int sx, int sy);
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate void ButtonHandler(nint data, nint pointer, uint serial, uint time, uint button, uint state);
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate void AxisHandler(nint data, nint pointer, uint time, uint axis, int value);
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate void FrameHandler(nint data, nint pointer);
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate void AxisSourceHandler(nint data, nint pointer, uint source);
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate void AxisStopHandler(nint data, nint pointer, uint time, uint axis);
+			[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+			private delegate void AxisDiscreteHandler(nint data, nint pointer, uint axis, int discrete);
 		}
 
 		public void Dispose()
@@ -507,6 +710,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 						WaylandOutputBinding.Abandon(output);
 
 					outputs.Clear();
+					// Protocol objects on a dead connection are abandoned locally, never released via requests.
+					pointerDevice = seat = 0;
+					pointerFocus = lastClickTarget = null;
 					Viewporter = xdgOutputManager = LayerShell = Shm = Compositor = registry = 0;
 
 					if (Display != 0)
@@ -521,6 +727,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				foreach (var name in outputs.Keys.ToArray())
 					RemoveOutput(name);
+
+				ReleasePointerDevice();
+
+				if (seat != 0) { WaylandNative.ProxyDestroy(seat); seat = 0; }
 
 				if (Viewporter != 0) { WaylandNative.ViewporterDestroy(Viewporter); Viewporter = 0; }
 				if (xdgOutputManager != 0) { WaylandNative.XdgOutputManagerDestroy(xdgOutputManager); xdgOutputManager = 0; }

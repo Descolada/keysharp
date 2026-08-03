@@ -79,9 +79,9 @@
                          small text. Result coordinates are divided back by the factor.
         rotate         : clockwise degrees (90/180/270) applied to the pixels.
         flip           : "x" mirrors across the x-axis (vertical), "y" across the y-axis (horizontal).
-      Result coordinates are reported in screen units: the capture origin (Image.X/Y, adjusted for any
-      crop) is added and the capture/scale factor divided out, so Highlight/Click land on screen with no
-      extra arguments. Note: rotate/flip transform the pixels but coordinates are NOT mapped back through
+      Result coordinates are reported in screen units: the capture origin (Image.OriginX/OriginY, adjusted
+      for any crop) is added and the capture/scale factor divided out, so Highlight/Click land on screen
+      with no extra arguments. Note: rotate/flip transform the pixels but coordinates are NOT mapped back through
       them, so after a rotate/flip the coordinates are in the transformed image's space.
 */
 
@@ -113,15 +113,15 @@ class OCR {
 
         ; Optional pre-processing (crop / scale / rotate / flip). The transforms update the Image's scale
         ; and origin metadata, so the screen offset below is simply where the (possibly cropped) image now
-        ; sits: Image.X/Y. Image.FromWindow/FromRect/FromDesktop/FromMonitor record their top-left;
-        ; file/handle images report 0. Highlight/Click then land on screen with no extra arguments.
+        ; sits: Image.OriginX/OriginY. Image.FromWindow/FromRect/FromDesktop/FromMonitor record their
+        ; top-left; file/handle images report 0. Highlight/Click then land on screen with no extra arguments.
         img := OCR.__ApplyTransforms(img, Options)
 
         local rawLines := OCR.__GetEngine().Recognize(img, {lang: lang, datapath: datapath})
         local result := OCR.__BuildResult(rawLines)
         result.ImageWidth := img.Width
         result.ImageHeight := img.Height
-        OCR.__FinalizeResult(result, img.ScaleX, img.ScaleY, img.X, img.Y)
+        OCR.__FinalizeResult(result, img.ScaleX, img.ScaleY, img.OriginX, img.OriginY)
         return result
     }
 
@@ -160,10 +160,19 @@ class OCR {
         }
         if (scale != 1)
             img.Scale(scale)
-        if (rot != 0)
-            img.Rotate(rot)
-        if (fl != 0 && fl != "")
-            img.Flip(fl = "y")   ; "y" -> mirror across the y-axis (horizontal); anything else -> across the x-axis (vertical)
+        if (rot != 0 || (fl != 0 && fl != "")) {
+            ; Rotate/Flip invalidate the Image's screen mapping (OriginX/OriginY/ScaleX/ScaleY read ""
+            ; afterwards). OCR's documented behavior is to keep reporting through the PRE-rotate mapping
+            ; (coordinates come out in the transformed image's space, not un-rotated), so snapshot the
+            ; mapping and re-anchor it explicitly with SetOrigin after the pixel transforms.
+            local sx := img.ScaleX, sy := img.ScaleY, ox := img.OriginX, oy := img.OriginY
+            if (rot != 0)
+                img.Rotate(rot)
+            if (fl != 0 && fl != "")
+                img.Flip(fl = "y")   ; "y" -> mirror across the y-axis (horizontal); anything else -> across the x-axis (vertical)
+            if (sx != "" && ox != "")
+                img.SetOrigin(ox, oy, sx, sy)
+        }
         return img
     }
 

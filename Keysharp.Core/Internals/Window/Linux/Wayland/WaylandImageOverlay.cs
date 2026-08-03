@@ -35,6 +35,15 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal nint Handle => surface?.Surface ?? 0;
 		internal bool IsAvailable => !disposed && !connectionInvalidated && client.IsAvailable;
 
+		// Pointer sink for an INTERACTIVE overlay, set by LayerImageBacking with the fragment's segment offset
+		// baked in. Invoked by the client's wl_pointer listener on its dispatcher thread with SURFACE-LOCAL
+		// logical coordinates; a plain delegate field read/written from different threads is a benign race
+		// (either the old or new sink sees the event).
+		internal Action<OverlayPointerKind, double, double> PointerSink;
+
+		internal void DeliverPointer(OverlayPointerKind kind, double sx, double sy)
+			=> PointerSink?.Invoke(kind, sx, sy);
+
 		internal WaylandImageOverlay(WaylandLayerShellClient client)
 		{
 			this.client = client ?? throw new ArgumentNullException(nameof(client));

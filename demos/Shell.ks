@@ -22,10 +22,10 @@
         Shell.SetTrayMenu([ ["Do a thing", (*) => Something()] ])   ; optional demo-specific tray items
 
     Demonstrates a reusable Overlay component: Image text/shape drawing, content-fit layout via MeasureText,
-    bottom-right placement, HotIf-scoped click handling that hit-tests the ✕ / checkbox / body-drag regions
-    (only clicks on the card are captured; everything else passes through the click-through overlay, and a
-    tray menu drawn on top keeps its clicks — see Blocked), a customized tray menu (A_TrayMenu), and
-    IniRead/IniWrite settings persistence.
+    bottom-right placement, an INTERACTIVE overlay (ClickThrough := false) whose clicks arrive event-driven
+    through Overlay.OnEvent("Click") with overlay-local coordinates — no mouse hook or HotIf hit-testing for
+    plain clicks; only Ctrl+drag remains a hotkey because a drag tracks the mouse beyond the card — plus a
+    customized tray menu (A_TrayMenu) and IniRead/IniWrite settings persistence.
 */
 
 class Shell {
@@ -34,8 +34,8 @@ class Shell {
     static MainWindowHotkey := "^!+m"    ; Ctrl+Alt+Shift+M — opens Keysharp's main window (internal)
     static ov := ""
     static rect := {x: 0, y: 0, w: 0, h: 0}
-    static checkRect := ""               ; on-screen rect of the "Don't show on startup" checkbox (hit-tested on click)
-    static closeRect := ""               ; on-screen rect of the ✕ close button (top-right) — the ONLY way to dismiss
+    static checkRect := ""               ; overlay-local rect of the "Don't show on startup" checkbox (hit-tested on click)
+    static closeRect := ""               ; overlay-local rect of the ✕ close button (top-right) — the ONLY way to dismiss
     static shown := false
     static built := false                ; the card has been rendered at least once (gates the startup-show rule)
     static registered := false
@@ -60,11 +60,10 @@ class Shell {
         local img := ""
 
         try {
-            local font := this.EmojiFont(fontSize)
-            local tw := 0, th := 0
+            local fontName := this.EmojiFont()
             img := Image.Create(size, size)
-            img.MeasureText(emoji, font, &tw, &th)
-            img.DrawText(emoji, Round((size - tw) / 2), Round((size - th) / 2), "0xFFFFFFFF", font)
+            local sz := img.MeasureText(emoji, "s" fontSize, fontName)
+            img.DrawText(emoji, Round((size - sz.w) / 2), Round((size - sz.h) / 2), "0xFFFFFFFF", "s" fontSize, fontName)
 
             local hbm := img.ToBitmap()
             if hbm
@@ -119,13 +118,13 @@ class Shell {
             parent.Check(it[1])
     }
 
-    static EmojiFont(size) {
+    static EmojiFont() {
 #if OSX
-        return "Apple Color Emoji " size
+        return "Apple Color Emoji"
 #elif LINUX
-        return "Noto Color Emoji " size
+        return "Noto Color Emoji"
 #else
-        return "Segoe UI Emoji " size
+        return "Segoe UI Emoji"
 #endif
     }
 
@@ -151,12 +150,16 @@ class Shell {
         if this.registered
             return
         this.registered := true
-        ; A plain left-click, but only while the cursor is over the card (HotIf), so every other click passes
-        ; straight through the click-through overlay: over the ✕ it closes the card, over the checkbox it
-        ; toggles the setting. Ctrl+left-click-drag anywhere on the card moves it instead — a separate hotkey,
-        ; since AHK matches an exact modifier set, so a plain click still reaches close/checkbox as normal.
+        ; Plain left-clicks are delivered by the overlay itself: the card is not click-through, so the OS
+        ; routes clicks over it to Overlay.OnEvent with overlay-local coordinates — no mouse hook, no HotIf
+        ; hit-testing, and clicks anywhere else on screen never involve Keysharp at all. Over the ✕ the
+        ; callback closes the card, over the checkbox it toggles the setting; elsewhere the click is simply
+        ; absorbed by the card (so an accidental click can't reach whatever is beneath it).
+        this.ov.ClickThrough := false
+        this.ov.OnEvent("Click", (ov, x, y) => Shell.OnClick(x, y))
+        ; Ctrl+left-drag stays a HOTKEY: a drag must keep tracking the mouse after it leaves the card
+        ; (GetKeyState polling across the whole screen), which is beyond a per-window click event.
         HotIf((*) => Shell.CanClick())
-        Hotkey("LButton", (*) => Shell.OnClick())
         Hotkey("^LButton", (*) => Shell.DragCard())
         HotIf()
         Hotkey(this.ReopenHotkey, (*) => Shell.Reshow())   ; global: reopen after the card is dismissed
@@ -171,24 +174,22 @@ class Shell {
         local lines := this.pending.lines.Clone()
         lines.Push(["Ctrl+Alt+Shift+S", "Reopen this card"])
         local pad := 16, rowH := 29, pillH := 22, pillPad := 9, colGap := 14, cbSize := 15
-        local titleFont := "Arial 12 bold", keyFont := "Arial 10 bold", descFont := "Arial 10", hintFont := "Arial 9"
+        ; Gui.SetFont-style options + one family name, the same two-argument convention as Gui.SetFont.
+        local fontName := "Arial"
+        local titleFont := "s12 bold", keyFont := "s10 bold", descFont := "s10", hintFont := "s9"
         local footer := "Don't show this card on startup"
         local closeHint := "✕ click to close"
 
-        ; Measure so the card fits its content exactly.
+        ; Measure so the card fits its content exactly (MeasureText returns a {w, h} object).
         local m := Image.Create(1, 1)
-        local tw := 0, th := 0
-        m.MeasureText(title, titleFont, &tw, &th)
-        local titleW := tw
+        local titleW := m.MeasureText(title, titleFont, fontName).w
         local keyWs := [], descW := 0
         for ln in lines {
-            m.MeasureText(ln[1], keyFont, &tw, &th), keyWs.Push(tw)
-            m.MeasureText(ln[2], descFont, &tw, &th), descW := Max(descW, tw)
+            keyWs.Push(m.MeasureText(ln[1], keyFont, fontName).w)
+            descW := Max(descW, m.MeasureText(ln[2], descFont, fontName).w)
         }
-        m.MeasureText(footer, hintFont, &tw, &th)
-        local footerW := tw
-        m.MeasureText(closeHint, hintFont, &tw, &th)
-        local closeW := tw
+        local footerW := m.MeasureText(footer, hintFont, fontName).w
+        local closeW := m.MeasureText(closeHint, hintFont, fontName).w
         m.Dispose()
 
         local pillCol := 0
@@ -215,8 +216,8 @@ class Shell {
 		local img := Image.Create(w, h, , scale)
         img.FillRoundRect(0, 0, w, h, 12, "0xF01C1F28")
         img.DrawRoundRect(1, 1, w - 2, h - 2, 12, "0xFF3C4353", 1.5)
-        img.DrawText(title, pad, pad, "0xFF5EC8FF", titleFont)
-        img.DrawText(closeHint, w - pad - closeW, pad + 3, "0xFF7A8698", hintFont)
+        img.DrawText(title, pad, pad, "0xFF5EC8FF", titleFont, fontName)
+        img.DrawText(closeHint, w - pad - closeW, pad + 3, "0xFF7A8698", hintFont, fontName)
         img.DrawLine(pad, pad + titleH - 8, w - pad, pad + titleH - 8, "0xFF333A48", 1)
 
         local y := pad + titleH
@@ -224,8 +225,8 @@ class Shell {
             local pillW := keyWs[i] + pillPad * 2
             img.FillRoundRect(pad, y, pillW, pillH, 5, "0xFF2C323E")
             img.DrawRoundRect(pad, y, pillW, pillH, 5, "0xFF474F60", 1)
-            img.DrawText(ln[1], pad + pillPad, y + 4, "0xFFE7B84B", keyFont)
-            img.DrawText(ln[2], descX, y + 4, "0xFFD6DBE4", descFont)
+            img.DrawText(ln[1], pad + pillPad, y + 4, "0xFFE7B84B", keyFont, fontName)
+            img.DrawText(ln[2], descX, y + 4, "0xFFD6DBE4", descFont, fontName)
             y += rowH
         }
 
@@ -235,7 +236,7 @@ class Shell {
         img.DrawRoundRect(pad, cbY, cbSize, cbSize, 3, "0xFF8A94A6", 1.5)
         if dont
             img.FillRoundRect(pad + 4, cbY + 4, cbSize - 8, cbSize - 8, 2, "0xFF5EC8FF")
-        img.DrawText(footer, pad + cbSize + 8, cbY - 1, "0xFF9AA4B4", hintFont)
+        img.DrawText(footer, pad + cbSize + 8, cbY - 1, "0xFF9AA4B4", hintFont, fontName)
 
 		if !IsObject(this.ov)
 			this.ov := Overlay()
@@ -250,25 +251,26 @@ class Shell {
 		this.rect := {x: rx, y: ry, w: pw, h: ph}
 		this.ov.Update(img, this.rect.x, this.rect.y, this.rect.w, this.rect.h)
 		img.Dispose()
-        ; Screen rects of the two clickable regions (in the OS coordinate system): the ✕ close button and the
-        ; "don't show" checkbox+label. Ctrl+drag anywhere ELSE on the card moves it (see OnClick/DragCard).
-		this.closeRect := {x: this.rect.x + Round((w - pad - closeW) * scale),
-		                   y: this.rect.y + Round((pad - 2) * scale),
+        ; OVERLAY-LOCAL rects of the two clickable regions — OnEvent's (x, y) is already overlay-local, in
+        ; the same native units as the card's on-screen size, so no screen-offset bookkeeping is needed.
+        ; Ctrl+drag anywhere ELSE on the card moves it (see OnClick/DragCard).
+		this.closeRect := {x: Round((w - pad - closeW) * scale),
+		                   y: Round((pad - 2) * scale),
 		                   w: Round((closeW + pad) * scale),
 		                   h: Round(22 * scale)}
-		this.checkRect := {x: this.rect.x + Round(pad * scale),
-		                   y: this.rect.y + Round((cbY - 3) * scale),
+		this.checkRect := {x: Round(pad * scale),
+		                   y: Round((cbY - 3) * scale),
 		                   w: Round((cbSize + 8 + footerW) * scale),
 		                   h: Round((cbSize + 6) * scale)}
     }
 
-    ; Left-click handling while the cursor is over the card: the ✕ closes it, the checkbox toggles the
-    ; startup preference. A plain click elsewhere on the card does nothing — Ctrl+drag (a separate hotkey,
-    ; see RegisterOnce) moves it instead, so an accidental click never nudges the card off its spot.
-    static OnClick() {
-        if this.InRect(this.closeRect)
+    ; Overlay Click handler; x/y arrive overlay-local from OnEvent. The ✕ closes the card, the checkbox
+    ; toggles the startup preference. A plain click elsewhere on the card does nothing — Ctrl+drag (a
+    ; separate hotkey, see RegisterOnce) moves it instead, so an accidental click never nudges the card.
+    static OnClick(x, y) {
+        if this.InRectAt(this.closeRect, x, y)
             this.Hide()
-        else if this.InRect(this.checkRect) {
+        else if this.InRectAt(this.checkRect, x, y) {
             this.SetDontShow(this.title, !this.DontShow(this.title))
             this.Render()                        ; redraw so the checkbox reflects the new state
             this.ov.Show()                       ; stay up — the user is interacting with the card
@@ -310,7 +312,10 @@ class Shell {
         if !this.shown
             return false
         this.EventPos(&x, &y)
-        return this.InRectAt(this.rect, x, y) && !this.Blocked(x, y)
+        ; The card itself is NOT click-through (its clicks arrive via OnEvent), so WinFromPoint over it
+        ; returns the card's own overlay window — pass its hwnd as allowed so the Ctrl+drag hotkey still
+        ; fires over the card while own-process popups (the tray menu) keep blocking as before.
+        return this.InRectAt(this.rect, x, y) && !this.Blocked(x, y, IsObject(this.ov) ? this.ov.Hwnd : 0)
     }
 
     static InRect(rc) {
@@ -337,14 +342,17 @@ class Shell {
         MouseGetPos(&x, &y)
     }
 
-    ; Z-order guard for the click-through overlays. WinFromPoint skips a click-through overlay and returns the real
-    ; window at the event coordinates — normally the app the card floats over (a different process), but our own
-    ; tray menu when it is popped on top. Thus an own-process result means the click must go to that menu, not our
-    ; click hook. Used in the LButton HotIf of both this card and the InputHUD HUDs.
-    static Blocked(x, y) {
+    ; Z-order guard for mouse hotkeys over our overlays. WinFromPoint skips a click-through overlay and returns
+    ; the real window at the event coordinates — normally the app the overlay floats over (a different process),
+    ; but our own tray menu when it is popped on top. An own-process result means the click must go to that
+    ; menu, not our hotkey. `allowHwnd` exempts one own window (the non-click-through card, whose hwnd
+    ; WinFromPoint now reports). Used by this card's ^LButton HotIf and the InputHUD HUDs' LButton HotIf.
+    static Blocked(x, y, allowHwnd := 0) {
         if !this.ourPid
             this.ourPid := ProcessExist()          ; own PID (A_ProcessID is unset in Keysharp)
         local win := WinFromPoint(x, y)
+        if (allowHwnd && win = allowHwnd)
+            return false
         return win && WinGetPID(win) = this.ourPid
     }
 

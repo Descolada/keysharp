@@ -105,7 +105,10 @@ namespace Keysharp.Parsing.Syntax
 		// nested scope — including class methods/properties, which do NOT inherit `outerProvided`. Threaded into every
 		// scope's `readable` set so a read of such a global isn't a false "never assigned" positive (null when VarUnset off).
 		private HashSet<string> _warnGlobalReadable;
-		private readonly List<(string mode, int line, string desc)> _warnings = new();
+		// `line` is relative to `file` — the #included file the warned-about node came from, or null for the main
+		// script. The two MUST travel together: an included file has its own line numbering, so rendering its line
+		// number against the main script's text quotes an unrelated line (and blames the wrong file).
+		private readonly List<(string mode, int line, string desc, string file)> _warnings = new();
 		private int _hotCount;
 		private readonly HashSet<string> _exportedNames = new(System.StringComparer.OrdinalIgnoreCase);   // names marked `export`
 
@@ -245,7 +248,9 @@ namespace Keysharp.Parsing.Syntax
 		// The compiled script's full path ("*" for a from-string compile) and the caller-supplied startup name; used to
 		// emit `MainScript.SetName(...)` so A_ScriptName/A_ScriptFullPath are correct.
 		private string _scriptPath = "*";
-		private string[] _sourceLines;   // raw script lines, for embedding the offending line text in #Warn dialogs
+		private string[] _sourceLines;   // raw MAIN-script lines, for embedding the offending line text in #Warn dialogs
+		// The same, per #included file (full path -> lines, null when unreadable); filled on demand by IncludedSourceLines.
+		private readonly Dictionary<string, string[]> _includedSourceLines = new(System.StringComparer.OrdinalIgnoreCase);
 		private string _startupName;
 		private string _includeDir;   // directory for resolving file-based `#import "name"` module imports
 		private bool _compileToFile;   // emitting a distributable .cks/.exe: relativize #include paths in A_LineFile
@@ -1802,7 +1807,7 @@ namespace Keysharp.Parsing.Syntax
 					ApplyWarnDirective(d.Args);
 		}
 
-		private void Warn(string mode, int line, string desc) { if (mode != null) _warnings.Add((mode, line, desc)); }
+		private void Warn(string mode, int line, string desc, string file = null) { if (mode != null) _warnings.Add((mode, line, desc, file)); }
 
 		// Runs the enabled warning checks over a module body (the top-level scope) and all nested function/method/
 		// property/lambda scopes. Must run AFTER the user-func/class prescan (so names resolve) and BEFORE lowering.
@@ -1890,7 +1895,7 @@ namespace Keysharp.Parsing.Syntax
 			{
 				if (IsHoistedOrDirective(s)) continue;
 				if (s is LabelStmt) { unreachable = false; continue; }
-				if (unreachable) { Warn(_warnUnreachable, StmtLine(s), "This line will never be executed."); unreachable = false; }
+				if (unreachable) { var at = StmtAnchor(s); Warn(_warnUnreachable, at.Line, "This line will never be executed.", at.File); unreachable = false; }
 				if (IsFlowTerminator(s)) unreachable = true;
 			}
 		}
@@ -2007,7 +2012,7 @@ namespace Keysharp.Parsing.Syntax
 				case NameExpr n:
 					var lo = n.Name.ToLowerInvariant();
 					if (!provided.Contains(lo) && !warned.Contains(lo) && IsUnsetCandidate(lo))
-					{ warned.Add(lo); Warn(_warnVarUnset, n.Line, $"This {(_warnScopeIsGlobal ? "global" : "local")} variable appears to never be assigned a value: {n.Name}."); }
+					{ warned.Add(lo); Warn(_warnVarUnset, n.Line, $"This {(_warnScopeIsGlobal ? "global" : "local")} variable appears to never be assigned a value: {n.Name}.", n.File); }
 					break;
 				case AssignExpr a:   // a direct `:=` target is NOT a read; a compound/member/index target IS evaluated.
 					if (!(a.Op == ":=" && a.Target is NameExpr)) CheckReadsExpr(a.Target, provided, warned);
@@ -2134,66 +2139,84 @@ namespace Keysharp.Parsing.Syntax
 			}
 		}
 
-		// Source line for a statement-level warning. The parser stamps every statement with the line of its first token
-		// (see Parser.ParseStatement), so prefer that; fall back to digging for a NameExpr line for any unstamped node.
-		private static int StmtLine(Stmt s)
+		// The node a statement-level warning is positioned at — read BOTH its Line and its File, never one from here and
+		// the other from elsewhere (a line number only means anything paired with the file it was counted in). The parser
+		// stamps every statement with the line of its first token (see Parser.ParseStatement), so prefer that; fall back
+		// to digging for a positioned expression in any unstamped node, and to the statement itself when there is none.
+		private static Node StmtAnchor(Stmt s)
 		{
-			if (s.Line != 0) return s.Line;
-			return s switch
+			if (s.Line != 0) return s;
+			var inner = s switch
 			{
-				ExpressionStmt es => ExprLine(es.Expr),
-				ReturnStmt r => r.Value != null ? ExprLine(r.Value) : 0,
-				ThrowStmt t => t.Value != null ? ExprLine(t.Value) : 0,
-				IfStmt iff => ExprLine(iff.Cond),
-				WhileStmt w => ExprLine(w.Cond),
-				_ => 0
+				ExpressionStmt es => es.Expr,
+				ReturnStmt r => r.Value,
+				ThrowStmt t => t.Value,
+				IfStmt iff => iff.Cond,
+				WhileStmt w => w.Cond,
+				_ => null
 			};
+			return (inner != null ? ExprAnchor(inner) : null) ?? s;
 		}
-		private static int ExprLine(Expr e) => e switch
+		// The first positioned node inside an expression, or null when nothing in it carries a line.
+		private static Node ExprAnchor(Expr e) => e switch
 		{
-			NameExpr n => n.Line,
-			BinaryExpr b => NzOr(ExprLine(b.Left), ExprLine(b.Right)),
-			UnaryExpr u => ExprLine(u.Operand),
-			AssignExpr a => NzOr(ExprLine(a.Target), ExprLine(a.Value)),
-			CallExpr c => NzOr(ExprLine(c.Callee), c.Args.Count > 0 && c.Args[0].Value != null ? ExprLine(c.Args[0].Value) : 0),
-			MemberExpr m => ExprLine(m.Target),
-			IndexExpr ix => ExprLine(ix.Target),
-			GroupExpr g => ExprLine(g.Inner),
-			_ => 0
+			NameExpr n => n.Line != 0 ? n : null,
+			BinaryExpr b => ExprAnchor(b.Left) ?? ExprAnchor(b.Right),
+			UnaryExpr u => ExprAnchor(u.Operand),
+			AssignExpr a => ExprAnchor(a.Target) ?? ExprAnchor(a.Value),
+			CallExpr c => ExprAnchor(c.Callee) ?? (c.Args.Count > 0 && c.Args[0].Value != null ? ExprAnchor(c.Args[0].Value) : null),
+			MemberExpr m => ExprAnchor(m.Target),
+			IndexExpr ix => ExprAnchor(ix.Target),
+			GroupExpr g => ExprAnchor(g.Inner),
+			_ => null
 		};
-		private static int NzOr(int a, int b) => a != 0 ? a : b;
 
 		// Generates the load-time warning output (one call per warning, per its mode), prepended to the outer auto-exec.
 		private List<StatementSyntax> EmitWarnings()
 		{
 			var stmts = new List<StatementSyntax>();
-			foreach (var (mode, line, desc) in _warnings)
+			foreach (var (mode, line, desc, nodeFile) in _warnings)
 			{
+				// Main-script nodes carry no file, or the main path itself; only a genuine #include needs naming.
+				var file = string.IsNullOrEmpty(nodeFile) || string.Equals(nodeFile, _scriptPath, StringComparison.OrdinalIgnoreCase) ? null : nodeFile;
+				// Every mode names the #included file a warning came from: its line number counts from that file's
+				// first line, so on its own it points at an unrelated line of the main script.
+				var where = line > 0 && file != null ? $" of {System.IO.Path.GetFileName(file)}" : "";
 				stmts.Add(mode switch
 				{
-					// StdOut uses the editor-friendly "(line) : ==> Warning: …" format so editors can jump to the line.
-					"StdOut" => CallStmt("Keysharp.Builtins.Files.FileAppend", Str((line > 0 ? $"({line}) : ==> " : "") + "Warning: " + desc + "\n"), Str("*")),
-					"OutputDebug" => CallStmt("Keysharp.Builtins.Debug.OutputDebug", Str("Warning: " + desc + (line > 0 ? $"\n\nLine: {line}" : ""))),
+					// StdOut uses the editor-friendly "(line) : ==> Warning: …" format so editors can jump to the line
+					// (prefixed with the file path, as AHK does, when the line is not in the main script).
+					"StdOut" => CallStmt("Keysharp.Builtins.Files.FileAppend", Str((line > 0 ? $"{(file != null ? file + " " : "")}({line}) : ==> " : "") + "Warning: " + desc + "\n"), Str("*")),
+					"OutputDebug" => CallStmt("Keysharp.Builtins.Debug.OutputDebug", Str("Warning: " + desc + (line > 0 ? $"\n\nLine: {line}{where}" : ""))),
 					// MsgBox mode shows the standard continuable warning dialog (test-host-aware; see Errors.ShowWarning).
-					_ => CallStmt("Keysharp.Builtins.Errors.ShowWarning", Str("Warning: " + desc + WarnLineContext(line))),
+					_ => CallStmt("Keysharp.Builtins.Errors.ShowWarning", Str("Warning: " + desc + WarnLineContext(line, file, where))),
 				});
 			}
 			return stmts;
 		}
 
 		// The source-line excerpt shown in a #Warn dialog: the offending line marked with ▶, then up to two following
-		// non-blank lines for context, plus a pointer to the docs — mirroring AHK's #Warn warning dialog.
-		private string WarnLineContext(int line)
+		// non-blank lines for context, plus a pointer to the docs — mirroring AHK's #Warn warning dialog. `file` is the
+		// #included file the line belongs to (null = the main script), and the excerpt MUST be read from it: quoting the
+		// main script at an included file's line number shows text that has nothing to do with the warning.
+		private string WarnLineContext(int line, string file, string where)
 		{
 			if (line <= 0)
 				return "";
-			if (_sourceLines == null || line > _sourceLines.Length)
-				return $"\n\nLine: {line}";
+
+			var lines = file == null ? _sourceLines : IncludedSourceLines(file);
+
+			if (lines == null || line > lines.Length)
+				return $"\n\nLine: {line}{where}";
 
 			var sb = new System.Text.StringBuilder("\n\n");
-			for (int i = line, shown = 0; i <= _sourceLines.Length && shown < 3; i++)
+
+			if (file != null)
+				sb.Append("In ").Append(System.IO.Path.GetFileName(file)).Append(":\n");
+
+			for (int i = line, shown = 0; i <= lines.Length && shown < 3; i++)
 			{
-				var text = _sourceLines[i - 1].Trim();
+				var text = lines[i - 1].Trim();
 				if (i != line && text.Length == 0)
 					continue;   // skip blank context lines (matching AHK)
 				sb.Append(i == line ? "▶\t" : "\t").Append(i).Append(": ").Append(text).Append('\n');
@@ -2201,6 +2224,20 @@ namespace Keysharp.Parsing.Syntax
 			}
 			sb.Append("\nFor more details, read the documentation for #Warn.");
 			return sb.ToString();
+		}
+
+		// Lines of an #included file, re-read (and cached) only when a warning actually needs to quote one. Null when
+		// the file can no longer be read — the caller then falls back to a bare line number rather than misquoting.
+		private string[] IncludedSourceLines(string file)
+		{
+			if (_includedSourceLines.TryGetValue(file, out var lines))
+				return lines;
+
+			try { lines = System.IO.File.ReadAllText(file).Replace("\r\n", "\n").Replace("\r", "\n").Split('\n'); }
+			catch { lines = null; }
+
+			_includedSourceLines[file] = lines;
+			return lines;
 		}
 
 		private static BlockSyntax AsBlock(StatementSyntax s) =>

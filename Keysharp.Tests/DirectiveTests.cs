@@ -91,5 +91,49 @@ namespace Keysharp.Tests
 			Assert.IsFalse(codeNone.Contains("RequireCapabilities"),
 				"a version-only #Requires must not emit RequireCapabilities");
 		}
+
+		[Test, Category("Directives")]
+		public void WarnQuotesTheFileTheLineCameFrom()
+		{
+			// A #Warn line number counts from the file the offending line is IN, but the dialog excerpt was always
+			// read from the MAIN script — so a warning raised in an #included file quoted whatever unrelated text the
+			// main script happened to have at that line number, and named no file. Both the VarUnset and the
+			// Unreachable warning are checked; assert on the generated C# (emitCode: true) so nothing has to run.
+			var dir = Path.Combine(Path.GetTempPath(), "ks_warnfile_" + Guid.NewGuid().ToString("N"));
+			_ = Directory.CreateDirectory(dir);
+
+			try
+			{
+				// Line 3 of the include is the unset read; line 4 is unreachable. The main script's own lines 3/4 are
+				// deliberately different text, so quoting the wrong file is unmistakable.
+				var incPath = Path.Combine(dir, "warn-inc.ks");
+				File.WriteAllText(incPath, "IncWarnHelper() {\n\treturn 1\n\tzzUnsetInInclude := zzUnsetInInclude + 1\n\tzzNeverRuns := 2\n}\n");
+				var mainPath = Path.Combine(dir, "warn-main.ks");
+				File.WriteAllText(mainPath, $"#Warn All, MsgBox\n#include \"{incPath}\"\nMainWarnHelper() {{\n\treturn zzUnsetInMain\n}}\n");
+
+				var (arr, code) = new CompilerHelper().CompileCodeToByteArray(mainPath, "warn-main", null, false, true);
+				Assert.IsNotNull(arr, code);
+
+				// The included file's warnings quote ITS text at ITS line numbers, and name it.
+				Assert.IsTrue(code.Contains("In warn-inc.ks:"), "an included file's warning should name the file; generated:\n" + code);
+				Assert.IsTrue(code.Contains("3: zzUnsetInInclude := zzUnsetInInclude + 1"),
+					"the VarUnset excerpt should quote the include's own line 3; generated:\n" + code);
+				Assert.IsTrue(code.Contains("4: zzNeverRuns := 2"),
+					"the Unreachable excerpt should quote the include's own line 4; generated:\n" + code);
+				// The regression: the main script's line 3 must never be quoted for a warning raised in the include.
+				Assert.IsFalse(code.Contains("3: MainWarnHelper"),
+					"an included file's warning must not quote the main script at the same line number; generated:\n" + code);
+
+				// A main-script warning is unchanged: its own text, no file header.
+				Assert.IsTrue(code.Contains("4: return zzUnsetInMain"),
+					"a main-script warning should still quote the main script; generated:\n" + code);
+				Assert.IsFalse(code.Contains("In warn-main.ks:"),
+					"a main-script warning should not be prefixed with a file name; generated:\n" + code);
+			}
+			finally
+			{
+				try { Directory.Delete(dir, true); } catch { }
+			}
+		}
 	}
 }

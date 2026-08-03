@@ -1,5 +1,5 @@
 #Requires AutoHotkey v2.0
-#import KS { WinFromPoint, MonitorFromPoint, MonitorGetScale }
+#import KS { Image, Overlay, WinFromPoint, MonitorFromPoint, MonitorGetScale }
                                            ; Import here so this shared layer is self-contained; duplicate imports from
                                            ; an including demo are harmless because KS imports are script-global.
 

@@ -1,3 +1,5 @@
+<img src="assets/Keysharp.png" Alt="Project logo" width="128" height="128">
+
 # Keysharp
 
 Keysharp is a cross-platform C# implementation of [AutoHotkey v2](https://www.autohotkey.com/docs/v2/). It parses AutoHotkey-style scripts, compiles them through .NET, and runs them on Windows, Linux, and macOS.

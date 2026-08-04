@@ -51,9 +51,9 @@ if (FileExist("./testshortcut.lnk"))
 #endif
 
 #if WINDOWS
-	FileCreateShortcut("./FileGetShortcut/file1.txt", "./testshortcut.lnk", fullpath, "", "TestDescription", "../../../Keysharp.ico", "")
+	FileCreateShortcut("./FileGetShortcut/file1.txt", "./testshortcut.lnk", fullpath, "", "TestDescription", "../../../assets/Keysharp.ico", "")
 #else
-	FileCreateShortcut("./FileGetShortcut/file1.txt", "./testshortcut.lnk", fullpath, "", "TestDescription", "../../../Keysharp.ico", 2)
+	FileCreateShortcut("./FileGetShortcut/file1.txt", "./testshortcut.lnk", fullpath, "", "TestDescription", "../../../assets/Keysharp.ico", 2)
 #endif
 
 if (FileExist("./testshortcut.lnk"))
@@ -97,7 +97,7 @@ if ("" == outArgs)
 else
 	FileAppend "fail", "*"
 
-expectedIcon := "../../../Keysharp.ico"
+expectedIcon := "../../../assets/Keysharp.ico"
 #if LINUX || OSX
 expectedIcon := FileFullPath(expectedIcon)
 #endif

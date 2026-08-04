@@ -1452,7 +1452,7 @@
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_AF0E0B79D32C4451BD6147247D792EB3"
             {
-            "SourcePath" = "8:..\\InstallerBanner.bmp"
+            "SourcePath" = "8:..\\assets\\InstallerBanner.bmp"
             "TargetName" = "8:InstallerBanner.bmp"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"

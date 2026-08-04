@@ -19,7 +19,7 @@
     <OutputType>WinExe</OutputType>
     <IsPublishable>false</IsPublishable>
     <StartupObject>Keysharp.CompiledMain.Program</StartupObject>
-    <ApplicationIcon>..\Keysharp.ico</ApplicationIcon>
+    <ApplicationIcon>..\assets\Keysharp.ico</ApplicationIcon>
     <Authors>Matt Feemster</Authors>
     <Company>Keysharp</Company>
     <Description>A simple test program to paste generated code into for debugging</Description>
@@ -50,7 +50,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="..\Keysharp.ico" Link="Keysharp.ico" />
+    <Content Include="..\assets\Keysharp.ico" Link="Keysharp.ico" />
     <Content Include="..\Keyview\Icon.icns" Link="Icon.icns" Condition="Exists('..\Keyview\Icon.icns')" />
     <Content Include="Keysharp.OutputTest.manifest">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

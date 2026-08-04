@@ -375,7 +375,7 @@ namespace Keysharp.Tests
 					"",
 					"",
 					"TestDescription",
-					"../../../Keysharp.ico",
+					"../../../assets/Keysharp.ico",
 					""
 				);
 			Assert.IsTrue(File.Exists("./testshortcut.lnk"));
@@ -536,7 +536,7 @@ namespace Keysharp.Tests
 				patharg,
 				"",
 				"TestDescription",
-				"../../../Keysharp.ico",
+				"../../../assets/Keysharp.ico",
 #if WINDOWS
 				""
 #else
@@ -556,9 +556,9 @@ namespace Keysharp.Tests
 			Assert.AreEqual("TestDescription", outDescription.__Value.ToString());
 			Assert.AreEqual("", outArgs.__Value.ToString());
 #if WINDOWS
-			Assert.AreEqual("../../../Keysharp.ico", outIcon.__Value.ToString());
+			Assert.AreEqual("../../../assets/Keysharp.ico", outIcon.__Value.ToString());
 #else
-			Assert.AreEqual(Path.GetFullPath("../../../Keysharp.ico"), outIcon.__Value.ToString());
+			Assert.AreEqual(Path.GetFullPath("../../../assets/Keysharp.ico"), outIcon.__Value.ToString());
 #endif
 #if WINDOWS
 			Assert.AreEqual("1", outIconNum.__Value.ToString());

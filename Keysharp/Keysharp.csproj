@@ -22,7 +22,7 @@
 	<PropertyGroup>
 		<StartupObject>Keysharp.Main.Program</StartupObject>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-		<ApplicationIcon>..\Keysharp.ico</ApplicationIcon>
+		<ApplicationIcon>..\assets\Keysharp.ico</ApplicationIcon>
 		<Authors>Matt Feemster, Descolada + legacy IronAHK developers</Authors>
 		<Description>A cross-platform C# port and enhancement of the AutoHotkey program</Description>
 		<Company>Keysharp</Company>
@@ -98,18 +98,18 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
-		<None Include="..\Keysharp.ico" Link="Keysharp.ico">
+		<None Include="..\assets\Keysharp.ico" Link="Keysharp.ico">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</None>
-		<None Include="..\Keysharp.png" Link="Keysharp.png">
+		<None Include="..\assets\Keysharp.png" Link="Keysharp.png">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</None>
 	</ItemGroup>
 
 	<ItemGroup>
-		<EmbeddedResource Include="..\Keysharp.ico" Link="Keysharp.ico" />
+		<EmbeddedResource Include="..\assets\Keysharp.ico" Link="Keysharp.ico" />
 	</ItemGroup>
 
 	<ItemGroup>

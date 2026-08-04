@@ -57,7 +57,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<Content Include="..\Keysharp.ico" Link="Keysharp.ico" />
+		<Content Include="..\assets\Keysharp.ico" Link="Keysharp.ico" />
 	</ItemGroup>
 
 	<ItemGroup>

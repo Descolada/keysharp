@@ -20,7 +20,7 @@
 	<PropertyGroup>
 		<IsPublishable>false</IsPublishable>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-		<ApplicationIcon>..\Keysharp.ico</ApplicationIcon>
+		<ApplicationIcon>..\assets\Keysharp.ico</ApplicationIcon>
 		<AssemblyName>Keysharp.Core</AssemblyName>
 		<SignAssembly>False</SignAssembly>
 		<DelaySign>False</DelaySign>

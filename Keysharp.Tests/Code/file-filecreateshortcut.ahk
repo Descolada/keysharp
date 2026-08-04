@@ -13,7 +13,7 @@ DirCopy(dir, "./FileCreateShortcut/")
 if (FileExist("./fileappend.txt"))
 	FileDelete("./fileappend.txt")
 	
-FileCreateShortcut("./FileCreateShortcut/file1.txt", "./testshortcut.lnk", "", "", "TestDescription", "../../../Keysharp.ico", "")
+FileCreateShortcut("./FileCreateShortcut/file1.txt", "./testshortcut.lnk", "", "", "TestDescription", "../../../assets/Keysharp.ico", "")
 
 if (FileExist("./testshortcut.lnk"))
  	FileAppend "pass", "*"

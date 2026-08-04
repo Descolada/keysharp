@@ -25,7 +25,7 @@ DEB_TMP_DIR="${PACKAGE_ROOT_DIR}/${PKG_NAME}-deb"
 DEB_OUT=""
 DEB_ARCH=""
 DEB_DEPENDS="dotnet-runtime-10.0, libx11-6, libxtst6, libxinerama1, libxt6, libx11-xcb1, libxkbcommon-x11-0, libxcb-xtest0, libgtk-3-0, libglib2.0-0, libnotify4, zenity, libatspi2.0-0, at-spi2-core, pulseaudio-utils, libudev1, libevdev2, systemd, kmod"
-DEB_DESCRIPTION="A C# port and enhancement of the AutoHotkey program"
+DEB_DESCRIPTION="A cross-platform C# port and enhancement of the AutoHotkey program"
 INPUTD_SERVICE_TEMPLATE="${ROOT}/native/keysharp-inputd/systemd/keysharp-inputd.service.in"
 INPUTD_SOCKET="${ROOT}/native/keysharp-inputd/systemd/keysharp-inputd.socket"
 GNOME_EXT_UUID="keysharp@keysharp.io"
@@ -827,7 +827,7 @@ build_deb() {
     rewrite_desktop_exec "${ASSETS_DIR}/keysharp-helper.desktop" "${applications_dir}/keysharp-helper.desktop"
   fi
   install -Dm644 "${ASSETS_DIR}/keysharp.xml" "${mime_dir}/keysharp.xml"
-  install -Dm644 "${ROOT}/Keysharp.png" "${icon_dir}/keysharp.png"
+  install -Dm644 "${ROOT}/assets/Keysharp.png" "${icon_dir}/keysharp.png"
 
   if [[ -d "${GNOME_EXT_SOURCE}" ]]; then
     cp -r "${GNOME_EXT_SOURCE}/." "${gnome_ext_dir}/"
@@ -921,7 +921,7 @@ verify_no_local_paths "${APP_DIR}"
 # Copy installer assets
 cp "${ASSETS_DIR}/install.sh" "${ASSETS_DIR}/uninstall.sh" "${PKG_DIR}/"
 cp "${ASSETS_DIR}/keyview.desktop" "${ASSETS_DIR}/keysharp.desktop" "${ASSETS_DIR}/keysharp-helper.desktop" "${ASSETS_DIR}/keysharp.xml" "${PKG_DIR}/"
-cp "${ROOT}/Keysharp.png" "${PKG_DIR}/"
+cp "${ROOT}/assets/Keysharp.png" "${PKG_DIR}/"
 cp "${INPUTD_SERVICE_TEMPLATE}" "${PKG_DIR}/keysharp-inputd.service.in"
 cp "${INPUTD_SOCKET}" "${PKG_DIR}/keysharp-inputd.socket"
 cp -r "${ASSETS_DIR}/gnome-shell-extension" "${PKG_DIR}/gnome-shell-extension"

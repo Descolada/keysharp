@@ -232,13 +232,13 @@ namespace Keysharp.Builtins
 		/// Creates a <see cref="BoundFunc"/> object which calls a method of a given object.
 		/// </summary>
 		/// <param name="obj">The object to find the method on.</param>
-		/// <param name="name">A method name. If omitted, the bound function calls obj itself.</param>
+		/// <param name="method">The method's name. If omitted, the bound function calls obj itself.</param>
 		/// <param name="args">The arguments to bind to the function.</param>
 		/// <returns>An new <see cref="BoundFunc"/> object with the specified arguments bound to it.</returns>
-		public static object ObjBindMethod(object obj, object name = null, params object[] args)
+		public static object ObjBindMethod(object obj, object method = null, params object[] args)
 		{
 			var o = obj;
-			var n = name.As("Call");
+			var n = method.As("Call");
 
 			if (obj is Any)
 				return new BoundFunc(new MethodPropertyHolder(n), args, o);

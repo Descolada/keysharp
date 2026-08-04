@@ -9,20 +9,20 @@ namespace Keysharp.Builtins
 			=> _ = Script.TheScript.Permissions.EnsureInputInjection(operation: operation);
 
 		public static long ControlAddItem(object @string,
-										  object control,
+										  object controlID,
 										  object winTitle = null,
 										  object winText = null,
 										  object excludeTitle = null,
 										  object excludeText = null) => Platform.Control.ControlAddItem(
 											  @string.As(),
-											  control,
+											  controlID,
 											  winTitle,
 											  winText,
 											  excludeTitle,
 											  excludeText);
 
 		public static object ControlChooseIndex(object n,
-												object control,
+												object controlID,
 												object winTitle = null,
 												object winText = null,
 												object excludeTitle = null,
@@ -30,7 +30,7 @@ namespace Keysharp.Builtins
 		{
 			Platform.Control.ControlChooseIndex(
 				n.Ai(),
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -39,21 +39,21 @@ namespace Keysharp.Builtins
 		}
 
 		public static long ControlChooseString(object @string,
-											   object control,
+											   object controlID,
 											   object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
 											   object excludeText = null) => Platform.Control.ControlChooseString(
 													   @string.As(),
-													   control,
+													   controlID,
 													   winTitle,
 													   winText,
 													   excludeTitle,
 													   excludeText);
 
-		public static object ControlClick(object ctrlOrPos = null,
-										  object title = null,
-										  object text = null,
+		public static object ControlClick(object controlOrPos = null,
+										  object winTitle = null,
+										  object winText = null,
 										  object whichButton = null,
 										  object clickCount = null,
 										  object options = null,
@@ -63,9 +63,9 @@ namespace Keysharp.Builtins
 			EnsureControlAutomationPermission("ControlClick");
 			EnsureControlInputInjectionPermission("ControlClick");
 			Platform.Control.ControlClick(
-				ctrlOrPos,
-				title,
-				text,
+				controlOrPos,
+				winTitle,
+				winText,
 				whichButton.As(),
 				clickCount.Ai(1),
 				options.As(),
@@ -75,7 +75,7 @@ namespace Keysharp.Builtins
 		}
 
 		public static object ControlDeleteItem(object n,
-											   object control,
+											   object controlID,
 											   object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
@@ -83,7 +83,7 @@ namespace Keysharp.Builtins
 		{
 			Platform.Control.ControlDeleteItem(
 				n.Ai(),
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -92,19 +92,19 @@ namespace Keysharp.Builtins
 		}
 
 		public static long ControlFindItem(object @string,
-										   object control,
+										   object controlID,
 										   object winTitle = null,
 										   object winText = null,
 										   object excludeTitle = null,
 										   object excludeText = null) => Platform.Control.ControlFindItem(
 											   @string.As(),
-											   control,
+											   controlID,
 											   winTitle,
 											   winText,
 											   excludeTitle,
 											   excludeText);
 
-		public static object ControlFocus(object control,
+		public static object ControlFocus(object controlID,
 										  object winTitle = null,
 										  object winText = null,
 										  object excludeTitle = null,
@@ -112,7 +112,7 @@ namespace Keysharp.Builtins
 		{
 			EnsureControlAutomationPermission("ControlFocus");
 			Platform.Control.ControlFocus(
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -120,56 +120,56 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public static long ControlGetChecked(object control,
+		public static long ControlGetChecked(object controlID,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
 											 object excludeText = null) => Platform.Control.ControlGetChecked(
-													 control,
+													 controlID,
 													 winTitle,
 													 winText,
 													 excludeTitle,
 													 excludeText);
 
-		public static string ControlGetChoice(object control,
+		public static string ControlGetChoice(object controlID,
 											  object winTitle = null,
 											  object winText = null,
 											  object excludeTitle = null,
 											  object excludeText = null) => Platform.Control.ControlGetChoice(
-													  control,
+													  controlID,
 													  winTitle,
 													  winText,
 													  excludeTitle,
 													  excludeText);
 
-		public static string ControlGetClassNN(object control,
+		public static string ControlGetClassNN(object controlID,
 											   object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
 											   object excludeText = null) => Platform.Control.ControlGetClassNN(
-													   control,
+													   controlID,
 													   winTitle,
 													   winText,
 													   excludeTitle,
 													   excludeText);
 
-		public static long ControlGetEnabled(object control,
+		public static long ControlGetEnabled(object controlID,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
 											 object excludeText = null) => Platform.Control.ControlGetEnabled(
-													 control,
+													 controlID,
 													 winTitle,
 													 winText,
 													 excludeTitle,
 													 excludeText);
 
-		public static long ControlGetExStyle(object control,
+		public static long ControlGetExStyle(object controlID,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
 											 object excludeText = null) => Platform.Control.ControlGetExStyle(
-													 control,
+													 controlID,
 													 winTitle,
 													 winText,
 													 excludeTitle,
@@ -184,34 +184,34 @@ namespace Keysharp.Builtins
 											   excludeTitle,
 											   excludeText);
 
-		public static long ControlGetHwnd(object control,
+		public static long ControlGetHwnd(object controlID,
 										  object winTitle = null,
 										  object winText = null,
 										  object excludeTitle = null,
 										  object excludeText = null) => Platform.Control.ControlGetHwnd(
-											  control,
+											  controlID,
 											  winTitle,
 											  winText,
 											  excludeTitle,
 											  excludeText);
 
-		public static long ControlGetIndex(object control,
+		public static long ControlGetIndex(object controlID,
 										   object winTitle = null,
 										   object winText = null,
 										   object excludeTitle = null,
 										   object excludeText = null) => Platform.Control.ControlGetIndex(
-											   control,
+											   controlID,
 											   winTitle,
 											   winText,
 											   excludeTitle,
 											   excludeText);
 
-		public static object ControlGetItems(object control,
+		public static object ControlGetItems(object controlID,
 											object winTitle = null,
 											object winText = null,
 											object excludeTitle = null,
 											object excludeText = null) => Platform.Control.ControlGetItems(
-												control,
+												controlID,
 												winTitle,
 												winText,
 												excludeTitle,
@@ -221,9 +221,9 @@ namespace Keysharp.Builtins
 										   [ByRef] object outY = null,
 										   [ByRef] object outWidth = null,
 										   [ByRef] object outHeight = null,
-										   object ctrl = null,
-										   object title = null,
-										   object text = null,
+										   object controlID = null,
+										   object winTitle = null,
+										   object winText = null,
 										   object excludeTitle = null,
 										   object excludeText = null)
 		{
@@ -233,9 +233,9 @@ namespace Keysharp.Builtins
 				ref valY,
 				ref valWidth,
 				ref valHeight,
-				ctrl,
-				title,
-				text,
+				controlID,
+				winTitle,
+				winText,
 				excludeTitle,
 				excludeText);
 			if (outX != null) Script.SetPropertyValue(outX, "__Value", valX);
@@ -245,40 +245,40 @@ namespace Keysharp.Builtins
             return DefaultObject;
 		}
 
-		public static long ControlGetStyle(object control,
+		public static long ControlGetStyle(object controlID,
 										   object winTitle = null,
 										   object winText = null,
 										   object excludeTitle = null,
 										   object excludeText = null) => Platform.Control.ControlGetStyle(
-											   control,
+											   controlID,
 											   winTitle,
 											   winText,
 											   excludeTitle,
 											   excludeText);
 
-		public static string ControlGetText(object control,
+		public static string ControlGetText(object controlID,
 											object winTitle = null,
 											object winText = null,
 											object excludeTitle = null,
 											object excludeText = null) => Platform.Control.ControlGetText(
-												control,
+												controlID,
 												winTitle,
 												winText,
 												excludeTitle,
 												excludeText);
 
-		public static long ControlGetVisible(object control,
+		public static long ControlGetVisible(object controlID,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
 											 object excludeText = null) => Platform.Control.ControlGetVisible(
-													 control,
+													 controlID,
 													 winTitle,
 													 winText,
 													 excludeTitle,
 													 excludeText);
 
-		public static object ControlHide(object control,
+		public static object ControlHide(object controlID,
 										 object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
@@ -286,7 +286,7 @@ namespace Keysharp.Builtins
 		{
 			EnsureControlAutomationPermission("ControlHide");
 			Platform.Control.ControlHide(
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -294,7 +294,7 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public static object ControlHideDropDown(object control,
+		public static object ControlHideDropDown(object controlID,
 				object winTitle = null,
 				object winText = null,
 				object excludeTitle = null,
@@ -302,7 +302,7 @@ namespace Keysharp.Builtins
 		{
 			EnsureControlAutomationPermission("ControlHideDropDown");
 			Platform.Control.ControlHideDropDown(
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -314,7 +314,7 @@ namespace Keysharp.Builtins
 										 object y = null,
 										 object width = null,
 										 object height = null,
-										 object control = null,
+										 object controlID = null,
 										 object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
@@ -326,7 +326,7 @@ namespace Keysharp.Builtins
 				(y is null ? int.MinValue : y.ToInt()),
 				(width is null ? int.MinValue : width.ToInt()),
 				(height is null ? int.MinValue : height.ToInt()),
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -335,7 +335,7 @@ namespace Keysharp.Builtins
 		}
 
 		public static object ControlSend(object keys,
-										 object control = null,
+										 object controlID = null,
 										 object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
@@ -345,7 +345,7 @@ namespace Keysharp.Builtins
 			EnsureControlInputInjectionPermission("ControlSend");
 			Platform.Control.ControlSend(
 				keys.As(),
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -354,7 +354,7 @@ namespace Keysharp.Builtins
 		}
 
 		public static object ControlSendText(object keys,
-											 object control = null,
+											 object controlID = null,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
@@ -364,7 +364,7 @@ namespace Keysharp.Builtins
 			EnsureControlInputInjectionPermission("ControlSendText");
 			Platform.Control.ControlSendText(
 				keys.As(),
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -373,7 +373,7 @@ namespace Keysharp.Builtins
 		}
 
 		public static object ControlSetChecked(object newSetting,
-											   object control,
+											   object controlID,
 											   object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
@@ -382,7 +382,7 @@ namespace Keysharp.Builtins
 			EnsureControlAutomationPermission("ControlSetChecked");
 			Platform.Control.ControlSetChecked(
 				newSetting,
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -391,7 +391,7 @@ namespace Keysharp.Builtins
 		}
 
 		public static object ControlSetEnabled(object newSetting,
-											   object control,
+											   object controlID,
 											   object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
@@ -400,7 +400,7 @@ namespace Keysharp.Builtins
 			EnsureControlAutomationPermission("ControlSetEnabled");
 			Platform.Control.ControlSetEnabled(
 				newSetting,
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -409,7 +409,7 @@ namespace Keysharp.Builtins
 		}
 
 		public static object ControlSetExStyle(object value,
-											   object control,
+											   object controlID,
 											   object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
@@ -418,7 +418,7 @@ namespace Keysharp.Builtins
 			EnsureControlAutomationPermission("ControlSetExStyle");
 			Platform.Control.ControlSetExStyle(
 				value,
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -427,7 +427,7 @@ namespace Keysharp.Builtins
 		}
 
 		public static object ControlSetStyle(object value,
-											 object control,
+											 object controlID,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
@@ -436,7 +436,7 @@ namespace Keysharp.Builtins
 			EnsureControlAutomationPermission("ControlSetStyle");
 			Platform.Control.ControlSetStyle(
 				value,
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -445,7 +445,7 @@ namespace Keysharp.Builtins
 		}
 
 		public static object ControlSetText(object newText,
-											object control,
+											object controlID,
 											object winTitle = null,
 											object winText = null,
 											object excludeTitle = null,
@@ -454,7 +454,7 @@ namespace Keysharp.Builtins
 			EnsureControlAutomationPermission("ControlSetText");
 			Platform.Control.ControlSetText(
 				newText.As(),
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -462,7 +462,7 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public static object ControlShow(object control,
+		public static object ControlShow(object controlID,
 										 object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
@@ -470,7 +470,7 @@ namespace Keysharp.Builtins
 		{
 			EnsureControlAutomationPermission("ControlShow");
 			Platform.Control.ControlShow(
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,
@@ -478,7 +478,7 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public static object ControlShowDropDown(object control,
+		public static object ControlShowDropDown(object controlID,
 				object winTitle = null,
 				object winText = null,
 				object excludeTitle = null,
@@ -486,7 +486,7 @@ namespace Keysharp.Builtins
 		{
 			EnsureControlAutomationPermission("ControlShowDropDown");
 			Platform.Control.ControlShowDropDown(
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,

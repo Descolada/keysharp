@@ -60,25 +60,25 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Returns a Props iterator for the given value.
 		/// </summary>
-		public static object Props(object obj)
+		public static object Props(object value)
 		{
-			if (obj == null)
+			if (value == null)
 				return Errors.UnsetErrorOccurred("Value");
 
 #if WINDOWS
-			if (Marshal.IsComObject(obj))
+			if (Marshal.IsComObject(value))
 				return Errors.ErrorOccurred("Props() does not support ComObject.");
 #endif
 
 			var script = Script.TheScript;
-			var current = obj as Any;
+			var current = value as Any;
 
 			if (current == null)
 			{
-				if (!Primitive.IsNative(obj))
-					return Errors.TypeErrorOccurred(obj, typeof(Any));
+				if (!Primitive.IsNative(value))
+					return Errors.TypeErrorOccurred(value, typeof(Any));
 
-				current = script.Vars.Prototypes[Primitive.MapPrimitiveToNativeType(obj)];
+				current = script.Vars.Prototypes[Primitive.MapPrimitiveToNativeType(value)];
 			}
 
 			var props = new Dictionary<object, object>();
@@ -121,55 +121,57 @@ namespace Keysharp.Builtins
 				}
 			}
 
-			return OwnPropsEnumeration.CreateEnumerator(obj, props, true);
+			return OwnPropsEnumeration.CreateEnumerator(value, props, true);
 		}
 
 		/// <summary>
 		/// Sets an object's base object. No meta-functions or property functions are called.
 		/// </summary>
-		/// <param name="obj0">The object</param>
-		/// <param name="obj1">New base</param>
+		/// <param name="obj">The object</param>
+		/// <param name="baseObj">New base</param>
 		/// <returns>The default return value</returns>
-		public static object ObjSetBase(object object0, object object1)
+		public static object ObjSetBase(object obj, object baseObj)
 		{
 			var script = Script.TheScript;
-			var obj = object0 as KeysharpObject;
-			var baseObj = object1 as KeysharpObject;
+			var objVal = obj as KeysharpObject;
+			var baseObjVal = baseObj as KeysharpObject;
 			var objectProto = script.Vars.Prototypes[typeof(KeysharpObject)];
 
 			// Typed properties fix the object's memory layout, so neither side may carry any: reassigning the base
 			// would change the layout out from under the existing data. Checked before the Object test below,
 			// since a Struct extends Any rather than Object and so would otherwise be rejected as a non-Object.
 			// [v2.1-alpha.27+]
-			if (Struct.HasTypedProperties(object0 as Any))
+			// Tested on the ARGUMENT, not on objVal/baseObjVal: a Struct or a Prototype is an Any but not a
+			// KeysharpObject, so the narrowed value is null for exactly the cases this is meant to catch.
+			if (Struct.HasTypedProperties(obj as Any))
 				return Errors.ValueErrorOccurred("Property is read-only.");
 
-			if (Struct.HasTypedProperties(object1 as Any))
+			if (Struct.HasTypedProperties(baseObj as Any))
 				return Errors.ValueErrorOccurred("Invalid base.");
 
-			if (obj == null || Types.HasBase(obj, objectProto) == 0)
-				return Errors.ErrorOccurred($"Object of type {object0?.GetType().ToString() ?? "null"} was not of type Object.");
+			if (objVal == null || Types.HasBase(objVal, objectProto) == 0)
+				return Errors.ErrorOccurred($"Object of type {obj?.GetType().ToString() ?? "null"} was not of type Object.");
 
-			if (baseObj == null || Types.HasBase(baseObj, objectProto) == 0)
-				return Errors.ErrorOccurred($"Object of type {object1?.GetType().ToString() ?? "null"} was not of type Object.");
+			if (baseObjVal == null || Types.HasBase(baseObjVal, objectProto) == 0)
+				return Errors.ErrorOccurred($"Object of type {baseObj?.GetType().ToString() ?? "null"} was not of type Object.");
 
 			// find each object's "native" (built‐in) prototype type
-			var nativeObj = script.GetNativeType(obj.Base);
-			var nativeBase = script.GetNativeType(baseObj);
+			var nativeObj = script.GetNativeType(objVal.Base);
+			var nativeBase = script.GetNativeType(baseObjVal);
 			// For Prototype wrappers, use the underlying runtime type carried by Any.type.
 			if (nativeObj == typeof(Prototype))
-				nativeObj = obj.type;
+				nativeObj = objVal.type;
 			if (nativeBase == typeof(Prototype))
-				nativeBase = baseObj.type;
+				nativeBase = baseObjVal.type;
 
 			if (nativeObj != nativeBase)
 				return Errors.ErrorOccurred(
 					$"Cannot rebase: native types differ ({nativeObj.Name} vs {nativeBase.Name}).");
 
-			if (Types.HasBase(baseObj, obj) != 0)
+			if (Types.HasBase(baseObjVal, objVal) != 0)
 				return Errors.ErrorOccurred("Cannot rebase: base chain would contain a cycle.");
 
-			obj.SetBaseInternal(baseObj);
+			objVal.SetBaseInternal(baseObjVal);
 
 			return DefaultObject;
 		}
@@ -177,63 +179,63 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Returns the value's base object. No meta-functions or property functions are called.
 		/// </summary>
-		/// <param name="obj0">The object</param>
+		/// <param name="value">The object</param>
 		/// <returns>The value's base object</returns>
-		public static object ObjGetBase(object object0)
+		public static object ObjGetBase(object value)
 		{
-			if (object0 is Any obj)
+			if (value is Any obj)
 				return (object)obj._base ?? DefaultObject;
 
-			if (Primitive.IsNative(object0))
-				return Script.TheScript.Vars.Prototypes[Primitive.MapPrimitiveToNativeType(object0)];
+			if (Primitive.IsNative(value))
+				return Script.TheScript.Vars.Prototypes[Primitive.MapPrimitiveToNativeType(value)];
 
 			return DefaultObject;
 		}
 
-		public static object DefineProp(object obj0, object obj1, object obj2)
+		public static object DefineProp(object obj, object name, object descriptor)
 		{
-			if (obj0 is not Any target)
-				return Errors.ArgumentErrorOccurred(obj0, 1);
+			if (obj is not Any target)
+				return Errors.ArgumentErrorOccurred(obj, 1);
 
-			var name = obj1.As();
+			var nameVal = name.As();
 
-			if (Struct.TryDefineFieldOnPrototype(target, name, obj2, out var structResult))
+			if (Struct.TryDefineFieldOnPrototype(target, nameVal, descriptor, out var structResult))
 				return structResult ?? Errors.ValueErrorOccurred("Type is only valid for struct fields.");
 
 			var op = target.EnsureOwnProps();
 
-			if (obj2 is Map map)
+			if (descriptor is Map map)
 			{
-				if (!op.ContainsKey(name))
-					op[name] = new OwnPropsDesc(target, map);
+				if (!op.ContainsKey(nameVal))
+					op[nameVal] = new OwnPropsDesc(target, map);
 				else
 				{
 					if (map.map.Count > 1 && map.map.Any(k => k.Key.ToString().Equals("value", StringComparison.OrdinalIgnoreCase)))
 						return Errors.ValueErrorOccurred("Value can't be defined along with get, set, or call.");
 
-					op[name].Merge(map);
+					op[nameVal].Merge(map);
 				}
 			}
-			else if (obj2 is Any kso)
+			else if (descriptor is Any kso)
 			{
-				if (kso.op != null)//&& kso.op.TryGetValue(name, out var opm))
+				if (kso.op != null)//&& kso.op.TryGetValue(nameVal, out var opm))
 				{
 					if (kso.op.Count > 2 && kso.op.Any(k => k.Key.ToString().Equals("value", StringComparison.OrdinalIgnoreCase)))
 						return Errors.ValueErrorOccurred("Value can't be defined along with get, set, or call.");
 
-					if (op.TryGetValue(name, out var currProp))
+					if (op.TryGetValue(nameVal, out var currProp))
 						currProp.MergeOwnPropsValues(kso.op);
 					else
 					{
-						op[name] = new OwnPropsDesc();
-						op[name].MergeOwnPropsValues(kso.op);
+						op[nameVal] = new OwnPropsDesc();
+						op[nameVal].MergeOwnPropsValues(kso.op);
 					}
 				}
 			}
 			else
-				return Errors.ArgumentErrorOccurred(obj2, 2);
+				return Errors.ArgumentErrorOccurred(descriptor, 2);
 
-			target.OnPropertyChanged(name, op[name].Type);
+			target.OnPropertyChanged(nameVal, op[nameVal].Type);
 
 			return target;
 		}
@@ -308,19 +310,19 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Sets the current capacity of the object's internal array of own properties.
 		/// </summary>
-		/// <param name="obj0">The object</param>
-		/// <param name="obj1">New capacity</param>
+		/// <param name="obj">The object</param>
+		/// <param name="maxProps">New capacity</param>
 		/// <returns>The new capacity</returns>
-		public static object ObjSetCapacity(object obj0, object obj1)
+		public static object ObjSetCapacity(object obj, object maxProps)
 		{
-			if (obj0 is KeysharpObject kso)
+			if (obj is KeysharpObject kso)
 			{
-				var capacity = obj1.Ai();
+				var capacity = maxProps.Ai();
 				capacity = kso.EnsureOwnProps().EnsureCapacity(capacity);
 				return (long)capacity;
 			}
 
-			return Errors.ErrorOccurred($"Object of type {obj0.GetType()} was not of type KeysharpObject.");
+			return Errors.ErrorOccurred($"Object of type {obj.GetType()} was not of type KeysharpObject.");
 		}
 #if WINDOWS
 		/// <summary>
@@ -394,12 +396,12 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Frees a managed C# object or string, allowing it to be garbage-collected.
 		/// </summary>
-		public static bool ObjFree(object value)
+		public static bool ObjFree(object pointer)
 		{
-			if (value is IPointable ip)
-				value = ip.Ptr;
+			if (pointer is IPointable ip)
+				pointer = ip.Ptr;
 
-			if (value is long l)
+			if (pointer is long l)
 			{
 				if (Script.TheScript.StringsData.gcHandles.Remove((nint)l, out var oldGch))
 				{
@@ -408,7 +410,7 @@ namespace Keysharp.Builtins
 				}
 			}
 			else
-				_ = Errors.TypeErrorOccurred(value, typeof(nint));
+				_ = Errors.TypeErrorOccurred(pointer, typeof(nint));
 
 			return false;
 		}

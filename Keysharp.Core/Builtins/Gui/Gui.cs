@@ -621,23 +621,23 @@ namespace Keysharp.Builtins
 			marginsInit = true;
 		}
 
-		public object Add(object obj0, object obj1 = null, object obj2 = null)
+		public object Add(object controlType, object options = null, object text = null)
 		{
 			EnsureDefaultMargins();
-			var typeo = obj0.As();
-			var options = obj1.As();
-			var o = obj2;//The third argument needs to account for being an array in the case of combo/list boxes.
+			var typeo = controlType.As();
+			var optionsStr = options.As();
+			var o = text;//The third argument needs to account for being an array in the case of combo/list boxes.
 			var type = typeo.ToLowerInvariant();
 			Control holder = null;
-			var text = o as string;
+			var textStr = o as string;
 
-			if (text != null)
-				text = text.ReplaceLineEndings(Environment.NewLine);
+			if (textStr != null)
+				textStr = textStr.ReplaceLineEndings(Environment.NewLine);
 
 			var al = o as Array;
 			var dpiscale = DpiScale;
 			var dpiinv = 1.0 / dpiscale;
-			var opts = ParseOpt(type, text, options);
+			var opts = ParseOpt(type, textStr, optionsStr);
 			Forms.Control ctrl = null;
 
 			switch (type)
@@ -930,13 +930,13 @@ namespace Keysharp.Builtins
 						nud.Maximum = opts.nudhigh.Value;
 
 #if WINDOWS
-					if (obj2 != null)
-						nud.Value = (decimal)obj2.Ad();
+					if (text != null)
+						nud.Value = (decimal)text.Ad();
 					else
 						nud.Value = Math.Min(nud.Minimum, 0m);
 #else
-					if (obj2 != null)
-						nud.Value = obj2.Ad();
+					if (text != null)
+						nud.Value = text.Ad();
 					else
 						nud.Value = Math.Min(nud.Minimum, 0d);
 #endif
@@ -950,7 +950,7 @@ namespace Keysharp.Builtins
 				case Keyword_Picture://No special support for GDI+, instead we just use whatever C# uses under the hood for its PictureBox control. Also, animated gifs do animate.
 				{
 					opts.addstyle |= 0x20;
-					var pic = new KeysharpPictureBox(text, opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
+					var pic = new KeysharpPictureBox(textStr, opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
 					{
 						Font = Conversions.ConvertFont(form.Font)
 					};//Attempt to support transparency.
@@ -983,7 +983,7 @@ namespace Keysharp.Builtins
 #endif
 					ctrl = new KeysharpButton(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
 					{
-						Name = text,
+						Name = textStr,
 						AutoSize = opts.width == int.MinValue && opts.wp == int.MinValue && opts.height == int.MinValue && opts.hp == int.MinValue,
 						Font = Conversions.ConvertFont(form.Font)
 					};
@@ -1040,7 +1040,7 @@ namespace Keysharp.Builtins
 					var rad = new KeysharpRadioButton(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle);
 #endif
 					rad.AutoSize = true;
-					rad.Text = text;
+					rad.Text = textStr;
 					rad.Font = Conversions.ConvertFont(form.Font);
 					ctrl = rad;
 					holder = new Radio(this, ctrl, typeo);
@@ -1266,7 +1266,7 @@ namespace Keysharp.Builtins
 
 				case Keyword_Link:
 				{
-					var linklabel = new KeysharpLinkLabel(text, opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
+					var linklabel = new KeysharpLinkLabel(textStr, opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
 					{
 						Font = Conversions.ConvertFont(form.Font)
 					};
@@ -1285,8 +1285,8 @@ namespace Keysharp.Builtins
 					if (opts.limit != int.MinValue)
 						hk.Limit = (HotkeyBox.Limits)opts.limit;
 
-					if (!string.IsNullOrEmpty(text))
-						hk.Text = text;
+					if (!string.IsNullOrEmpty(textStr))
+						hk.Text = textStr;
 
 					ctrl = hk;
 					holder = new Hotkey(this, ctrl, typeo);
@@ -1299,7 +1299,7 @@ namespace Keysharp.Builtins
 					{
 						Font = Conversions.ConvertFont(form.Font)
 					};
-					dtp.SetFormat(text);
+					dtp.SetFormat(textStr);
 
 #if WINDOWS
 					if (opts.halign.HasValue && opts.halign == GuiOptions.HorizontalAlignment.Right)
@@ -1518,9 +1518,9 @@ namespace Keysharp.Builtins
 					{
 						var pages = al.Cast<(object, object)>()
 							.Select(x => x.Item2.Str())
-							.Select(text => new TabPage
+							.Select(pageText => new TabPage
 							{
-								Text = KeysharpTabControl.DisplayText(text),
+								Text = KeysharpTabControl.DisplayText(pageText),
 								Content = new PixelLayout()
 							})
 							.ToArray();
@@ -1575,9 +1575,9 @@ namespace Keysharp.Builtins
 					if (opts.bgcolor.HasValue)
 						ss.BackColor = opts.bgcolor.Value;
 
-					if (!string.IsNullOrEmpty(text))
+					if (!string.IsNullOrEmpty(textStr))
 					{
-						var tsl = new KeysharpToolStripStatusLabel(text)
+						var tsl = new KeysharpToolStripStatusLabel(textStr)
 						{
 							AutoSize = true,
 							Name = $"AutoToolStripLabel{ss.Items.Count}",
@@ -1595,7 +1595,7 @@ namespace Keysharp.Builtins
 
 				case Keyword_ActiveX:
 				{
-					var ax = new KeysharpActiveX(text)
+					var ax = new KeysharpActiveX(textStr)
 					{
 						Font = Conversions.ConvertFont(form.Font)
 					};
@@ -1611,7 +1611,7 @@ namespace Keysharp.Builtins
 					{
 						Font = Conversions.ConvertFont(form.Font)
 					};
-					web.Navigate(text);
+					web.Navigate(textStr);
 					ctrl = web;
 					holder = new WebBrowser(this, ctrl, typeo);
 				}
@@ -1649,9 +1649,9 @@ namespace Keysharp.Builtins
 			if (opts.autosize.HasValue)
 				Reflections.SafeSetProperty(ctrl, "AutoSize", opts.autosize.Value);
 
-			if (text != null && ctrl is not KeysharpDateTimePicker && ctrl is not HotkeyBox
+			if (textStr != null && ctrl is not KeysharpDateTimePicker && ctrl is not HotkeyBox
 			 && ctrl is not KeysharpLinkLabel)
-				ctrl.Text = text;
+				ctrl.Text = textStr;
 
 			if (ctrl is not KeysharpStatusStrip)//Don't want status strip to have a margin, so it can be placed at the bottom of the form when autosize is true, and have it look exactly like it would if it were docked when autosize is false.
 				ctrl.Margin = form.Margin;
@@ -2273,7 +2273,7 @@ namespace Keysharp.Builtins
 
 			if (ctrl is KeysharpPictureBox pbox)
 			{
-				if (text != null && ImageHelper.LoadImage(text, opts.width, opts.height, opts.iconnumber).Item1 is Bitmap bmp)
+				if (textStr != null && ImageHelper.LoadImage(textStr, opts.width, opts.height, opts.iconnumber).Item1 is Bitmap bmp)
 				{
 					if (pbox.SizeMode == PictureBoxSizeMode.Zoom)
 					{
@@ -2371,60 +2371,60 @@ namespace Keysharp.Builtins
 			bool IsTextLike(Forms.Control control) => control is KeysharpLabel || control is KeysharpLinkLabel;
 		}
 
-		public object AddActiveX(object obj0 = null, object obj1 = null) => Add(Keyword_ActiveX, obj0, obj1);
+		public object AddActiveX(object options = null, object text = null) => Add(Keyword_ActiveX, options, text);
 
-		public object AddButton(object obj0 = null, object obj1 = null) => Add(Keyword_Button, obj0, obj1);
+		public object AddButton(object options = null, object text = null) => Add(Keyword_Button, options, text);
 
-		public object AddCheckbox(object obj0 = null, object obj1 = null) => Add(Keyword_CheckBox, obj0, obj1);
+		public object AddCheckbox(object options = null, object text = null) => Add(Keyword_CheckBox, options, text);
 
-		public object AddComboBox(object obj0 = null, object obj1 = null) => Add(Keyword_ComboBox, obj0, obj1);
+		public object AddComboBox(object options = null, object text = null) => Add(Keyword_ComboBox, options, text);
 
-		public object AddCustom(object obj0 = null, object obj1 = null) => Add(Keyword_Custom, obj0, obj1);
+		public object AddCustom(object options = null, object text = null) => Add(Keyword_Custom, options, text);
 
-		public object AddDateTime(object obj0 = null, object obj1 = null) => Add(Keyword_DateTime, obj0, obj1);
+		public object AddDateTime(object options = null, object text = null) => Add(Keyword_DateTime, options, text);
 
-		public object AddDDL(object obj0 = null, object obj1 = null) => Add(Keyword_DropDownList, obj0, obj1);
+		public object AddDDL(object options = null, object text = null) => Add(Keyword_DropDownList, options, text);
 
-		public object AddDropDownList(object obj0 = null, object obj1 = null) => Add(Keyword_DropDownList, obj0, obj1);
+		public object AddDropDownList(object options = null, object text = null) => Add(Keyword_DropDownList, options, text);
 
-		public object AddEdit(object obj0 = null, object obj1 = null) => Add(Keyword_Edit, obj0, obj1);
+		public object AddEdit(object options = null, object text = null) => Add(Keyword_Edit, options, text);
 
-		public object AddGroupBox(object obj0 = null, object obj1 = null) => Add(Keyword_GroupBox, obj0, obj1);
+		public object AddGroupBox(object options = null, object text = null) => Add(Keyword_GroupBox, options, text);
 
-		public object AddHotKey(object obj0 = null, object obj1 = null) => Add(Keyword_Hotkey, obj0, obj1);
+		public object AddHotKey(object options = null, object text = null) => Add(Keyword_Hotkey, options, text);
 
-		public object AddLink(object obj0 = null, object obj1 = null) => Add(Keyword_Link, obj0, obj1);
+		public object AddLink(object options = null, object text = null) => Add(Keyword_Link, options, text);
 
-		public object AddListBox(object obj0 = null, object obj1 = null) => Add(Keyword_ListBox, obj0, obj1);
+		public object AddListBox(object options = null, object text = null) => Add(Keyword_ListBox, options, text);
 
-		public object AddListView(object obj0 = null, object obj1 = null) => Add(Keyword_ListView, obj0, obj1);
+		public object AddListView(object options = null, object text = null) => Add(Keyword_ListView, options, text);
 
-		public object AddMonthCal(object obj0 = null, object obj1 = null) => Add(Keyword_MonthCal, obj0, obj1);
+		public object AddMonthCal(object options = null, object text = null) => Add(Keyword_MonthCal, options, text);
 
-		public object AddPic(object obj0 = null, object obj1 = null) => Add(Keyword_Picture, obj0, obj1);
+		public object AddPic(object options = null, object text = null) => Add(Keyword_Picture, options, text);
 
-		public object AddPicture(object obj0 = null, object obj1 = null) => Add(Keyword_Picture, obj0, obj1);
+		public object AddPicture(object options = null, object text = null) => Add(Keyword_Picture, options, text);
 
-		public object AddProgress(object obj0 = null, object obj1 = null) => Add(Keyword_Progress, obj0, obj1);
+		public object AddProgress(object options = null, object text = null) => Add(Keyword_Progress, options, text);
 
-		public object AddRadio(object obj0 = null, object obj1 = null) => Add(Keyword_Radio, obj0, obj1);
+		public object AddRadio(object options = null, object text = null) => Add(Keyword_Radio, options, text);
 
-		public object AddSlider(object obj0 = null, object obj1 = null) => Add(Keyword_Slider, obj0, obj1);
+		public object AddSlider(object options = null, object text = null) => Add(Keyword_Slider, options, text);
 
-		public object AddStatusBar(object obj0 = null, object obj1 = null) => Add(Keyword_StatusBar, obj0, obj1);
+		public object AddStatusBar(object options = null, object text = null) => Add(Keyword_StatusBar, options, text);
 
-		public object AddTab(object obj0 = null, object obj1 = null) => Add(Keyword_Tab, obj0, obj1);
+		public object AddTab(object options = null, object text = null) => Add(Keyword_Tab, options, text);
 		// Just for compatibility
-		public object AddTab2(object obj0 = null, object obj1 = null) => Add(Keyword_Tab, obj0, obj1);
-		public object AddTab3(object obj0 = null, object obj1 = null) => Add(Keyword_Tab, obj0, obj1);
+		public object AddTab2(object options = null, object text = null) => Add(Keyword_Tab, options, text);
+		public object AddTab3(object options = null, object text = null) => Add(Keyword_Tab, options, text);
 
-		public object AddText(object obj0 = null, object obj1 = null) => Add(Keyword_Text, obj0, obj1);
+		public object AddText(object options = null, object text = null) => Add(Keyword_Text, options, text);
 
-		public object AddTreeView(object obj0 = null, object obj1 = null) => Add(Keyword_TreeView, obj0, obj1);
+		public object AddTreeView(object options = null, object text = null) => Add(Keyword_TreeView, options, text);
 
-		public object AddUpDown(object obj0 = null, object obj1 = null) => Add(Keyword_UpDown, obj0, obj1);
+		public object AddUpDown(object options = null, object text = null) => Add(Keyword_UpDown, options, text);
 
-		public object AddWebBrowser(object obj0 = null, object obj1 = null) => Add(Keyword_WebBrowser, obj0, obj1);
+		public object AddWebBrowser(object options = null, object text = null) => Add(Keyword_WebBrowser, options, text);
 
 		public object Destroy()
 		{
@@ -2437,28 +2437,28 @@ namespace Keysharp.Builtins
 			return form?.Destroy();
 		}
 
-		public object Flash(object obj)
+		public object Flash(object blink)
 		{
 #if WINDOWS
-			_ = WindowsAPI.FlashWindow(form.Handle, obj.Ab(true));
+			_ = WindowsAPI.FlashWindow(form.Handle, blink.Ab(true));
 #endif
 			return DefaultObject;
 		}
 
-		public object GetClientPos([Optional()][DefaultParameterValue(null)] object outX,
-								   [Optional()][DefaultParameterValue(null)] object outY,
-								   [Optional()][DefaultParameterValue(null)] object outWidth,
-								   [Optional()][DefaultParameterValue(null)] object outHeight)
+		public object GetClientPos([Optional()][DefaultParameterValue(null)] object x,
+								   [Optional()][DefaultParameterValue(null)] object y,
+								   [Optional()][DefaultParameterValue(null)] object width,
+								   [Optional()][DefaultParameterValue(null)] object height)
 		{
-			Gui.Control.GetClientPos(form, DpiScale, outX, outY, outWidth, outHeight);
+			Gui.Control.GetClientPos(form, DpiScale, x, y, width, height);
 			return DefaultObject;
 		}
 
 		IEnumerator<(object, object)> IEnumerable<(object, object)>.GetEnumerator() => CreateEnumerator(2);
 
-		public object GetPos([Optional()][DefaultParameterValue(null)] object outX, [Optional()][DefaultParameterValue(null)] object outY, [Optional()][DefaultParameterValue(null)] object outWidth, [Optional()][DefaultParameterValue(null)] object outHeight)
+		public object GetPos([Optional()][DefaultParameterValue(null)] object x, [Optional()][DefaultParameterValue(null)] object y, [Optional()][DefaultParameterValue(null)] object width, [Optional()][DefaultParameterValue(null)] object height)
 		{
-			Gui.Control.GetPos(form, DpiScale, outX, outY, outWidth, outHeight);
+			Gui.Control.GetPos(form, DpiScale, x, y, width, height);
 			return DefaultObject;
 		}
 
@@ -2498,44 +2498,44 @@ namespace Keysharp.Builtins
 #endif
 		}
 
-		public object Move(object obj0 = null, object obj1 = null, object obj2 = null, object obj3 = null)
+		public object Move(object x = null, object y = null, object width = null, object height = null)
 		{
-			var x = (obj0 is null ? int.MinValue : obj0.ToInt());
-			var y = (obj1 is null ? int.MinValue : obj1.ToInt());
-			var width = (obj2 is null ? int.MinValue : obj2.ToInt());
-			var height = (obj3 is null ? int.MinValue : obj3.ToInt());
+			var xVal = (x is null ? int.MinValue : x.ToInt());
+			var yVal = (y is null ? int.MinValue : y.ToInt());
+			var widthVal = (width is null ? int.MinValue : width.ToInt());
+			var heightVal = (height is null ? int.MinValue : height.ToInt());
 			var scale = DpiScale;
 			var formLoc = form.GetLocation();
 			var formSize = form.GetSize();
 
-			if (x != int.MinValue)
-				formLoc.X = x;
+			if (xVal != int.MinValue)
+				formLoc.X = xVal;
 
-			if (y != int.MinValue)
-				formLoc.Y = y;
+			if (yVal != int.MinValue)
+				formLoc.Y = yVal;
 
-			if (width != int.MinValue)
-				formSize.Width = Convert.ToInt32(width * scale);
+			if (widthVal != int.MinValue)
+				formSize.Width = Convert.ToInt32(widthVal * scale);
 
-			if (height != int.MinValue)
-				formSize.Height = Convert.ToInt32(height * scale);
+			if (heightVal != int.MinValue)
+				formSize.Height = Convert.ToInt32(heightVal * scale);
 
-			if (x != int.MinValue || y != int.MinValue)
+			if (xVal != int.MinValue || yVal != int.MinValue)
 				form.SetLocation(formLoc);
-			if (width != int.MinValue || height != int.MinValue)
+			if (widthVal != int.MinValue || heightVal != int.MinValue)
 				form.SetSize(formSize);
 
 #if LINUX
 			// Wayland: SetLocation above can't move our own window, so drive the compositor backend.
 			// IsSupported is checked first to avoid evaluating form.Handle on X11.
-			if ((x != int.MinValue || y != int.MinValue)
+			if ((xVal != int.MinValue || yVal != int.MinValue)
 					&& Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.IsSupported)
-				Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.Position(form, form.Title, x, y, formSize.Width, formSize.Height);
+				Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.Position(form, form.Title, xVal, yVal, formSize.Width, formSize.Height);
 #endif
 			return DefaultObject;
 		}
 
-		public object OnEvent(object obj0, object obj1, object obj2 = null) => form.OnEvent(obj0, obj1, obj2);
+		public object OnEvent(object eventName, object callback, object addRemove = null) => form.OnEvent(eventName, callback, addRemove);
 
 		/// <summary>
 		/// Registers a function to be called when the GUI window receives the specified window message.
@@ -2598,11 +2598,11 @@ namespace Keysharp.Builtins
 		}
 #endif
 
-		public object Opt(object obj)
+		public object Opt(object options)
 		{
-			var options = obj.As();
+			var optionsVal = options.As();
 
-			foreach (var split in Options.ParseOptions(options))
+			foreach (var split in Options.ParseOptions(optionsVal))
 			{
 				if (split.Length == 0)
 					continue;
@@ -2841,16 +2841,16 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public object SetFont(object obj0 = null, object obj1 = null)
+		public object SetFont(object options = null, object fontName = null)
 		{
-			form.SetFont(obj0, obj1);
+			form.SetFont(options, fontName);
 			return DefaultObject;
 		}
 
-		public object Show(object obj = null)
+		public object Show(object options = null)
 		{
 			EnsureDefaultMargins();
-			var s = obj.As();
+			var s = options.As();
 			bool /*center = false, cX = false, cY = false,*/ auto = false, min = false, max = false, restore = true, hide = false, cX = false, cY = false;
 			var dpiscale = DpiScale;
 
@@ -3160,9 +3160,9 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-        public KeysharpObject Submit(object obj = null)
+        public KeysharpObject Submit(object hide = null)
 		{
-			var hide = ForceBool(obj ?? true);
+			var hideVal = ForceBool(hide ?? true);
 			var panels = new HashSet<Panel>();
 			var ctrls = form.GetControls().Flatten(true);
 			var result = new KeysharpObject();
@@ -3239,15 +3239,15 @@ namespace Keysharp.Builtins
 
 			DoneAssigning:
 
-			if (hide)
+			if (hideVal)
 				_ = Hide();
 
 			return result;
 		}
 
-		public object UseGroup(object obj0 = null)
+		public object UseGroup(object groupBox = null)
 		{
-			if (obj0 is Gui.Control gctrl && gctrl.Ctrl is KeysharpGroupBox gb)
+			if (groupBox is Gui.Control gctrl && gctrl.Ctrl is KeysharpGroupBox gb)
 				LastContainer = gb;
 			else
 				LastContainer = form;

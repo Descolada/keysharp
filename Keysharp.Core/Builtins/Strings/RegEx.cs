@@ -37,7 +37,7 @@ namespace Keysharp.Builtins
 		/// Determines whether a string contains a pattern (regular expression).
 		/// </summary>
 		/// <param name="haystack">The string whose content is searched.</param>
-		/// <param name="needle">The pattern to search for, which is a C#-compatible regular expression.<br/>
+		/// <param name="needleRegEx">The pattern to search for, which is a C#-compatible regular expression.<br/>
 		/// The pattern's options (if any) must be included at the beginning of the string followed by a close-parenthesis.<br/>
 		/// For example, the pattern i)abc.*123 would turn on the case-insensitive option and search for "abc",<br/>
 		/// followed by zero or more occurrences of any character, followed by "123".<br/>
@@ -61,10 +61,10 @@ namespace Keysharp.Builtins
 		/// </param>
 		/// <returns>The <see cref="RegExMatchInfo"/> object which contains the matches, if any.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		public static long RegExMatch(object haystack, object needle, [ByRef] object outputVar = null, object startingPos = null)
+		public static long RegExMatch(object haystack, object needleRegEx, [ByRef] object outputVar = null, object startingPos = null)
 		{
 			var input = haystack.As();
-			var n = needle.As();
+			var n = needleRegEx.As();
 			var index = startingPos.Ai(1);
 			KeysharpFunc callout = null;
 			RegexHolder exp;
@@ -129,7 +129,7 @@ namespace Keysharp.Builtins
 									 (long)pcre_callout.Number,
 									 (long)pcre_callout.StartOffset + 1, // FoundPos: 1-based offset in haystack where the current match attempt started (AHK's cb->start_match + 1).
 									 haystack,
-									 needle).Ai();
+									 needleRegEx).Ai();
 
 					if (result > 1)
 						result = 1;

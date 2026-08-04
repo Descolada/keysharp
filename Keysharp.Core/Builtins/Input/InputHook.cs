@@ -288,10 +288,10 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public object KeyOpt(object obj0, object obj1)
+		public object KeyOpt(object keys, object keyOptions)
 		{
-			var keys = obj0.As();
-			var options = obj1.As();
+			var keysVal = keys.As();
+			var options = keyOptions.As();
 			var adding = true;
 			uint flag = 0U, addFlags = 0u, removeFlags = 0u;
 
@@ -345,7 +345,7 @@ namespace Keysharp.Builtins
 				}
 			}
 
-			if (string.Compare(keys, "{All}", true) == 0)
+			if (string.Compare(keysVal, "{All}", true) == 0)
 			{
 				// Could optimize by using memset() when remove_flags == 0xFF, but that doesn't seem
 				// worthwhile since this mode is already faster than SetKeyFlags() with a single key.
@@ -358,7 +358,7 @@ namespace Keysharp.Builtins
 				// AHK returns here; falling through to SetKeyFlags would re-parse the literal "{All}".
 			}
 			else
-				input.SetKeyFlags(keys, false, removeFlags, addFlags);
+				input.SetKeyFlags(keysVal, false, removeFlags, addFlags);
 
 			if (input.InProgress())
 			{
@@ -393,9 +393,9 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public object Wait(object obj)
+		public object Wait(object maxTime)
 		{
-			var ms = obj.Ad(double.MaxValue) * 1000.0;
+			var ms = maxTime.Ad(double.MaxValue) * 1000.0;
 			var tickStart = DateTime.UtcNow;
 
 			while (input.InProgress() && (DateTime.UtcNow - tickStart).TotalMilliseconds < ms)

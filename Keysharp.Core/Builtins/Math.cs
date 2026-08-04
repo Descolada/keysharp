@@ -13,33 +13,33 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Returns the hyperbolic cosine of the specified angle.
 		/// </summary>
-		/// <param name="n">An angle, measured in radians.</param>
-		/// <returns>The hyperbolic cosine of <paramref name="n"/>.</returns>
-		public static object Cosh(object obj) => Math.Cosh(obj.ToDouble());
+		/// <param name="number">An angle, measured in radians.</param>
+		/// <returns>The hyperbolic cosine of <paramref name="number"/>.</returns>
+		public static object Cosh(object number) => Math.Cosh(number.ToDouble());
 
 		/// <summary>
 		/// Reinitializes the random number generator for the current thread with the specified numerical seed.
 		/// </summary>
-		/// <param name="obj">The numerical seed to create the random number generator with.</param>
-		public static object RandomSeed(object obj)
+		/// <param name="integer">The numerical seed to create the random number generator with.</param>
+		public static object RandomSeed(object integer)
 		{
-			Script.TheScript.Threads.CurrentThread.RandomGenerator = new Random(obj.ToInt());
+			Script.TheScript.Threads.CurrentThread.RandomGenerator = new Random(integer.ToInt());
 			return DefaultObject;
 		}
 
 		/// <summary>
 		/// Returns the hyperbolic sine of the specified angle.
 		/// </summary>
-		/// <param name="n">An angle, measured in radians.</param>
-		/// <returns>The hyperbolic sine of <paramref name="n"/>.</returns>
-		public static object Sinh(object obj) => Math.Sinh(obj.ToDouble());
+		/// <param name="number">An angle, measured in radians.</param>
+		/// <returns>The hyperbolic sine of <paramref name="number"/>.</returns>
+		public static object Sinh(object number) => Math.Sinh(number.ToDouble());
 
 		/// <summary>
 		/// Returns the hyperbolic tangent of the specified angle.
 		/// </summary>
-		/// <param name="n">An angle, measured in radians.</param>
-		/// <returns>The hyperbolic tangent of <paramref name="n"/>.</returns>
-		public static object Tanh(object obj) => Math.Tanh(obj.ToDouble());
+		/// <param name="number">An angle, measured in radians.</param>
+		/// <returns>The hyperbolic tangent of <paramref name="number"/>.</returns>
+		public static object Tanh(object number) => Math.Tanh(number.ToDouble());
 	}
 
 	/// <summary>

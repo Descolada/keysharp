@@ -4,16 +4,16 @@ namespace Keysharp.Builtins
 {
 	public static class Debug
 	{
-		public static object Edit(object obj = null)
+		public static object Edit(object filename = null)
 		{
-			if (obj == null && A_IsCompiled)
+			if (filename == null && A_IsCompiled)
 			{
 				_ = Dialogs.MsgBox("Cannot edit a compiled script.");
 				return DefaultObject;
 			}
 
-			string fileName = obj == null ? A_ScriptFullPath : obj.As();
-			string workingDir = obj == null ? A_ScriptDir : Path.GetDirectoryName(fileName);
+			string fileName = filename == null ? A_ScriptFullPath : filename.As();
+			string workingDir = filename == null ? A_ScriptDir : Path.GetDirectoryName(fileName);
 			var script = Script.TheScript;
 			var title = script.mainWindow != null ? script.mainWindow.Text : "";
 			var tv = script.Threads.CurrentThread.configData;

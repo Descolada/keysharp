@@ -379,7 +379,8 @@ namespace Keysharp.Builtins
 
 		/// <summary>
 		/// Shuts down, restarts, or logs off the system.
-		/// <param name="code">A combination (sum) of the following numbers:<br/>
+		/// </summary>
+		/// <param name="flags">A combination (sum) of the following numbers:<br/>
 		/// 0: Logoff<br/>
 		/// 1: Shutdown<br/>
 		/// 2: Reboot<br/>
@@ -391,10 +392,9 @@ namespace Keysharp.Builtins
 		/// It should only be used in an emergency because it may cause any open applications to lose data.<br/>
 		/// The "Power down" value (8) shuts down the system and turns off the power.
 		/// </param>
-		/// </summary>
-		public static object Shutdown(object obj)
+		public static object Shutdown(object flags)
 		{
-			_ = Platform.Session.ExitProgram((uint)obj.Al(), 0);
+			_ = Platform.Session.ExitProgram((uint)flags.Al(), 0);
 			return DefaultObject;
 		}
 

@@ -46,20 +46,20 @@ namespace Keysharp.Builtins
 			/// Returns the script value for JSON text.
 			/// </summary>
 			/// <param name="this">The class object, supplied by the script-static call.</param>
-			/// <param name="source">The JSON text to decode.</param>
+			/// <param name="jsonText">The JSON text to decode.</param>
 			/// <returns>
 			/// A <see cref="Map"/> for a JSON object, an <see cref="Array"/> for a JSON array, a string, a
 			/// number, 1 or 0 for true or false, and an empty string for null.
 			/// </returns>
-			/// <exception cref="ValueError">Thrown if source is not well-formed JSON.</exception>
+			/// <exception cref="ValueError">Thrown if jsonText is not well-formed JSON.</exception>
 			[Static]
-			public static object Decode(object @this, object source)
+			public static object Decode(object @this, object jsonText)
 			{
 				try
 				{
 					// Trailing commas and comments are accepted because hand-written configuration files
 					// commonly carry them; everything else follows the JSON grammar.
-					using var doc = JsonDocument.Parse(source.As(), new JsonDocumentOptions
+					using var doc = JsonDocument.Parse(jsonText.As(), new JsonDocumentOptions
 					{
 						AllowTrailingCommas = true,
 						CommentHandling = JsonCommentHandling.Skip

@@ -11,14 +11,14 @@ namespace Keysharp.Builtins
 		/// This is useful for calling a function inside of a real thread.
 		/// </summary>
 		/// <param name="lockObj">The object to lock on when calling the function.</param>
-		/// <param name="obj1">The name of the function or a function object.</param>
+		/// <param name="callback">The name of the function or a function object.</param>
 		/// <param name="args">The arguments to pass to the function.</param>
 		/// <returns>The object the function object returned.</returns>
-		public static object LockRun(object lockObj, object obj1, params object[] args)
+		public static object LockRun(object lockObj, object callback, params object[] args)
 		{
 			lock (lockObj)
 			{
-				var funcObj = Functions.GetKeysharpFunc(obj1, null, true);
+				var funcObj = Functions.GetKeysharpFunc(callback, null, true);
 				return funcObj.Call(funcObj.Inst == null ? args : new[] { funcObj.Inst }.Concat(args));
 			}
 		}
@@ -126,24 +126,24 @@ namespace Keysharp.Builtins
 			/// <summary>
 			/// Runs a function object inside of a C# task.
 			/// </summary>
-			/// <param name="obj">The name of the function or a function object.</param>
+			/// <param name="callback">The name of the function or a function object.</param>
 			/// <param name="args">The arguments to pass to the function.</param>
 			/// <returns>The <see cref="RealThread"/> object.</returns>
-			public static object staticCall(object @this, object obj, params object[] args)
+			public static object staticCall(object @this, object callback, params object[] args)
 			{
-				var funcObj = Functions.GetKeysharpFunc(obj, null, true);
+				var funcObj = Functions.GetKeysharpFunc(callback, null, true);
 				return StartRealThread(() => funcObj.Call(args));
 			}
 
 			/// <summary>
 			/// Encapsulates a call to <see cref="Task.ContinueWith()"/>.
 			/// </summary>
-			/// <param name="obj">The name of the function or a function object.</param>
+			/// <param name="callback">The name of the function or a function object.</param>
 			/// <param name="args">The arguments to pass to the function.</param>
 			/// <returns>The new <see cref="RealThread"/> object</returns>
-			public object ContinueWith(object obj, params object[] args)
+			public object ContinueWith(object callback, params object[] args)
 			{
-				var fo = Functions.GetKeysharpFunc(obj, null, true);
+				var fo = Functions.GetKeysharpFunc(callback, null, true);
 				var schedulerSource = new TaskCompletionSource<ScriptEventScheduler>(TaskCreationOptions.RunContinuationsAsynchronously);
 				var rt = task.ContinueWith((to) => StartWorkerTask(() => RunWorkerLoop(() => fo.Call(args), schedulerSource)), TaskScheduler.Default).Unwrap();
 				return new RealThread(rt, schedulerSource.Task);
@@ -152,9 +152,9 @@ namespace Keysharp.Builtins
 			/// <summary>
 			/// Queues work onto this worker thread and returns immediately.
 			/// </summary>
-			public object Post(object obj, params object[] args)
+			public object Post(object callback, params object[] args)
 			{
-				var fo = Functions.GetKeysharpFunc(obj, null, true);
+				var fo = Functions.GetKeysharpFunc(callback, null, true);
 				var scheduler = GetAliveScheduler();
 
 				if (scheduler == null)
@@ -171,9 +171,9 @@ namespace Keysharp.Builtins
 			/// <summary>
 			/// Executes work on this worker thread synchronously and returns the callback result.
 			/// </summary>
-			public object Send(object obj, params object[] args)
+			public object Send(object callback, params object[] args)
 			{
-				var fo = Functions.GetKeysharpFunc(obj, null, true);
+				var fo = Functions.GetKeysharpFunc(callback, null, true);
 				var scheduler = GetAliveScheduler();
 
 				if (scheduler == null)
@@ -231,14 +231,14 @@ namespace Keysharp.Builtins
 			/// <summary>
 			/// Wait for the existing task either indefinitely or for a timeout period.
 			/// </summary>
-			/// <param name="obj">The timeout duration to wait. Default: wait indefinitely.</param>
+			/// <param name="timeout">The timeout duration to wait. Default: wait indefinitely.</param>
 			/// <returns>The result of the task.</returns>
-			public object Wait(object obj = null)
+			public object Wait(object timeout = null)
 			{
-				var timeout = obj.Ai(-1);
+				var timeoutVal = timeout.Ai(-1);
 				var start = DateTime.UtcNow;
 
-				while (!task.IsCompleted && (timeout < 0 || (DateTime.UtcNow - start).TotalMilliseconds < timeout))
+				while (!task.IsCompleted && (timeoutVal < 0 || (DateTime.UtcNow - start).TotalMilliseconds < timeoutVal))
 					Keysharp.Internals.Flow.TryDoEvents();
 
 				try

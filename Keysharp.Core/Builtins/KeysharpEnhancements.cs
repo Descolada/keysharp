@@ -89,8 +89,8 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Sends a string followed by a newline to the debugger (if any) for display.
 		/// </summary>
-		/// <param name="obj0">The text to send to the debugger for display.</param>
-		/// <param name="obj1">True to first clear the display, else false to append.</param>
-		public static object OutputDebugLine(object obj0, object obj1 = null) => Debug.OutputDebugCommon($"{obj0.As()}{Environment.NewLine}", obj1.Ab());
+		/// <param name="text">The text to send to the debugger for display.</param>
+		/// <param name="clear">True to first clear the display, else false to append.</param>
+		public static object OutputDebugLine(object text, object clear = null) => Debug.OutputDebugCommon($"{text.As()}{Environment.NewLine}", clear.Ab());
 	}
 }

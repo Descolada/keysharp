@@ -116,21 +116,21 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Retrieves the value of the specified environment variable.
 		/// </summary>
-		/// <param name="name">The name of the environment variable to retrieve.</param>
+		/// <param name="envVar">The name of the environment variable to retrieve.</param>
 		/// <returns>The value of the specified environment variable if it exists, else empty string.</returns>
-		public static string EnvGet(object name) => Environment.GetEnvironmentVariable(name.As()) ?? string.Empty;
+		public static string EnvGet(object envVar) => Environment.GetEnvironmentVariable(envVar.As()) ?? string.Empty;
 
 		/// <summary>
 		/// Writes a value to the specified environment variable.
 		/// </summary>
-		/// <param name="name">The name of the environment variable.</param>
+		/// <param name="envVar">The name of the environment variable.</param>
 		/// <param name="value">If omitted, the environment variable will be deleted. Otherwise, specify the value to write.</param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any failure is detected.</exception>
-		public static object EnvSet(object name, object value = null)
+		public static object EnvSet(object envVar, object value = null)
 		{
 			try
 			{
-				var variableName = name.As();
+				var variableName = envVar.As();
 				var variableValue = value as string;
 				Environment.SetEnvironmentVariable(variableName, variableValue);
 #if !WINDOWS
@@ -140,7 +140,7 @@ namespace Keysharp.Builtins
 			}
 			catch (Exception ex)
 			{
-				return Errors.OSErrorOccurred(ex, $@"Error setting environment variable {name} to value ""{value}"".");
+				return Errors.OSErrorOccurred(ex, $@"Error setting environment variable {envVar} to value ""{value}"".");
 			}
 		}
 
@@ -595,10 +595,10 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Compiles and executes a C# script dynamically in a separate process.
 		/// </summary>
-		/// <param name="obj0">The script source result (as any object with a valid string representation).</param>
-		/// <param name="obj1">Whether to run the process as async (provide non-unset non-zero value) or not.
-		/// <param name="obj2">An optional name for the dynamically generated program; defaults to "*".</param>
-		/// <param name="obj3">Optional executable path used to run the generated assembly; defaults to the currently running process.</param>
+		/// <param name="code">The script source result (as any object with a valid string representation).</param>
+		/// <param name="callbackOrAsync">Whether to run the process as async (provide non-unset non-zero value) or not.
+		/// <param name="name">An optional name for the dynamically generated program; defaults to "*".</param>
+		/// <param name="executable">Optional executable path used to run the generated assembly; defaults to the currently running process.</param>
 		/// If provided a callback function then it's considered async and the function <c>Call</c> method will be
 		/// invoked when the process exits with the ProcessInfo as the only argument.</param>
 		/// <returns>
@@ -606,15 +606,15 @@ namespace Keysharp.Builtins
 		/// If compilation fails without a flagged error, returns <c>null</c>.
 		/// </returns>
 		/// <exception cref="Error">Throws any compilation as <see cref="Error"/>.</exception>
-		public static object RunScript(object obj0, object obj1 = null, object obj2 = null, object obj3 = null)
+		public static object RunScript(object code, object callbackOrAsync = null, object name = null, object executable = null)
 		{
-			string script = obj0.As();
+			string script = code.As();
 			KeysharpFunc cb = null;
 
-			if (obj1 != null)
-				cb = Functions.Func(obj1);
+			if (callbackOrAsync != null)
+				cb = Functions.Func(callbackOrAsync);
 
-			string name = obj2?.As();
+			string nameVal = name?.As();
 			string result = null;
 			byte[] compiledBytes;
 			var ext = Path.GetExtension(script);
@@ -628,7 +628,7 @@ namespace Keysharp.Builtins
 			else
 			{
 				var ch = new CompilerHelper();
-				(compiledBytes, result) = ch.CompileCodeToByteArray(script, name);
+				(compiledBytes, result) = ch.CompileCodeToByteArray(script, nameVal);
 
 				if (compiledBytes == null)
 					return Errors.ErrorOccurred(result);
@@ -640,7 +640,7 @@ namespace Keysharp.Builtins
 			// Keysharp's args to dotnet makes it exit without reading stdin -- so the pipe write below
 			// would time out. Prefer the native apphost that sits beside the entry assembly; fall back to
 			// "dotnet <entry.dll>", and finally to ProcessPath (single-file publish has no separate dll).
-			string launcher = obj3?.As();
+			string launcher = executable?.As();
 			var launcherArgs = "--script --assembly *";
 
 			if (string.IsNullOrEmpty(launcher))
@@ -691,7 +691,7 @@ namespace Keysharp.Builtins
 				stdin.Flush();
 			}
 
-			if (!ForceBool(obj1 ?? false))
+			if (!ForceBool(callbackOrAsync ?? false))
 				scriptProcess.WaitForExit();
 
 			return info;

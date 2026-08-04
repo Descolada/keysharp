@@ -100,38 +100,38 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Formats a string using a format string containing placeholders (e.g. "{1:05d}" or "{}")
 		/// and a variable number of arguments. (Argument indices are 1–based when specified.)
-		/// <param name="str">The format string.</param>
+		/// <param name="formatStr">The format string.</param>
 		/// <param name="args">The arguments to pass to the format string.</param>
 		/// <returns>The newly formatted string.</returns>
 		/// </summary>
-		public static string Format(object str, params object[] args)
+		public static string Format(object formatStr, params object[] args)
 		{
-			string formatStr = str.As();
+			string format = formatStr.As();
 			StringBuilder result = new StringBuilder();
 			int pos = 0;
 			int nextArg = 0; // if no explicit index is given, use the next argument.
 
-			while (pos < formatStr.Length)
+			while (pos < format.Length)
 			{
 				// Append literal text until the next '{'
-				int braceIndex = formatStr.IndexOf('{', pos);
+				int braceIndex = format.IndexOf('{', pos);
 
 				if (braceIndex < 0)
 				{
-					_ = result.Append(formatStr, pos, formatStr.Length - pos);
+					_ = result.Append(format, pos, format.Length - pos);
 					break;
 				}
 
-				_ = result.Append(formatStr, pos, braceIndex - pos);
+				_ = result.Append(format, pos, braceIndex - pos);
 				pos = braceIndex;
 
 				// Check for literal escaped braces.
 				// According to the spec, use {{} or {}} to output a literal { or }.
-				if (pos + 2 < formatStr.Length &&
-						(formatStr[pos + 1] == '{' || formatStr[pos + 1] == '}') &&
-						formatStr[pos + 2] == '}')
+				if (pos + 2 < format.Length &&
+						(format[pos + 1] == '{' || format[pos + 1] == '}') &&
+						format[pos + 2] == '}')
 				{
-					_ = result.Append(formatStr[pos + 1]);
+					_ = result.Append(format[pos + 1]);
 					pos += 3;
 					continue;
 				}
@@ -141,7 +141,7 @@ namespace Keysharp.Builtins
 				// --- Parse an optional index (a sequence of digits) ---
 				int indexStart = pos;
 
-				while (pos < formatStr.Length && char.IsDigit(formatStr[pos]))
+				while (pos < format.Length && char.IsDigit(format[pos]))
 					pos++;
 
 				int argIndex;
@@ -149,12 +149,12 @@ namespace Keysharp.Builtins
 				if (pos > indexStart)
 				{
 					// Convert the (1–based) index from the format string to 0–based.
-					var indexStr = formatStr.AsSpan(indexStart, pos - indexStart);
+					var indexStr = format.AsSpan(indexStart, pos - indexStart);
 
 					if (!int.TryParse(indexStr, out argIndex))
 					{
 						// On parse error, output the placeholder literally.
-						_ = result.Append(formatStr, placeholderStart, pos - placeholderStart);
+						_ = result.Append(format, placeholderStart, pos - placeholderStart);
 						continue;
 					}
 
@@ -169,16 +169,16 @@ namespace Keysharp.Builtins
 				if (argIndex < 0 || argIndex >= args.Length)
 				{
 					// Invalid index – simply include the entire placeholder text.
-					int closingBrace = formatStr.IndexOf('}', pos);
+					int closingBrace = format.IndexOf('}', pos);
 
 					if (closingBrace < 0)
 					{
-						_ = result.Append(formatStr, placeholderStart, formatStr.Length - placeholderStart);
+						_ = result.Append(format, placeholderStart, format.Length - placeholderStart);
 						break;
 					}
 					else
 					{
-						_ = result.Append(formatStr, placeholderStart, closingBrace - placeholderStart + 1);
+						_ = result.Append(format, placeholderStart, closingBrace - placeholderStart + 1);
 						pos = closingBrace + 1;
 						continue;
 					}
@@ -190,36 +190,36 @@ namespace Keysharp.Builtins
 				// --- Parse an optional format specifier ---
 				SpecInfo spec;
 
-				if (pos < formatStr.Length && formatStr[pos] == ':')
+				if (pos < format.Length && format[pos] == ':')
 				{
 					pos++; // skip ':'
 					int specStart = pos;
 
 					// First: skip any flags (valid flags: - + 0 space #)
-					while (pos < formatStr.Length && "-+0 #".Contains(formatStr[pos]))
+					while (pos < format.Length && "-+0 #".Contains(format[pos]))
 						pos++;
 
 					// Then: width digits
-					while (pos < formatStr.Length && char.IsDigit(formatStr[pos]))
+					while (pos < format.Length && char.IsDigit(format[pos]))
 						pos++;
 
 					// Optionally: a precision, beginning with a dot.
-					if (pos < formatStr.Length && formatStr[pos] == '.')
+					if (pos < format.Length && format[pos] == '.')
 					{
 						pos++; // skip '.'
 
-						while (pos < formatStr.Length && char.IsDigit(formatStr[pos]))
+						while (pos < format.Length && char.IsDigit(format[pos]))
 							pos++;
 					}
 
 					// The specCore is the substring with flags, width and precision.
-					var specCore = formatStr.AsSpan(specStart, pos - specStart);
+					var specCore = format.AsSpan(specStart, pos - specStart);
 					// Next comes the conversion type (if any)
 					var typeChar = 's'; // default conversion is to string.
 
-					if (pos < formatStr.Length)
+					if (pos < format.Length)
 					{
-						char c = formatStr[pos];
+						char c = format[pos];
 
 						if ("diouxXeEfgGaAcCps".Contains(c))
 						{
@@ -236,12 +236,12 @@ namespace Keysharp.Builtins
 					// U (upper‐case), L (lower‐case) or T (title case). (Also accept lower–case letters.)
 					char customFormat = '\0';
 
-					if (typeChar == 's' && pos < formatStr.Length && "ULlTt".Contains(formatStr[pos]))
+					if (typeChar == 's' && pos < format.Length && "ULlTt".Contains(format[pos]))
 					{
-						customFormat = char.ToUpperInvariant(formatStr[pos]);
+						customFormat = char.ToUpperInvariant(format[pos]);
 						pos++;
 
-						if (pos < formatStr.Length && formatStr[pos] == 's')
+						if (pos < format.Length && format[pos] == 's')
 							pos++;
 					}
 
@@ -255,10 +255,10 @@ namespace Keysharp.Builtins
 				}
 
 				// The placeholder must end with a closing brace.
-				if (pos >= formatStr.Length || formatStr[pos] != '}')
+				if (pos >= format.Length || format[pos] != '}')
 				{
 					// If not, output the placeholder literally.
-					_ = result.Append(formatStr, placeholderStart, pos - placeholderStart);
+					_ = result.Append(format, placeholderStart, pos - placeholderStart);
 					continue;
 				}
 
@@ -294,7 +294,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Transforms a YYYYMMDDHH24MISS timestamp into the specified date/time format.
 		/// </summary>
-		/// <param name="stamp">If blank or omitted, it defaults to the current local date and time.<br/>
+		/// <param name="timestamp">If blank or omitted, it defaults to the current local date and time.<br/>
 		/// Otherwise, specify all or the leading part of a timestamp in the YYYYMMDDHH24MISS format.
 		/// </param>
 		/// <param name="format">
@@ -367,9 +367,9 @@ namespace Keysharp.Builtins
 		///     0x40000000 : Use the system ANSI code page for string translation instead of the locale's code page.
 		/// </param>
 		/// <returns>The formatted date/time string</returns>
-		public static string FormatTime(object stamp = null, object format = null)
+		public static string FormatTime(object timestamp = null, object format = null)
 		{
-			var s = stamp.As();
+			var s = timestamp.As();
 			var f = format.As();
 			DateTime time;
 			var output = string.Empty;
@@ -501,7 +501,7 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="haystack">The string whose content is searched.</param>
 		/// <param name="needle">The string to search for.</param>
-		/// <param name="caseSensitive">If omitted, it defaults to Off. Otherwise, specify one of the following values:<br/>
+		/// <param name="caseSense">If omitted, it defaults to Off. Otherwise, specify one of the following values:<br/>
 		///     On or 1 (true)  : The search is case-sensitive.<br/>
 		///     Off or 0 (false): The search is not case-sensitive, i.e.the letters A-Z are considered identical to their lowercase counterparts.<br/>
 		///     Locale          : The search is not case-sensitive according to the rules of the current user's locale.<br/>
@@ -527,11 +527,11 @@ namespace Keysharp.Builtins
 		/// Position 1 is the first character; this is because 0 is synonymous with "false", making it an intuitive "not found" indicator.<br/>
 		/// Regardless of the values of startingPos or Occurrence, the return value is always relative to the first character of Haystack.
 		/// </returns>
-		public static long InStr(object haystack, object needle, object caseSensitive = null, object startingPos = null, object occurrence = null)
+		public static long InStr(object haystack, object needle, object caseSense = null, object startingPos = null, object occurrence = null)
 		{
 			var input = haystack.As();
 			var n = needle.As();
-			var comp = caseSensitive.As();
+			var comp = caseSense.As();
 			var o = occurrence.Ai(1);
 			var startPos = startingPos.Ai(o < 0 ? -1 : 1);
 
@@ -565,43 +565,43 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Trims characters from the beginning of a string.
 		/// </summary>
-		/// <param name="str">Any string value or variable. Numbers are not supported.</param>
+		/// <param name="string">Any string value or variable. Numbers are not supported.</param>
 		/// <param name="omitChars">If omitted, spaces and tabs will be removed.<br/>
 		/// Otherwise, specify a list of characters (case-sensitive) to exclude from the beginning of the specified string.
 		/// </param>
 		/// <returns>Returns the trimmed version of the specified string.</returns>
-		public static string LTrim(object str, object omitChars = null) => str.As().TrimStart(omitChars.As(" \t").ToCharArray());
+		public static string LTrim(object @string, object omitChars = null) => @string.As().TrimStart(omitChars.As(" \t").ToCharArray());
 
 		/// <summary>
 		/// Returns the ordinal value (numeric character code) of the first character in the specified string.
 		/// </summary>
-		/// <param name="str">The string whose ordinal value is retrieved.</param>
+		/// <param name="string">The string whose ordinal value is retrieved.</param>
 		/// <returns>
 		/// The ordinal value of the string, or 0 if String is empty.<br/>
 		/// If the string begins with a Unicode supplementary character, returns the corresponding Unicode character code (a number between 0x10000 and 0x10FFFF).<br/>
 		/// Otherwise returns a value in the range 0 to 0xFFFF (for Unicode).
 		/// </returns>
-		public static long Ord(object str)
+		public static long Ord(object @string)
 		{
-			var s = str.As();
+			var s = @string.As();
 			return !string.IsNullOrEmpty(s) ? char.ConvertToUtf32(s, 0) : 0L;
 		}
 
 		/// <summary>
 		/// Trims characters from the end of a string.
 		/// </summary>
-		/// <param name="str">Any string value or variable. Numbers are not supported.</param>
+		/// <param name="string">Any string value or variable. Numbers are not supported.</param>
 		/// <param name="omitChars">If omitted, spaces and tabs will be removed.<br/>
 		/// Otherwise, specify a list of characters (case-sensitive) to exclude from the endof the specified string.
 		/// </param>
 		/// <returns>Returns the trimmed version of the specified string.</returns>
-		public static string RTrim(object str, object omitChars = null) => str.As().TrimEnd(omitChars.As(" \t").ToCharArray());
+		public static string RTrim(object @string, object omitChars = null) => @string.As().TrimEnd(omitChars.As(" \t").ToCharArray());
 
 		/// <summary>
 		/// Arranges a variable's contents in alphabetical, numerical, or random order (optionally removing duplicates).
 		/// </summary>
-		/// <param name="str">The string to sort.</param>
-		/// <param name="options">If blank or omitted, str will be sorted in ascending alphabetical order (case-insensitive),<br/>
+		/// <param name="string">The string to sort.</param>
+		/// <param name="options">If blank or omitted, the string will be sorted in ascending alphabetical order (case-insensitive),<br/>
 		/// using a linefeed (`n) as separator. Otherwise, specify a string of one or more options from the options section below<br/>
 		/// (in any order, with optional spaces in between).
 		/// C, C1 or COn: Case-sensitive sort (ignored if the N option is also present).<br/>
@@ -679,10 +679,10 @@ namespace Keysharp.Builtins
 		/// when it deems the two parameters to be equal, it should return 0, "", or nothing; otherwise, it should return a negative integer.
 		/// </param>
 		/// <returns>The sorted version of the specified string.</returns>
-		public static string Sort(object str, object options = null, object callback = null)
+		public static string Sort(object @string, object options = null, object callback = null)
 		{
 			KeysharpFunc function = null;
-			var input = str.As();
+			var input = @string.As();
 			var opts = options.As();
 			var splits = opts.Split(' ');
 			var numeric = false;
@@ -918,8 +918,8 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Compares two strings alphabetically.
 		/// </summary>
-		/// <param name="str1">The first string to be compared.</param>
-		/// <param name="str2">The second string to be compared.</param>
+		/// <param name="string1">The first string to be compared.</param>
+		/// <param name="string2">The second string to be compared.</param>
 		/// <param name="caseSense">If omitted, it defaults to Off. Otherwise, specify one of the following values:<br/>
 		///     On or 1 (true): The comparison is case-sensitive.<br/>
 		///     Off or 0 (false): The comparison is not case-sensitive, i.e. the letters A-Z are considered identical to their lowercase counterparts.<br/>
@@ -932,15 +932,15 @@ namespace Keysharp.Builtins
 		///     the string with leading zero may be considered less than the other string.
 		/// </param>
 		/// <returns>
-		/// To indicate the relationship between str1 and str2, this function returns one of the following:<br/>
-		///     0, if str1 is identical to str2.<br/>
-		///     a positive integer, if str1 is greater than str2.<br/>
-		///     a negative integer, if str1 is less than str2.
+		/// To indicate the relationship between string1 and string2, this function returns one of the following:<br/>
+		///     0, if string1 is identical to string2.<br/>
+		///     a positive integer, if string1 is greater than string2.<br/>
+		///     a negative integer, if string1 is less than string2.
 		/// </returns>
-		public static long StrCompare(object str1, object str2, object caseSense = null)
+		public static long StrCompare(object string1, object string2, object caseSense = null)
 		{
-			var s1 = str1.As();
-			var s2 = str2.As();
+			var s1 = string1.As();
+			var s2 = string2.As();
 			var s3 = caseSense.As();
 
 			if (s1 != "" || s2 != "")
@@ -968,7 +968,7 @@ namespace Keysharp.Builtins
 		/// <param name="length">If omitted (or when using 2-parameter mode), it defaults to the current length of the string,<br/>
 		/// provided the string is null-terminated. Otherwise, specify the maximum number of characters to read.
 		/// </param>
-		/// <param name="enc">If omitted, the string is simply copied without any conversion taking place.<br/>
+		/// <param name="encoding">If omitted, the string is simply copied without any conversion taking place.<br/>
 		/// Otherwise, specify the source encoding; for example, "UTF-8", "UTF-16" or "CP936".<br/>
 		/// For numeric identifiers, the prefix "CP" can be omitted only in 3-parameter mode.<br/>
 		/// Specify an empty string or "CP0" to use the system default ANSI code page.
@@ -977,16 +977,16 @@ namespace Keysharp.Builtins
 		/// the return value always uses the native encoding.
 		/// </returns>
 		/// <exception cref="ValueError">Throws a <see cref="ValueError"/> exception if source is null or 0.</exception>
-		public static string StrGet(object source, object length = null, object enc = null)
+		public static string StrGet(object source, object length = null, object encoding = null)
 		{
-			var hasThree = enc != null;
-			var encoding = Encoding.Unicode;
+			var hasThree = encoding != null;
+			var enc = Encoding.Unicode;
 			var len = long.MinValue;
 
 			if (hasThree)
 			{
 				len = (length is null ? long.MinValue : length.ToLong());
-				encoding = Files.GetEncoding(enc.As());
+				enc = Files.GetEncoding(encoding.As());
 			}
 			else//Second argument could have been either length or encoding.
 			{
@@ -995,9 +995,9 @@ namespace Keysharp.Builtins
 				if (l != null)
 					len = l.Value;
 				else if (length is string encstr)
-					encoding = Files.GetEncoding(encstr);
+					enc = Files.GetEncoding(encstr);
 				else
-					encoding = Encoding.Unicode;
+					enc = Encoding.Unicode;
 			}
 
 			if (!Reflections.TryGetPtrProperty(source, out var addr))//No usable (non-null) pointer.
@@ -1016,7 +1016,7 @@ namespace Keysharp.Builtins
 					if (hasSize)
 						len = srcSize;
 					else
-						return encoding == Encoding.Unicode ? Marshal.PtrToStringUni(ptr) : Marshal.PtrToStringAnsi(ptr);
+						return enc == Encoding.Unicode ? Marshal.PtrToStringUni(ptr) : Marshal.PtrToStringAnsi(ptr);
 				}
 
 				//If length is negative, copy exactly the absolute value of len, regardless of 0s. Clamp to buf size of buf.
@@ -1025,8 +1025,8 @@ namespace Keysharp.Builtins
 				int abs = (int)Math.Abs(len);
 				int byteCount;
 
-				if (encoding is UnicodeEncoding) byteCount = abs * 2;
-				else if (encoding is UTF32Encoding) byteCount = abs * 4;
+				if (enc is UnicodeEncoding) byteCount = abs * 2;
+				else if (enc is UTF32Encoding) byteCount = abs * 4;
 				else byteCount = abs; // ANSI, UTF-8 (approx: 1 char ≈ 1 byte)
 
 				int maxBytes = hasSize ? (int)Math.Min(srcSize, byteCount) : byteCount;
@@ -1036,14 +1036,14 @@ namespace Keysharp.Builtins
 				if (len > 0)
 				{
 					int terminatorIndex;
-					if (encoding is UnicodeEncoding) // UTF-16, 2-byte code‐units
+					if (enc is UnicodeEncoding) // UTF-16, 2-byte code‐units
 					{
 						// reinterpret as chars, look for '\0', then convert back to byte‐index
 						var charSpan = MemoryMarshal.Cast<byte, char>(span);
 						int ci = charSpan.IndexOf('\0');
 						terminatorIndex = (ci >= 0) ? ci * sizeof(char) : -1;
 					}
-					else if (encoding is UTF32Encoding) // UTF-32, 4-byte code‐units
+					else if (enc is UTF32Encoding) // UTF-32, 4-byte code‐units
 					{
 						// reinterpret as ints, look for 0, then convert back to byte‐index
 						var intSpan = MemoryMarshal.Cast<byte, int>(span);
@@ -1059,23 +1059,23 @@ namespace Keysharp.Builtins
 						span = span.Slice(0, terminatorIndex);
 				}
 
-				return encoding.GetString(span);
+				return enc.GetString(span);
 			}
 		}
 
 		/// <summary>
 		/// Retrieves the count of how many characters are in a string.
 		/// </summary>
-		/// <param name="str">The string whose contents will be measured.</param>
+		/// <param name="string">The string whose contents will be measured.</param>
 		/// <returns>The length of the specified string.</returns>
-		public static long StrLen(object str) => str.As().Length;
+		public static long StrLen(object @string) => @string.As().Length;
 
 		/// <summary>
 		/// Converts a string to lowercase.
 		/// </summary>
-		/// <param name="str">The string to convert to lowercase.</param>
+		/// <param name="string">The string to convert to lowercase.</param>
 		/// <returns>The newly converted version of the string.</returns>
-		public static string StrLower(object str) => str.As().ToLowerInvariant();
+		public static string StrLower(object @string) => @string.As().ToLowerInvariant();
 
 		/// <summary>
 		/// Returns the current memory address of a string.
@@ -1297,7 +1297,7 @@ namespace Keysharp.Builtins
 		/// Locale: The search is not case-sensitive according to the rules of the current user's locale.<br/>
 		/// For example, most English and Western European locales treat not only the letters A-Z as identical to their lowercase counterparts, but also non-ASCII letters like Ä and Ü as identical to theirs. Locale is 1 to 8 times slower than Off depending on the nature of the strings being compared.
 		/// </param>
-		/// <param name="outvarcount">If omitted, the corresponding value will not be stored.<br/>
+		/// <param name="outputVarCount">If omitted, the corresponding value will not be stored.<br/>
 		/// Otherwise, specify a reference to the output variable in which to store the number of replacements that occurred (0 if none).</param>
 		/// <param name="limit">If omitted, it defaults to -1, which replaces all occurrences of the pattern found in haystack.<br/>
 		/// Otherwise, specify the maximum number of replacements to allow.
@@ -1345,7 +1345,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Separates a string into an array of substrings using the specified delimiters.
 		/// </summary>
-		/// <param name="str">The string to split.</param>
+		/// <param name="string">The string to split.</param>
 		/// <param name="delimiters">If blank or omitted, each character of the input string will be treated as a separate substring.<br/>
 		/// Otherwise, specify either a single string or an array of strings(case-sensitive),<br/>
 		/// each of which is used to determine where the boundaries between substrings occur.<br/>
@@ -1362,12 +1362,12 @@ namespace Keysharp.Builtins
 		/// in the last substring (excluding any leading or trailing omitChars).
 		/// </param>
 		/// <returns>This function returns an array containing the substrings of the specified string.</returns>
-		public static Array StrSplit(object str, object delimiters = null, object omitChars = null, object maxParts = null)
+		public static Array StrSplit(object @string, object delimiters = null, object omitChars = null, object maxParts = null)
 		{
 			List<string> del = new ();
 			string trim = string.Empty;
 
-			if (str is string input)
+			if (@string is string input)
 			{
 				var count = maxParts.Ai(-1);
 
@@ -1436,21 +1436,21 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Converts a string to title case.
 		/// </summary>
-		/// <param name="str">The string to convert to title case.</param>
+		/// <param name="string">The string to convert to title case.</param>
 		/// <returns>The newly converted version of the string.</returns>
-		public static string StrTitle(object str) => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(str.As());
+		public static string StrTitle(object @string) => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(@string.As());
 
 		/// <summary>
 		/// Converts a string to uppercase.
 		/// </summary>
-		/// <param name="str">The string to convert to uppercase.</param>
+		/// <param name="string">The string to convert to uppercase.</param>
 		/// <returns>The newly converted version of the string.</returns>
-		public static string StrUpper(object str) => str.As().ToUpperInvariant();
+		public static string StrUpper(object @string) => @string.As().ToUpperInvariant();
 
 		/// <summary>
 		/// Retrieves one or more characters from the specified position in a string.
 		/// </summary>
-		/// <param name="str">The string whose content is copied. This may contain binary zero.</param>
+		/// <param name="string">The string whose content is copied. This may contain binary zero.</param>
 		/// <param name="startingPos">Specify 1 to start at the first character, 2 to start at the second, and so on.<br/>
 		/// If startingPos is 0 or beyond String's length, an empty string is returned.<br/>
 		/// Specify a negative startingPos to start at that position from the right.<br/>
@@ -1463,13 +1463,13 @@ namespace Keysharp.Builtins
 		/// string (an empty string is returned if all or too many characters are omitted).
 		/// </param>
 		/// <returns>This function returns the requested substring of the specified string.</returns>
-		public static string SubStr(object str, object startingPos = null, object obj2 = null)
+		public static string SubStr(object @string, object startingPos = null, object length = null)
 		{
-			var input = str.As();
+			var input = @string.As();
 			var index = startingPos.Ai(1);
-			var length = obj2.Ai(int.MaxValue);
+			var len = length.Ai(int.MaxValue);
 
-			if (string.IsNullOrEmpty(input) || length == 0 || index == 0 || index > input.Length)
+			if (string.IsNullOrEmpty(input) || len == 0 || index == 0 || index > input.Length)
 				return DefaultErrorString;
 
 			if (index < 1)
@@ -1487,22 +1487,22 @@ namespace Keysharp.Builtins
 			if (index < 0 || index >= input.Length)
 				return DefaultErrorString;
 
-			if (length < 0)
-				length += d;
+			if (len < 0)
+				len += d;
 
-			length = Math.Max(0, Math.Min(length, d));
-			return input.Substring(index, length);
+			len = Math.Max(0, Math.Min(len, d));
+			return input.Substring(index, len);
 		}
 
 		/// <summary>
 		/// Trims characters from the beginning and end of a string.
 		/// </summary>
-		/// <param name="str">Any string value or variable. Numbers are not supported.</param>
+		/// <param name="string">Any string value or variable. Numbers are not supported.</param>
 		/// <param name="omitChars">If omitted, spaces and tabs will be removed.<br/>
 		/// Otherwise, specify a list of characters (case-sensitive) to exclude from the beginning and end of the specified string.
 		/// </param>
 		/// <returns>Returns the trimmed version of the specified string.</returns>
-		public static string Trim(object str, object omitChars = null) => str.As().Trim(omitChars.As(" \t").ToCharArray());
+		public static string Trim(object @string, object omitChars = null) => @string.As().Trim(omitChars.As(" \t").ToCharArray());
 
 		/// <summary>
 		/// Sets a string capacity by replacing it with a StringBuffer instance.

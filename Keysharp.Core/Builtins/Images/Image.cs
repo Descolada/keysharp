@@ -109,10 +109,10 @@ namespace Keysharp.Builtins
 				return CaptureRect((int)left, (int)top, (int)width, (int)height, "Capturing the desktop failed.");
 			}
 
-			/// <summary>Captures a single monitor (the primary monitor if <paramref name="n"/> is omitted).</summary>
-			[Static] public static object FromMonitor(object @this, object n = null)
+			/// <summary>Captures a single monitor (the primary monitor if <paramref name="monitorNumber"/> is omitted).</summary>
+			[Static] public static object FromMonitor(object @this, object monitorNumber = null)
 			{
-				var (left, top, width, height) = Monitor.GetMonitorBounds(n);
+				var (left, top, width, height) = Monitor.GetMonitorBounds(monitorNumber);
 				return CaptureRect((int)left, (int)top, (int)width, (int)height, "Capturing the monitor failed.");
 			}
 
@@ -263,13 +263,13 @@ namespace Keysharp.Builtins
 			}
 
 			/// <summary>
-			/// Loads an image from a file. <paramref name="w"/>/<paramref name="h"/> optionally scale it
+			/// Loads an image from a file. <paramref name="width"/>/<paramref name="height"/> optionally scale it
 			/// on load (a negative value keeps the aspect ratio); <paramref name="iconNumber"/> selects an
 			/// icon group from multi-icon resources (EXE/DLL/ICO).
 			/// </summary>
-			[Static] public static object FromFile(object @this, object filename, object w = null, object h = null, object iconNumber = null)
+			[Static] public static object FromFile(object @this, object path, object width = null, object height = null, object iconNumber = null)
 			{
-				var f = filename.As();
+				var f = path.As();
 
 				if (f.Length == 0)
 					return Errors.ValueErrorOccurred("A file name is required.");
@@ -278,7 +278,7 @@ namespace Keysharp.Builtins
 
 				try
 				{
-					bmp = ImageHelper.LoadImage(f, w.Ai(0), h.Ai(0), iconNumber == null ? 0L : ImageHelper.PrepareIconNumber(iconNumber), exactPixels: true).Item1;
+					bmp = ImageHelper.LoadImage(f, width.Ai(0), height.Ai(0), iconNumber == null ? 0L : ImageHelper.PrepareIconNumber(iconNumber), exactPixels: true).Item1;
 				}
 				catch (Exception ex)
 				{
@@ -292,12 +292,12 @@ namespace Keysharp.Builtins
 			/// Wraps an existing image: another <c>Image</c>, or a native bitmap handle (HBITMAP on
 			/// Windows, or a handle previously returned by <see cref="ToBitmap"/>).
 			/// </summary>
-			[Static] public static object FromBitmap(object @this, object source)
+			[Static] public static object FromBitmap(object @this, object handle)
 			{
-				if (source == null)
+				if (handle == null)
 					return Errors.ValueErrorOccurred("A bitmap source is required.");
 
-				var (bmp, sx, sy) = LoadFromSource(source);
+				var (bmp, sx, sy) = LoadFromSource(handle);
 				return Wrap(bmp, sx, sy, "Could not create an image from the given bitmap.");
 			}
 

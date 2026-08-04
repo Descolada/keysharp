@@ -22,20 +22,20 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Searches a region of the screen for an image.
 		/// </summary>
-		/// <param name="outX">
+		/// <param name="outputVarX">
 		/// Optional references to the output variables in which to store the X and Y coordinates of the upper-left pixel of where the<br/>
 		/// image was found on the screen (if no match is found, the variables are made blank).<br/>
 		/// Coordinates are relative to the active window's client area unless CoordMode was used to change that.
 		/// </param>
-		/// <param name="outY">See <paramref name="outX"/>.</param>
-		/// <param name="X1">The X and Y coordinates of the upper left corner of the rectangle to search, which can be expressions.<br/>
+		/// <param name="outputVarY">See <paramref name="outputVarX"/>.</param>
+		/// <param name="x1">The X and Y coordinates of the upper left corner of the rectangle to search, which can be expressions.<br/>
 		/// Coordinates are relative to the active window unless CoordMode was used to change that.
 		/// </param>
-		/// <param name="Y1">See <paramref name="X1"/>.</param>
-		/// <param name="X2">The X and Y coordinates of the lower right corner of the rectangle to search, which can be expressions.<br/>
+		/// <param name="y1">See <paramref name="x1"/>.</param>
+		/// <param name="x2">The X and Y coordinates of the lower right corner of the rectangle to search, which can be expressions.<br/>
 		/// Coordinates are relative to the active window unless CoordMode was used to change that.
 		/// </param>
-		/// <param name="Y2">See <paramref name="X2"/>.</param>
+		/// <param name="y2">See <paramref name="x2"/>.</param>
 		/// <param name="imageFile">
 		/// <para>The file name of an image, which is assumed to be in <see cref="A_WorkingDir"/> if an absolute path isn't specified.<br/>
 		/// All operating systems support GIF, JPG, BMP, ICO, CUR, and ANI images (BMP images must be 16-bit or higher).<br/>
@@ -70,7 +70,7 @@ namespace Keysharp.Builtins
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
 		/// <exception cref="ValueError ">A <see cref="ValueError "/> exception thrown if an invalid parameter was detected or the image could not be loaded.</exception>
-		public static object ImageSearch([ByRef][Optional] object outX, [ByRef][Optional] object outY, object x1, object y1, object x2, object y2, object imageFile)
+		public static object ImageSearch([ByRef][Optional] object outputVarX, [ByRef][Optional] object outputVarY, object x1, object y1, object x2, object y2, object imageFile)
 		{
 			var _x1 = x1.Ai();
 			var _y1 = y1.Ai();
@@ -173,13 +173,13 @@ namespace Keysharp.Builtins
 					var location = searchBounds.PixelToScreen(match, new PixelSize(capture.Width, capture.Height));
 					int foundX = location.X, foundY = location.Y;
 					ScreenToCoord(ref foundX, ref foundY, CoordMode.Pixel);
-					if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)foundX);
-					if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)foundY);
+					if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", (long)foundX);
+					if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", (long)foundY);
 					return 1L;
 				}
 
-				if (outX != null) Script.SetPropertyValue(outX, "__Value", "");
-				if (outY != null) Script.SetPropertyValue(outY, "__Value", "");
+				if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", "");
+				if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", "");
 				return 0L;
 			}
 			catch (KeysharpException)
@@ -196,13 +196,14 @@ namespace Keysharp.Builtins
 		/// Retrieves the color of the pixel at the specified x,y screen coordinates.
 		/// </summary>
 		/// <param name="x">The X coordinate of the pixel, which can be expressions. Coordinates are relative to the active window unless CoordMode was used to change that.</param>
-		/// <param name="y">The Y coordinate of the pixel, see <paramref name="X"/>.</param>
+		/// <param name="y">The Y coordinate of the pixel, see <paramref name="x"/>.</param>
+		/// <param name="mode">Accepted for AutoHotkey compatibility and ignored; Keysharp always reads the pixel directly.</param>
 		/// <returns>The color as a hexadecimal string in red-green-blue (RGB) format.<br/>
 		/// For example, the color purple is defined 0x800080 because it has an intensity of 80 for its blue and red<br/>
 		/// components but an intensity of 00 for its green component.
 		/// </returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
-		public static string PixelGetColor(object x, object y, object unsed = null)
+		public static string PixelGetColor(object x, object y, object mode = null)
 		{
 			int pixel;
 			var _x = x.Ai();
@@ -236,15 +237,15 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Searches a region of the screen for a pixel of the specified color.
 		/// </summary>
-		/// <param name="outX">Optional references to the output variables in which to store the X and Y coordinates of the first pixel that<br/>
+		/// <param name="outputVarX">Optional references to the output variables in which to store the X and Y coordinates of the first pixel that<br/>
 		/// matches colorID (if no match is found, the variables are made blank).<br/>
 		/// Coordinates are relative to the active window's client area unless CoordMode was used to change that.
 		/// </param>
-		/// <param name="outY">See <paramref name="outX"/>.</param>
+		/// <param name="outputVarY">See <paramref name="outputVarX"/>.</param>
 		/// <param name="x1">The X and Y coordinates of the upper left corner of the rectangle to search. Coordinates are relative to the active window unless CoordMode was used to change that.</param>
-		/// <param name="y1">See <paramref name="X1"/>.</param>
+		/// <param name="y1">See <paramref name="x1"/>.</param>
 		/// <param name="x2">The X and Y coordinates of the lower right corner of the rectangle to search. Coordinates are relative to the active window unless CoordMode was used to change that.</param>
-		/// <param name="y2">See <paramref name="X2"/>.</param>
+		/// <param name="y2">See <paramref name="x2"/>.</param>
 		/// <param name="colorID">The color ID to search for. This is typically expressed as a hexadecimal number in Red-Green-Blue (RGB) format.<br/>
 		/// For example: 0x9d6346. Color IDs can be determined using Window Spy (accessible from the tray menu) or via <see cref="PixelGetColor"/>.
 		/// </param>
@@ -254,35 +255,35 @@ namespace Keysharp.Builtins
 		/// </param>
 		/// <returns>This function returns 1 if the color was found in the specified region, or 0 if it was not found.</returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
-		public static long PixelSearch([ByRef][Optional] object outX, [ByRef][Optional] object outY, object obj0, object obj1, object obj2, object obj3, object obj4, object obj5 = null)
+		public static long PixelSearch([ByRef][Optional] object outputVarX, [ByRef][Optional] object outputVarY, object x1, object y1, object x2, object y2, object colorID, object variation = null)
 		{
-			var x1 = obj0.Ai();
-			var y1 = obj1.Ai();
-			var x2 = obj2.Ai();
-			var y2 = obj3.Ai();
-			var colorID = obj4.Al();
-			var variation = obj5.Al();
-			variation = Math.Clamp(variation, byte.MinValue, byte.MaxValue);
+			var x1v = x1.Ai();
+			var y1v = y1.Ai();
+			var x2v = x2.Ai();
+			var y2v = y2.Ai();
+			var colorIDv = colorID.Al();
+			var variationv = variation.Al();
+			variationv = Math.Clamp(variationv, byte.MinValue, byte.MaxValue);
 
-			int px1 = x1, py1 = y1;
-			CoordToScreen(ref x1, ref y1, CoordMode.Pixel);
-			x2 += x1 - px1; y2 += y1 - py1;
+			int px1 = x1v, py1 = y1v;
+			CoordToScreen(ref x1v, ref y1v, CoordMode.Pixel);
+			x2v += x1v - px1; y2v += y1v - py1;
 
-			var ltr = x1 <= x2;
-			var ttb = y1 <= y2;
-			var x1temp = Math.Min(x1, x2);
-			var x2temp = Math.Max(x1, x2);
-			var y1temp = Math.Min(y1, y2);
-			var y2temp = Math.Max(y1, y2);
-			x1 = x1temp;
-			x2 = x2temp;
-			y1 = y1temp;
-			y2 = y2temp;
-			var needle = Color.FromArgb((int)((uint)colorID | 0xFF000000));
+			var ltr = x1v <= x2v;
+			var ttb = y1v <= y2v;
+			var x1temp = Math.Min(x1v, x2v);
+			var x2temp = Math.Max(x1v, x2v);
+			var y1temp = Math.Min(y1v, y2v);
+			var y2temp = Math.Max(y1v, y2v);
+			x1v = x1temp;
+			x2v = x2temp;
+			y1v = y1temp;
+			y2v = y2temp;
+			var needle = Color.FromArgb((int)((uint)colorIDv | 0xFF000000));
 
 			try
 			{
-				var boundsFailure = ResolveSearchBounds(x1, y1, x2, y2, out var bounds);
+				var boundsFailure = ResolveSearchBounds(x1v, y1v, x2v, y2v, out var bounds);
 
 				if (boundsFailure != SearchBoundsFailure.None)
 					return (long)Errors.ErrorOccurred(boundsFailure == SearchBoundsFailure.OutsideDesktop
@@ -294,18 +295,18 @@ namespace Keysharp.Builtins
 				if (capture == null)
 					return (long)Errors.ErrorOccurred("Screen capture failed while searching for a pixel color.", DefaultErrorLong);
 
-				if (new ImageFinder(capture) { Variation = (byte)variation }.Find(needle, ltr, ttb) is { } match)
+				if (new ImageFinder(capture) { Variation = (byte)variationv }.Find(needle, ltr, ttb) is { } match)
 				{
 					var location = bounds.PixelToScreen(match, new PixelSize(capture.Width, capture.Height));
 					int foundX = location.X, foundY = location.Y;
 					ScreenToCoord(ref foundX, ref foundY, CoordMode.Pixel);
-					if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)foundX);
-					if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)foundY);
+					if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", (long)foundX);
+					if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", (long)foundY);
 					return 1L;
 				}
 
-				if (outX != null) Script.SetPropertyValue(outX, "__Value", 0L);
-				if (outY != null) Script.SetPropertyValue(outY, "__Value", 0L);
+				if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", 0L);
+				if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", 0L);
 				return 0L;
 			}
 			catch (KeysharpException)

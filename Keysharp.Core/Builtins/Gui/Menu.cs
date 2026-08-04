@@ -803,7 +803,7 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="menuItemName">The name or position of a menu item.</param>
 		/// <returns>The new check state as a boolean.</returns>
-		public bool UnCheck(object obj) => Check(obj.As(), eCheckToggle.Uncheck);
+		public bool UnCheck(object menuItemName) => Check(menuItemName.As(), eCheckToggle.Uncheck);
 
 		internal void Tsmi_Click(object sender, EventArgs e)
 		{

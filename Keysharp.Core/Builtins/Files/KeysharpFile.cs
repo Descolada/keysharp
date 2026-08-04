@@ -300,10 +300,10 @@ namespace Keysharp.Builtins
 			}
 		}
 
-		public object RawRead(object obj0, object obj1 = null)
+		public object RawRead(object buffer, object bytes = null)
 		{
-			var buf = obj0;
-			var count = (obj1 is null ? long.MinValue : obj1.ToLong());
+			var buf = buffer;
+			var count = (bytes is null ? long.MinValue : bytes.ToLong());
 			int len = 0;
 
 			if (br != null)
@@ -340,10 +340,10 @@ namespace Keysharp.Builtins
 			return (long)len;
 		}
 
-		public long RawWrite(object obj0, object obj1 = null)
+		public long RawWrite(object data, object bytes = null)
 		{
-			var buf = obj0;
-			var count = (obj1 is null ? long.MinValue : obj1.ToLong());
+			var buf = data;
+			var count = (bytes is null ? long.MinValue : bytes.ToLong());
 			var len = 0;
 
 			if (bw != null)
@@ -355,9 +355,9 @@ namespace Keysharp.Builtins
 				}
 				else if (buf is string s)
 				{
-					var bytes = enc.GetBytes(s);
-					len = count != long.MinValue ? Math.Min(bytes.Length, (int)count) : bytes.Length;
-					bw.Write(bytes, 0, len);
+					var byteBuf = enc.GetBytes(s);
+					len = count != long.MinValue ? Math.Min(byteBuf.Length, (int)count) : byteBuf.Length;
+					bw.Write(byteBuf, 0, len);
 				}
 				else if (Reflections.TryGetPtrProperty(buf, out var ptr))
 				{
@@ -367,9 +367,9 @@ namespace Keysharp.Builtins
 
 					unsafe
 					{
-						var bytes = new byte[len];
-						Marshal.Copy((nint)ptr, bytes, 0, len);
-						bw.Write(bytes);
+						var byteBuf = new byte[len];
+						Marshal.Copy((nint)ptr, byteBuf, 0, len);
+						bw.Write(byteBuf);
 					}
 				}
 				else
@@ -379,10 +379,10 @@ namespace Keysharp.Builtins
 			return len;
 		}
 
-		public string Read(object obj)
+		public string Read(object characters)
 		{
 			var s = "";
-			var count = obj.Al();
+			var count = characters.Al();
 			char[] buf = null;
 			var read = 0;
 
@@ -442,34 +442,34 @@ namespace Keysharp.Builtins
 
 		public object ReadUShort() => br != null ? (long)br.ReadUInt16() : DefaultObject;
 
-		public object Seek(object obj0, object obj1 = null)
+		public object Seek(object distance, object origin = null)
 		{
-			var distance = obj0.ToLong();
-			var origin = (obj1 is null ? long.MinValue : obj1.ToLong());
+			var distanceVal = distance.ToLong();
+			var originVal = (origin is null ? long.MinValue : origin.ToLong());
 			SeekOrigin so;
 
-			if (origin == 0)
+			if (originVal == 0)
 				so = SeekOrigin.Begin;
-			else if (origin == 1)
+			else if (originVal == 1)
 				so = SeekOrigin.Current;
-			else if (origin == 2)
+			else if (originVal == 2)
 				so = SeekOrigin.End;
-			else if (distance < 0)
+			else if (distanceVal < 0)
 				so = SeekOrigin.End;
 			else
 				so = SeekOrigin.Begin;
 
 			if (br != null)
-				_ = br.BaseStream.Seek(distance, so);
+				_ = br.BaseStream.Seek(distanceVal, so);
 			else if (bw != null)//Only need to do 1, because they both have the same underlying stream.
-				_ = bw.Seek((int)distance, so);
+				_ = bw.Seek((int)distanceVal, so);
 
 			return DefaultObject;
 		}
 
-		public long Write(object obj)
+		public long Write(object @string)
 		{
-			var s = obj.As();
+			var s = @string.As();
 			var len = 0L;
 
 			if (bw != null)
@@ -488,64 +488,64 @@ namespace Keysharp.Builtins
 			return len;
 		}
 
-		public long WriteChar(object obj)
+		public long WriteChar(object num)
 		{
 			if (bw != null)
 			{
-				bw.Write((byte)obj.Al());//Char in this case is meant to be 1 byte, according to the AHK DllCall() documentation.
+				bw.Write((byte)num.Al());//Char in this case is meant to be 1 byte, according to the AHK DllCall() documentation.
 				return 1L;
 			}
 			else
 				return 0L;
 		}
 
-		public long WriteDouble(object obj)
+		public long WriteDouble(object num)
 		{
 			if (bw != null)
 			{
-				bw.Write(obj.Ad());
+				bw.Write(num.Ad());
 				return 8L;
 			}
 			else
 				return 0L;
 		}
 
-		public long WriteFloat(object obj)
+		public long WriteFloat(object num)
 		{
 			if (bw != null)
 			{
-				bw.Write((float)obj.Ad());
+				bw.Write((float)num.Ad());
 				return 4L;
 			}
 			else
 				return 0L;
 		}
 
-		public long WriteInt(object obj)
+		public long WriteInt(object num)
 		{
 			if (bw != null)
 			{
-				bw.Write(obj.Ai());
+				bw.Write(num.Ai());
 				return 4L;
 			}
 			else
 				return 0L;
 		}
 
-		public long WriteInt64(object obj)
+		public long WriteInt64(object num)
 		{
 			if (bw != null)
 			{
-				bw.Write(obj.Al());
+				bw.Write(num.Al());
 				return 8L;
 			}
 			else
 				return 0L;
 		}
 
-		public long WriteLine(object obj)
+		public long WriteLine(object @string)
 		{
-			var s = obj.As();
+			var s = @string.As();
 			byte[] bytes;
 			var len = 0L;
 
@@ -569,44 +569,44 @@ namespace Keysharp.Builtins
 			return len;
 		}
 
-		public long WriteShort(object obj)
+		public long WriteShort(object num)
 		{
 			if (bw != null)
 			{
-				bw.Write((short)obj.Al());
+				bw.Write((short)num.Al());
 				return 2L;
 			}
 			else
 				return 0L;
 		}
 
-		public long WriteUChar(object obj)
+		public long WriteUChar(object num)
 		{
 			if (bw != null)
 			{
-				bw.Write((byte)obj.Al());
+				bw.Write((byte)num.Al());
 				return 1L;
 			}
 			else
 				return 0L;
 		}
 
-		public long WriteUInt(object obj)
+		public long WriteUInt(object num)
 		{
 			if (bw != null)
 			{
-				bw.Write((uint)obj.Al());
+				bw.Write((uint)num.Al());
 				return 4L;
 			}
 			else
 				return 0L;
 		}
 
-		public long WriteUShort(object obj)
+		public long WriteUShort(object num)
 		{
 			if (bw != null)
 			{
-				bw.Write((ushort)obj.Al());
+				bw.Write((ushort)num.Al());
 				return 2L;
 			}
 			else

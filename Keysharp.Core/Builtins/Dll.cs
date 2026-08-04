@@ -421,7 +421,7 @@ namespace Keysharp.Builtins
 		///     This is because function will be able to change global settings such as <see cref="A_LastError"/> and the last-found window for whichever thread happens to be running at the time it is called.<br/>
 		///     <![CDATA[&]]>: Causes the address of the parameter list (a single integer) to be passed to function instead of the individual parameters. Parameter values can be retrieved by using <see cref="External.NumGet"/>.<br/>
 		/// </param>
-		/// <param name="paramCount">
+		/// <param name="paramSpec">
 		/// If omitted, it defaults to 0, which is usually the number of mandatory parameters in the definition of function.<br/>
 		/// Otherwise, specify the number of parameters that Address's caller will pass to it.<br/>
 		/// In either case, ensure that the caller passes exactly this number of parameters.
@@ -429,7 +429,7 @@ namespace Keysharp.Builtins
 		/// <returns>A <see cref="DelegateHolder"/> object which internally holds a function pointer.<br/>
 		/// This is typically passed to an external function via <see cref="DllCall"/> or placed in a struct using <see cref="NumPut"/>, but can also be called directly by <see cref="DllCall"/>.
 		/// </returns>
-		public static object CallbackCreate(object function, object options = null, object paramCount = null)
+		public static object CallbackCreate(object function, object options = null, object paramSpec = null)
 		{
 			Any fo = function is Any a ? a : (KeysharpFunc)Functions.GetKeysharpFunc(function, null, true);
 			if (fo == null)
@@ -442,19 +442,19 @@ namespace Keysharp.Builtins
 
 			// A non-numeric ParamCount is an array of the parameter types followed by the return type, which makes
 			// this a typed callback. [v2.1-alpha.24+]
-			if (paramCount != null && !Script.IsNumeric(paramCount))
+			if (paramSpec != null && !Script.IsNumeric(paramSpec))
 			{
 				// A string is enumerable, so exclude it explicitly rather than letting it be walked character
 				// by character and reported as an unresolvable type name.
-				if (paramCount is string || paramCount is not (Keysharp.Builtins.Array or IEnumerable))
-					return Errors.TypeErrorOccurred(paramCount, typeof(Keysharp.Builtins.Array));
+				if (paramSpec is string || paramSpec is not (Keysharp.Builtins.Array or IEnumerable))
+					return Errors.TypeErrorOccurred(paramSpec, typeof(Keysharp.Builtins.Array));
 
 				if (reference)
 					return Errors.ValueErrorOccurred("The & option cannot be combined with typed callback parameters.");
 
 				var typeSpecs = new List<object>();
 
-				foreach (var item in Loops.MakeEnumerable(paramCount))
+				foreach (var item in Loops.MakeEnumerable(paramSpec))
 					typeSpecs.Add(item);
 
 				if (typeSpecs.Count == 0)
@@ -490,9 +490,9 @@ namespace Keysharp.Builtins
 				return new DelegateHolder(fo, conversions, typedVoid, fast, cdecl);
 			}
 
-			int arity = Math.Clamp(paramCount.Ai(-1) < 0
+			int arity = Math.Clamp(paramSpec.Ai(-1) < 0
 								   ? (!reference && fo is KeysharpFunc f ? (int)f.MinParams : DelegateHolder.MaxArity)
-								   : paramCount.Ai(-1), 0, DelegateHolder.MaxArity);
+								   : paramSpec.Ai(-1), 0, DelegateHolder.MaxArity);
 
 			return new DelegateHolder(fo, arity, fast, reference);
 		}

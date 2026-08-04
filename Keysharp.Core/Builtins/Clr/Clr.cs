@@ -4,9 +4,9 @@ namespace Keysharp.Builtins
 	{
 		public class Clr : KeysharpObject
 		{
-			public static object staticLoad(object @this, object asmOrPath)
+			public static object staticLoad(object @this, object assemblyOrPath)
 			{
-				var s = asmOrPath.As();
+				var s = assemblyOrPath.As();
 				var asm = s.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
 						  ? Assembly.LoadFrom(s)
 						  : Assembly.Load(s);
@@ -27,26 +27,26 @@ namespace Keysharp.Builtins
 			}
 
 			// Still keep these for direct access if someone prefers:
-			public static object staticType(object @this, object fullTypeName)
+			public static object staticType(object @this, object value)
 			{
-				var name = fullTypeName.As();
+				var name = value.As();
 				var t = TypeResolver.Resolve(name);
 				if (t == null)
 					return Errors.ErrorOccurred($"Type not found: {name}");
 				return new ManagedType(t);
 			}
 
-			public static object staticGetNamespaceName(object @this, object @namespace)
+			public static object staticGetNamespaceName(object @this, object managedNamespace)
 			{
-				var ns = @namespace as ManagedNamespace;
+				var ns = managedNamespace as ManagedNamespace;
 				if (ns == null)
 					return Errors.ErrorOccurred("The provided argument was not a ManagedNamespace object.");
 				return ns._ns;
 			}
 
-			public static object staticGetTypeName(object @this, object type)
+			public static object staticGetTypeName(object @this, object managedType)
 			{
-				var mt = type as ManagedType;
+				var mt = managedType as ManagedType;
 				if (mt == null)
 					return Errors.ErrorOccurred("The provided argument was not a ManagedType object.");
 				return mt._type.FullName;

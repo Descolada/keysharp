@@ -542,10 +542,10 @@ namespace Keysharp.Builtins
 			return sb.ToString();
 		}
 
-		public long Show(object obj = null)
+		public long Show(object mode = null)
 		{
-			string mode = obj.As("Return").Trim();
-			bool allowContinue = mode.Equals("return", StringComparison.OrdinalIgnoreCase) || mode.Equals("warn", StringComparison.OrdinalIgnoreCase);
+			string modeStr = mode.As("Return").Trim();
+			bool allowContinue = modeStr.Equals("return", StringComparison.OrdinalIgnoreCase) || modeStr.Equals("warn", StringComparison.OrdinalIgnoreCase);
 			var result = ErrorDialog.Show(Exception, allowContinue);
 			if (result == ErrorDialog.ErrorDialogResult.Continue) return -1L;
 			return 1L;
@@ -610,9 +610,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Initializes a new instance of the <see cref="KeysharpException"/> class.
 		/// </summary>
-		/// <param name="msg">A message describing the error that occurred.</param>
-		/// <param name="what">A message describing what happened.</param>
-		/// <param name="extra">Extra text describing in detail what happened.</param>
+		/// <param name="owner">The script-visible <see cref="Error"/> object this exception carries.</param>
 		internal KeysharpException(Error owner)
 		{
 			UserError = owner;
@@ -621,9 +619,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Initializes a new instance of the <see cref="KeysharpException"/> class.
 		/// </summary>
-		/// <param name="msg">A message describing the error that occurred.</param>
-		/// <param name="what">A message describing what happened.</param>
-		/// <param name="extra">Extra text describing in detail what happened.</param>
+		/// <param name="message">A message describing the error that occurred.</param>
 		public KeysharpException(string message = null) : base(message ?? string.Empty) { }
 
 		internal struct StackInfo
@@ -878,7 +874,7 @@ namespace Keysharp.Builtins
 		/// Initializes a new instance of the <see cref="ParseException"/> class.
 		/// </summary>
 		/// <param name="message">The message describing the error.</param>
-		/// <param name="codeLine">The line number the error occurred on.</param>
+		/// <param name="line">The line number the error occurred on.</param>
 		/// <param name="code">The code where the error occurred.</param>
 		public ParseException(string message, int line, string code)
 			: this(message, line, code, "") { }
@@ -887,7 +883,7 @@ namespace Keysharp.Builtins
 		/// Initializes a new instance of the <see cref="ParseException"/> class.
 		/// </summary>
 		/// <param name="message">The message describing the error.</param>
-		/// <param name="codeLine">The line number the error occurred on.</param>
+		/// <param name="line">The line number the error occurred on.</param>
 		/// <param name="code">The code where the error occurred.</param>
 		/// <param name="file">The file the error occurred in.</param>
 		public ParseException(string message, int line, string code, string file)

@@ -62,23 +62,23 @@ namespace Keysharp.Builtins
 			return MemberwiseClone();
 		}
 
-		public static object DefineProp(object @this, object obj0, object obj1) => Objects.DefineProp(@this, obj0, obj1);
+		public static object DefineProp(object @this, object name, object descriptor) => Objects.DefineProp(@this, name, descriptor);
 
-		public static object DeleteProp(object @this, object obj) => (@this as Any).DeleteOwnPropInternal(obj.As());
+		public static object DeleteProp(object @this, object name) => (@this as Any).DeleteOwnPropInternal(name.As());
 
-		public static object GetOwnPropDesc(object @this, object obj1)
+		public static object GetOwnPropDesc(object @this, object name)
 		{
-			var name = obj1.As();
+			var nameVal = name.As();
 			var obj = @this as Any;
 
-			if (obj.op != null && obj.op.TryGetValue(name, out var dynProp))
+			if (obj.op != null && obj.op.TryGetValue(nameVal, out var dynProp))
 			{
 				return dynProp.GetDesc();
 			}
 
 			try
 			{
-				var val = Script.GetPropertyValue(obj, name);
+				var val = Script.GetPropertyValue(obj, nameVal);
 				return KeysharpObject.staticCall(TheScript.Vars.Statics[typeof(KeysharpObject)], ["value", val]);
 			}
 			catch
@@ -86,7 +86,7 @@ namespace Keysharp.Builtins
 			}
 
 			return Script.CompatReturnsUnsetForMissing ? null
-				: Errors.PropertyErrorOccurred($"Object did not have an OwnProp named {name}.");
+				: Errors.PropertyErrorOccurred($"Object did not have an OwnProp named {nameVal}.");
 		}
 
 		public static object __Ref(object @this, object name, params object[] args)
@@ -99,15 +99,15 @@ namespace Keysharp.Builtins
 			return PropRef.staticCall(TheScript.Vars.Statics[typeof(PropRef)], ctorArgs);
 		}
 
-		public static long HasOwnProp(object @this, object obj1)
+		public static long HasOwnProp(object @this, object name)
 		{
 			var obj = @this as Any;
-			var name = obj1.As();
+			var nameVal = name.As();
 
-			if (obj.op != null && obj.op.ContainsKey(name))
+			if (obj.op != null && obj.op.ContainsKey(nameVal))
 				return 1L;
 
-			return Reflections.FindOwnProp(obj.GetType(), name) ? 1L : 0L;
+			return Reflections.FindOwnProp(obj.GetType(), nameVal) ? 1L : 0L;
 		}
 
 		public static long OwnPropCount(object @this)

@@ -57,14 +57,14 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Retrieves a native COM interface of a sound device or component.
 		/// </summary>
-		/// <param name="id">An interface identifier (GUID) in the form "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}".</param>
+		/// <param name="iid">An interface identifier (GUID) in the form "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}".</param>
 		/// <param name="component">If blank or omitted, an interface implemented by the device itself will be retrieved. Otherwise, specify the component's display name and/or index, e.g. 1, "Line in" or "Line in:2".</param>
 		/// <param name="device">If blank or omitted, it defaults to the system's default device for playback<br/>
 		/// (which is not necessarily device 1). Otherwise, specify the device's display name and/or index,<br/>
 		/// e.g. 1, "Speakers", "Speakers:2" or "Speakers (Example HD Audio)".
 		/// </param>
 		/// <returns>The COM interface for the specified sound interface.</returns>
-		public static object SoundGetInterface(object id, object component = null, object device = null) => DoSound(SoundCommands.SoundGetInterface, id, component, device);
+		public static object SoundGetInterface(object iid, object component = null, object device = null) => DoSound(SoundCommands.SoundGetInterface, iid, component, device);
 
 #endif
 

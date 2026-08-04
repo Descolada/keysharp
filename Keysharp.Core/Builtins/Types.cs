@@ -120,10 +120,10 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Unsupported.
 		/// </summary>
-		/// <param name="name">Unused.</param>
+		/// <param name="labelName">Unused.</param>
 		/// <returns>Unused.</returns>
 		/// <exception cref="Error">Throws an <see cref="Error"/> exception because Keysharp does not support querying labels at runtime.</exception>
-		public static long IsLabel(object name) => (long)Errors.ErrorOccurred("C# does not allow querying labels at runtime.", DefaultErrorLong);
+		public static long IsLabel(object labelName) => (long)Errors.ErrorOccurred("C# does not allow querying labels at runtime.", DefaultErrorLong);
 
 		/// <summary>
 		/// Returns 1 if value is a string and is empty or contains only lowercase characters.<br/>
@@ -168,18 +168,18 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Returns 1 if the specified variable has been assigned a value, meaning it is not null, else 0.
 		/// </summary>
-		/// <param name="value">The object to examine.</param>
-		/// <returns>1 if value is not null, else 0.</returns>
-		public static long IsSet(object value = null) => value != null ? 1L : 0L;
+		/// <param name="var">The object to examine.</param>
+		/// <returns>1 if the variable is not null, else 0.</returns>
+		public static long IsSet(object @var = null) => @var != null ? 1L : 0L;
 
 		/// <summary>
 		/// Returns 1 if the specified VarRef target has been assigned a value, meaning it is not null, else 0.
 		/// </summary>
-		/// <param name="value">The object to examine.</param>
-		/// <returns>1 if value is not null, else 0.</returns>
-		public static long IsSetRef(object value)
+		/// <param name="ref">The VarRef whose target is examined.</param>
+		/// <returns>1 if the target is not null, else 0.</returns>
+		public static long IsSetRef(object @ref)
 		{
-			Any val = value as Any;
+			Any val = @ref as Any;
 			if (val == null) return (long)Errors.ErrorOccurred("IsSetRef requires a VarRef parameter.", DefaultErrorLong);
 			return GetPropertyValueOrNull(val, "__Value") is object ? 1L : 0L;
 		}

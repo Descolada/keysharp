@@ -41,17 +41,17 @@ namespace Keysharp.Builtins
 
 	public static class WindowX
 	{
-		public static object DetectHiddenText(object mode)
+		public static object DetectHiddenText(object setting)
 		{
 			var oldVal = A_DetectHiddenText;
-			A_DetectHiddenText = mode;
+			A_DetectHiddenText = setting;
 			return oldVal;
 		}
 
-		public static object DetectHiddenWindows(object mode)
+		public static object DetectHiddenWindows(object setting)
 		{
 			var oldVal = A_DetectHiddenWindows;
-			A_DetectHiddenWindows = mode;
+			A_DetectHiddenWindows = setting;
 			return oldVal;
 		}
 
@@ -219,13 +219,13 @@ namespace Keysharp.Builtins
 		}
 
 		public static object ListViewGetContent(object options = null,
-												object control = null,
+												object controlID = null,
 												object winTitle = null,
 												object winText = null,
 												object excludeTitle = null,
 												object excludeText = null) => Platform.Control.ListViewGetContent(
 														options.As(),
-														control,
+														controlID,
 														winTitle,
 														winText,
 														excludeTitle,
@@ -259,20 +259,20 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public static object PostMessage(object msg,
-										 object wparam = null,
-										 object lparam = null,
-										 object control = null,
+		public static object PostMessage(object msgNumber,
+										 object wParam = null,
+										 object lParam = null,
+										 object controlID = null,
 										 object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
 			Platform.Control.PostMessage(
-				msg.Aui(),
-				wparam.Ai(),
-				lparam.Ai(),
-				control,
+				msgNumber.Aui(),
+				wParam.Ai(),
+				lParam.Ai(),
+				controlID,
 				winTitle,
 				winText.As(),
 				excludeTitle.As(),
@@ -280,29 +280,29 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public static long SendMessage(object msg,
-									   object wparam = null,
-									   object lparam = null,
-									   object control = null,
+		public static long SendMessage(object msgNumber,
+									   object wParam = null,
+									   object lParam = null,
+									   object controlID = null,
 									   object winTitle = null,
 									   object winText = null,
 									   object excludeTitle = null,
 									   object excludeText = null,
 									   object timeout = null) => Platform.Control.SendMessage(
-										   msg.Aui(),
-										   wparam,
-										   lparam,
-										   control,
+										   msgNumber.Aui(),
+										   wParam,
+										   lParam,
+										   controlID,
 										   winTitle,
 										   winText.As(),
 										   excludeTitle.As(),
 										   excludeText.As(),
 										   timeout.Ai(5000));
 
-		public static object SetControlDelay(object obj)
+		public static object SetControlDelay(object delay)
 		{
-			var oldVal = A_ControlDelay = obj;
-			A_ControlDelay = obj;
+			var oldVal = A_ControlDelay = delay;
+			A_ControlDelay = delay;
 			return oldVal;
 		}
 
@@ -337,11 +337,11 @@ namespace Keysharp.Builtins
 		/// This function's behavior is somewhat bizarre in that it changes which global variable gets set
 		/// based on the value of the parameter passed in.
 		/// </summary>
-		/// <param name="obj">String or integers 1, 2, 3, or string RegEx to set TitleMatchMode, else strings fast/slow to set TitleMatchModeSpeed.</param>
-		public static object SetTitleMatchMode(object matchModeSpeed)
+		/// <param name="matchMode">String or integers 1, 2, 3, or string RegEx to set TitleMatchMode, else strings fast/slow to set TitleMatchModeSpeed.</param>
+		public static object SetTitleMatchMode(object matchMode)
 		{
 			object oldVal = null;
-			var val = matchModeSpeed.As();
+			var val = matchMode.As();
 
 			if (string.Compare(val, "fast", true) == 0 || string.Compare(val, "slow", true) == 0)
 			{
@@ -367,8 +367,8 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Retrieves the text from a standard status bar control.
 		/// </summary>
-		/// <param name="Part">Which part number of the bar to retrieve. Default 1, which is usually the part that contains the text of interest.</param>
-		/// <param name="WinTitle">The title or partial title of the target window (the matching behavior is determined by SetTitleMatchMode).<br/>
+		/// <param name="partNumber">Which part number of the bar to retrieve. Default 1, which is usually the part that contains the text of interest.</param>
+		/// <param name="winTitle">The title or partial title of the target window (the matching behavior is determined by SetTitleMatchMode).<br/>
 		/// If this and the other 3 window parameters are blank or omitted, the Last Found Window will be used.<br/>
 		/// If this is the letter A and the other 3 window parameters are blank or omitted, the active window will be used.<br/>
 		/// To use a window class, specify ahk_class ExactClassName (shown by Window Spy).<br/>
@@ -376,11 +376,11 @@ namespace Keysharp.Builtins
 		/// To use a window's unique ID number, specify ahk_id %VarContainingID%.<br/>
 		/// The search can be narrowed by specifying multiple criteria. For example: My File.txt ahk_class Notepad
 		/// </param>
-		/// <param name="WinText">If present, this parameter must be a substring from a single text element of the target window (as revealed by the included Window Spy utility).<br/>
+		/// <param name="winText">If present, this parameter must be a substring from a single text element of the target window (as revealed by the included Window Spy utility).<br/>
 		/// Hidden text elements are detected if DetectHiddenText is ON.
 		/// </param>
-		/// <param name="ExcludeTitle">Windows whose titles include this value will not be considered.</param>
-		/// <param name="ExcludeText">Windows whose text include this value will not be considered.</param>
+		/// <param name="excludeTitle">Windows whose titles include this value will not be considered.</param>
+		/// <param name="excludeText">Windows whose text include this value will not be considered.</param>
 		/// <returns>The retrieved text</returns>
 		public static string StatusBarGetText(object partNumber = null,
 											  object winTitle = null,
@@ -429,17 +429,17 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Waits until a window's status bar contains the specified string.
 		/// </summary>
-		/// <param name="BarText">
+		/// <param name="barText">
 		/// <para>The text or partial text for the which the command will wait to appear. Default is blank (empty), which means to wait for the status bar to become blank. The text is case sensitive and the matching behavior is determined by SetTitleMatchMode, similar to WinTitle below.</para>
 		/// <para>To instead wait for the bar's text to change, either use StatusBarGetText in a loop, or use the RegEx example at the bottom of this page.</para>
 		/// </param>
-		/// <param name="Seconds">The number of seconds (can contain a decimal point) to wait before timing out, in which case Accessors.A_ErrorLevel will be set to 1. Default is blank, which means wait indefinitely. Specifying 0 is the same as specifying 0.5.</param>
-		/// <param name="Part">Which part number of the bar to retrieve. Default 1, which is usually the part that contains the text of interest.</param>
-		/// <param name="WinTitle">The title or partial title of the target window (the matching behavior is determined by SetTitleMatchMode). If this and the other 3 window parameters are blank or omitted, the Last Found Window will be used. If this is the letter A and the other 3 window parameters are blank or omitted, the active window will be used. To use a window class, specify ahk_class ExactClassName (shown by Window Spy). To use a process identifier (PID), specify ahk_pid %VarContainingPID%. To use a window group, specify ahk_group GroupName. To use a window's unique ID number, specify ahk_id %VarContainingID%. The search can be narrowed by specifying multiple criteria. For example: My File.txt ahk_class Notepad</param>
-		/// <param name="WinText">If present, this parameter must be a substring from a single text element of the target window (as revealed by the included Window Spy utility). Hidden text elements are detected if DetectHiddenText is ON.</param>
-		/// <param name="Interval">How often the status bar should be checked while the command is waiting (in milliseconds), which can be an expression. Default is 50.</param>
-		/// <param name="ExcludeTitle">Windows whose titles include this value will not be considered.</param>
-		/// <param name="ExcludeText">Windows whose text include this value will not be considered.</param>
+		/// <param name="timeout">The number of seconds (can contain a decimal point) to wait before timing out, in which case Accessors.A_ErrorLevel will be set to 1. Default is blank, which means wait indefinitely. Specifying 0 is the same as specifying 0.5.</param>
+		/// <param name="partNumber">Which part number of the bar to retrieve. Default 1, which is usually the part that contains the text of interest.</param>
+		/// <param name="winTitle">The title or partial title of the target window (the matching behavior is determined by SetTitleMatchMode). If this and the other 3 window parameters are blank or omitted, the Last Found Window will be used. If this is the letter A and the other 3 window parameters are blank or omitted, the active window will be used. To use a window class, specify ahk_class ExactClassName (shown by Window Spy). To use a process identifier (PID), specify ahk_pid %VarContainingPID%. To use a window group, specify ahk_group GroupName. To use a window's unique ID number, specify ahk_id %VarContainingID%. The search can be narrowed by specifying multiple criteria. For example: My File.txt ahk_class Notepad</param>
+		/// <param name="winText">If present, this parameter must be a substring from a single text element of the target window (as revealed by the included Window Spy utility). Hidden text elements are detected if DetectHiddenText is ON.</param>
+		/// <param name="interval">How often the status bar should be checked while the command is waiting (in milliseconds), which can be an expression. Default is 50.</param>
+		/// <param name="excludeTitle">Windows whose titles include this value will not be considered.</param>
+		/// <param name="excludeText">Windows whose text include this value will not be considered.</param>
 		public static long StatusBarWait(object barText = null,
 										 object timeout = null,
 										 object partNumber = null,
@@ -513,8 +513,8 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Returns the Unique ID (HWND) of the active window if it matches the specified criteria.
 		/// </summary>
-		/// <param name="title"></param>
-		/// <param name="text"></param>
+		/// <param name="winTitle"></param>
+		/// <param name="winText"></param>
 		/// <param name="excludeTitle"></param>
 		/// <param name="excludeText"></param>
 		/// <returns></returns>
@@ -531,8 +531,9 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Closes the specified window.
 		/// </summary>
-		/// <param name="title"></param>
-		/// <param name="text"></param>
+		/// <param name="winTitle"></param>
+		/// <param name="winText"></param>
+		/// <param name="secondsToWait"></param>
 		/// <param name="excludeTitle"></param>
 		/// <param name="excludeText"></param>
 		public static object WinClose(object winTitle = null,
@@ -573,8 +574,8 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Returns the Unique ID (HWND) of the first matching window (0 if none) as a hexadecimal integer.
 		/// </summary>
-		/// <param name="title"></param>
-		/// <param name="text"></param>
+		/// <param name="winTitle"></param>
+		/// <param name="winText"></param>
 		/// <param name="excludeTitle"></param>
 		/// <param name="excludeText"></param>
 		/// <returns></returns>

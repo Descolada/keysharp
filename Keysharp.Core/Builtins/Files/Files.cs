@@ -211,9 +211,9 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Copies one or more files.
 		/// </summary>
-		/// <param name="source">The name of a single file or folder, or a wildcard pattern such as "C:\Temp\*.tmp".<br/>
+		/// <param name="sourcePattern">The name of a single file or folder, or a wildcard pattern such as "C:\Temp\*.tmp".<br/>
 		/// sourcePattern is assumed to be in <see cref="A_WorkingDir"/> if an absolute path isn't specified.</param>
-		/// <param name="destination">The name or pattern of the destination, which is assumed to be in <see cref="A_WorkingDir"/> if an absolute path isn't specified.<br/>
+		/// <param name="destPattern">The name or pattern of the destination, which is assumed to be in <see cref="A_WorkingDir"/> if an absolute path isn't specified.<br/>
 		/// If present, the first asterisk (*) in the filename is replaced with the source filename excluding its extension,<br/>
 		/// while the first asterisk after the last full stop (.) is replaced with the source file's extension.<br/>
 		/// If an asterisk is present but the extension is omitted, the source file's extension is used.<br/>
@@ -887,7 +887,7 @@ namespace Keysharp.Builtins
 		/// Unsupported functionality which always throws an exception.
 		/// </summary>
 		/// <exception cref="Error">An <see cref="Error"/> is always thrown.</exception>
-		public static string FileInstall(object obj0, object obj1, object obj2 = null) => (string)Errors.ErrorOccurred("Compiling files into an executable is not supported in Keysharp");
+		public static string FileInstall(object source, object dest, object overwrite = null) => (string)Errors.ErrorOccurred("Compiling files into an executable is not supported in Keysharp");
 
 		/// <summary>
 		/// Moves or renames one or more files.

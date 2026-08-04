@@ -130,7 +130,7 @@ namespace Keysharp.Builtins.COM
 			return Errors.ErrorOccurred("Unknown COM object type");
 		}
 
-		public static object ComObjQuery(object comObj, object sidiid = null, object iid = null)
+		public static object ComObjQuery(object comObj, object sid = null, object iid = null)
 		{
 			nint ptr;
 
@@ -146,21 +146,21 @@ namespace Keysharp.Builtins.COM
 			Guid id = Guid.Empty;
 			int hr = 0;
 
-			if (sidiid != null && iid != null)
+			if (sid != null && iid != null)
 			{
-				var sidstr = sidiid.As();
+				var sidstr = sid.As();
 				var iidstr = iid.As();
 
-				if (CLSIDFromString(sidstr, out var sid) >= 0 && CLSIDFromString(iidstr, out id) >= 0)
+				if (CLSIDFromString(sidstr, out var sidGuid) >= 0 && CLSIDFromString(iidstr, out id) >= 0)
 				{
 					// Query for a service: use IServiceProvider::QueryService.
 					IServiceProvider sp = (IServiceProvider)Marshal.GetObjectForIUnknown(ptr);
-					hr = sp.QueryService(ref sid, ref id, out resultPtr);
+					hr = sp.QueryService(ref sidGuid, ref id, out resultPtr);
 				}
 			}
-			else if (sidiid != null)
+			else if (sid != null)
 			{
-				var iidstr = sidiid.As();
+				var iidstr = sid.As();
 
 				if (CLSIDFromString(iidstr, out id) >= 0)
 				{
@@ -172,7 +172,7 @@ namespace Keysharp.Builtins.COM
 				return Errors.OSErrorOccurredForHR(hr);
 
 			if (resultPtr == 0)
-				return Errors.ErrorOccurred($"Unable to get COM interface with arguments {sidiid}, {iid}.");
+				return Errors.ErrorOccurred($"Unable to get COM interface with arguments {sid}, {iid}.");
 
 			return id == IID_IDispatch ? new ComObject(VarEnum.VT_DISPATCH, (long)resultPtr) : new ComValue(VarEnum.VT_UNKNOWN, (long)resultPtr);
 		}
@@ -410,7 +410,6 @@ namespace Keysharp.Builtins.COM
 		/// Gotten from: https://stackoverflow.com/questions/64823199/is-there-a-substitue-for-system-runtime-interopservices-marshal-getactiveobject
 		/// </summary>
 		/// <param name="progId"></param>
-		/// <param name="throwOnError"></param>
 		/// <returns></returns>
 		/// <exception cref="ArgumentNullException"></exception>
 		internal static object GetActiveObject(string progId)

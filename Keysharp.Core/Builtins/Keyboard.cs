@@ -8,7 +8,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Disables or enables the user's ability to interact with the computer via keyboard and mouse.
 		/// </summary>
-		/// <param name="value">Different operations will be taken depending on the specified value:<br/>
+		/// <param name="onOff">Different operations will be taken depending on the specified value:<br/>
 		/// OnOff: This mode blocks all user inputs unconditionally. Specify one of the following values:<br/>
 		///     On or 1 (true): The user is prevented from interacting with the computer(mouse and keyboard input has no effect).<br/>
 		///     Off or 0 (false): Input is re-enabled.<br/>
@@ -25,9 +25,9 @@ namespace Keysharp.Builtins
 		///         The mouse hook will stay installed until the next use of the Suspend or Hotkey function, at which time it is removed if not required by any hotkeys or hotstrings (see #Hotstring NoMouse).<br/>
 		///     MouseMoveOff: Allows the user to move the mouse cursor.<br/>
 		/// </param>
-		public static object BlockInput(object value)
+		public static object BlockInput(object onOff)
 		{
-			var mode = value.As();
+			var mode = onOff.As();
 			var toggle = ConvertBlockInput(mode);
 			_ = ScriptBlockInput(toggle);
 			return DefaultObject;
@@ -146,7 +146,7 @@ namespace Keysharp.Builtins
 		/// Returns 1 (true) or 0 (false) depending on whether the specified keyboard key or mouse/controller<br/>
 		/// button is down or up. Also retrieves controller status.
 		/// </summary>
-		/// <param name="KeyName">This can be just about any single character from the keyboard or one of
+		/// <param name="keyName">This can be just about any single character from the keyboard or one of
 		/// the key names from the key list, such as a mouse/controller button.<br/>
 		/// Examples: B, 5, LWin, RControl, Alt, Enter, Escape, LButton, MButton, Joy1.<br/>
 		/// Alternatively, an explicit virtual key code such as vkFF may be specified.<br/>
@@ -156,11 +156,11 @@ namespace Keysharp.Builtins
 		/// Known limitation: This function cannot differentiate between two keys which share the same<br/>
 		/// virtual key code, such as Left and NumpadLeft.
 		/// </param>
-		/// <param name="Mode"></param>
-		public static object GetKeyState(object obj0, object obj1 = null)
+		/// <param name="mode"></param>
+		public static object GetKeyState(object keyName, object mode = null)
 		{
-			var keyname = obj0.As();
-			var mode = obj1.As();
+			var keyname = keyName.As();
+			var modeVal = mode.As();
 			var script = Script.TheScript;
 			var ht = script.HookThread;
 			JoyControls joy;
@@ -168,9 +168,9 @@ namespace Keysharp.Builtins
 			uint? dummy = null;
 			KeyStateTypes keystatetype;
 
-			if (string.Compare(mode, "T", true) == 0)
+			if (string.Compare(modeVal, "T", true) == 0)
 				keystatetype = KeyStateTypes.Toggle;//Whether a toggleable key such as CapsLock is currently turned on.
-			else if (string.Compare(mode, "P", true) == 0)
+			else if (string.Compare(modeVal, "P", true) == 0)
 				keystatetype = KeyStateTypes.Physical;//Physical state of key.
 			else
 				keystatetype = KeyStateTypes.Logical;
@@ -282,7 +282,7 @@ break_twice:;
 		/// <summary>
 		/// Creates, modifies, enables, or disables a hotstring while the script is running.
 		/// </summary>
-		/// <param name="obj0">This can be a hotstring trigger string, or new options or a sub function.
+		/// <param name="string">This can be a hotstring trigger string, or new options or a sub function.
 		/// Hotstring: The hotstring's trigger string, preceded by the usual colons and option characters. For example, "::btw" or ":*:]d".
 		/// NewOptions: To set new default options for subsequently created hotstrings, pass the options to the<br/>
 		///     Hotstring function without any leading or trailing colon. For example: Hotstring "T".<br/>
@@ -291,25 +291,25 @@ break_twice:;
 		///     MouseReset: Retrieves or modifies the global setting which controls whether mouse clicks reset the hotstring recognizer.<br/>
 		///     Reset: Immediately resets the hotstring recognizer.
 		/// </param>
-		/// <param name="obj1">If omitted and string already exists as a hotstring, its replacement will<br/>
+		/// <param name="replacement">If omitted and string already exists as a hotstring, its replacement will<br/>
 		/// not be changed. This is useful to change only the hotstring's options, or to turn it on or off.<br/>
 		/// Otherwise, specify the replacement string or a callback.
 		/// If replacement is a function, it is called(as a new thread) when the hotstring triggers.
 		/// The callback accepts one parameter which is the hotstring name that triggered it.
 		/// </param>
-		/// <param name="obj2">OnOffToggle or the value to pass to the sub function.</param>
+		/// <param name="onOffToggle">OnOffToggle or the value to pass to the sub function.</param>
 		/// <returns>If changing a value, returns the previous value, else returns the HotstringDefinition for the specified hostring.</returns>
 		/// <exception cref="ValueError">A <see cref="ValueError"/> exception is thrown if the hotstring name is invalid.</exception>
 		/// <exception cref="TargetError">A <see cref="TargetError"/> exception is thrown if the hotstring cannot be found.</exception>
-		public static object Hotstring(object obj0, object obj1 = null, object obj2 = null)
+		public static object Hotstring(object @string, object replacement = null, object onOffToggle = null)
 		{
-			var name = obj0.As();
-			var replacement = obj1;
+			var name = @string.As();
+			var replacementVal = replacement;
 			var script = Script.TheScript;
 			var ht = script.HookThread;
 			var kbdMouseSender = ht.kbdMsSender;
 			var xOption = false;
-			var action = replacement as string;
+			var action = replacementVal as string;
 			var hm = script.HotstringManager;
 
 			if (string.Compare(name, "EndChars", true) == 0) // Equivalent to #Hotstring EndChars <action>
@@ -325,9 +325,9 @@ break_twice:;
 			{
 				var previousValue = hm.hsResetUponMouseClick;
 
-				if (replacement != null)
+				if (replacementVal != null)
 				{
-					var val = Options.OnOff(replacement);
+					var val = Options.OnOff(replacementVal);
 
 					if (val != null)
 					{
@@ -346,7 +346,7 @@ break_twice:;
 				hm.ClearBuf();
 				return str;
 			}
-			else if (replacement == null && obj2 == null && name.Length > 0 && name[0] != ':') //Check if only one param was passed. Equivalent to #Hotstring <name>.
+			else if (replacementVal == null && onOffToggle == null && name.Length > 0 && name[0] != ':') //Check if only one param was passed. Equivalent to #Hotstring <name>.
 			{
 				HotstringDefinition.ParseOptions(name, ref hm.hsPriority, ref hm.hsKeyDelay, ref hm.hsSendMode, ref hm.hsCaseSensitive
 												 , ref hm.hsConformToCase, ref hm.hsDoBackspace, ref hm.hsOmitEndChar, ref hm.hsSendRaw, ref hm.hsEndCharRequired
@@ -390,9 +390,9 @@ break_twice:;
 
 			KeysharpFunc ifunc = null;
 
-			if (replacement != null)
+			if (replacementVal != null)
 			{
-				if ((ifunc = Functions.GetKeysharpFunc(replacement, null, false)) is not null)
+				if ((ifunc = Functions.GetKeysharpFunc(replacementVal, null, false)) is not null)
 				{
 				}
 				else if (executeAction)
@@ -401,8 +401,8 @@ break_twice:;
 
 			var toggle = ToggleValueType.Neutral;
 
-			if (obj2 != null && (toggle = Conversions.ConvertOnOffToggle(obj2)) == ToggleValueType.Invalid)
-				return Errors.ValueErrorOccurred($"Invalid value of {obj2} for parameter 3.");
+			if (onOffToggle != null && (toggle = Conversions.ConvertOnOffToggle(onOffToggle)) == ToggleValueType.Invalid)
+				return Errors.ValueErrorOccurred($"Invalid value of {onOffToggle} for parameter 3.");
 
 			bool wasAlreadyEnabled;
 			var tv = script.Threads.CurrentThread;
@@ -419,7 +419,7 @@ break_twice:;
 				{
 					string newReplacement = null; // Set default: not auto-replace.
 
-					if (ifunc == null && replacement is string rep) // Caller specified a replacement string ('E' option was handled above).
+					if (ifunc == null && replacementVal is string rep) // Caller specified a replacement string ('E' option was handled above).
 						newReplacement = rep;
 
 					// Temporarily disable hook access without changing worker persistence mid-mutation.
@@ -842,25 +842,25 @@ break_twice:;
 		/// <summary>
 		/// Whether to restore the state of CapsLock after a <see cref="Send"/>.
 		/// </summary>
-		/// <param name="mode">If true, CapsLock will be restored to its former value if Send needed to change<br/>
+		/// <param name="setting">If true, CapsLock will be restored to its former value if Send needed to change<br/>
 		/// it temporarily for its operation.<br/>
 		/// If false, the state of CapsLock is not changed at all.<br/>
 		/// As a result, <see cref="Send"/> will invert the case of the characters if CapsLock happens to be ON during the operation.
 		/// </param>
-		public static object SetStoreCapsLockMode(object mode)
+		public static object SetStoreCapsLockMode(object setting)
 		{
 			var old = A_StoreCapsLockMode;
-			A_StoreCapsLockMode = mode;
+			A_StoreCapsLockMode = setting;
 			return old;
 		}
 
-		public static object HotIf(object obj0 = null)
+		public static object HotIf(object callback = null)
 		{
 			var script = Script.TheScript;
 
-			if (obj0 != null)
+			if (callback != null)
 			{
-				var funcobj = Functions.GetKeysharpFunc(obj0, null, true);
+				var funcobj = Functions.GetKeysharpFunc(callback, null, true);
 				var cp = HotkeyDefinition.FindHotkeyIfExpr(funcobj);
 
 				if (cp == null && funcobj != null)
@@ -874,13 +874,13 @@ break_twice:;
 			return DefaultObject;
 		}
 
-		public static object HotIfWinActive(object obj0 = null, object obj1 = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinActivePrivate", obj0, obj1);
+		public static object HotIfWinActive(object winTitle = null, object winText = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinActivePrivate", winTitle, winText);
 
-		public static object HotIfWinExist(object obj0 = null, object obj1 = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinExistPrivate", obj0, obj1);
+		public static object HotIfWinExist(object winTitle = null, object winText = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinExistPrivate", winTitle, winText);
 
-		public static object HotIfWinNotActive(object obj0 = null, object obj1 = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinNotActivePrivate", obj0, obj1);
+		public static object HotIfWinNotActive(object winTitle = null, object winText = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinNotActivePrivate", winTitle, winText);
 
-		public static object HotIfWinNotExist(object obj0 = null, object obj1 = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinNotExistPrivate", obj0, obj1);
+		public static object HotIfWinNotExist(object winTitle = null, object winText = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinNotExistPrivate", winTitle, winText);
 
 		/// <summary>
 		/// Get the hotkey descriptions and put them in the Vars tab of the main window.
@@ -958,7 +958,7 @@ break_twice:;
 		/// <summary>
 		/// Internal helper to blocks keyboard and mouse input from reaching the script.
 		/// </summary>
-		/// <param name="block">True to block, else false to unblock.</param>
+		/// <param name="toggle">True to block, else false to unblock.</param>
 		/// <returns>Always returns OK for caller convenience.</returns>
 		internal static ResultType ScriptBlockInput(ToggleValueType toggle)
 		{

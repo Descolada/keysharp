@@ -35,38 +35,38 @@ namespace Keysharp.Builtins
 		}
 #endif
 
-		public static object GuiCtrlFromHwnd(object obj)
+		public static object GuiCtrlFromHwnd(object hwnd)
 		{
-			if (Control.FromHandle(new nint(obj.Al())) is Control c)
+			if (Control.FromHandle(new nint(hwnd.Al())) is Control c)
 				if (c.GetGuiControl() is Gui.Control gui)
 					return gui;
 
 			return DefaultObject;
 		}
 
-		public static object GuiFromHwnd(object obj0, object obj1 = null)
+		public static object GuiFromHwnd(object hwnd, object recurseParent = null)
 		{
-			var hwnd = obj0.Al();
-			var recurse = obj1.Ab();
+			var hwndVal = hwnd.Al();
+			var recurse = recurseParent.Ab();
 			var allGuiHwnds = Script.TheScript.GuiData.allGuiHwnds;
 
-			if (allGuiHwnds.TryGetValue(hwnd, out var gui))
+			if (allGuiHwnds.TryGetValue(hwndVal, out var gui))
 				return gui;
 
 			foreach (Form f in Application.OpenForms.OfType<Form>())
 				if (f is KeysharpForm ksf)
 					if (ksf.Tag is WeakReference<Gui> wr && wr.TryGetTarget(out var g))
-						if (f.Handle == hwnd)
+						if (f.Handle == hwndVal)
 						return g;
 
 			//Probably isn't needed because it won't have a different result than the OpenForms check above.
-			if (Control.FromHandle(new nint(hwnd)) is Control ctrl)
+			if (Control.FromHandle(new nint(hwndVal)) is Control ctrl)
 				if (ctrl is KeysharpForm ksf && ksf.Tag is WeakReference<Gui> wr && wr.TryGetTarget(out var g))
 					return g;
 
 			if (recurse)
 			{
-				if (Control.FromHandle(new nint(hwnd)) is Control c)
+				if (Control.FromHandle(new nint(hwndVal)) is Control c)
 				{
 					while (c.Parent is Control cp)
 					{
@@ -81,18 +81,9 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public static object MenuFromHandle(object obj)
+		public static object MenuFromHandle(object handle)
 		{
-			var handle = new nint(obj.Al());
-			var menu = Control.FromHandle(handle);
-
-			if (menu != null)
-				return menu;
-
-			if ((menu = Control.FromHandle(handle)) != null)
-				return menu;
-
-			return DefaultObject;
+			return (object)Control.FromHandle(new nint(handle.Al())) ?? DefaultObject;
 		}
 
 		internal static bool CallMessageHandler(Control control, ref Message m)

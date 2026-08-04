@@ -14,7 +14,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Prevents the current thread from being interrupted by other threads, or enables it to be interrupted.
 		/// </summary>
-		/// <param name="onOffNumeric">
+		/// <param name="setting">
 		/// If blank or omitted, it defaults to On. Otherwise, specify one of the following:<br/>
 		///     On: The current thread is made critical, meaning that it cannot be interrupted by another thread.<br/>
 		///     Off: The current thread immediately becomes interruptible, regardless of the settings of Thread Interrupt.<br/>
@@ -24,17 +24,17 @@ namespace Keysharp.Builtins
 		///         Specifying 0 turns off Critical.<br/>
 		///         Specifying -1 turns on Critical but disables message checks.<br/>
 		/// </param>
-		public static object Critical(object onOffNumeric = null)
+		public static object Critical(object setting = null)
 		{
 			var script = Script.TheScript;
 			script.FlowData.callingCritical = true;
 			var tv = script.Threads.CurrentThread;
-			var on = onOffNumeric.IsNullOrEmpty();
-			var freq = on ? ThreadVariables.DefaultUninterruptiblePeekFrequency : onOffNumeric.Al();
+			var on = setting.IsNullOrEmpty();
+			var freq = on ? ThreadVariables.DefaultUninterruptiblePeekFrequency : setting.Al();
 
 			if (!on)
 			{
-				var b = Options.OnOff(onOffNumeric.As());
+				var b = Options.OnOff(setting.As());
 
 				if (b != null)
 				{
@@ -205,15 +205,15 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Prevents the script from exiting automatically when its last thread completes, allowing it to stay running in an idle state.
 		/// </summary>
-		/// <param name="persist">If omitted, it defaults to true.<br/>
+		/// <param name="setting">If omitted, it defaults to true.<br/>
 		/// If true, the script will be kept running after all threads have exited,<br/>
 		/// even if none of the other conditions for keeping the script running are met.<br/>
 		/// If false, the default behavior is restored.
 		/// </param>
 		/// <returns>The previous persistence boolean value.</returns>
-		public static object Persistent(object persist = null)
+		public static object Persistent(object setting = null)
 		{
-			var b = persist.Ab(true);
+			var b = setting.Ab(true);
 			var script = Script.TheScript;
 			var old = script.persistent;
 			script.persistent = script.FlowData.persistentValueSetByUser = b;
@@ -376,15 +376,15 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Pauses the current thread, or pauses/unpauses the underlying thread.
 		/// </summary>
-		/// <param name="threadState">
+		/// <param name="underlyingThreadState">
 		/// If omitted, it pauses the current thread. Otherwise, specify one of the following values:<br/>
 		///     1: Pauses the underlying thread.<br/>
 		///     0: Unpauses the underlying thread.<br/>
 		///    -1: Changes the underlying thread paused state to the opposite of its previous state (On or Off).
 		/// </param>
-		public static object Pause(object threadState = null)
+		public static object Pause(object underlyingThreadState = null)
 		{
-			if (threadState == null)
+			if (underlyingThreadState == null)
 			{
 				var tv = TheScript.Threads.CurrentThread;
 				tv.isPaused = true;
@@ -397,7 +397,7 @@ namespace Keysharp.Builtins
 			}
 			else
 			{
-				var state = Conversions.ConvertOnOffToggle(threadState);
+				var state = Conversions.ConvertOnOffToggle(underlyingThreadState);
 				switch (state)
 				{
 					case ToggleValueType.Toggle: ThreadAccessors.A_IsPaused = !ThreadAccessors.A_IsPaused; break;
@@ -417,7 +417,7 @@ namespace Keysharp.Builtins
 		///     Priority: Changes the priority level of the current thread.<br/>
 		///     Interrupt: Changes the duration of interruptibility for newly launched threads.
 		/// </param>
-		/// <param name="val1">Has a different meaning depending on subFunction:
+		/// <param name="value1">Has a different meaning depending on subFunction:
 		///     NoTimers: True to disallow timers, else false to allow timers.  Default: true.<br/>
 		///     Priority: The thread priority as an integer in the range -2147483648 and 2147483647.<br/>
 		///     Interrupt: The time in milliseconds that each newly launched thread is uninterruptible. Default: 17.
@@ -440,14 +440,14 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Throws the specified error object.
 		/// </summary>
-		/// <param name="errorObject">The error object to throw.<br/>
+		/// <param name="value">The error object to throw.<br/>
 		/// </param>
 		[StackTraceHidden]
-		public static object Throw(object errorObject = null)
+		public static object Throw(object value = null)
 		{
-			if (errorObject is Error ex)
+			if (value is Error ex)
 				ExceptionDispatchInfo.Capture(ex.Exception).Throw();
-			else if (errorObject == null)
+			else if (value == null)
 			{
 				throw new Error();
 			}

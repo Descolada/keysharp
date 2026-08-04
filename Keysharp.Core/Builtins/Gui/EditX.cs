@@ -2,65 +2,65 @@ namespace Keysharp.Builtins
 {
 	public static class EditX
 	{
-		public static long EditGetCurrentCol(object control,
+		public static long EditGetCurrentCol(object controlID,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
 											 object excludeText = null) => Platform.Control.EditGetCurrentCol(
-													 control,
+													 controlID,
 													 winTitle,
 													 winText,
 													 excludeTitle,
 													 excludeText);
 
-		public static long EditGetCurrentLine(object control,
+		public static long EditGetCurrentLine(object controlID,
 											  object winTitle = null,
 											  object winText = null,
 											  object excludeTitle = null,
 											  object excludeText = null) => Platform.Control.EditGetCurrentLine(
-													  control,
+													  controlID,
 													  winTitle,
 													  winText,
 													  excludeTitle,
 													  excludeText);
 
-		public static string EditGetLine(object n,
-										 object control,
+		public static string EditGetLine(object N,
+										 object controlID,
 										 object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
 										 object excludeText = null) => Platform.Control.EditGetLine(
-											 n.Ai(),
-											 control,
+											 N.Ai(),
+											 controlID,
 											 winTitle,
 											 winText,
 											 excludeTitle,
 											 excludeText);
 
-		public static long EditGetLineCount(object control,
+		public static long EditGetLineCount(object controlID,
 											object winTitle = null,
 											object winText = null,
 											object excludeTitle = null,
 											object excludeText = null) => Platform.Control.EditGetLineCount(
-												control,
+												controlID,
 												winTitle,
 												winText,
 												excludeTitle,
 												excludeText);
 
-		public static string EditGetSelectedText(object control,
+		public static string EditGetSelectedText(object controlID,
 				object winTitle = null,
 				object winText = null,
 				object excludeTitle = null,
 				object excludeText = null) => Platform.Control.EditGetSelectedText(
-					control,
+					controlID,
 					winTitle,
 					winText,
 					excludeTitle,
 					excludeText);
 
 		public static object EditPaste(object @string,
-									   object control,
+									   object controlID,
 									   object winTitle = null,
 									   object winText = null,
 									   object excludeTitle = null,
@@ -68,7 +68,7 @@ namespace Keysharp.Builtins
 		{
 			Platform.Control.EditPaste(
 				@string.As(),
-				control,
+				controlID,
 				winTitle,
 				winText,
 				excludeTitle,

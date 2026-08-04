@@ -1,216 +1,213 @@
 using static Keysharp.Runtime.Flow;
 using static Keysharp.Runtime.Loops;
 using static Keysharp.Runtime.Script;
-using static Keysharp.Runtime.Script.Operator;
 
-namespace Keysharp.Benchmark
+namespace Keysharp.Benchmark;
+
+public class FuncBench : BaseTest
 {
-	public class FuncBench : BaseTest
+	private __Main.Myclass? cl;
+	private long totalSum;
+
+	[Params(500000L)]
+	public long Size { get; set; }
+
+	public object? x { get; set; }
+
+	public object IncFunc()
 	{
-		private __Main.Myclass? cl;
-		private long totalSum;
-
-		[Params(500000L)]
-		public long Size { get; set; }
-
-		public object? x { get; set; }
-
-		public object IncFunc()
-		{
-			x = Add(x, 1L);
-			return "";
-		}
-
-		[Benchmark]
-		public void KeysharpClassFuncLoopIncrement()
-		{
-			_ = SetPropertyValue(cl, "x", 0L);
-			_ = Invoke(cl, "ClassIncTestFuncScript");
-
-			if ((long)GetPropertyValue(cl, "x") != totalSum)
-				throw new Exception($"{x} was not equal to {totalSum}.");
-		}
-
-		[Benchmark]
-		public void KeysharpFuncLoopIncrement()
-		{
-			x = 0L;
-			_ = Push(Keysharp.Runtime.LoopType.Normal);
-
-			for (System.Collections.IEnumerator e0 = Loop(Size).GetEnumerator();
-					IsTrueAndRunning(e0.MoveNext());
-				)
-			{
-				_ = IncFunc();
-				e1:
-				;
-			}
-
-			e2:
-			_ = Pop();
-
-			if ((long)x != totalSum)
-				throw new Exception($"{x} was not equal to {totalSum}.");
-		}
-
-		[Benchmark]
-		public void KeysharpLoopIncrement()
-		{
-			x = 0L;
-			_ = Push(Keysharp.Runtime.LoopType.Normal);
-
-			for (System.Collections.IEnumerator e0 = Loop(Size).GetEnumerator();
-					IsTrueAndRunning(e0.MoveNext());
-				)
-			{
-				{
-					x = Add(x, 1L);
-					e1:
-					;
-				}
-			}
-
-			e2:
-			_ = Pop();
-
-			if ((long)x != totalSum)
-				throw new Exception($"{x} was not equal to {totalSum}.");
-		}
-
-		[Benchmark]
-		public void KeysharpNativeLongLoopIncrement()
-		{
-			var total = 0L;
-			_ = Push(Keysharp.Runtime.LoopType.Normal);
-
-			for (System.Collections.IEnumerator e0 = Loop(Size).GetEnumerator();
-					IsTrueAndRunning(e0.MoveNext());
-				)
-			{
-				total++;
-				e1:
-				;
-			}
-
-			e2:
-			_ = Pop();
-
-			if (total != totalSum)
-				throw new Exception($"{x} was not equal to {totalSum}.");
-		}
-
-		[Benchmark]
-		public void KeysharpNativeObjectLoopIncrement()
-		{
-			x = 0L;
-			_ = Push(Keysharp.Runtime.LoopType.Normal);
-
-			for (System.Collections.IEnumerator e0 = Loop(Size).GetEnumerator();
-					IsTrueAndRunning(e0.MoveNext());
-				)
-			{
-				x = (long)x + 1L;
-				e1:
-				;
-			}
-
-			e2:
-			_ = Pop();
-
-			if ((long)x != totalSum)
-				throw new Exception($"{x} was not equal to {totalSum}.");
-		}
-
-		[Benchmark(Baseline = true)]
-		public void NativeLoopIncrement()
-		{
-			var total = 0L;
-
-			for (var i = 0L; i < Size; i++)
-				total++;
-
-			if (total != totalSum)
-				throw new Exception($"{total} was not equal to {totalSum}.");
-		}
-
-		[GlobalSetup]
-		public void Setup()
-		{
-			Size = 500000L;
-			totalSum = Size;
-			cl = (__Main.Myclass)Invoke(__Main.myclass, "Call");
-
-			var mc = _ks_s.Vars.Prototypes[typeof(__Main.Myclass)];
-		}
-
-		public class __Main : Module
-		{
-
-			public static object myclass => _ks_s.Vars.Statics[typeof(Myclass)];
-
-			public class Myclass : KeysharpObject
-			{
-				public Myclass(params object[] args) : base(args)
-				{
-				}
-
-				public static object Classinc(object @this)
-				{
-					object _ks_temp1;
-					object _ks_temp2;
-					return Keysharp.Runtime.Script.MultiStatement(_ks_temp1 = @this, _ks_temp2 = "x", Keysharp.Runtime.Script.SetPropertyValue(_ks_temp1, _ks_temp2, Keysharp.Runtime.Script.Add(Keysharp.Runtime.Script.GetPropertyValue(_ks_temp1, _ks_temp2), 1L)));
-				}
-
-				public static object Classinctestfuncscript(object @this)
-				{
-					object size;
-					size = 500000L;
-					Keysharp.Runtime.Script.SetPropertyValue(@this, "x", 0L);
-					{
-						Keysharp.Runtime.Loops.Push(Keysharp.Runtime.LoopType.Normal);
-						System.Collections.IEnumerator _ks_e1 = Keysharp.Runtime.Loops.Loop(size).GetEnumerator();
-						try
-						{
-							for (; IsTrueAndRunning(_ks_e1.MoveNext());)
-							{
-								Keysharp.Runtime.Script.Invoke(@this, "ClassInc");
-							_ks_e1_next:
-								;
-							}
-						}
-						finally
-						{
-							Keysharp.Runtime.Loops.Pop();
-						}
-
-					_ks_e1_end:
-						;
-					}
-
-					return "";
-				}
-
-				public static void __Init(object @this)
-				{
-					Keysharp.Runtime.Script.InvokeOrNull((object)(_ks_s.Vars.Prototypes[typeof(KeysharpObject)], @this), "__Init");
-					Keysharp.Runtime.Script.SetPropertyValue(@this, "x", 0L);
-				}
-
-				public static void static__Init(object @this)
-				{
-				}
-
-				static Myclass()
-				{
-				}
-
-				public new static Myclass staticCall(object @this, params object[] args)
-				{
-					return new Myclass(args);
-				}
-			}
-		}
+		x = Add(x, 1L);
+		return "";
 	}
 
-	//[MemoryDiagnoser]
+	[Benchmark]
+	public void KeysharpClassFuncLoopIncrement()
+	{
+		_ = SetPropertyValue(cl, "x", 0L);
+		_ = Invoke(cl, "ClassIncTestFuncScript");
+
+		if ((long)GetPropertyValue(cl, "x") != totalSum)
+			throw new Exception($"{x} was not equal to {totalSum}.");
+	}
+
+	[Benchmark]
+	public void KeysharpFuncLoopIncrement()
+	{
+		x = 0L;
+		_ = Push(Keysharp.Runtime.LoopType.Normal);
+
+		for (var e0 = Loop(Size).GetEnumerator();
+				IsTrueAndRunning(e0.MoveNext());
+			)
+		{
+			_ = IncFunc();
+e1:
+			;
+		}
+
+e2:
+		_ = Pop();
+
+		if ((long)x != totalSum)
+			throw new Exception($"{x} was not equal to {totalSum}.");
+	}
+
+	[Benchmark]
+	public void KeysharpLoopIncrement()
+	{
+		x = 0L;
+		_ = Push(Keysharp.Runtime.LoopType.Normal);
+
+		for (var e0 = Loop(Size).GetEnumerator();
+				IsTrueAndRunning(e0.MoveNext());
+			)
+		{
+			{
+				x = Add(x, 1L);
+e1:
+				;
+			}
+		}
+
+e2:
+		_ = Pop();
+
+		if ((long)x != totalSum)
+			throw new Exception($"{x} was not equal to {totalSum}.");
+	}
+
+	[Benchmark]
+	public void KeysharpNativeLongLoopIncrement()
+	{
+		var total = 0L;
+		_ = Push(Keysharp.Runtime.LoopType.Normal);
+
+		for (var e0 = Loop(Size).GetEnumerator();
+				IsTrueAndRunning(e0.MoveNext());
+			)
+		{
+			total++;
+e1:
+			;
+		}
+
+e2:
+		_ = Pop();
+
+		if (total != totalSum)
+			throw new Exception($"{x} was not equal to {totalSum}.");
+	}
+
+	[Benchmark]
+	public void KeysharpNativeObjectLoopIncrement()
+	{
+		x = 0L;
+		_ = Push(Keysharp.Runtime.LoopType.Normal);
+
+		for (var e0 = Loop(Size).GetEnumerator();
+				IsTrueAndRunning(e0.MoveNext());
+			)
+		{
+			x = (long)x + 1L;
+e1:
+			;
+		}
+
+e2:
+		_ = Pop();
+
+		if ((long)x != totalSum)
+			throw new Exception($"{x} was not equal to {totalSum}.");
+	}
+
+	[Benchmark(Baseline = true)]
+	public void NativeLoopIncrement()
+	{
+		var total = 0L;
+
+		for (var i = 0L; i < Size; i++)
+			total++;
+
+		if (total != totalSum)
+			throw new Exception($"{total} was not equal to {totalSum}.");
+	}
+
+	[GlobalSetup]
+	public void Setup()
+	{
+		Size = 500000L;
+		totalSum = Size;
+		cl = (__Main.Myclass)Invoke(__Main.myclass, "Call");
+
+		_ = _ks_s.Vars.Prototypes[typeof(__Main.Myclass)];
+	}
+
+	public class __Main : Module
+	{
+
+		public static object myclass => _ks_s.Vars.Statics[typeof(Myclass)];
+
+		public class Myclass : KeysharpObject
+		{
+			public Myclass(params object[] args) : base(args)
+			{
+			}
+
+			public static object Classinc(object @this)
+			{
+				object _ks_temp1;
+				object _ks_temp2;
+				return Keysharp.Runtime.Script.MultiStatement(_ks_temp1 = @this, _ks_temp2 = "x", Keysharp.Runtime.Script.SetPropertyValue(_ks_temp1, _ks_temp2, Keysharp.Runtime.Script.Add(Keysharp.Runtime.Script.GetPropertyValue(_ks_temp1, _ks_temp2), 1L)));
+			}
+
+			public static object Classinctestfuncscript(object @this)
+			{
+				object size;
+				size = 500000L;
+				_ = Keysharp.Runtime.Script.SetPropertyValue(@this, "x", 0L);
+				{
+					_ = Keysharp.Runtime.Loops.Push(Keysharp.Runtime.LoopType.Normal);
+					var _ks_e1 = Keysharp.Runtime.Loops.Loop(size).GetEnumerator();
+					try
+					{
+						for (; IsTrueAndRunning(_ks_e1.MoveNext());)
+						{
+							_ = Keysharp.Runtime.Script.Invoke(@this, "ClassInc");
+_ks_e1_next:
+							;
+						}
+					}
+					finally
+					{
+						_ = Keysharp.Runtime.Loops.Pop();
+					}
+
+_ks_e1_end:
+					;
+				}
+
+				return "";
+			}
+
+			public static void __Init(object @this)
+			{
+				_ = Keysharp.Runtime.Script.InvokeOrNull((_ks_s.Vars.Prototypes[typeof(KeysharpObject)], @this), "__Init");
+				_ = Keysharp.Runtime.Script.SetPropertyValue(@this, "x", 0L);
+			}
+
+#pragma warning disable IDE0060 // Remove unused parameter
+			public static void static__Init(object @this)
+#pragma warning restore IDE0060 // Remove unused parameter
+			{
+			}
+
+			static Myclass()
+			{
+			}
+
+#pragma warning disable IDE0060 // Remove unused parameter
+			public static new Myclass staticCall(object @this, params object[] args) => new(args);
+#pragma warning restore IDE0060 // Remove unused parameter
+		}
+	}
 }

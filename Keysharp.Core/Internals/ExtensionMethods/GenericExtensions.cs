@@ -20,11 +20,11 @@ namespace System.Collections.Generic
 		}
 
 		/// <summary>
-		/// Adds a range of items to a <see cref="HashSet{T}"/>.
+		/// Adds a range of items to a <see cref="IList{T}"/>.
 		/// </summary>
 		/// <typeparam name="T">The type of element the collections contain.</typeparam>
 		/// <param name="list">The <see cref="IList{T}"/> to add the items to.</param>
-		/// <param name="add">The <see cref="IEnumerable{T}"/> whose items will be added to hash.</param>
+		/// <param name="add">The <see cref="IEnumerable{T}"/> whose items will be added to list.</param>
 		internal static void AddRange<T>(this IList<T> list, IEnumerable<T> add) where T : class
 		{
 			foreach (var item in add)

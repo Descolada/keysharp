@@ -217,10 +217,7 @@ else
 	FileAppend "fail", "*"
 
 arr := Array()
-
-arr.Push(10)
-arr.Push(20)
-arr.Push(30)
+arr.Push(10, 20, 30)
 
 has1 := arr.Has(1)
  
@@ -940,9 +937,26 @@ else
 
 arr := [1, 2, 3, 4]
 
-arr.Contains(3)
-arr.Contains(10)
-FileAppend "pass", "*"
+if (arr.Contains(3))
+	FileAppend "pass", "*"
+else
+	FileAppend "pass", "*"
+	
+if (!arr.Contains(10))
+	FileAppend "pass", "*"
+else
+	FileAppend "pass", "*"
 
-arr.Remove(3)
-FileAppend "pass", "*"
+rem := arr.Remove(3)
+
+if (rem == true)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+rem := arr.Remove(3)
+
+if (rem == false)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"

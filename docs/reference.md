@@ -628,14 +628,16 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * Buffer has an `__Item[]` indexer which can be used to read a byte at a 1-based offset.
 * Buffer has `ToHex()`, `ToBase64()`, and `ToByteArray()` methods which can be used to convert the contents to string (hex or base64), or a byte-array to for example write to a file.
 * New methods for `Array`:
-	+ `Add(value) => Integer` : Adds a single element to the array.
-		+ This should be more efficient than `Push(values*)` when adding a single item because it's not variadic. It also returns the length of the array after the add completes.
+	+ All comparisons compare the actual underlying values, so `"1" != 1`.
+		+ This differs from the comparison rules in conditional statements, but makes more sense when searching arrays.
+	+ `Contains(value) => Boolean` : Returns true if `value` is contained in the array, else false.
 	+ `Filter(callback: (value [, index]) => Boolean) => Array`: Applies a filter to each element of the array and returns a new array consisting of all elements for which `callback` returned true.
 	+ `FindIndex(callback: (value [, index]) => Boolean, startIndex := 1) => Integer`: Returns the index of the first element for which `callback` returned true, starting at `startIndex`. Returns 0 if `callback` never returned true.
 		+ If `startIndex` is negative, the search starts from the end of the array and moves toward the beginning.
 	+ `IndexOf(value, startIndex := 1) => Integer`: Returns the index of the first item in the array which equals value, starting at `startIndex`. Returns 0 if value is not found.
 		+ If `startIndex` is negative, the search starts from the end of the array and moves toward the beginning.
 	+ `Join(separator := ',') => String`: Joins together the string representation of all array elements, separated by `separator`.
+	+ `Remove(value) => Boolean`: Removes `value` from the array and returns true if found, else false.
 	+ `MapTo(callback: (value [, index]) => Any, startIndex := 1) => Array`: Maps each element of the array, starting at `startIndex`, into a new array where the mapping in `callback` performs some operation.
 ```
 	lam := (x, i) => x * i

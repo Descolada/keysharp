@@ -4,7 +4,7 @@ using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
 {
-	public partial class Misctests : TestRunner
+	public partial class MiscTests : TestRunner
 	{
 		[Test, Category("Misc"), NonParallelizable]
 		public void MiscIs()

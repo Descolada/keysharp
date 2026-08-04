@@ -485,8 +485,8 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 			+ -This is not supported.
 
 		+ `\K` is not supported, instead, try using `(?<=abc)`.
-* New function `FormatCs()` is an alternative to AHK `Format`. The syntax used in `Format()` is exactly that of `string.Format()` in C#, except with 1-based indexing. Traditional AHK style formatting is not supported.
-	+ Full documentation for the formatting rules can be found [here](https://learn.microsoft.com/en-us/dotnet/api/system.string.format).
+* New function `FormatCs()` is an alternative to AHK `Format`. The syntax used in `Format()` is exactly that of `string.Format()` in C#, except with 1-based indexing.
+	+ Full documentation for the C# formatting rules can be found [here](https://learn.microsoft.com/en-us/dotnet/api/system.string.format).
 * New function `RequestCapabilities(capabilities*) => Object` requests one or more platform permissions and returns an object describing the outcome.
 	+ `capabilities`: zero or more capability name strings, each optionally comma- or space-delimited. Recognised names are the same as for `#Requires capability` above.
 	+ When called with no arguments, returns the current status of all capabilities without prompting.
@@ -561,12 +561,15 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 ```
 	class RealThread
 	{
-		static Call(funcobj [, params*]) => RealThread` Call `funcobj` in a real thread, optionally passing `params` to it, and return a `RealThread` object.
-		RealThread(Task)
-		RealThread ContinueWith(funcobj [, params*]) => RealThread ; Call `funcobj` after the task completes, optionally passing `params` to it and return a new `RealThread` object for the continuation thread.
-		Wait([timeout]) ; Wait until the thread object which was passed to the constructor completes. Optionally return after a specified timeout period in milliseconds elapses.
+		static Call(funcobj [, params*]) => RealThread` ; Calls `funcobj` in a real thread, optionally passing `params` to it, and return a `RealThread` object.
+		RealThread(funcobj [, params*])
+		RealThread ContinueWith(funcobj [, params*]) => RealThread ; Calls `funcobj` after the task completes, optionally passing `params` to it and return a new `RealThread` object for the continuation thread.
+		Wait([timeout]) ; Waits until the thread object which was passed to the constructor completes. Optionally return after a specified timeout period in milliseconds elapses.
 	}
 ```
+* `LockRun(lockobj, funcobj [, params*])`: Calls `funcobj` inside of a lock on `lockobj`, optionally passing `params` to it.
+	+ This is used to ensure only one `RealThread` at a time executes the code in `funcobj`.
+	+ `lockobj` must be initialized to some value, such as an empty string.
 * New `WinEvent` class for subscribing to window events (active/foreground change, appearance, disappearance, move/resize, minimize, restore, title change, and caret movement) across platforms, modeled on the popular AutoHotkey `WinEvent` library.
 	+ It is part of the `Ks` module; import it with `#import "Ks" { WinEvent }`.
 	+ Each subscription is created by calling a `WinEvent` static method, which returns a subscription object whose callback fires until it is stopped. The argument order mirrors the reference library: `count` (default `-1` = unlimited) comes right after `winTitle`, with the rarely-used `winText`/`excludeTitle`/`excludeText` criteria last. The criteria use standard `WinTitle` matching, and `count` limits how many times the callback fires.
@@ -601,8 +604,6 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	}
 ```
 * Platform support for `WinEvent`: Windows uses `SetWinEventHook` and supports every event type. On Linux the events come from a GDK/X11 event filter on the UI thread (covering X11 and XWayland windows); native Wayland sources (GNOME/KWin/wlroots) are not yet wired, and `Restore`/`Close`-on-hide are not yet emitted. On macOS only active-application changes are currently reported (window-granular events via the accessibility APIs are planned).
-* `LockRun(lockobj, funcobj [, params*])` Call `funcobj` inside of a lock on `lockobj`, optionally passing `params` to it.
-	+ `lockobj` must be initialized to some value, such as an empty string.
 * New function `Mail(recipients, subject, message, options)` to send an email.
 	+ `recipients`: A list of receivers of the message.
 	+ `subject`: Subject of the message.
@@ -630,7 +631,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * New methods for `Array`:
 	+ All comparisons compare the actual underlying values, so `"1" != 1`.
 		+ This differs from the comparison rules in conditional statements, but makes more sense when searching arrays.
-	+ `Contains(value) => Boolean` : Returns true if `value` is contained in the array, else false.
+	+ `Contains(value) => Boolean`: Returns true if `value` is contained in the array, else false.
 	+ `Filter(callback: (value [, index]) => Boolean) => Array`: Applies a filter to each element of the array and returns a new array consisting of all elements for which `callback` returned true.
 	+ `FindIndex(callback: (value [, index]) => Boolean, startIndex := 1) => Integer`: Returns the index of the first element for which `callback` returned true, starting at `startIndex`. Returns 0 if `callback` never returned true.
 		+ If `startIndex` is negative, the search starts from the end of the array and moves toward the beginning.
@@ -639,12 +640,12 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ `Join(separator := ',') => String`: Joins together the string representation of all array elements, separated by `separator`.
 	+ `Remove(value) => Boolean`: Removes `value` from the array and returns true if found, else false.
 	+ `MapTo(callback: (value [, index]) => Any, startIndex := 1) => Array`: Maps each element of the array, starting at `startIndex`, into a new array where the mapping in `callback` performs some operation.
-```
-	lam := (x, i) => x * i
-	arr := [10, 20, 30]
-	arr2 := arr.MapTo(lam)
-```
-	+ `Sort(callback: (a, b) => Integer) => this`: Sorts the array in place. The callback should use the usual logic of returning -1 when `a < b`, 0 when `a == b` and 1 otherwise.
+		```
+		lam := (x, i) => x * i
+		arr := [10, 20, 30]
+		arr2 := arr.MapTo(lam)
+		```
+	+ `Sort(callback: (a, b) => Integer) => this`: Sorts the array in place. The callback should use the usual logic of returning -1 when `a < b`, 0 when `a == b` and 1 otherwise.	
 * `Run/RunWait()` can take an extra string for the argument instead of appending it to the program name string. However, the original functionality still works too.
 	+ The new signature is: `Run/RunWait(target [, workingDir, options, &outputVarPID, args])`.
 * When specifying colors for GUI components, the list of supported known colors can be found [here](https://learn.microsoft.com/en-us/dotnet/api/system.drawing.knowncolor).
@@ -834,7 +835,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ `newref := "" ; subtracts 1 from the reference count`
 * `#Warn` to enable/disable compiler warnings is not supported yet.
 * The `/script` option for compiled scripts does not apply and is therefore not implemented.
-* The Help and Window Spy menu items are not implemented yet.
+* The Help menu item is not implemented yet.
 * `Download()` only supports the `*0` option, and not any other numerical values.
 * When passing `"Interrupt"` as the first argument to `Thread()`, the third argument for `LineCount` is not supported because Keysharp does not support line level awareness.
 * Tooltips do not automatically disappear when clicking on them.

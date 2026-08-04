@@ -1,4 +1,4 @@
-﻿Keysharp: a continuation of IronAHK, which is a C# re-write of AutoHotkey.
+﻿Keysharp: A cross-platform C# port and enhancement of the AutoHotkey program.
 
 Copyright (c) 2020 - Present: Matt Feemster <matt.feemster@gmail.com>, Descolada
 Copyright (c) 2010 - 2015: A. <inspiration3@gmail.com>, Tobias Kappé <tobias@ntlabs.org>

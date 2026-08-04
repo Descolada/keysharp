@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
 		<TargetFramework>net10.0-windows</TargetFramework>
 		<UseWindowsForms>true</UseWindowsForms>
@@ -23,8 +23,8 @@
 		<StartupObject>Keysharp.Main.Program</StartupObject>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<ApplicationIcon>..\Keysharp.ico</ApplicationIcon>
-		<Authors>Matt Feemster + legacy IronAHK developers</Authors>
-		<Description>A C# port and enhancement of the AutoHotkey program</Description>
+		<Authors>Matt Feemster, Descolada + legacy IronAHK developers</Authors>
+		<Description>A cross-platform C# port and enhancement of the AutoHotkey program</Description>
 		<Company>Keysharp</Company>
 		<PreserveCompilationContext>true</PreserveCompilationContext>
 		<SignAssembly>False</SignAssembly>

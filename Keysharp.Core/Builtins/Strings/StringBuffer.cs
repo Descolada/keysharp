@@ -39,12 +39,16 @@ namespace Keysharp.Builtins
 			///   <item><description><c>args[2]</c> (optional): encoding specifier; pass "ANSI" (case-insensitive) for system ANSI encoding, otherwise defaults to Unicode.</description></item>
 			/// </list>
 			/// </summary>
-			public override object __New(params object[] args)
+			//`new`, not `override`: construction dispatches by name, so the real signature can be declared here
+			//and MinParams/MaxParams/named binding follow from it (see Buffer.__New and Any's constructor).
+			//The type is fully qualified below because the parameter deliberately shadows it: these names are
+			//script-facing API (`StringBuffer(Encoding: "ANSI")`), so they must read as AutoHotkey spells them.
+			public new object __New(object InitialValue = null, object Capacity = null, object Encoding = null)
 			{
-				var str = args.Length > 0 ? args[0].ToString() : "";
-				var capacity = args.Length > 1 && args[1] != null ? args[1].Ai() + 1 : Math.Max(str.Length + 1, 256);
-				_encoding = args.Length > 2 && args[2].As().Equals("ANSI", StringComparison.OrdinalIgnoreCase) ? Encoding.Default : Encoding.Unicode;
-				_bytesPerChar = _encoding == Encoding.Unicode ? sizeof(char) : 1;
+				var str = InitialValue != null ? InitialValue.ToString() : "";
+				var capacity = Capacity != null ? Capacity.Ai() + 1 : Math.Max(str.Length + 1, 256);
+				_encoding = Encoding.As().Equals("ANSI", StringComparison.OrdinalIgnoreCase) ? System.Text.Encoding.Default : System.Text.Encoding.Unicode;
+				_bytesPerChar = _encoding == System.Text.Encoding.Unicode ? sizeof(char) : 1;
 				_capacity = capacity;
 				_buffer = (byte*)NativeMemory.Alloc((nuint)(_capacity * _bytesPerChar));
 				_ = Append(str);

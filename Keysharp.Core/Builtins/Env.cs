@@ -568,23 +568,17 @@ namespace Keysharp.Builtins
 		//{
 		//}
 
-		public new static object staticCall(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
-
-		public override object __New(params object[] args)
+		// `new`, not `override`: construction dispatches by name, so the real signature is declared here and
+		// arity/defaults/named binding follow from it (see Buffer.__New and Any's constructor).
+		public new object __New(object Data = null, object Size = null)
 		{
-			byte[] bytes;
+			var bytes = Data == null
+						? Platform.Clipboard.CaptureAll()
+						: Env.ExtractClipboardAllBytes(Data, Size is not null ? Size.ToLong() : long.MinValue);
 
-			if (args == null || args.Length == 0 || args[0] == null)
-			{
-				bytes = Platform.Clipboard.CaptureAll();
-			}
-			else
-			{
-				var size = args.Length > 1 && args[1] is not null ? args[1].ToLong() : long.MinValue;
-				bytes = Env.ExtractClipboardAllBytes(args[0], size);
-			}
-
-			return base.__New([bytes]);
+			//Passed as the single ByteCount argument, not wrapped in an object[]: Buffer.__New now declares real
+			//parameters, so the byte[] must arrive as the argument itself (it has a dedicated branch there).
+			return base.__New(bytes);
 		}
 
 		public ClipboardAll(params object[] args) : base(args) { }

@@ -89,8 +89,6 @@ namespace Keysharp.Builtins
 			enc = sr.CurrentEncoding;
 		}
 
-		public new static object staticCall(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
-
 		/// <summary>
 		/// Initializes a File over memory the script already holds.
 		/// </summary>

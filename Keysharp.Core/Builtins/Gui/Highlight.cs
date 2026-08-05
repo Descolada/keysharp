@@ -53,17 +53,18 @@ namespace Keysharp.Builtins
 
 			/// <summary>Highlight(x?, y?, w?, h?, color := "Red", thickness := 2) — stores the rectangle/style; no
 			/// overlay is created until the first Show.</summary>
-			public override object __New(params object[] args)
+			// `new`, not `override`: construction dispatches by name, so the real signature is declared here and
+			// arity/defaults/named binding follow from it (see Buffer.__New and Any's constructor). The parameters
+			// are PascalCase on purpose: these names ARE script-facing API (`Highlight(Color: "Blue")`).
+			public new object __New(object X = null, object Y = null, object W = null, object H = null,
+									object Color = null, object Thickness = null)
 			{
-				if (args != null)
-				{
-					if (args.Length > 0 && args[0] != null) rx = args[0].Ai();
-					if (args.Length > 1 && args[1] != null) ry = args[1].Ai();
-					if (args.Length > 2 && args[2] != null) rw = args[2].Ai();
-					if (args.Length > 3 && args[3] != null) rh = args[3].Ai();
-					if (args.Length > 4 && args[4] != null) color = NormalizeColor(args[4]);
-					if (args.Length > 5 && args[5] != null) thickness = Math.Max(0, args[5].Ai());
-				}
+				if (X != null) rx = X.Ai();
+				if (Y != null) ry = Y.Ai();
+				if (W != null) rw = W.Ai();
+				if (H != null) rh = H.Ai();
+				if (Color != null) color = NormalizeColor(Color);
+				if (Thickness != null) thickness = Math.Max(0, Thickness.Ai());
 
 				return DefaultObject;
 			}

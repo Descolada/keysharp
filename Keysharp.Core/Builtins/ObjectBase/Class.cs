@@ -57,6 +57,8 @@ namespace Keysharp.Builtins
 			return staticInst;
         }
 
+        // Construction relays its arguments straight to __New, so a named argument names one of __New's parameters,
+        // not one of Call's (it has none of its own): the container rides the tail of args and binds there.
         public object Call(params object[] args)
         {
 			var proto = (this.op["Prototype"].Value ?? Script.GetPropertyValueOrNull(this, "Prototype")) as Any;

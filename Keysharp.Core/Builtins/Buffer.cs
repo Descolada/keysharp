@@ -76,8 +76,6 @@ namespace Keysharp.Builtins
 		/// <param name="args">The data to initially store in the buffer</param>
 		public Buffer(params object[] args) : base(args) { }
 
-		public new static object staticCall(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
-
 		/// <summary>
 		/// Creates a new <see cref="Buffer"/> object.
 		/// </summary>
@@ -91,43 +89,44 @@ namespace Keysharp.Builtins
 		/// If omitted, the memory of the buffer is not initialized; the value of each byte is arbitrary.
 		/// </param>
 		/// <returns>A new <see cref="Buffer"/> object.</returns>
-		public override unsafe object __New(params object[] obj)
+		// Declared `new`, not `override`: construction dispatches by NAME (Class.Call -> Script.InvokeMeta ->
+		// TryGetOwnPropsMap), never through Any.__New's virtual slot, so the signature is free to be the real one.
+		// MinParams/MaxParams/IsVariadic and named-argument binding then fall out of the signature itself, matching
+		// AutoHotkey's own introspection (Buffer.Prototype.__New reports Min=1, Max=3, IsVariadic=0) instead of
+		// being restated out-of-band by a [TailNames] attribute.
+		// The parameters are PascalCase on purpose: these names ARE script-facing API (`Buffer(ByteCount: 16)`).
+		public new unsafe object __New(object ByteCount = null, object FillByte = null)
 		{
-			if (obj == null || obj.Length == 0)
+			if (ByteCount == null)//Also covers Buffer(), whose omitted first argument arrives as null.
 			{
 				Size = 0;
 			}
-			else
+			else if (ByteCount is byte[] bytearray)//This will sometimes be passed internally within the library.
 			{
-				var obj0 = obj[0];
+				Size = bytearray.Length;//Performs the allocation.
 
-				if (obj0 is byte[] bytearray)//This will sometimes be passed internally within the library.
+				if (size > 0)
+					Marshal.Copy(bytearray, 0, _ptr.DangerousGetHandle(), Math.Min((int)size, bytearray.Length));
+			}
+			else if (ByteCount is Array array)
+			{
+				var ct = array.array.Count;
+				Size = ct;
+				var bp = _ptr.DangerousGetHandle();
+
+				for (var i = 0; i < ct; i++)
+					Unsafe.Write((void*)nint.Add(bp, i), (byte)array.array[i].Al());//Access the underlying array[] directly for performance.
+			}
+			else//This will be called by the user.
+			{
+				var bytecount = ByteCount.Al(0);
+				var fill = FillByte is not null ? FillByte.ToLong() : long.MinValue;
+				Size = bytecount;
+
+				if (bytecount > 0)
 				{
-					Size = bytearray.Length;//Performs the allocation.
-
-					if (size > 0)
-						Marshal.Copy(bytearray, 0, _ptr.DangerousGetHandle(), Math.Min((int)size, bytearray.Length));
-				}
-				else if (obj0 is Array array)
-				{
-					var ct = array.array.Count;
-					Size = ct;
-					var bp = _ptr.DangerousGetHandle();
-
-					for (var i = 0; i < ct; i++)
-						Unsafe.Write((void*)nint.Add(bp, i), (byte)array.array[i].Al());//Access the underlying array[] directly for performance.
-				}
-				else//This will be called by the user.
-				{
-					var bytecount = obj0.Al(0);
-					var fill = obj.Length > 1 && obj[1] is not null ? obj[1].ToLong() : long.MinValue;
-					Size = bytecount;
-
-					if (bytecount > 0)
-					{
-						byte val = fill != long.MinValue ? (byte)(fill & 255) : (byte)0;
-						Unsafe.InitBlockUnaligned((void*)_ptr.DangerousGetHandle(), val, (uint)bytecount);
-					}
+					byte val = fill != long.MinValue ? (byte)(fill & 255) : (byte)0;
+					Unsafe.InitBlockUnaligned((void*)_ptr.DangerousGetHandle(), val, (uint)bytecount);
 				}
 			}
 

@@ -60,17 +60,15 @@ namespace Keysharp.Builtins
 			/// draw (or Update), and nothing is shown until Show. X/Y/W/H are native screen coordinates: PMv2/X11
 			/// desktop pixels, Cocoa points, or Wayland logical units. The renderer chooses the pixel size of generated
 			/// canvases; supplied images already carry their raster dimensions.</summary>
-			public override object __New(params object[] args)
+			// `new`, not `override`: construction dispatches by name, so the real signature is declared here and
+			// arity/defaults/named binding follow from it (see Buffer.__New and Any's constructor). A fifth
+			// argument is now simply "Too many arguments" from the arity check, replacing the hand-written guard.
+			public new object __New(object X = null, object Y = null, object Width = null, object Height = null)
 			{
-				if (args != null)
-				{
-					if (args.Length > 0 && args[0] != null) x = args[0].Ai();
-					if (args.Length > 1 && args[1] != null) y = args[1].Ai();
-					if (args.Length > 2 && args[2] != null) w = args[2].Ai();
-					if (args.Length > 3 && args[3] != null) h = args[3].Ai();
-					if (args.Length > 4 && args[4] != null)
-						return Errors.ValueErrorOccurred("Overlay accepts only x, y, w and h; backing resolution is automatic.");
-				}
+				if (X != null) x = X.Ai();
+				if (Y != null) y = Y.Ai();
+				if (Width != null) w = Width.Ai();
+				if (Height != null) h = Height.Ai();
 
 				return DefaultObject;
 			}

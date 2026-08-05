@@ -563,15 +563,15 @@ namespace Keysharp.Builtins
 
 		public KeysharpFunc __Enum(object count) => CreateEnumerator(count.Ai());
 
-		public override object __New(params object[] obj)
+		public new object __New(object Options = null, object Title = null, object EventObj = null)
 		{
 			if (form == null)//Don't allow derived classes to init twice.
 			{
 				Script.InvokeOnUIThread(() =>
 				{
-					var options = obj.Length > 0 ? obj[0].As() : null;
-					var caption = obj.Length > 1 ? obj[1].As() : null;
-					var eventObj = obj.Length > 2 ? obj[2] : null;
+					var options = Options != null ? Options.As() : null;
+					var caption = Title != null ? Title.As() : null;
+					var eventObj = EventObj;
 					var script = Script.TheScript;
 					var newCount = Interlocked.Increment(ref script.GuiData.windowCount);
 					//Get numeric creation params first.

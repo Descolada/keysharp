@@ -82,14 +82,16 @@ namespace Keysharp.Builtins
 			/// handle. <c>Image()</c> with no argument creates an empty image (used internally by the
 			/// <c>From*</c> factories).
 			/// </summary>
-			public override object __New(params object[] args)
+			//`new`, not `override`: construction dispatches by name, so the real signature can be declared here
+			//and MinParams/MaxParams/named binding follow from it (see Buffer.__New and Any's constructor).
+			public new object __New(object Source = null)
 			{
-				if (args != null && args.Length > 0 && args[0] != null)
+				if (Source != null)
 				{
-					var (bmp, sx, sy) = LoadFromSource(args[0]);
+					var (bmp, sx, sy) = LoadFromSource(Source);
 
 					if (bmp == null)
-						return Errors.ValueErrorOccurred($"Could not create an image from {args[0]}.");
+						return Errors.ValueErrorOccurred($"Could not create an image from {Source}.");
 
 					baseBitmap = bmp;
 					scaleX = sx;

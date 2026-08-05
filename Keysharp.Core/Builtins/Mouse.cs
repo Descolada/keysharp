@@ -17,30 +17,36 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Clicks a mouse button at the specified coordinates. It can also hold down a mouse button, turn the mouse wheel, or move the mouse.
 		/// </summary>
-		/// <param name="options">Specify one or more of the following components: Coords, WhichButton, ClickCount, DownOrUp and/or Relative.<br/>
-		/// If all components are omitted, a single left click is performed at the mouse cursor's current position.<br/>
-		/// The components can appear in any order except ClickCount, which must occur somewhere to the right of Coords, if present.<br/>
-		///     Coords: If omitted, the cursor's current position is used. Otherwise, specify the X and Y coordinates to which the mouse cursor is moved prior to clicking.<br/>
-		///     For example, Click "100 200" clicks the left mouse button at a specific position. Coordinates are relative to the active window's client area unless <see cref="CoordMode"/><br/>
-		///     was used to change that.<br/>
-		///     WhichButton: If omitted, it defaults to Left (the left mouse button). Otherwise, specify Left, Right, Middle (or just the first letter of each of these);<br/>
-		///     or X1(fourth button) or X2(fifth button). For example, Click "Right" clicks the right mouse button at the mouse cursor's current position.<br/>
-		///     Left and Right correspond to the primary button and secondary button. If the user swaps the buttons via system settings,<br/>
-		///     the physical positions of the buttons are swapped but the effect stays the same.<br/>
-		///     WhichButton can also be WheelUp or WU to turn the wheel upward(away from you), or WheelDown or WD to turn the wheel downward(toward you).<br/>
-		///     WheelLeft(or WL) or WheelRight(or WR) may also be specified.ClickCount is the number of notches to turn the wheel.<br/>
-		///     However, some applications do not obey a ClickCount value higher than 1 for the mouse wheel.For them, use the Click function multiple times by means such as Loop.<br/>
-		///     ClickCount: If omitted, it defaults to 1. Otherwise, specify the number of times to click the mouse button or turn the mouse wheel.For example,<br/>
-		///     Click 2 performs a double-click at the mouse cursor's current position. If Coords is specified, ClickCount must appear after it.<br/>
-		///     Specify zero (0) to move the mouse without clicking; for example, Click "100 200 0".<br/>
-		///     DownOrUp: If omitted, each click consists of a down-event followed by an up-event. Otherwise, specify the word Down (or the letter D)<br/>
-		///     to press the mouse button down without releasing it.Later, use the word Up(or the letter U) to release the mouse button.<br/>
-		///     For example, Click "Down" presses down the left mouse button and holds it.<br/>
-		///     Relative: If omitted, the X and Y coordinates will be used for absolute positioning.<br/>
-		///     Otherwise, specify the word Rel or Relative to treat the coordinates as offsets from the current mouse position.<br/>
-		///     In other words, the cursor will be moved from its current position by X pixels to the right (left if negative) and Y pixels down(up if negative).
-		/// </param>
-		public static object Click(object coords = null, object whichButton = null, object clickCount = null, object downOrUp = null, object relative = null)
+		/// <remarks>
+		/// Every parameter here is really a component SLOT: they are joined into one string and parsed together,
+		/// which is what lets AutoHotkey spread the components across parameters (<c>Click 100, 200, "R D"</c>).
+		/// If all components are omitted, a single left click is performed at the mouse cursor's current position.
+		/// The components can appear in any order except ClickCount, which must occur somewhere to the right of
+		/// Coords, if present.
+		/// </remarks>
+		/// <param name="coords">If omitted, the cursor's current position is used. Otherwise, specify the X and Y coordinates to which the mouse cursor is moved prior to clicking.<br/>
+		/// For example, Click "100 200" clicks the left mouse button at a specific position. Coordinates are relative to the active window's client area unless <see cref="CoordMode"/><br/>
+		/// was used to change that.</param>
+		/// <param name="whichButton">If omitted, it defaults to Left (the left mouse button). Otherwise, specify Left, Right, Middle (or just the first letter of each of these);<br/>
+		/// or X1(fourth button) or X2(fifth button). For example, Click "Right" clicks the right mouse button at the mouse cursor's current position.<br/>
+		/// Left and Right correspond to the primary button and secondary button. If the user swaps the buttons via system settings,<br/>
+		/// the physical positions of the buttons are swapped but the effect stays the same.<br/>
+		/// WhichButton can also be WheelUp or WU to turn the wheel upward(away from you), or WheelDown or WD to turn the wheel downward(toward you).<br/>
+		/// WheelLeft(or WL) or WheelRight(or WR) may also be specified. ClickCount is the number of notches to turn the wheel.<br/>
+		/// However, some applications do not obey a ClickCount value higher than 1 for the mouse wheel. For them, use the Click function multiple times by means such as Loop.</param>
+		/// <param name="clickCount">If omitted, it defaults to 1. Otherwise, specify the number of times to click the mouse button or turn the mouse wheel. For example,<br/>
+		/// Click 2 performs a double-click at the mouse cursor's current position. If Coords is specified, ClickCount must appear after it.<br/>
+		/// Specify zero (0) to move the mouse without clicking; for example, Click "100 200 0".</param>
+		/// <param name="downOrUp">If omitted, each click consists of a down-event followed by an up-event. Otherwise, specify the word Down (or the letter D)<br/>
+		/// to press the mouse button down without releasing it. Later, use the word Up(or the letter U) to release the mouse button.<br/>
+		/// For example, Click "Down" presses down the left mouse button and holds it.</param>
+		/// <param name="relative">If omitted, the X and Y coordinates will be used for absolute positioning.<br/>
+		/// Otherwise, specify the word Rel or Relative to treat the coordinates as offsets from the current mouse position.<br/>
+		/// In other words, the cursor will be moved from its current position by X pixels to the right (left if negative) and Y pixels down(up if negative).</param>
+		/// <param name="options">The whole component string, the form the documentation calls <c>Options</c>
+		/// (<c>Click(Options: "100 200 R D")</c>). It is joined first, so supplying it alone behaves exactly like
+		/// passing the same string positionally; the named parameters then extend it.</param>
+		public static object Click(object coords = null, object whichButton = null, object clickCount = null, object downOrUp = null, object relative = null, object options = null)
 		{
 			var script = Script.TheScript;
 			_ = script.Permissions.EnsureInputInjection(operation: "Click");
@@ -50,8 +56,8 @@ namespace Keysharp.Builtins
 			var repeatCount = 0L;
 			var moveOffset = false;
 			var ht = script.HookThread;
-			var options = $"{coords.As()} {whichButton.As()} {clickCount.As()} {downOrUp.As()} {relative.As()}";
-			ht.ParseClickOptions(options, ref x, ref y, ref vk, ref eventType, ref repeatCount, ref moveOffset);
+			var opts = $"{options.As()} {coords.As()} {whichButton.As()} {clickCount.As()} {downOrUp.As()} {relative.As()}";
+			ht.ParseClickOptions(opts, ref x, ref y, ref vk, ref eventType, ref repeatCount, ref moveOffset);
 			//Keysharp.Runtime.Script.mainWindow.CheckedBeginInvoke(() =>
 			ht.kbdMsSender.PerformMouseCommon(repeatCount < 1 ? Actions.ACT_MOUSEMOVE : Actions.ACT_MOUSECLICK // Treat repeat-count<1 as a move (like {click}).
 											  , vk, x, y, 0, 0, repeatCount, eventType, ThreadAccessors.A_DefaultMouseSpeed, moveOffset);//, true, true);

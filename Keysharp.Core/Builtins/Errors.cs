@@ -405,12 +405,15 @@ namespace Keysharp.Builtins
 			_stackInitialized = true;
 		}
 
-		public override object __New(params object[] args)
+		// Declared `new` with the real signature, not `override` of the `params object[]` base: construction
+		// dispatches by NAME, most-derived first (Class.Call for scripts, Any's constructor for C#), so the
+		// signature is free to be the documented one and arity/defaults/named binding all come from it directly.
+		// The parameters are PascalCase on purpose: these names ARE script-facing API (`Error(Message: "x")`).
+		public new object __New(object Message = null, object What = null, object Extra = null)
 		{
-			var (msg, what, extra) = args.L().S3();
-			_message = args.Length == 0 || args[0] == null ? GetType().Name : msg;
-			_what = what;
-			_extra = extra;
+			_message = Message == null ? GetType().Name : Message.As();
+			_what = What.As();
+			_extra = Extra.As();
 			Exception = new KeysharpException(this);
 			return DefaultObject;
 		}
@@ -553,6 +556,26 @@ namespace Keysharp.Builtins
 
 		[PublicHiddenFromUser]
 		public static implicit operator Exception(Error err) => err.Exception;
+	}
+
+	/// <summary>
+	/// An exception class for a call that omitted a required parameter, or supplied it as unset.
+	/// </summary>
+	/// <remarks>
+	/// Declared here with the other error types rather than beside the invoke wrapper that raises it: script-visible
+	/// members are found by scanning <c>Keysharp.Builtins</c>, so a class outside it gets no prototype and every
+	/// property read on an instance -- <c>e.Message</c> included -- fails.
+	/// </remarks>
+	public class ArgumentError : Error
+	{
+		/// <summary>
+		/// Initializes a new instance of the <see cref="ArgumentError"/> class.
+		/// </summary>
+		/// <param name="args">The parameters to pass to the base.</param>
+		public ArgumentError(params object[] args)
+			: base(args.Length != 0 ? args : ["A required parameter was omitted or unset."])
+		{
+		}
 	}
 
     /// <summary>
@@ -818,11 +841,11 @@ namespace Keysharp.Builtins
 		/// <param name="args">The parameters to pass to the base.</param>
 		public OSError(params object[] args) : base(args) { }
 
-		public override object __New(params object[] args)
+		public new object __New(object ErrorNumber = null, object What = null, object Extra = null)
 		{
-			base.__New(args);
+			_ = base.__New(ErrorNumber, What, Extra);
 #if WINDOWS
-			var e = args.Length > 0 ? args[0] as Exception : null;
+			var e = ErrorNumber as Exception;
 			Win32Exception w32ex = null;
 
 			if ((w32ex = e as Win32Exception) == null && e != null)

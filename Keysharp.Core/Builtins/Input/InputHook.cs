@@ -244,8 +244,6 @@ namespace Keysharp.Builtins
 
 		public InputHook(params object[] args) : base(args) { }
 
-		public new static object staticCall(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
-
 		/// <summary>
 		/// Creates an object which can be used to collect or intercept keyboard input.
 		/// </summary>
@@ -277,14 +275,9 @@ namespace Keysharp.Builtins
 		/// </list>
 		/// </param>
 		/// <returns>An empty value; the constructed object is the instance being initialized.</returns>
-		public override object __New(params object[] args)
+		public new object __New(object Options = null, object EndKeys = null, object MatchList = null)
 		{
-			// Each argument is optional, so read defensively: the class is called directly (InputHook(),
-			// InputHook("V"), ...) rather than through a function with default parameter values.
-			var options = args.Length > 0 ? args[0].As() : "";
-			var endKeys = args.Length > 1 ? args[1].As() : "";
-			var matchList = args.Length > 2 ? args[2].As() : "";
-			input = new InputType(this, options, endKeys, matchList);
+			input = new InputType(this, Options.As(), EndKeys.As(), MatchList.As());
 			return DefaultObject;
 		}
 

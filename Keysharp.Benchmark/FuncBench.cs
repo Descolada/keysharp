@@ -132,12 +132,88 @@ e2:
 			throw new Exception($"{total} was not equal to {totalSum}.");
 	}
 
+	// The variadic argument path: collecting a `rest*` tail into the Array the body sees, and spreading one back
+	// out at a call site (`inner(rest*)`). Both run on every variadic call and neither was covered before.
+	private object[] rawTail = default!;
+	private Keysharp.Builtins.Array spreadSource = default!;
+
+	[Benchmark]
+	public void VariadicCollect()
+	{
+		for (var i = 0L; i < Size; i++)
+			_ = new Keysharp.Builtins.Array(rawTail);
+	}
+
+	[Benchmark]
+	public void VariadicSpread()
+	{
+		for (var i = 0L; i < Size; i++)
+			_ = FlattenValues(spreadSource);
+	}
+
+	// `for k, v in obj` resolves __Enum once per LOOP, not per iteration, so the worst case for that resolution
+	// is a tiny collection iterated in a tight outer loop -- which is what this measures.
+	private Keysharp.Builtins.Map twoEntryMap = default!;
+
+	[Benchmark]
+	public void ForEachSmallMap()
+	{
+		for (var i = 0L; i < Size; i++)
+		{
+			var e = MakeEnumerator(twoEntryMap, 2L);
+			var k = new VarRef(null);
+			var v = new VarRef(null);
+			var a = new object[] { k, v };
+
+			while (e.Call(a).IsCallbackResultNonEmpty())
+				;
+		}
+	}
+
+	// The for-loop's per-element output write, three ways: the raw property write (the floor), the write every
+	// loop actually performs (SetPropertyValue, which takes the plain-ref shortcut inside), and the same call on
+	// a ref that cannot take it. The shortcut earns its keep iff plain << subclassed.
+	private VarRef plainRef = default!;
+	private VarRef subclassedRef = default!;
+
+	// Subclassing is the one thing that makes a ref non-plain, so this is what the dispatching case must be.
+	private sealed class DerivedRef(object x) : VarRef(x);
+
+	[Benchmark]
+	public void VarRefWriteRaw()
+	{
+		for (var i = 0L; i < Size; i++)
+			plainRef.__Value = i;
+	}
+
+	[Benchmark]
+	public void VarRefWritePlain()
+	{
+		for (var i = 0L; i < Size; i++)
+			_ = SetPropertyValue(plainRef, "__Value", i);
+	}
+
+	[Benchmark]
+	public void VarRefWriteSubclassed()
+	{
+		for (var i = 0L; i < Size; i++)
+			_ = SetPropertyValue(subclassedRef, "__Value", i);
+	}
+
 	[GlobalSetup]
 	public void Setup()
 	{
 		Size = 500000L;
 		totalSum = Size;
 		cl = (__Main.Myclass)Invoke(__Main.myclass, "Call");
+
+		rawTail = ["a", "b", "c"];
+		spreadSource = new Keysharp.Builtins.Array(rawTail);
+
+		object sink = 0L;
+		plainRef = new VarRef(sink);
+		subclassedRef = new DerivedRef(sink);
+		twoEntryMap = new Keysharp.Builtins.Map("a", 1L, "b", 2L);
 
 		_ = _ks_s.Vars.Prototypes[typeof(__Main.Myclass)];
 	}

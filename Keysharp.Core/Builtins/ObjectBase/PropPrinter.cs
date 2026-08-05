@@ -191,7 +191,7 @@ namespace Keysharp.Builtins
 		{
 			Enumerator opi;
 
-			try { opi = (Enumerator)KeysharpObject.OwnProps(obj, true); }
+			try { opi = (Enumerator)KeysharpObject.OwnProps(obj); }
 			catch { return; }
 
 			while (true)

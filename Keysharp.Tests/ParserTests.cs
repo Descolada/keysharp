@@ -319,5 +319,80 @@ namespace Keysharp.Tests
 			foreach (var bad in new[] { "\"", "((((", "}}}", "class", "if (", "for x", "switch {", "x := [" })
 				Assert.DoesNotThrow(() => KP.Parser.ParseWithDiagnostics(bad), "threw on: " + bad);
 		}
+
+		[Test, Category("Parser")]
+		public void NamedArguments()
+		{
+			Assert.AreEqual("(call f 1 b:2)", Ast("f(1, b: 2)"));
+			Assert.AreEqual("(call f a:1 b:2)", Ast("f(a: 1, b: 2)"));
+			Assert.AreEqual("(call f 1 b:(?: c 2 3))", Ast("f(1, b: c ? 2 : 3)"));   // ternary inside a named argument
+			Assert.AreEqual("(call f b:\"x\")", Ast("f(b: \"x\")"));
+			// Whitespace around the colon is not significant, and a reserved word is a legal parameter NAME
+			// (it names a parameter, it is never resolved as a variable).
+			Assert.AreEqual("(call f a:1)", Ast("f(a : 1)"));
+			Assert.AreEqual("(call f loop:1)", Ast("f(loop: 1)"));
+			// Command syntax carries them too.
+			Assert.IsTrue(Ast("MsgBox \"t\", Options: \"OK\"").Contains("Options:"), "command syntax should accept named arguments");
+		}
+
+		[Test, Category("Parser")]
+		public void NamedArgumentsAcceptDynamicNames()
+		{
+			// `%x%: v` and the name-building `a%b%c: v` name a parameter at run time, exactly as the same text
+			// forms an object-literal key. Neither is a single Identifier, so they are recognised after the slot's
+			// expression has parsed -- by a ':' being left over.
+			Assert.AreEqual("(call f (deref x):1)", Ast("f(%x%: 1)"));
+			Assert.AreEqual("(call f 1 (deref y):2)", Ast("f(1, %y%: 2)"));
+			Assert.AreEqual("(call f a:1 (deref y):2)", Ast("f(a: 1, %y%: 2)"));      // mixed with a literal name
+			Assert.AreEqual("(call f (deref (concat (concat \"b\" x) \"a\")):1)", Ast("f(b%x%a: 1)"));   // name-building
+			// The value is still an ordinary expression, ternary included.
+			Assert.AreEqual("(call f (deref x):(?: c 2 3))", Ast("f(%x%: c ? 2 : 3)"));
+			// Command syntax too.
+			Assert.IsTrue(Ast("MsgBox \"t\", %o%: \"OK\"").Contains("(deref o):"), "command syntax should accept dynamic names");
+			// A deref that is NOT followed by ':' stays an ordinary argument, and a ternary over one is untouched.
+			Assert.AreEqual("(call f (deref x))", Ast("f(%x%)"));
+			Assert.AreEqual("(call f (?: (deref x) a b))", Ast("f(%x% ? a : b)"));
+		}
+
+		[Test, Category("Parser")]
+		public void NamedArgumentsRejectMalformedUses()
+		{
+			// Each of these is a parse error, and none may be silently accepted.
+			foreach (var bad in new[]
+			{
+				"f(x: 1, 2)",        // positional after named
+				"f(x: 1, , y: 2)",   // omitted slot after named
+				"f(x: 1, x: 2)",     // duplicate name
+				"f(x: 1, a*)",       // spread after named
+				"f(x: a*)",          // a spread cannot be named
+				"a[x: 1]",           // '[]' is map-literal territory, not named arguments
+				// A quoted key is deliberately not a spelling of a named argument -- one bracket away the same
+				// text is a Map entry, and a parameter is named by an identifier.
+				"f(\"x\": 1)",
+				"f(1: 2)",           // nor is a number
+				// The dynamic spellings obey every rule the literal one does.
+				"f(%x%: 1, 2)",      // positional after named
+				"f(%x%: 1, , y: 2)", // omitted slot after named
+				"f(%x%: 1, a*)",     // spread after named
+				"f(%x%: a*)",        // a spread cannot be named
+				"a[%x%: 1]",         // still map-literal territory
+			})
+			{
+				var (_, diags) = KP.Parser.ParseWithDiagnostics(bad + "\n");
+				Assert.IsTrue(diags.Count > 0, "expected a diagnostic for: " + bad);
+			}
+		}
+
+		[Test, Category("Parser")]
+		public void NamedArgumentsDoNotDisturbExistingColonForms()
+		{
+			// The ternary's ':' is always preceded by a '?' the expression parse consumed, so a slot-initial
+			// `Identifier ':'` is unambiguous -- but the neighbouring forms must be verified not to shift.
+			Assert.AreEqual("(call f (?: a b c))", Ast("f(a ? b : c)"));
+			Assert.AreEqual("(call f (:= a 1))", Ast("f(a := 1)"));
+			Assert.AreEqual("(:= x (map a:1))", Ast("x := [a: 1]"));       // still a map-creation literal
+			Assert.AreEqual("(:= x (object a:1))", Ast("x := {a: 1}"));    // still an object literal
+			Assert.AreEqual("(index a (?: b c d))", Ast("a[b ? c : d]"));  // ternary inside '[]' is untouched
+		}
 	}
 }

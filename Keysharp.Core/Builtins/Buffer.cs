@@ -95,7 +95,7 @@ namespace Keysharp.Builtins
 		// AutoHotkey's own introspection (Buffer.Prototype.__New reports Min=1, Max=3, IsVariadic=0) instead of
 		// being restated out-of-band by a [TailNames] attribute.
 		// The parameters are PascalCase on purpose: these names ARE script-facing API (`Buffer(ByteCount: 16)`).
-		public new unsafe object __New(object ByteCount = null, object FillByte = null)
+		public unsafe object __New(object ByteCount = null, object FillByte = null)
 		{
 			if (ByteCount == null)//Also covers Buffer(), whose omitted first argument arrives as null.
 			{

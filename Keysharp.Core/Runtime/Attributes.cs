@@ -120,11 +120,14 @@ namespace Keysharp.Runtime
 	public sealed class StaticAttribute : Attribute { }
 
 	/// <summary>
-	/// The name scripts know a class or member by, when it differs from the C# name (KeysharpObject is
-	/// <c>Object</c>, StructInt32 is <c>Int32</c>). Never inherited: a derived class has its own name, and
-	/// inheriting one would register every subclass of a renamed class under the base class's name.
+	/// The name scripts know a class, member or parameter by, when it differs from the C# name (KeysharpObject is
+	/// <c>Object</c>, StructInt32 is <c>Int32</c>; on a parameter it is the spelling a named argument binds by,
+	/// <c>f(Name: value)</c>, for the residue where the documented name cannot be the C# identifier -- binding is
+	/// case-insensitive, so a parameter only carries one for a genuine spelling difference, never for casing).
+	/// Never inherited: a derived class has its own name, and inheriting one would register every subclass of a
+	/// renamed class under the base class's name.
 	/// </summary>
-	[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, Inherited = false)]
+	[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class | AttributeTargets.Parameter, Inherited = false)]
 	public sealed class UserDeclaredNameAttribute : Attribute
 	{
 		public string Name { get; }

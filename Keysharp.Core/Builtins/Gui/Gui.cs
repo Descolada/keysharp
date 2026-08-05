@@ -563,7 +563,7 @@ namespace Keysharp.Builtins
 
 		public KeysharpFunc __Enum(object count) => CreateEnumerator(count.Ai());
 
-		public new object __New(object Options = null, object Title = null, object EventObj = null)
+		public object __New(object Options = null, object Title = null, object EventObj = null)
 		{
 			if (form == null)//Don't allow derived classes to init twice.
 			{

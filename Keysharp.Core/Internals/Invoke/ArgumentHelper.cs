@@ -642,8 +642,10 @@ namespace Keysharp.Internals.Invoke
 
 		private object NormalizeStructPointerArg(object[] parameters, object value, int paramIndex, Type pointerType, Type targetType)
 		{
+			// The caller's ref, read through the property so a subclass overriding __Value is honored. The plain-ref
+			// fast path lives inside GetPropertyValueOrNull, so reading it this way costs nothing extra.
 			var targetRef = value as VarRef;
-			var input = targetRef != null ? targetRef.__Value : value;
+			var input = targetRef != null ? Script.GetPropertyValueOrNull(targetRef, "__Value") : value;
 			var hasInput = input != null;
 
 			if (!hasInput && targetRef == null)
@@ -659,7 +661,7 @@ namespace Keysharp.Internals.Invoke
 
 			if (targetRef != null)
 			{
-				parameters[paramIndex] = new VarRef(() => structValue, value => targetRef.__Value = value);
+				parameters[paramIndex] = new VarRef(() => structValue, value => _ = Script.SetPropertyValue(targetRef, "__Value", value));
 				OutputVars[paramIndex] = (typeof(Struct), false);
 			}
 			else if (!ReferenceEquals(structValue, input))

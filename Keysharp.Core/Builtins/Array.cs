@@ -181,8 +181,6 @@ public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(
 	/// <returns><see cref="Enumerator"/></returns>
 	public KeysharpFunc __Enum(object count) => CreateEnumerator(count.Ai());
 
-	public new static object staticCall(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
-
 	/// <summary>
 	/// Initializes a new instance of the <see cref="Array"/> class.
 	/// </summary>
@@ -265,11 +263,12 @@ public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(
 	void IList.Clear() => array.Clear();
 
 	/// <summary>
-	/// Returns whether the passed in object is contained in the array.
+		/// Returns whether the passed in object is contained in the array.<br/>
+		/// Omitting value searches for an element which has no value, because an unset element is stored as null.
 	/// </summary>
-	/// <param name="value">The value to search for.</param>
+		/// <param name="value">The value to search for. Default: unset, which searches for an element without a value.</param>
 	/// <returns>True if the value was found, else false.</returns>
-	public bool Contains(object value) => array.Contains(value);
+		public bool Contains(object value = null) => array.Contains(value);
 
 	/// <summary>
 	/// Removes the value of an array element, leaving the index without a value.<br/>
@@ -293,6 +292,40 @@ public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(
 	}
 
 	/// <summary>
+		/// Wraps an element callback so it receives only the arguments it declares. Filter, FindIndex and MapTo all
+		/// document their callback as taking <c>(Value, Index)</c> where it "may declare only the parameters it
+		/// needs", but passing both unconditionally fails a one-parameter callback with "Too many arguments".
+		/// <para>
+		/// The arity is resolved once per operation rather than per element, and the returned delegate closes over
+		/// it. <c>Script.ResolveDirectCallTarget</c> likewise decides once whether the callback can be entered
+		/// without resolving "Call" by name on every element.
+		/// </para>
+		/// </summary>
+		/// <param name="requireResult">
+		/// Whether a callback that returns no value is an error. True for a predicate (Filter, FindIndex), whose
+		/// result is the whole point; false for a transform (MapTo), where an unset element is a legitimate result
+		/// and is how a sparse array is built.
+		/// </param>
+		private static Func<object, object, object> ElementInvoker(object callback, bool requireResult = true)
+		{
+			var argCount = Script.CallbackArgCount(callback);
+			var direct = Script.ResolveDirectCallTarget(callback);
+
+			return (value, index) =>
+			{
+				// Ordered most-significant first, so what survives the trim is what a minimal callback expects.
+				var args = argCount == 0 ? System.Array.Empty<object>()
+						 : argCount == 1 ? [value]
+						 : new[] { value, index };
+				var result = direct != null ? direct.Call(args) : Script.InvokeOrNull(callback, "Call", args);
+
+				return result ?? (requireResult
+								  ? Errors.UnsetErrorOccurred($"Invoke result of method Call on function {(callback as KeysharpFunc)?.Name ?? callback}")
+								  : null);
+			};
+		}
+
+		/// <summary>
 	/// Applies a filter to each element of the array and returns a new array
 	/// consisting of all elements for which the filter callback returned true.
 	/// </summary>
@@ -309,21 +342,23 @@ public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(
 
 		if (callback is Any fo)
 		{
+				var invoke = ElementInvoker(fo);
+
 			if (index < 0)
 			{
-				var i = array.Count + index + 1;
+					long i = array.Count + index + 1;   // long, so the callback sees an Integer like every other index
 
 				if (i >= 0 && i <= array.Count)
-					return new Array(((IEnumerable<object>)array).Reverse().Skip(Math.Abs(index + 1)).Where(x => Script.ForceBool(Script.Invoke(fo, "Call", x, i--))).ToList());
+						return new Array(((IEnumerable<object>)array).Reverse().Skip(Math.Abs(index + 1)).Where(x => Script.ForceBool(invoke(x, i--))).ToList());
 				else
 					return Errors.ValueErrorOccurred($"Invalid find start index of {index}.");
 			}
 			else
 			{
-				var i = index - 1;
+					long i = index - 1;
 
 				if (i >= 0 && i < array.Count)
-					return new Array(array.Skip(i).Where(x => Script.ForceBool(Script.Invoke(fo, "Call", x, ++i))).ToList());
+						return new Array(array.Skip((int)i).Where(x => Script.ForceBool(invoke(x, ++i))).ToList());
 				else
 					return Errors.ValueErrorOccurred($"Invalid find start index of {index}.");
 			}
@@ -347,6 +382,8 @@ public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(
 
 		if (callback is Any fo)
 		{
+				var invoke = ElementInvoker(fo);
+
 			if (index <  0)
 			{
 				var i = array.Count + index;
@@ -357,7 +394,7 @@ public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(
 					{
 						var startIndexPlus1 = i + 1L;
 
-						if (Script.ForceBool(Script.Invoke(fo, "Call", array[i], startIndexPlus1)))
+							if (Script.ForceBool(invoke(array[i], startIndexPlus1)))
 							return startIndexPlus1;
 
 						i--;
@@ -374,7 +411,7 @@ public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(
 
 				if (i >= 0 && i < array.Count)
 				{
-					var found = array.FindIndex(i, x => Script.ForceBool(Script.Invoke(fo, "Call", x, (long)++i)));
+						var found = array.FindIndex(i, x => Script.ForceBool(invoke(x, (long)++i)));
 					return found != -1L ? found + 1L : 0L;
 				}
 				else
@@ -457,20 +494,29 @@ public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(
 	/// <summary>
 	/// Returns the index of the first item in the array
 	/// which equals value, starting at startIndex.<br/>
-	/// If startIndex is negative, start the search from the end of the array and move toward the beginning.
+		/// If startIndex is negative, start the search from the end of the array and move toward the beginning.<br/>
+		/// Omitting value searches for an element which has no value, because an unset element is stored as null.
 	/// </summary>
-	/// <param name="value">The value to search for.</param>
+		/// <param name="value">The value to search for. Default: unset, which searches for an element without a value.</param>
 	/// <param name="startIndex">The index to start searching at. Default: 1.</param>
 	/// <returns>The index that value was found at, else 0 if none was found.</returns>
-	public long IndexOf(object value, object startIndex = null)
+		/// <exception cref="IndexError">An <see cref="IndexError"/> exception is thrown if startIndex is out of bounds.</exception>
+		public long IndexOf(object value = null, object startIndex = null)
 	{
-		var i = startIndex.Ai(1);
-		var abs = Math.Abs(i);
-
-		if (abs > 0 && abs <= array.Count)//Don't use TranslateIndex() here because it would do the logic twice.
-			return i < 0 ? array.LastIndexOf(value, array.Count + i) + 1 : array.IndexOf(value, i - 1) + 1;
-		else
+			//Nothing to search, so report "not found" rather than that no start index could be in bounds.
+			//This is what RemoveAt() does for an empty array.
+			if (array.Count == 0)
 			return 0L;
+
+			long i = startIndex.Ai(1);//long, so that a startIndex of int.MinValue cannot overflow Math.Abs().
+
+			//An out of bounds start index is an error rather than a silent 0, which is how the sibling searches
+			//FindIndex() and Filter() already treat one. Don't use TranslateIndex() here because it would do the
+			//logic twice.
+			if (i == 0 || Math.Abs(i) > array.Count)
+				return (long)Errors.IndexErrorOccurred($"Invalid search start index of {i}.", DefaultErrorLong);
+
+			return i < 0 ? array.LastIndexOf(value, array.Count + (int)i) + 1 : array.IndexOf(value, (int)i - 1) + 1;
 	}
 
 	/// <summary>
@@ -539,8 +585,11 @@ public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(
 			if (index >= 0 && index < array.Count)
 			{
 				List<object> list;
-				var i = index;
-				list = array.Skip(index).Select(x => ifo.Call(x, ++i)).ToList();
+					long i = index;
+					// A transform may legitimately yield nothing for an element, which builds a sparse array -- unlike a
+					// predicate, whose result is the whole point.
+					var invoke = ElementInvoker(ifo, requireResult: false);
+					list = array.Skip(index).Select(x => invoke(x, ++i)).ToList();
 				return new Array(list);
 			}
 			else
@@ -619,11 +668,12 @@ public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(
 	}
 
 	/// <summary>
-	/// Removes the first occurrence of <paramref name="value" /> from the array.
+	/// Removes the first occurrence of <paramref name="value" /> from the array.<br/>
+	/// Omitting value removes the first element which has no value, because an unset element is stored as null.
 	/// </summary>
-	/// <param name="value">The item to remove.</param>
+	/// <param name="value">The item to remove. Default: unset, which removes the first element without a value.</param>
 	/// <returns>True if the value was found and removed, else false.</returns>
-	public bool Remove(object value) => array.Remove(value);
+	public bool Remove(object value = null) => array.Remove(value);
 
 	/// <summary>
 	/// Implementation of <see cref="IList.Remove"/> which removes the first occurrence of <paramref name="value" />

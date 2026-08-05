@@ -385,7 +385,29 @@ namespace Keysharp.Builtins
 			if (TryMethod(instance, type, name, args, out var callResult))
 				return callResult;
 
-			return Errors.ErrorOccurred($"Member '{name}' not found on {type.FullName}");
+			return Errors.ErrorOccurred(NoMatchMessage(type, name, args));
+		}
+
+		/// <summary>
+		/// Explains a failed dispatch. A named argument that no overload declares also lands here, and reporting it
+		/// as a missing member points at the wrong thing entirely -- the member is there, the name is not.
+		/// </summary>
+		private static string NoMatchMessage(Type type, string name, object[] args)
+		{
+			_ = Keysharp.Internals.Invoke.NamedArgBinder.SplitAt(args, out var named);
+			var set = MemberCache.GetOrAdd((type, name), k => MemberSet.Create(k.t, k.name));
+
+			if (named == null || set == null || set.Methods.Count == 0)
+				return $"Member '{name}' not found on {type.FullName}";
+
+			// Every overload's parameter names, so the caller can see which spelling was meant. Overloads differ,
+			// hence the union rather than one list.
+			var accepted = set.Methods.SelectMany(m => Keysharp.Internals.Invoke.MethodPropertyHolder.GetOrAdd(m).ParamIndexByName.Keys)
+									  .Distinct(StringComparer.OrdinalIgnoreCase)
+									  .OrderBy(n => n, StringComparer.OrdinalIgnoreCase);
+			var supplied = string.Join(", ", named.Store.Keys.Select(n => $"'{n}'"));
+			return $"No overload of {type.FullName}.{name} accepts the named argument(s) {supplied}. "
+				   + $"Its named parameters are: {string.Join(", ", accepted)}.";
 		}
 
 		// -------- Field --------
@@ -593,31 +615,80 @@ namespace Keysharp.Builtins
 
 		// -------- Method --------
 
+		/// <summary>
+		/// Maps a call's named arguments onto one candidate overload's parameters, producing a purely positional
+		/// argument array -- or null when this candidate cannot take them, so the caller moves on to the next
+		/// overload. This is what makes overload selection name-aware: unlike the positional case, where every
+		/// candidate of the right arity is plausible, a name simply does not exist on the wrong overload.
+		/// </summary>
+		private static object[] ExpandNamedArgs(MethodInfo m, object[] positional, Ks.NamedArgs named, ParameterInfo[] ps)
+		{
+			// Placed by the same helper the rest of the runtime binds with, against the same name map: that map
+			// strips the C# `@` escape (so a CLR `object @class` is reachable as `class`), honours [UserDeclaredName], and
+			// excludes the receiver and the params tail -- none of which a local name comparison would get right.
+			// A failure here is not an error, just this candidate being wrong; the caller tries the next overload.
+			var map = Keysharp.Internals.Invoke.MethodPropertyHolder.GetOrAdd(m).ParamIndexByName;
+			var expanded = Keysharp.Internals.Invoke.NamedArgBinder.TryPlace(map, 0, positional, positional.Length, named, out _, out _);
+
+			if (expanded == null || expanded.Length > ps.Length)
+				return null;
+
+			// A name that skipped over intervening parameters leaves gaps; they are only fillable from defaults.
+			for (var i = positional.Length; i < expanded.Length; i++)
+			{
+				if (expanded[i] != null)
+					continue;
+
+				if (!ps[i].HasDefaultValue)
+					return null;
+
+				expanded[i] = ps[i].DefaultValue;
+			}
+
+			return expanded;
+		}
+
 		private static bool TryMethod(object instance, Type type, string name, object[] args, out object result)
 		{
 			result = null;
-			var argc = args?.Length ?? 0;
+			// Named arguments (`Clr.System.Math.Round(digits: 2, value: x)`) arrive as a trailing container.
+			var positional = Keysharp.Internals.Invoke.NamedArgBinder.Split(args, out var named);
+			var hasNamed = named != null;
+			var argc = positional.Length;   // Split returns an empty array for null, and the head when names are present
 
 			var key = (type, name);
 			var set = MemberCache.GetOrAdd(key, k => MemberSet.Create(k.t, k.name));
 			if (set == null || set.Methods.Count == 0) return false;
 
-			// Order by best fit
-			var ordered = set.Methods
-				.Where(m => CanAcceptArgCount(m, argc))
-				.OrderBy(m => ScoreMethodCandidate(m, args))
-				.ToArray();
+			// Order by best fit. Named arguments have to be expanded BEFORE scoring, not after: scoring compares
+			// argument types against parameter types, and the positional prefix alone (empty for an all-named call)
+			// carries none -- which would pick whichever overload merely declares the names. Expansion also acts as
+			// the arity filter here, since it rejects any overload that cannot take them.
+			var ordered = hasNamed
+				? set.Methods.Select(m => (m, a: ExpandNamedArgs(m, positional, named, m.GetParameters())))
+							 .Where(c => c.a != null)
+							 .OrderBy(c => ScoreMethodCandidate(c.m, c.a))
+							 .ToArray()
+				: set.Methods.Where(m => CanAcceptArgCount(m, argc))
+							 .OrderBy(m => ScoreMethodCandidate(m, args))
+							 .Select(m => (m, a: args))
+							 .ToArray();
 
-			foreach (var m0 in ordered)
+			foreach (var (m0, callArgs0) in ordered)
 			{
-				var m = ClrDelegateMarshaler.TryCloseGenericMethod(m0, args);
+				var m = ClrDelegateMarshaler.TryCloseGenericMethod(m0, callArgs0);
 				if (m.IsGenericMethodDefinition) continue;
 
 				var ps = m.GetParameters();
+				// Closing a generic can change the parameter list, so re-expand against the closed one.
+				var callArgs = hasNamed && !ReferenceEquals(m, m0) ? ExpandNamedArgs(m, positional, named, ps) : callArgs0;
+
+				if (callArgs == null) continue;
+
 				object[] inArgs;
 				List<(int, KeysharpObject)> boxes;
 
-				if (!TryBuildArguments(args, ps, out inArgs, out boxes))
+				if (!TryBuildArguments(callArgs, ps, out inArgs, out boxes))
 					continue;
 
 				object callResult;
@@ -632,11 +703,12 @@ namespace Keysharp.Builtins
 					return ThrowInvokeError(ex.InnerException ?? ex, m);
 				}
 
-				// push back ref/out
-				for (int i = 0; i < ps.Length; i++)
-					if (ps[i].ParameterType.IsByRef) args[i] = ConvertOut(inArgs[i]);
+				// push back ref/out into the array the call was built from (identical to `args` when no names
+				// were used; a distinct expansion otherwise, whose indices are the ones `boxes` refers to).
+				for (int i = 0; i < ps.Length && i < callArgs.Length; i++)
+					if (ps[i].ParameterType.IsByRef) callArgs[i] = ConvertOut(inArgs[i]);
 
-				WriteBackRefs(args, boxes);
+				WriteBackRefs(callArgs, boxes);
 
 				result = ConvertOut(callResult);
 				return true;

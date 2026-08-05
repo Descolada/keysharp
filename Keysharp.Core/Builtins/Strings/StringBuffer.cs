@@ -43,7 +43,7 @@ namespace Keysharp.Builtins
 			//and MinParams/MaxParams/named binding follow from it (see Buffer.__New and Any's constructor).
 			//The type is fully qualified below because the parameter deliberately shadows it: these names are
 			//script-facing API (`StringBuffer(Encoding: "ANSI")`), so they must read as AutoHotkey spells them.
-			public new object __New(object InitialValue = null, object Capacity = null, object Encoding = null)
+			public object __New(object InitialValue = null, object Capacity = null, object Encoding = null)
 			{
 				var str = InitialValue != null ? InitialValue.ToString() : "";
 				var capacity = Capacity != null ? Capacity.Ai() + 1 : Math.Max(str.Length + 1, 256);

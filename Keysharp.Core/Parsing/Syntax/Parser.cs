@@ -1272,12 +1272,19 @@ namespace Keysharp.Parsing.Syntax
 		private List<Argument> ParseCommandArgs()
 		{
 			var args = new List<Argument>();
+			var named = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
 			while (!At(TokenKind.Newline) && !At(TokenKind.EOF) && !At(TokenKind.RBrace))
 			{
-				if (At(TokenKind.Comma)) { args.Add(new Argument(null, false)); Advance(); continue; }
+				if (At(TokenKind.Comma))
+				{
+					if (AnyNamed(args)) Error("an omitted argument cannot follow a named argument");
+					args.Add(new Argument(null, false)); Advance(); continue;
+				}
+				var name = TryTakeArgName(null, named);   // `MsgBox "text", Options: "OK"`
 				var ex = ParseExpression(1);
+				var nameExpr = name == null ? TryTakeDynamicArgName(null, ref ex) : null;
 				var spread = Match(TokenKind.Star);
-				args.Add(new Argument(ex, spread));
+				args.Add(NewArgSlot(ex, spread, name, nameExpr, args));
 				if (!Match(TokenKind.Comma)) break;
 			}
 			return args;
@@ -1582,7 +1589,11 @@ namespace Keysharp.Parsing.Syntax
 				if (t.Kind == TokenKind.LParen && !t.LeadingWhitespace)
 				{ e = new CallExpr(e, ParseArgs(TokenKind.LParen, TokenKind.RParen)); continue; }
 				if (t.Kind == TokenKind.LBracket && !t.LeadingWhitespace)
-				{ e = new IndexExpr(e, ParseArgs(TokenKind.LBracket, TokenKind.RBracket)); continue; }
+				{
+					e = new IndexExpr(e, ParseArgs(TokenKind.LBracket, TokenKind.RBracket,
+												   "named arguments are not supported in an index expression; '[]' takes positional arguments only"));
+					continue;
+				}
 				if ((t.Kind == TokenKind.PlusPlus || t.Kind == TokenKind.MinusMinus) && !t.LeadingWhitespace)
 				{ Advance(); e = new UnaryExpr(t.Text, e, true); continue; }
 				break;
@@ -1669,11 +1680,16 @@ namespace Keysharp.Parsing.Syntax
 			return new DerefExpr(name);
 		}
 
-		private List<Argument> ParseArgs(TokenKind open, TokenKind close)
+		/// <param name="namedError">
+		/// Null when named arguments are allowed. Otherwise what to say about the `name:` that was found -- the two
+		/// bracketed forms are wrong for different reasons, and a single message would misdiagnose one of them.
+		/// </param>
+		private List<Argument> ParseArgs(TokenKind open, TokenKind close, string namedError = null)
 		{
 			Expect(open, "argument list");
 			_groupDepth++;
 			var args = new List<Argument>();
+			var named = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
 			SkipNewlines();
 			// Comma-separated slots: each slot is an expression or omitted (empty). A TRAILING comma is ignored (it does
 			// not add a slot), so `f(a,)`/`f(x,&y,)` keep their arg count and `f()` is zero, while `f(,a)`/`f(a,,b)` keep
@@ -1683,11 +1699,18 @@ namespace Keysharp.Parsing.Syntax
 				while (true)
 				{
 					if (At(TokenKind.Comma) || At(close) || At(TokenKind.EOF))
+					{
+						if (AnyNamed(args)) Error("an omitted argument cannot follow a named argument");
 						args.Add(new Argument(null, false));   // omitted slot
+					}
 					else
 					{
+						// Named arguments are a call-parenthesis form only: inside '[]' a leading `name:` belongs to the
+						// map-creation literal, so allowing it here would blur two different meanings of the same syntax.
+						var name = TryTakeArgName(namedError, named);
 						var ex = ParseExpression(1);
-						args.Add(new Argument(ex, Match(TokenKind.Star)));
+						var nameExpr = name == null ? TryTakeDynamicArgName(namedError, ref ex) : null;
+						args.Add(NewArgSlot(ex, Match(TokenKind.Star), name, nameExpr, args));
 					}
 					SkipNewlines();
 					if (!At(TokenKind.Comma)) break;
@@ -1700,9 +1723,91 @@ namespace Keysharp.Parsing.Syntax
 			return args;
 		}
 
+		// `name:` at the start of an argument slot introduces a NAMED argument (bound to the callee's parameter of that
+		// name instead of by position). One token of lookahead, and applied ONLY at a slot boundary: a ternary's ':' is
+		// always preceded by a '?' that the expression parse has already consumed, so a slot-initial Identifier followed
+		// by ':' cannot begin any other valid expression. (':=' lexes as Assign and '::' as DoubleColon, so neither is
+		// mistaken for one.) Reserved words are accepted -- the token names a parameter, it is never read as a variable.
+		private string TryTakeArgName(string namedError, HashSet<string> seen)
+		{
+			if (!At(TokenKind.Identifier) || Peek(1).Kind != TokenKind.Colon) return null;
+
+			var t = Current;
+
+			if (namedError != null)
+				ErrorAt(t, namedError);
+
+			if (!seen.Add(t.Text))
+				ErrorAt(t, $"duplicate named argument '{t.Text}'");
+
+			Advance();   // name
+			Advance();   // ':'
+			SkipNewlines();
+			return t.Text;
+		}
+
+		// The DYNAMIC spellings of the same thing: `%x%: v` and the name-building `a%b%c: v`, whose name is only known
+		// at run time. Neither is a single Identifier, so the lookahead above cannot see them -- they are recognised
+		// after the fact, by the slot's expression having parsed to a deref with a ':' left over. Nothing else can end
+		// a slot at a bare ':': a ternary's ':' is consumed with the '?' that introduced it, and ':=' lexes as Assign.
+		//
+		// `parsed` is the deref, which becomes the name; it is replaced with the value expression that follows.
+		// Duplicates cannot be detected here (two derefs may yield the same name), and neither can #Warn NamedArg
+		// check one -- the runtime binder reports both, as it does for any name it cannot match.
+		private Expr TryTakeDynamicArgName(string namedError, ref Expr parsed)
+		{
+			if (!At(TokenKind.Colon)) return null;
+
+			if (namedError != null)
+				Error(namedError);
+
+			// A quoted key is deliberately NOT a named argument. Parameters are named by identifiers, so a string
+			// would be a second spelling for one thing -- and `f("a": 1)` reads like a Map entry, which is what the
+			// same text means one bracket away in `[ "a": 1 ]`.
+			if (parsed is not DerefExpr)
+				Error("the name of a named argument must be an identifier or a '%expr%' dereference");
+
+			Advance();   // ':'
+			SkipNewlines();
+			var name = parsed;
+			parsed = ParseExpression(1);
+			return name;
+		}
+
+		// Whether any slot parsed so far is named -- what the ordering rules below are stated against. Counting the
+		// args rather than the seen-names set is what keeps dynamic names, which contribute no name to that set,
+		// subject to the same rules.
+		private static bool AnyNamed(List<Argument> args)
+		{
+			foreach (var a in args)
+				if (a.IsNamed)
+					return true;
+
+			return false;
+		}
+
+		// Named arguments always TRAIL the positional ones. Enforcing that here is what lets the runtime find them with a
+		// single test on the last element of the argument array, and keeps the reading order of a call site unambiguous.
+		private Argument NewArgSlot(Expr value, bool spread, string name, Expr nameExpr, List<Argument> args)
+		{
+			var named = name != null || nameExpr != null;
+
+			if (spread && named)
+				Error("a named argument cannot be spread with '*'");
+
+			if (!named && AnyNamed(args))
+				Error(spread ? "a spread argument cannot follow a named argument"
+							 : "a positional argument cannot follow a named argument");
+
+			return new Argument(value, spread, name, nameExpr);
+		}
+
 		// `[ … ]` is an array literal, or a map-creation literal `[k1: v1, k2: v2]` when a top-level `:` (not a ternary
 		// colon) appears before the first top-level `,`/`]`.
-		private Expr ParseArrayOrMap() => IsMapLiteral() ? ParseMap() : new ArrayExpr(ParseArgs(TokenKind.LBracket, TokenKind.RBracket));
+		private Expr ParseArrayOrMap() =>
+			IsMapLiteral() ? ParseMap()
+						   : new ArrayExpr(ParseArgs(TokenKind.LBracket, TokenKind.RBracket,
+													 "'name: value' is only a map-creation literal when it is the whole '[]' list"));
 
 		// Scans the bracketed group (from the '[') for a top-level ':' that is not consumed by a ternary '?'.
 		private bool IsMapLiteral()

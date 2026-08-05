@@ -76,7 +76,17 @@ namespace Keysharp.Parsing.Syntax
 	{
 		public readonly Expr Value;     // null => omitted (e.g. f(a,,b))
 		public readonly bool Spread;    // trailing * (variadic spread)
-		public Argument(Expr value, bool spread) { Value = value; Spread = spread; }
+		// `name: value` — a NAMED argument, bound to the callee's parameter of that name rather than by position.
+		// Null for a positional argument. Named arguments always trail the positional ones (the parser enforces it),
+		// which is what lets the runtime detect them with a single test on the last element of the argument array.
+		public readonly string Name;
+		// `%x%: value` / `a%b%c: value` — the name is computed at run time, exactly as an object literal's key is.
+		// Set INSTEAD of Name (never both), so `Name != null` still means "a name known at build time" and only
+		// that form can be checked against the callee's signature.
+		public readonly Expr NameExpr;
+		public bool IsNamed => Name != null || NameExpr != null;
+		public Argument(Expr value, bool spread, string name = null, Expr nameExpr = null)
+		{ Value = value; Spread = spread; Name = name; NameExpr = nameExpr; }
 	}
 
 	internal sealed class CallExpr : Expr
@@ -438,6 +448,8 @@ namespace Keysharp.Parsing.Syntax
 			foreach (var a in args)
 			{
 				sb.Append(' ');
+				if (a.Name != null) sb.Append(a.Name).Append(':');
+				else if (a.NameExpr != null) { Write(sb, a.NameExpr); sb.Append(':'); }
 				if (a.Value == null) sb.Append('_');
 				else { Write(sb, a.Value); if (a.Spread) sb.Append('*'); }
 			}

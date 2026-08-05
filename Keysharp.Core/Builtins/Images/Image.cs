@@ -84,7 +84,7 @@ namespace Keysharp.Builtins
 			/// </summary>
 			//`new`, not `override`: construction dispatches by name, so the real signature can be declared here
 			//and MinParams/MaxParams/named binding follow from it (see Buffer.__New and Any's constructor).
-			public new object __New(object Source = null)
+			public object __New(object Source = null)
 			{
 				if (Source != null)
 				{

@@ -56,7 +56,7 @@ namespace Keysharp.Builtins
 			// `new`, not `override`: construction dispatches by name, so the real signature is declared here and
 			// arity/defaults/named binding follow from it (see Buffer.__New and Any's constructor). The parameters
 			// are PascalCase on purpose: these names ARE script-facing API (`Highlight(Color: "Blue")`).
-			public new object __New(object X = null, object Y = null, object W = null, object H = null,
+			public object __New(object X = null, object Y = null, object W = null, object H = null,
 									object Color = null, object Thickness = null)
 			{
 				if (X != null) rx = X.Ai();

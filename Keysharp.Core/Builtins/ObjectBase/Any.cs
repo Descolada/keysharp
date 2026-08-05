@@ -76,13 +76,41 @@ namespace Keysharp.Builtins
 		{
 			InitializePrivates();
 			InitializeBase(GetType());
-			// User-code uses null args to indicate that they will call __Init and __New manually, so only call them if args is not null
+
+			// Initialization stays in ONE place, but resolves __New the same way script construction does --
+			// by NAME, most-derived first -- instead of through the virtual slot. That difference mattered: a
+			// type whose __New declares a real signature must declare it `new` rather than `override` (the base
+			// is `params object[]`), so a virtual call silently reached Any's no-op and produced a half-built
+			// object. Resolving by name also means any constructor may keep delegating `: base(args)` and still
+			// be initialized correctly, however many parameters it declares -- so there is no per-constructor
+			// duty to remember, and no silent failure when someone adds an overload.
+			//
+			// __Init runs first, then __New, matching AutoHotkey's construction contract and the order
+			// Class.Call uses for script construction. No BUILT-IN declares an __Init (AutoHotkey gives none of
+			// its prototypes one either), so for those the lookup below caches null and costs nothing.
 			if (args != null)
 			{
-				_ = __Init();
-				_ = __New(args);
+				InitFor(GetType())?.CallFunc(this, args);
+				NewFor(GetType())?.CallFunc(this, args);
 			}
 		}
+
+		// Per-type lifecycle methods, resolved once. Null for a type that declares none of its own, so those pay
+		// a single cached lookup and no call at all.
+		private static readonly ConcurrentDictionary<Type, MethodPropertyHolder> newByType = new();
+		private static readonly ConcurrentDictionary<Type, MethodPropertyHolder> initByType = new();
+
+		private static MethodPropertyHolder NewFor(Type t) => Resolve(newByType, t, "__New");
+
+		private static MethodPropertyHolder InitFor(Type t) => Resolve(initByType, t, "__Init");
+
+		private static MethodPropertyHolder Resolve(ConcurrentDictionary<Type, MethodPropertyHolder> cache, Type t, string name)
+			=> cache.GetOrAdd(t, static (ty, n) =>
+			{
+				var mi = MethodPropertyHolder.FindLifecycleMethod(ty, n);
+				// Any's own declarations are the no-op bases; treat "found only those" as "has none".
+				return mi == null || mi.DeclaringType == typeof(Any) ? null : MethodPropertyHolder.GetOrAdd(mi);
+			}, name);
 
 		// This finalizer is only called if __Delete exists in the prototype chain or the object is IDisposable
 		~Any()
@@ -207,6 +235,17 @@ namespace Keysharp.Builtins
 
 		internal bool HasOwnPropInternal(string name) => op != null && op.ContainsKey(name);
 
+		/// <summary>
+		/// Whether <paramref name="member"/> is a REGISTRATION-TIME member implementation: a function over a C#
+		/// method declared by a built-in type the instance actually derives from. A script redefinition is always
+		/// a function over a method declared by the lowered script assembly (or a plain value), which is what lets
+		/// the direct-<c>Call</c> shortcut in <c>InvokeOrNull</c>/<c>ResolveDirectCallTarget</c> tell an override
+		/// from the built-in it replaced.
+		/// </summary>
+		internal static bool IsBuiltinMember(object member, Type instanceType) =>
+			member is KeysharpFunc kf && kf.Mph?.mi is { } m
+			&& m.DeclaringType.Namespace != TheScript?.ProgramType?.Namespace
+			&& m.DeclaringType.IsAssignableFrom(instanceType);
 
 		// Internal method to notify of a property change, and to handle __Delete logic
 		internal virtual void OnPropertyChanged(string name, OwnPropsMapType type, bool selfChange = true, bool childHasOverride = false)

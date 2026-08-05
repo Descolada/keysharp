@@ -38,6 +38,11 @@ namespace Keysharp.Parsing.Syntax
 		// the class's own field list while lowering that class's members. `_staticFieldDeclIdx` indexes into THIS list.
 		private List<MemberDeclarationSyntax> _staticFieldSink;
 		private readonly Dictionary<string, string> _userFuncByLower = new(System.StringComparer.Ordinal);
+		// The same top-level functions, keeping their declarations so #Warn NamedArg can check a named argument
+		// against the callee's parameter list.
+		private readonly Dictionary<string, FunctionDecl> _userFuncDeclByLower = new(System.StringComparer.Ordinal);
+		// The same for classes, so a constructor call `MyClass(x: 1)` can be checked against __New's parameters.
+		private readonly Dictionary<string, ClassDecl> _userClassDeclByLower = new(System.StringComparer.Ordinal);
 		private readonly Dictionary<string, string> _userClassByLower = new(System.StringComparer.Ordinal);
 		private bool _inMethod;
 		private string _currentClassBase;   // base type name of the class being lowered (for `super`)
@@ -98,6 +103,10 @@ namespace Keysharp.Parsing.Syntax
 		// `#Warn` directive turns it on. A `#Warn` directive overrides these. `_warnDefaultMode` is the program-wide
 		// default mode applied by `#Warn On` / a bare `#Warn <Mode>` (default MsgBox, like AHK).
 		private string _warnVarUnset = "MsgBox", _warnUnreachable = "MsgBox", _warnLocalSameAsGlobal = null;
+		// NamedArg checks `f(Name: v)` against the callee's signature when the callee is a bare name. On by default
+		// (like VarUnset/Unreachable): the check is high-signal and its only false-positive shape is a script that
+		// reassigns a function name and calls the replacement by name.
+		private string _warnNamedArg = "MsgBox";
 		private string _warnDefaultMode = "MsgBox";
 		private bool _warnScopeIsGlobal;   // current VarUnset-analysis scope is the module top-level (else a function)
 		// Names provided at the module top-level. Keysharp resolves any bare name that isn't a local to a module-level
@@ -583,7 +592,7 @@ namespace Keysharp.Parsing.Syntax
 
 		private void ClearPerModuleState()
 		{
-			_fields.Clear(); _fieldDecls.Clear(); _staticFieldDeclIdx.Clear(); _userFuncByLower.Clear(); _userClassByLower.Clear();
+			_fields.Clear(); _fieldDecls.Clear(); _staticFieldDeclIdx.Clear(); _userFuncByLower.Clear(); _userFuncDeclByLower.Clear(); _userClassByLower.Clear(); _userClassDeclByLower.Clear();
 			_staticFieldSink = _fieldDecls;   // module scope until a class redirects it
 
 			_inlineAliases.Clear(); _wildcardModules.Clear(); _classFieldIds.Clear(); _emittedFuncImpls.Clear();
@@ -824,7 +833,7 @@ namespace Keysharp.Parsing.Syntax
 				// Only TOP-LEVEL functions are module-global. Nested functions (static or not) are scoped to their
 				// enclosing function — bound as local KeysharpFunc/Closure vars when that scope is lowered — so same-named
 				// nested functions in different scopes don't collide.
-				if (s is FunctionDecl fd) { _userFuncByLower[fd.Name.ToLowerInvariant()] = fd.Name; }
+				if (s is FunctionDecl fd) { _userFuncByLower[fd.Name.ToLowerInvariant()] = fd.Name; _userFuncDeclByLower[fd.Name.ToLowerInvariant()] = fd; }
 				else if (s is HotkeyDef { Func: { } hkf }) { _userFuncByLower[hkf.Name.ToLowerInvariant()] = hkf.Name; }
 				else if (s is HotstringDef { Func: { } hsf }) { _userFuncByLower[hsf.Name.ToLowerInvariant()] = hsf.Name; }
 				else if (s is ClassDecl cd) { RegisterClass(cd); }
@@ -1771,8 +1780,8 @@ namespace Keysharp.Parsing.Syntax
 		private void ApplyWarnDirective(string args)
 		{
 			args = (args ?? "").Trim();
-			if (args.Length == 0)   // bare `#Warn`: VarUnset + Unreachable on (default mode), LocalSameAsGlobal off.
-			{ _warnVarUnset = _warnUnreachable = _warnDefaultMode; _warnLocalSameAsGlobal = null; return; }
+			if (args.Length == 0)   // bare `#Warn`: VarUnset + Unreachable + NamedArg on (default mode), LSAG off.
+			{ _warnVarUnset = _warnUnreachable = _warnNamedArg = _warnDefaultMode; _warnLocalSameAsGlobal = null; return; }
 			int comma = args.IndexOf(',');
 			var typeStr = (comma < 0 ? args : args.Substring(0, comma)).Trim();
 			var modeStr = comma < 0 ? "" : args.Substring(comma + 1).Trim();
@@ -1780,21 +1789,23 @@ namespace Keysharp.Parsing.Syntax
 			if (comma < 0 && WarnModeNames.Contains(typeStr))
 			{
 				if (typeStr.Equals("On", System.StringComparison.OrdinalIgnoreCase))
-				{ _warnVarUnset = _warnUnreachable = _warnDefaultMode; return; }
+				{ _warnVarUnset = _warnUnreachable = _warnNamedArg = _warnDefaultMode; return; }
 				_warnDefaultMode = typeStr.Equals("Off", System.StringComparison.OrdinalIgnoreCase) ? null : CanonWarnMode(typeStr);
 				if (_warnVarUnset != null) _warnVarUnset = _warnDefaultMode;
 				if (_warnUnreachable != null) _warnUnreachable = _warnDefaultMode;
 				if (_warnLocalSameAsGlobal != null) _warnLocalSameAsGlobal = _warnDefaultMode;
+				if (_warnNamedArg != null) _warnNamedArg = _warnDefaultMode;
 				return;
 			}
 			var mode = modeStr.Length == 0 || modeStr.Equals("On", System.StringComparison.OrdinalIgnoreCase) ? _warnDefaultMode
 					 : modeStr.Equals("Off", System.StringComparison.OrdinalIgnoreCase) ? null : CanonWarnMode(modeStr);
 			switch (typeStr.ToLowerInvariant())
 			{
-				case "": case "all": _warnVarUnset = _warnUnreachable = _warnLocalSameAsGlobal = mode; break;
+				case "": case "all": _warnVarUnset = _warnUnreachable = _warnLocalSameAsGlobal = _warnNamedArg = mode; break;
 				case "varunset": _warnVarUnset = mode; break;
 				case "unreachable": _warnUnreachable = mode; break;
 				case "localsameasglobal": _warnLocalSameAsGlobal = mode; break;
+				case "namedarg": _warnNamedArg = mode; break;
 				default: Diag($"#Warn: unrecognized warning type '{typeStr}'"); break;
 			}
 		}
@@ -2326,17 +2337,23 @@ namespace Keysharp.Parsing.Syntax
 					// `obj.member[args]` folds the index into the member access (`GetPropertyValue(obj, "member", args)`)
 					// so the runtime routes the args to an index-property getter (`Prop[i] { get }`) — or indexes the
 					// member's value when it is a plain field. A bare `name[args]` / `expr[args]` stays a GetIndex.
+					// A spread index (`x[idx*]`, AHK's Alpha[Params*]) flattens into the params array like a call's
+					// arguments do. `[]` takes no named arguments of its own (the parser rejects them); a container
+					// a spread source carries simply rides through as a value, like any other element.
+					List<ExpressionSyntax> IdxArgs() =>
+						ix.Args.Any(ia => ia.Spread) ? new() { SpreadParams(ix.Args) } : LowerArgs(ix.Args);
+
 					if (!ix.NullConditional && ix.Target is MemberExpr { NullConditional: false } im)
 						return MayYieldUnset(im.Target)
-							? NullCondWrap(im.Target, tt => Op("GetPropertyValue", new[] { tt, Str(im.Name) }.Concat(LowerArgs(ix.Args)).ToArray()))
-							: Op("GetPropertyValue", new[] { LowerExpr(im.Target), Str(im.Name) }.Concat(LowerArgs(ix.Args)).ToArray());
+							? NullCondWrap(im.Target, tt => Op("GetPropertyValue", new[] { tt, Str(im.Name) }.Concat(IdxArgs()).ToArray()))
+							: Op("GetPropertyValue", new[] { LowerExpr(im.Target), Str(im.Name) }.Concat(IdxArgs()).ToArray());
 					if (!ix.NullConditional && ix.Target is DynMemberExpr { NullConditional: false } idm)
 						return MayYieldUnset(idm.Target)
-							? NullCondWrap(idm.Target, tt => Op("GetPropertyValue", new[] { tt, LowerExpr(idm.NameExpr) }.Concat(LowerArgs(ix.Args)).ToArray()))
-							: Op("GetPropertyValue", new[] { LowerExpr(idm.Target), LowerExpr(idm.NameExpr) }.Concat(LowerArgs(ix.Args)).ToArray());
+							? NullCondWrap(idm.Target, tt => Op("GetPropertyValue", new[] { tt, LowerExpr(idm.NameExpr) }.Concat(IdxArgs()).ToArray()))
+							: Op("GetPropertyValue", new[] { LowerExpr(idm.Target), LowerExpr(idm.NameExpr) }.Concat(IdxArgs()).ToArray());
 					return ix.NullConditional || MayYieldUnset(ix.Target)
-						? NullCondWrap(ix.Target, tt => Op("GetIndexOrNull", Cons(tt, LowerArgs(ix.Args))))
-						: Op("GetIndex", Cons(LowerExpr(ix.Target), LowerArgs(ix.Args)));
+						? NullCondWrap(ix.Target, tt => Op("GetIndexOrNull", Cons(tt, IdxArgs())))
+						: Op("GetIndex", Cons(LowerExpr(ix.Target), IdxArgs()));
 				case ArrayExpr ar:
 					var arArgs = ar.Elements.Any(el => el.Spread)
 						? SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(Arg(SpreadParams(ar.Elements))))
@@ -2418,6 +2435,10 @@ namespace Keysharp.Parsing.Syntax
 				{
 					ExpressionSyntax SetIndex(ExpressionSyntax target)
 					{
+						// `x[idx*] := v`: the flattened index and the value share SetObject's params array, value last.
+						if (ie.Args.Any(x => x.Spread))
+							return Op("SetObject", target, SpreadParams(ie.Args, trailing: LowerExpr(a.Value)));
+
 						var argv = new List<ExpressionSyntax> { target };
 						argv.AddRange(LowerArgs(ie.Args));
 						argv.Add(LowerExpr(a.Value));
@@ -2427,6 +2448,12 @@ namespace Keysharp.Parsing.Syntax
 						? NullCondWrap(ie.Target, SetIndex)
 						: SetIndex(LowerExpr(ie.Target));
 				}
+				// The compound forms capture each index into its own temp for the read-then-write; a spread would need
+				// its flattened array captured instead. Rare enough that an honest diagnostic beats silently indexing
+				// with the un-flattened array.
+				if (ie.Args.Any(x => x.Spread))
+				{ Diag($"compound assignment ('{a.Op}') with a spread index is not yet supported"); return Str(""); }
+
 				if (ie.NullConditional || MayYieldUnset(ie.Target))
 					return NullCondWrap(ie.Target, target =>
 					{
@@ -2618,6 +2645,9 @@ namespace Keysharp.Parsing.Syntax
 					write = Op("SetPropertyValue", Id(mt), Str(me.Name), Op(op, Op("GetPropertyValue", Id(mt), Str(me.Name)), Num("1")));
 					break;
 				case IndexExpr ie:
+					if (ie.Args.Any(x => x.Spread))
+					{ Diag($"'{u.Op}' with a spread index is not yet supported"); return Str(""); }
+
 					var it = NewTemp();
 					setup.Add(Assign(Id(it), LowerExpr(ie.Target)));
 					var idx = LowerArgs(ie.Args);
@@ -2670,8 +2700,116 @@ namespace Keysharp.Parsing.Syntax
 		private ExpressionSyntax LowerAllowingUnset(Expr e) =>
 			e is CallExpr call ? LowerCall(call, statement: true) : LowerExpr(e);
 
+		// #Warn NamedArg: check `f(Name: v)` against the callee's signature when the callee is a BARE NAME whose
+		// signature is knowable here -- a function declared in this compilation, or a built-in. Dispatch is by value at
+		// run time (a function name is an ordinary variable that could hold something else by the time the call runs),
+		// so this is a warning rather than an error; the binder re-checks and throws. It still catches a misspelling at
+		// build time across the whole built-in surface, which is where named arguments are most used.
+		private void CheckNamedArgs(CallExpr c)
+		{
+			if (_warnNamedArg == null || c.Callee is not NameExpr ne) return;
+
+			// Nothing to check unless the call actually names something. This runs for every bare-name call in the
+			// program, and resolving the callee below forces the callee's parameter map to be built -- so the test
+			// has to come before that work, not after it.
+			var named = false;
+
+			foreach (var a in c.Args)
+				if (a.Name != null) { named = true; break; }
+
+			// Only a name written literally is checkable. A call whose names are ALL dynamic (`f(%x%: 1)`) has
+			// nothing to compare against a signature, so it must not force the callee's parameter map to be built.
+			if (!named) return;
+
+			var lower = ne.Name.ToLowerInvariant();
+
+			// Shadowed by a local/param/closure: it isn't the declared function at all.
+			if (IsDeclaredLocal(lower) || _scopeClosureNames?.Contains(lower) == true) return;
+
+			// The names the callee accepts, in parameter order -- the ordering matters, because a name resolving to
+			// a position the positional arguments already covered is the "supplied twice" case.
+			List<string> names;
+
+			// A VARIADIC callee absorbs any name it does not declare and hands it on (see NamedArgBinder.Bind), so
+			// there is nothing to warn about: whatever it forwards to is not visible from here.
+			if (_userFuncDeclByLower.TryGetValue(lower, out var fd))
+			{
+				if (fd.Params.Any(p => p.Variadic)) return;
+
+				names = fd.Params.Select(p => p.Name).ToList();
+			}
+			// `MyClass(x: 1)` constructs, so the names are __New's. The declaration carries no receiver -- `this` is
+			// prepended when the method is lowered -- so these line up with the call's arguments as written.
+			else if (_userClassDeclByLower.TryGetValue(lower, out var cd)
+					 && cd.Methods.FirstOrDefault(m => m.Name.Equals("__New", System.StringComparison.OrdinalIgnoreCase)) is { } ctor)
+			{
+				if (ctor.Params.Any(p => p.Variadic)) return;
+
+				names = ctor.Params.Select(p => p.Name).ToList();
+			}
+			else if (Script.TheScript.ReflectionsData.flatPublicStaticMethods.TryGetValue(lower, out var mi))
+			{
+				// The SAME MethodPropertyHolder the runtime binder will use, so the two cannot disagree about which
+				// names are bindable (the receiver and the variadic tail are excluded there, once). Any variadic
+				// absorbs whatever it does not declare, so only a name that cannot be a declared parameter of a
+				// NON-variadic callee is checkable here.
+				var mph = Keysharp.Internals.Invoke.MethodPropertyHolder.GetOrAdd(mi);
+
+				if (mph.variadicParamIndex >= 0) return;
+
+				// ParamScan, not ParamIndexByName: the map can hold TWO spellings for one parameter ([UserDeclaredName]
+				// aliases), and a list index over it would no longer be a parameter position -- shifting the
+				// supplied-twice check for every name after an alias. The scan has one canonical entry per slot.
+				names = mph.ParamScan.Where(e => !e.Variadic).Select(e => e.Name).ToList();
+			}
+			// `Buffer(nosuch: 1)` constructs a BUILT-IN class: the names are its __New's, exactly as the
+			// user-class branch above reads a declared __New. Checked last so a user declaration shadowing a
+			// built-in name wins, mirroring runtime resolution order.
+			else if (Script.TheScript.Vars.classTypesByName.TryGetValue(lower, out var bt)
+					 && Keysharp.Internals.Invoke.MethodPropertyHolder.FindConstructor(bt) is { } ctorMi)
+			{
+				var mph = Keysharp.Internals.Invoke.MethodPropertyHolder.GetOrAdd(ctorMi);
+
+				if (mph.variadicParamIndex >= 0) return;
+
+				// ParamScan, not ParamIndexByName: the map can hold TWO spellings for one parameter ([UserDeclaredName]
+				// aliases), and a list index over it would no longer be a parameter position -- shifting the
+				// supplied-twice check for every name after an alias. The scan has one canonical entry per slot.
+				names = mph.ParamScan.Where(e => !e.Variadic).Select(e => e.Name).ToList();
+			}
+			else return;
+
+			var at = ExprAnchor(c);   // carries the file too, so an #included call site reports its own path
+			// Positional arguments cover the leading parameters one for one -- but an OMITTED slot (`f(, x: 1)`)
+			// supplied nothing, so a name is entitled to fill it; only a slot holding a real value collides. A
+			// spread's length is unknowable here, so the collision half of the check is skipped when one appears.
+			// `!IsNamed`, not `Name == null`: a dynamically named slot supplies a parameter by name, so counting it as
+			// positional here would have it collide with a literal name that legitimately fills a later parameter.
+			var positional = c.Args.Any(a => a.Spread) ? 0 : c.Args.Count(a => !a.IsNamed);
+
+			foreach (var a in c.Args)
+			{
+				// Dynamic names carry no literal to match; the runtime binder is what checks those.
+				if (a.Name == null)
+					continue;
+
+				var at1 = names.FindIndex(n => string.Equals(n, a.Name, System.StringComparison.OrdinalIgnoreCase));
+
+				// The same two messages the runtime binder raises, from the same builders -- the warning and the
+				// error a script hits for one mistake must not read differently.
+				if (at1 < 0)
+					Warn(_warnNamedArg, at?.Line ?? 0,
+						 Keysharp.Internals.Invoke.NamedArgBinder.UnknownNameMessage(a.Name, ne.Name, names), at?.File);
+				else if (at1 < positional && c.Args[at1].Value != null)
+					Warn(_warnNamedArg, at?.Line ?? 0,
+						 Keysharp.Internals.Invoke.NamedArgBinder.SuppliedTwiceMessage(a.Name, ne.Name), at?.File);
+			}
+		}
+
 		private ExpressionSyntax LowerCall(CallExpr c, bool statement)
 		{
+			if (c.Args.Count != 0) CheckNamedArgs(c);
+
 			// IsSet(member/index/call) must not throw on an unset target — rewrite the arg to its *OrNull form.
 			bool isSet = c.Callee is NameExpr ne && ne.Name.Equals("IsSet", System.StringComparison.OrdinalIgnoreCase)
 				&& c.Args.Count == 1 && c.Args[0].Value != null && !c.Args[0].Spread;
@@ -2717,26 +2855,80 @@ namespace Keysharp.Parsing.Syntax
 			_ => Op("ForceString", LowerExpr(key))
 		};
 
-		// Builds a collection expression for an argument list containing a spread, e.g. `[a, ..FlattenParam(arr), b]`.
-		// Targets a params object[]: normal args are expression elements, `arr*` becomes `..FlattenParam(arr)`.
-		private ExpressionSyntax SpreadParams(List<Argument> args)
+		// Builds a collection expression for an argument list containing a spread.
+		// Targets a params object[]: normal args are expression elements, `arr*` becomes a spread element.
+		//
+		// A spread re-emits whatever its source carries, named arguments included -- that is the whole forwarding
+		// story, and it is why no shape here needs a repair pass or an order check. The parser keeps a spread from
+		// following a named argument, so the container NamedArgs() builds still lands last.
+		//
+		// `trailing` appends one extra expression after everything (SetObject wants the assigned value after the
+		// flattened index).
+		private ExpressionSyntax SpreadParams(List<Argument> args, ExpressionSyntax trailing = null)
 		{
-			var elems = args.Select(a =>
-				a.Spread
-					? (CollectionElementSyntax)SyntaxFactory.SpreadElement(Op("FlattenParam", a.Value == null ? Null : LowerExpr(a.Value)))
-					: SyntaxFactory.ExpressionElement(a.Value == null ? Null : LowerExpr(a.Value)));
+			var elems = new List<CollectionElementSyntax>();
+			var positional = SplitNamed(args, out var named);
+
+			foreach (var a in positional)
+				elems.Add(a.Spread
+						  ? SyntaxFactory.SpreadElement(Op("FlattenValues", a.Value == null ? Null : LowerExpr(a.Value)))
+						  : SyntaxFactory.ExpressionElement(a.Value == null ? Null : LowerExpr(a.Value)));
+
+			if (named != null)
+				elems.Add(SyntaxFactory.ExpressionElement(NamedArgsOf(named)));
+
+			if (trailing != null)
+				elems.Add(SyntaxFactory.ExpressionElement(trailing));
+
 			return SyntaxFactory.CollectionExpression(SyntaxFactory.SeparatedList(elems));
 		}
 
 		private List<ExpressionSyntax> LowerArgs(List<Argument> args)
 		{
 			var list = new List<ExpressionSyntax>();
-			foreach (var a in args)
-			{
-				if (a.Value == null) { list.Add(Null); continue; }   // omitted argument -> null (runtime treats as unset)
-				list.Add(LowerExpr(a.Value));
-			}
+			var positional = SplitNamed(args, out var named);
+
+			foreach (var a in positional)
+				list.Add(a.Value == null ? Null : LowerExpr(a.Value));   // omitted argument -> null (runtime treats as unset)
+
+			if (named != null)
+				list.Add(NamedArgsOf(named));
+
 			return list;
+		}
+
+		// Splits an argument list at its first NAMED argument, which the parser has already kept trailing. Returns
+		// the positional head; `named` is null when the call names nothing, which is every ordinary call.
+		private static List<Argument> SplitNamed(List<Argument> args, out List<Argument> named)
+		{
+			for (var i = 0; i < args.Count; i++)
+				if (args[i].IsNamed)
+				{
+					named = args.GetRange(i, args.Count - i);
+					return args.GetRange(0, i);
+				}
+
+			named = null;
+			return args;
+		}
+
+		// One `Script.NamedArgs("n1", v1, "n2", v2)` carrying every name of a call, which the callers above append
+		// LAST. That is what lets the runtime find a call's names with a single test on the last element, and every
+		// forwarding hop -- a spread, a variadic collection, Func.Bind -- pass them along without knowing they are
+		// there. Lowered after the positional arguments so the call still evaluates left to right.
+		private ExpressionSyntax NamedArgsOf(List<Argument> named)
+		{
+			var nameValues = new List<ExpressionSyntax>(named.Count * 2);
+
+			foreach (var a in named)
+			{
+				// A dynamic name (`%x%: v`) is lowered exactly as the same text lowers as an object-literal key, so
+				// the two forms cannot drift apart in what they compute or in how a non-string result is coerced.
+				nameValues.Add(a.Name != null ? Str(a.Name) : KeyToString(a.NameExpr));
+				nameValues.Add(LowerExpr(a.Value));
+			}
+
+			return Op("NamedArgs", nameValues.ToArray());
 		}
 
 		// ---- control flow ----
@@ -3140,6 +3332,7 @@ namespace Keysharp.Parsing.Syntax
 			var lower = outerLower == null ? c.Name.ToLowerInvariant() : outerLower + "." + c.Name.ToLowerInvariant();
 			var typeName = outerType == null ? NameMangler.ClassType(c.Name) : outerType + "." + NameMangler.ClassType(c.Name);
 			_userClassByLower[lower] = typeName;
+			_userClassDeclByLower[lower] = c;
 			if (outerLower == null)   // only top-level classes get a global slot field; nested ones are static props of the parent
 			{
 				var id = NameMangler.Escape(lower);
@@ -3785,7 +3978,8 @@ namespace Keysharp.Parsing.Syntax
 			if (includeThis) list.Add(ThisParam());
 			foreach (var p in ps)
 			{
-				var ident = SyntaxFactory.Identifier(NameMangler.Escape(p.Name.ToLowerInvariant()));
+				var lowered = p.Name.ToLowerInvariant();
+				var ident = SyntaxFactory.Identifier(NameMangler.Escape(lowered));
 				ParameterSyntax param;
 				if (p.Variadic)
 					param = SyntaxFactory.Parameter(wrapVariadics ? SyntaxFactory.Identifier(VariadicRawName(p.Name)) : ident)
@@ -3793,6 +3987,15 @@ namespace Keysharp.Parsing.Syntax
 				else
 				{
 					param = SyntaxFactory.Parameter(ident).WithType(ObjType);
+					// The emitted identifier is lower-cased, and named-argument binding then matches it
+					// case-insensitively -- which works for every identifier whose case folds symmetrically. A few do
+					// not: U+1E9E LATIN CAPITAL LETTER SHARP S lower-cases to U+00DF, which OrdinalIgnoreCase does NOT
+					// match back, so `f(ẞ: 1)` would fail to find its own parameter. Worse, which characters behave this
+					// way depends on the runtime's Unicode tables (ICU vs NLS), so it cannot be enumerated here.
+					// When the fold does not round-trip, carry the user's spelling so the name written in the script
+					// binds regardless. Emitted rarely -- an ordinary `Foo`/`foo` pair round-trips fine.
+					if (!string.Equals(p.Name, lowered, System.StringComparison.OrdinalIgnoreCase))
+						param = param.AddAttributeLists(Attr("Keysharp.Runtime.UserDeclaredName", Str(p.Name)));
 					if (p.ByRef) param = param.AddAttributeLists(Attr("Keysharp.Runtime.ByRef"));   // &name: receives a VarRef
 					// Optionality is independent of by-ref: `&name?` / `&name:=v` are optional by-ref params, so the
 					// [Optional]/[DefaultParameterValue] attributes must still be applied (else the runtime counts them

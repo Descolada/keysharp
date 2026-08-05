@@ -26,22 +26,40 @@ namespace Keysharp.Builtins
 		public static object staticCall(object @this, object value) => value.As(DefaultObject);
 
 		/// <summary>
-		/// Determines if a string starts with a given string, using the current culture.
+		/// Determines whether a string starts with a given string.
 		/// </summary>
-		/// <param name="str">The string to examine the start of.</param>
-		/// <param name="str2">The string to search for.</param>
-		/// <param name="ignoreCase">True to ignore case, else case sensitive. Default: case sensitive.</param>
-		/// <returns>1 if str started with str2, else 0.</returns>
-		public static long StartsWith(object str, object str2, object ignoreCase = null) => str.As().StartsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
+		/// <param name="this">The string to examine the start of.</param>
+		/// <param name="token">The string to search for.</param>
+		/// <param name="caseSense">If omitted, it defaults to Off (case-insensitive). Otherwise, one of:<br/>
+		///     On/1/True: case-sensitive, culture-invariant.<br/>
+		///     Off/0/False: case-insensitive, culture-invariant.<br/>
+		///     Locale: case-sensitive, compared according to the current user's locale.
+		/// </param>
+		/// <returns>1 if the string started with <paramref name="token"/>, else 0.</returns>
+		public static long StartsWith(object @this, object token, object caseSense = null) =>
+			@this.As().StartsWith(token.As(), CaseSenseComparison(caseSense)) ? 1L : 0L;
 
 		/// <summary>
-		/// Determines if a string ends with a given string, using the current culture.
+		/// Determines whether a string ends with a given string.
 		/// </summary>
-		/// <param name="str">The string to examine the end of.</param>
-		/// <param name="str2">The string to search for.</param>
-		/// <param name="ignoreCase">True to ignore case, else case sensitive. Default: case sensitive.</param>
-		/// <returns>1 if str ended with str2, else 0.</returns>
-		public static long EndsWith(object str, object str2, object ignoreCase = null) => str.As().EndsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
+		/// <param name="this">The string to examine the end of.</param>
+		/// <param name="token">The string to search for.</param>
+		/// <param name="caseSense">See <see cref="StartsWith"/>.</param>
+		/// <returns>1 if the string ended with <paramref name="token"/>, else 0.</returns>
+		public static long EndsWith(object @this, object token, object caseSense = null) =>
+			@this.As().EndsWith(token.As(), CaseSenseComparison(caseSense)) ? 1L : 0L;
+
+		/// <summary>
+		/// The comparison mode for a <c>CaseSense</c> argument, routed through the same helper InStr and StrCompare
+		/// use rather than inventing a second convention: omitted or Off is case-INSENSITIVE, On/1/True is
+		/// case-sensitive, and both are Ordinal (culture-invariant); only the explicit <c>Locale</c> option
+		/// consults the current culture, and it compares case-sensitively.
+		/// </summary>
+		private static StringComparison CaseSenseComparison(object caseSense)
+		{
+			var opt = caseSense.As();
+			return opt.Length != 0 ? Conversions.ParseComparisonOption(opt) : StringComparison.OrdinalIgnoreCase;
+		}
 	}
 
 	public class Number : Primitive

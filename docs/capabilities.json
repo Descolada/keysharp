@@ -528,7 +528,18 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Enables warnings (VarUnset, Unreachable, LocalSameAsGlobal); opt-in to avoid blocking the headless host."
+                     "notes":  "Enables warnings (VarUnset, Unreachable, LocalSameAsGlobal, NamedArg); VarUnset, Unreachable and NamedArg are on by default."
+                 },
+                 {
+                     "category":  "Environment/System",
+                     "feature":  "#Warn NamedArg",
+                     "syntax":  "#Warn NamedArg, Off",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Keysharp extension. Checks a named argument against the callee's signature at build time when the callee is a bare name. On by default; dispatch is by value at run time so it is a warning, and the binder re-checks and throws.",
+                     "tested-by":  "func-named-params.ahk"
                  },
                  {
                      "category":  "Environment/System",
@@ -737,6 +748,28 @@
                      "macos":  "full",
                      "notes":  "Assignment operator",
                      "tested-by":  "assign-var.ahk"
+                 },
+                 {
+                     "category":  "Core Language",
+                     "feature":  "Func.Params",
+                     "syntax":  "Params := FuncObj.Params",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Keysharp extension. An Array describing the function's parameters (Name, Index, Optional, ByRef, Variadic, and Default when there is a real one). Reports exactly the names named-argument binding uses, excluding the receiver, internal parameters, and a bound function's already-bound ones. Unset when the parameters cannot be known (ObjBindMethod).",
+                     "tested-by":  "func-named-params.ahk"
+                 },
+                 {
+                     "category":  "Core Language",
+                     "feature":  "Named parameters",
+                     "syntax":  "f(a, Name: value)",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Keysharp extension. Binds an argument to the callee's parameter of that name instead of by position; must trail the positional arguments. Works for script functions, built-ins, methods, constructors (built-in classes included: Buffer(ByteCount: 16), Error(Message: msg)), bound functions, COM objects (via IDispatch DISPIDs) and Clr calls (where they also drive overload selection). Not available in '[]' (that is the map literal), and not for the receiver. A call's named arguments travel as one first-class value (Ks.NamedArgs, a case-insensitive Map whose keys are the names; the last argument slot is reserved for it): any variadic parameter collects the ones it does not declare as an ordinary trailing element and a variadic call re-emits it, so a wrapper forwards names without knowing they exist, and NamedArgs(name, value) — imported from the Ks module — makes a named call dynamically; a variadic that consumes its tail as values (Format, Push, Max) receives it as data. See #Warn NamedArg.",
+                     "tested-by":  "func-named-params.ahk"
                  },
                  {
                      "category":  "Core Language",
@@ -3178,7 +3211,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Keysharp-specific Array method.",
+                     "notes":  "Keysharp-specific Array method. Omitting the value searches for an element which has no value.",
                      "tested-by":  "collections-array.ahk"
                  },
                  {
@@ -3255,7 +3288,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Returns the index of the first occurrence of a value.",
+                     "notes":  "Returns the index of the first occurrence of a value. Omitting the value searches for an element which has no value. An out of bounds StartIndex (0, or an absolute value exceeding the length) throws an IndexError, like the sibling FindIndex; an empty array returns 0.",
                      "tested-by":  "collections-array.ahk"
                  },
                  {
@@ -3354,7 +3387,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Keysharp-specific Array method.",
+                     "notes":  "Keysharp-specific Array method. Removes the first occurrence of the value and returns true if one was found and removed, else false. Omitting the value removes the first element which has no value.",
                      "tested-by":  "collections-array.ahk"
                  },
                  {
@@ -8090,7 +8123,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "The OutputDebug function sends a string to the debugger (if any) for display.",
+                     "notes":  "The OutputDebug function sends a string to the debugger (if any) for display. Ks.OutputDebugLine additionally takes a flag to clear the debug output.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -9364,7 +9397,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Returns whether a string ends with the specified suffix.",
+                     "notes":  "Returns whether a string ends with the specified suffix. The CaseSense parameter matches InStr; comparisons are culture-invariant unless the Locale option is given.",
                      "tested-by":  "string-startsendswith.ahk"
                  },
                  {
@@ -9375,7 +9408,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Returns whether a string starts with the specified prefix.",
+                     "notes":  "Returns whether a string starts with the specified prefix. The CaseSense parameter matches InStr; comparisons are culture-invariant unless the Locale option is given.",
                      "tested-by":  "string-startsendswith.ahk"
                  },
                  {

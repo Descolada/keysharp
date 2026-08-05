@@ -11,7 +11,9 @@ namespace Keysharp.Runtime
 	{
         public LazyDictionary<Type, Prototype> Prototypes = new();
 		public LazyDictionary<Type, Class> Statics = new();
-		private readonly Dictionary<string, Type> classTypesByName = new(StringComparer.OrdinalIgnoreCase);
+		// Internal rather than private: Lowerer.CheckNamedArgs resolves a bare built-in class name to its type so
+		// `#Warn NamedArg` can check a constructor call (`Buffer(nosuch: 1)`) against __New's parameter names.
+		internal readonly Dictionary<string, Type> classTypesByName = new(StringComparer.OrdinalIgnoreCase);
         internal List<(string, bool)> preloadedDlls = [];
 		internal DateTime startTime = DateTime.UtcNow;
 		private readonly OrderedDictionary<Type, Dictionary<string, MethodPropertyHolder>> moduleVars;

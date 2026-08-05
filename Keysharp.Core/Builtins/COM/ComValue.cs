@@ -153,6 +153,7 @@ namespace Keysharp.Builtins.COM
 
 		object IMetaObject.Call(string name, object[] args) => RawInvokeMethod(name, args);
 
+		// IDispatch resolves argument names to parameter DISPIDs; see RawInvokeMethod.
 		object IMetaObject.get_Item(object[] indexArgs) => get_Item(indexArgs);
 		void IMetaObject.set_Item(object[] indexArgs, object value) => set_Item(indexArgs, value);
 
@@ -322,12 +323,31 @@ namespace Keysharp.Builtins.COM
 		{
 			ParameterModifier[] modifiers = null;
 			Dictionary<int, object> refs = [];
+			int hr, dispId;
+			int[] namedDispIds = null;
+			// Named arguments (`obj.Method(Key: v)`) travel as a trailing container. IDispatch takes them
+			// natively, so resolve each name to its parameter DISPID alongside the member name and unwrap the values
+			// in place -- the trailing layout is exactly right, because rgvarg is filled in REVERSE, which puts the
+			// named values at the front of rgvarg where DISPPARAMS.rgdispidNamedArgs expects them.
+			inputParameters = Keysharp.Internals.Invoke.NamedArgBinder.StripNames(inputParameters, out var argNames);
 
-			// Get DISPID
-			int hr = RawGetIDsOfNames(methodName, out int dispId);
-			if (hr < 0)
+			if (argNames.Length != 0)
 			{
-				return Errors.ErrorOccurred($"Method '{methodName}' not found (HRESULT: 0x{hr:X8})");
+				hr = RawGetIDsOfNames(methodName, argNames, out dispId, out var ids);
+
+				if (hr < 0)
+					return Errors.ErrorOccurred($"Method '{methodName}' or one of its named arguments ({string.Join(", ", argNames)}) was not found (HRESULT: 0x{hr:X8})");
+
+				// rgdispidNamedArgs is parallel to the FRONT of rgvarg, which holds the named values in reverse of
+				// their source order -- so the DISPIDs are reversed to match.
+				namedDispIds = ids.Reverse().ToArray();
+			}
+			else
+			{
+				hr = RawGetIDsOfNames(methodName, out dispId);
+
+				if (hr < 0)
+					return Errors.ErrorOccurred($"Method '{methodName}' not found (HRESULT: 0x{hr:X8})");
 			}
 
 			if (inputParameters.Length > 0)
@@ -345,15 +365,20 @@ namespace Keysharp.Builtins.COM
 				modifiers = [pm];
 			}
 
-			hr = RawInvoke(dispId, INVOKEKIND.INVOKE_FUNC, inputParameters, out object result, expectedTypes: null, modifiers: modifiers);
+			hr = RawInvoke(dispId, INVOKEKIND.INVOKE_FUNC, inputParameters, out object result, expectedTypes: null, modifiers: modifiers, namedDispIds: namedDispIds);
 			if (hr == unchecked((int)0x80020003) /*DISP_E_MEMBERNOTFOUND*/)
-				hr = RawInvoke(dispId, INVOKEKIND.INVOKE_FUNC | INVOKEKIND.INVOKE_PROPERTYGET, inputParameters, out result, expectedTypes: null, modifiers: modifiers);
+				hr = RawInvoke(dispId, INVOKEKIND.INVOKE_FUNC | INVOKEKIND.INVOKE_PROPERTYGET, inputParameters, out result, expectedTypes: null, modifiers: modifiers, namedDispIds: namedDispIds);
 
-			// SLOW PATH (only on conversion-ish failures): query type info and retry.
-			if (hr == unchecked((int)0x80020005) /*DISP_E_TYPEMISMATCH*/ ||
+			// SLOW PATH (only on conversion-ish failures): query type info and retry. Positional calls only: the
+			// coercion below applies expectedTypes[i]/modifiers[i] to the argument at SOURCE index i, but a named
+			// argument's value does not bind parameter i -- its DISPID says where it goes -- so the retry would
+			// coerce values against the wrong parameters' types. The target already saw the un-coerced values once;
+			// for a named call its verdict stands.
+			if (namedDispIds == null && (
+				hr == unchecked((int)0x80020005) /*DISP_E_TYPEMISMATCH*/ ||
 				hr == unchecked((int)0x80020008) /*DISP_E_BADVARTYPE*/   ||
 				hr == unchecked((int)0x80020004) /*DISP_E_PARAMNOTFOUND*/||
-				hr == unchecked((int)0x8002000A) /*DISP_E_OVERFLOW*/)
+				hr == unchecked((int)0x8002000A) /*DISP_E_OVERFLOW*/))
 			{
 				// First restore the parameter list
 				foreach (var kvp in refs)
@@ -377,7 +402,7 @@ namespace Keysharp.Builtins.COM
 				}
 
 				// Invoke
-				hr = RawInvoke(dispId, invokeKind, inputParameters, out result, expectedTypes, modifiers);
+				hr = RawInvoke(dispId, invokeKind, inputParameters, out result, expectedTypes, modifiers, namedDispIds);
 			}
 
 
@@ -504,6 +529,57 @@ namespace Keysharp.Builtins.COM
 		internal const uint FDEX_NAME_DYNAMIC = 0x00000004;
 		internal const uint FDEX_NAME_ENSURE = 0x00000002; // often used synonymously with IMMEDIATE
 
+		/// <summary>
+		/// Resolves a member name plus the names of its named arguments in one IDispatch::GetIDsOfNames call, which
+		/// is how the interface is meant to be used: the member name is names[0] and each argument name follows,
+		/// yielding the per-parameter DISPIDs that go into DISPPARAMS.rgdispidNamedArgs.
+		/// <para>
+		/// A target that cannot resolve a name (no type information, or simply no such parameter) fails here rather
+		/// than silently mis-binding, which is the behaviour named arguments need.
+		/// </para>
+		/// </summary>
+		internal unsafe int RawGetIDsOfNames(string memberName, IReadOnlyList<string> argNames, out int dispId, out int[] argDispIds)
+		{
+			dispId = 0;
+			argDispIds = null;
+			var vtbl = GetDispatchVtbl();
+
+			if (vtbl == null)
+				return -1;
+
+			var count = 1 + argNames.Count;
+			var ids = new int[count];
+			var ptrs = new nint[count];
+			nint ptr = new((long)Ptr);
+			Guid iidNull = Guid.Empty;
+
+			try
+			{
+				ptrs[0] = Marshal.StringToCoTaskMemUni(memberName);
+
+				for (var i = 0; i < argNames.Count; i++)
+					ptrs[i + 1] = Marshal.StringToCoTaskMemUni(argNames[i]);
+
+				int hr;
+
+				fixed (nint* pNames = ptrs)
+				fixed (int* pIds = ids)
+					hr = vtbl->GetIDsOfNames(ptr, &iidNull, (nint*)pNames, (uint)count, Com.LOCALE_USER_DEFAULT, pIds);
+
+				if (hr < 0)
+					return hr;
+
+				dispId = ids[0];
+				argDispIds = ids[1..];
+				return hr;
+			}
+			finally
+			{
+				foreach (var p in ptrs)
+					if (p != 0) Marshal.FreeCoTaskMem(p);
+			}
+		}
+
 		internal unsafe int RawGetIDsOfNames(string name, out int dispId)
 		{
 			dispId = 0;
@@ -563,13 +639,19 @@ namespace Keysharp.Builtins.COM
 			}
 		}
 
+		/// <param name="namedDispIds">
+		/// Parameter DISPIDs for a call using named arguments, already ordered to match the FRONT of rgvarg (which
+		/// is filled in reverse, so these are the reverse of the arguments' source order). Null for a purely
+		/// positional call. See RawInvokeMethod.
+		/// </param>
 		internal unsafe int RawInvoke(
 			int dispId,
 			INVOKEKIND flags,
 			object[] args,
 			out object result,
 			Type[] expectedTypes = null,
-			ParameterModifier[] modifiers = null)
+			ParameterModifier[] modifiers = null,
+			int[] namedDispIds = null)
 		{
 			result = null;
 			var vtbl = GetDispatchVtbl();
@@ -584,6 +666,10 @@ namespace Keysharp.Builtins.COM
 
 			nint pArgs = 0;
 			nint pDispParams = Marshal.AllocHGlobal(Marshal.SizeOf<DISPPARAMS>());
+			// Zeroed IMMEDIATELY: the finally below reads DISPPARAMS back from this block to free the variants, and
+			// any throw before the real StructureToPtr (argument conversion, the named+PROPERTYPUT guard) would
+			// otherwise have it walk a garbage cArgs over wild rgvarg pointers.
+			Marshal.StructureToPtr(new DISPPARAMS(), pDispParams, false);
 			nint pResult = wantsResult ? Marshal.AllocHGlobal(Marshal.SizeOf<VARIANT>()) : 0;
 			nint pExcepInfo = Marshal.AllocHGlobal(Marshal.SizeOf<EXCEPINFO>());
 			nint pArgErr = Marshal.AllocHGlobal(sizeof(uint));
@@ -678,12 +764,32 @@ namespace Keysharp.Builtins.COM
 				dispParams.rgdispidNamedArgs = 0;
 				dispParams.cNamedArgs = 0;
 
+				// ---- Named arguments (`obj.Method(Key: v)`) ----
+				// rgvarg is filled in reverse above, so the trailing named values landed at its front, which is
+				// exactly where DISPPARAMS requires the named ones; namedDispIds is already reversed to match.
+				if (namedDispIds != null && namedDispIds.Length > 0)
+				{
+					pNamed = Marshal.AllocHGlobal(sizeof(int) * namedDispIds.Length);
+
+					for (var i = 0; i < namedDispIds.Length; i++)
+						Marshal.WriteInt32(pNamed, i * sizeof(int), namedDispIds[i]);
+
+					dispParams.rgdispidNamedArgs = pNamed;
+					dispParams.cNamedArgs = namedDispIds.Length;
+				}
+
 				// ---- SPECIAL: PROPERTYPUT / PROPERTYPUTREF ----
 				bool isPut = (flags & INVOKEKIND.INVOKE_PROPERTYPUT) != 0;
 				bool isPutRef = (flags & INVOKEKIND.INVOKE_PROPERTYPUTREF) != 0;
 
 				if (isPut || isPutRef)
 				{
+					// A property put owns rgdispidNamedArgs for DISPID_PROPERTYPUT, so it cannot also carry
+					// per-parameter named DISPIDs. Nothing forwards both today; assert rather than leak the block
+					// allocated above and silently discard the names if a future caller tries.
+					if (namedDispIds != null && namedDispIds.Length > 0)
+						throw new ValueError("Named arguments are not supported when setting a COM property.");
+
 					// Must provide one named arg: DISPID_PROPERTYPUT
 					pNamed = Marshal.AllocHGlobal(sizeof(int));
 					Marshal.WriteInt32(pNamed, Com.DISPID_PROPERTYPUT);

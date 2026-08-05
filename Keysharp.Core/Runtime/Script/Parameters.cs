@@ -3,17 +3,27 @@ namespace Keysharp.Runtime
 {
 	public partial class Script
 	{
-		public static object[] FlattenParam(object obj)
+		/// <summary>
+		/// The elements of a spread source (<c>f(arr*)</c>, <c>[arr*]</c>). Named arguments need no handling of
+		/// their own: a collected variadic carries them as ordinary trailing elements, so spreading it re-emits
+		/// them in place -- which is the whole forwarding story for <c>w(args*) =&gt; inner(args*)</c>.
+		/// </summary>
+		public static object[] FlattenValues(object obj)
 		{
 			var ke = Loops.MakeEnumerator(obj, 1L);
 
 			if (ke is object && IsCallable(ke))
 			{
+				// Driven exactly the way MakeEnumerable drives a for-loop: one VarRef and one argument array for the
+				// whole run, calling the normalized Enumerator directly. Invoke-by-name per element would re-resolve
+				// "Call" and allocate a fresh params array every iteration for the same dispatch the for-loop
+				// already performs without either.
 				var l = new List<object>();
 				object v1 = null;
 				VarRef vf = new VarRef(v1);
+				var callArgs = new object[] { vf };
 
-				while (Invoke(ke, "Call", vf).IsCallbackResultNonEmpty())
+				while (ke.Call(callArgs).IsCallbackResultNonEmpty())
 					l.Add(vf.__Value);
 
 				return l.ToArray();
@@ -36,6 +46,14 @@ namespace Keysharp.Runtime
 			else
 				return [obj];
 		}
+
+		/// <summary>
+		/// The `name: value` arguments of one call, as name/value pairs. Emitted by the lowerer as the call's LAST
+		/// argument, so named arguments ride in the ordinary argument array and every forwarding hop passes them
+		/// through untouched; they are folded into positional slots where the callee's parameter list is finally
+		/// known.
+		/// </summary>
+		public static object NamedArgs(params object[] nameValuePairs) => new Ks.NamedArgs(nameValuePairs);
 
 		public static object Parameter(object[] values, object def, int index) => index < values.Length ? values[index] : def;
 

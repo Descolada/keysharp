@@ -29,6 +29,9 @@ namespace Keysharp.Builtins
 		///     An object[] of key,value pairs.
 		/// </param>
 		/// <returns>A new <see cref="KeysharpObject"/> object.</returns>
+		// Constructing a user class relays its arguments through Class.Call to __New, so a named argument names one
+		// of __New's parameters rather than one of this method's -- the container rides the tail of args and binds
+		// where __New's signature is known.
 		public static object staticCall(object @this, params object[] args)
 		{
 			if (@this is not Class cls)
@@ -38,17 +41,30 @@ namespace Keysharp.Builtins
 			if (kso.type != typeof(KeysharpObject))
 				return kso;
 
-			var count = (args.Length / 2) * 2;
+			// `Object("k", 1)` takes name/value PAIRS; `Object(k: 1)` says the same thing as a named argument, so
+			// the names are read as pairs too, making the call agree with the `{k: 1}` literal.
+			var positional = NamedArgBinder.SplitAt(args, out var named);
 
-			for (var i = 0; i < count; i += 2)
-			{
-				var name = args[i].ToString();
-				if (name.Equals("base", StringComparison.OrdinalIgnoreCase))
-					kso.SetBaseInternal((Any)args[i + 1]);
-				else
-					kso.DefinePropInternal(name, new OwnPropsDesc(kso, args[i + 1]));
-			}
+			// A dangling name would otherwise be dropped without a trace.
+			if ((positional & 1) != 0)
+				return Errors.ValueErrorOccurred("Object() requires an even number of name/value parameters.");
+
+			for (var i = 0; i < positional; i += 2)
+				DefineOne(kso, args[i].ToString(), args[i + 1]);
+
+			if (named != null)
+				foreach (var (name, value) in named.Entries())
+					DefineOne(kso, name, value);
+
 			return kso;
+		}
+
+		private static void DefineOne(KeysharpObject kso, string name, object value)
+		{
+			if (name.Equals("base", StringComparison.OrdinalIgnoreCase))
+				kso.SetBaseInternal((Any)value);
+			else
+				kso.DefinePropInternal(name, new OwnPropsDesc(kso, value));
 		}
 
 		/// <summary>
@@ -129,10 +145,18 @@ namespace Keysharp.Builtins
 			return ct;
 		}
 
-		public static object OwnProps(object @this, object getValues = null)
+		/// <summary>
+		/// Enumerates this object's own properties, matching AutoHotkey's OwnProps().
+		/// <para>
+		/// Takes no arguments: how many values an iteration yields is decided by the for-loop's variable count,
+		/// which <see cref="Enumerator.Call"/> reads from the number of VarRefs it is handed, so a one-variable
+		/// loop never evaluates a property getter. Nothing on the iteration path consults
+		/// <see cref="Enumerator.Count"/>, so there is no setting for a caller to make here.
+		/// </para>
+		/// </summary>
+		public static object OwnProps(object @this)
 		{
 			var obj = @this as Any;
-			var vals = getValues.Ab(true);
 			var props = new Dictionary<object, object>();
 
 			if (obj.op != null)
@@ -146,7 +170,7 @@ namespace Keysharp.Builtins
 				}
 			}
 
-			return OwnPropsEnumeration.CreateEnumerator(obj, props, vals);
+			return OwnPropsEnumeration.CreateEnumerator(obj, props, true);
 		}
 
 		[PublicHiddenFromUser]

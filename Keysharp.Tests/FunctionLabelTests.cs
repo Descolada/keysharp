@@ -17,6 +17,9 @@ namespace Keysharp.Tests
 		public void BoundFunc() => Assert.IsTrue(TestScript("func-bound", false));
 
 		[Test, Category("Function"), NonParallelizable]
+		public void NamedArgs() => Assert.IsTrue(TestScript("func-named-params", false));
+
+		[Test, Category("Function"), NonParallelizable]
 		public void CombinedParamsInFunc() => Assert.IsTrue(TestScript("func-combined-params", false));
 
 		[Test, Category("Function"), NonParallelizable]

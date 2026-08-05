@@ -937,26 +937,180 @@ else
 
 arr := [1, 2, 3, 4]
 
-if (arr.Contains(3))
-	FileAppend "pass", "*"
-else
-	FileAppend "pass", "*"
-	
-if (!arr.Contains(10))
-	FileAppend "pass", "*"
-else
-	FileAppend "pass", "*"
-
-rem := arr.Remove(3)
-
-if (rem == true)
+if (arr.Contains(3) == 1 &&
+	arr.Contains(10) == 0)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
-rem := arr.Remove(3)
+if (arr.Remove(3) == 1 &&
+	arr.Length == 3 &&
+	arr[3] == 4 &&
+	arr.Remove(10) == 0 &&
+	arr.Length == 3)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
 
-if (rem == false)
+arr := [1, 2, 3]
+arr.Delete(2)
+
+if (arr.Remove() == 1 &&
+	arr.Length == 2 &&
+	arr[1] == 1 &&
+	arr[2] == 3 &&
+	arr.Remove() == 0 &&
+	arr.Length == 2)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; Contains(), IndexOf() and Remove() with the value omitted search for an element
+; which has no value, since Delete() leaves the index without one.
+
+arr := [1, 2, 3]
+arr.Delete(2)
+arr2 := [1, 2, 3]
+arr3 := []
+arr4 := [1, 2, 3]
+arr4.Delete(1)
+arr5 := [1, 2, 3]
+arr5.Delete(3)
+
+if (arr.Contains() == 1 &&
+	arr2.Contains() == 0 &&
+	arr3.Contains() == 0 &&
+	arr4.Contains() == 1 &&
+	arr5.Contains() == 1)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+if (arr.IndexOf() == 2 &&
+	arr2.IndexOf() == 0 &&
+	arr3.IndexOf() == 0 &&
+	arr4.IndexOf() == 1 &&
+	arr5.IndexOf() == 3)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; StartIndex still applies when searching for an element without a value.
+; arr6 is [1, unset, 3, unset], so a negative StartIndex searches backwards from it.
+
+arr6 := [1, 2, 3, 4]
+arr6.Delete(2)
+arr6.Delete(4)
+
+if (arr6.IndexOf() == 2 &&
+	arr6.IndexOf(, 2) == 2 &&
+	arr6.IndexOf(, 3) == 4 &&
+	arr6.IndexOf(, -1) == 4 &&
+	arr6.IndexOf(, -2) == 2 &&
+	arr6.IndexOf(, -3) == 2 &&
+	arr6.IndexOf(, -4) == 0 &&
+	arr2.IndexOf(, -1) == 0 &&
+	arr3.IndexOf(, -1) == 0)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; An out of bounds StartIndex is an IndexError rather than a silent 0, matching FindIndex().
+; 0 is never a valid index, and |StartIndex| must not exceed the length.
+
+n := 0
+
+for badIndex in [0, 5, -5, 99, -99]
+{
+	try
+		arr6.IndexOf(3, badIndex)
+	catch IndexError
+		n++
+}
+
+if (n == 5)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; An empty array reports "not found" instead, because no index could be in bounds.
+
+if (arr3.IndexOf(1) == 0 &&
+	arr3.IndexOf(1, 3) == 0 &&
+	arr3.IndexOf(1, -3) == 0)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; An explicitly unset argument behaves the same as omitting it.
+
+u := unset
+
+if (arr.Contains(u?) == 1 &&
+	arr.IndexOf(u?) == 2 &&
+	arr.Remove(u?) == 1 &&
+	arr.Length == 2)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; Searching for a real value is unaffected by the parameter becoming optional.
+
+arr7 := [10, 20, 30, 20]
+
+if (arr7.IndexOf(20) == 2 &&
+	arr7.IndexOf(20, 3) == 4 &&
+	arr7.IndexOf(20, -1) == 4 &&
+	arr7.Contains(30) == 1 &&
+	arr7.Contains(99) == 0)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; A spread INDEX flattens into the index arguments, the same way a call spread flattens into a call's
+; (Alpha[Params*] in the AHK docs). Get and set both; the compound forms (x[i*] += 1) are a compile error.
+
+arr8 := [10, 20, 30]
+idx8 := [2]
+arr8[idx8*] := 99
+
+if (arr8[idx8*] == 99 && arr8[2] == 99)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; An error thrown inside an enumeration callback keeps its TYPE through the loop driver, so the script
+; can catch the specific error class rather than a re-wrapped plain Error.
+
+throwingEnum := (&v) => (Throw(ValueError("typed")), true)
+
+caught8 := ""
+try {
+	for v in throwingEnum
+		caught8 := "iterated"
+} catch ValueError as e
+	caught8 := "ValueError:" e.Message
+catch
+	caught8 := "wrong-type"
+
+if (caught8 == "ValueError:typed")
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; A spread INDEX (`x[idx*]`) flattens into the index argument list the same way a spread argument does at a
+; call site, for both reading and assigning.
+spreadIdxMap := Map("a", 1)
+spreadIdxKey := ["a"]
+
+if (spreadIdxMap[spreadIdxKey*] == 1)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+spreadIdxMap[spreadIdxKey*] := 2
+
+if (spreadIdxMap["a"] == 2)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

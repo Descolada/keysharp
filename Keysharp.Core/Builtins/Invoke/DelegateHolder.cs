@@ -57,7 +57,7 @@ namespace Keysharp.Builtins
 				throw new ValueError($"A callback cannot have more than {MaxArity} parameters.");
 
 			funcObj = function;
-			_fn = ResolveDirectTarget(function);
+			_fn = Script.ResolveDirectCallTarget(function);
 			_fast = fast;
 			_reference = reference;
 			_arity = arity;
@@ -103,7 +103,7 @@ namespace Keysharp.Builtins
 		internal DelegateHolder(Any function, Struct.CallbackConversion[] conversions, bool typedVoid, bool fast, bool cdecl)
 		{
 			funcObj = function;
-			_fn = ResolveDirectTarget(function);
+			_fn = Script.ResolveDirectCallTarget(function);
 			_fast = fast;
 			_reference = false;
 			_arity = conversions.Length - 1;
@@ -300,33 +300,6 @@ namespace Keysharp.Builtins
 			// A null result means the callback never ran (the scheduler was disposed, or the thread could not
 			// start), so there is no value to convert; a declared struct return would reject null as a TypeError.
 			return _typedVoid || result == null ? 0L : Struct.ConvertCallbackReturn(_typedReturn, result);
-		}
-
-		/// <summary>
-		/// Decides once whether the target can be called straight through KeysharpFunc, which saves resolving "Call"
-		/// by name on every single invocation. This applies the same test Script.InvokeOrNull applies per call,
-		/// so that a receiver whose own Call shadows the built-in one keeps going through the by-name path and
-		/// still reaches its override. Returns null when the shortcut does not apply. The decision is fixed for
-		/// the callback's lifetime, so redefining Call on the target after CallbackCreate does not change how an
-		/// already-created callback reaches it.
-		/// </summary>
-		private static KeysharpFunc ResolveDirectTarget(Any function)
-		{
-			if (function is not KeysharpFunc direct || !direct.IsValid)
-				return null;
-
-			try
-			{
-				var member = Script.GetMethodOrProperty(function, "Call", -1, checkBase: true, throwIfMissing: false, invokeMeta: false);
-				return member.Item2 is KeysharpFunc fo
-					   && (fo == KeysharpFunc.PrototypeCall || fo.DeclaringType?.IsAssignableFrom(function.GetType()) == true)
-					   ? direct
-					   : null;
-			}
-			catch
-			{
-				return null;
-			}
 		}
 
 		// Calls the target, resolving its result to null when it returned no value so that both the untyped and

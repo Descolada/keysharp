@@ -63,7 +63,7 @@ namespace Keysharp.Builtins
 			// `new`, not `override`: construction dispatches by name, so the real signature is declared here and
 			// arity/defaults/named binding follow from it (see Buffer.__New and Any's constructor). A fifth
 			// argument is now simply "Too many arguments" from the arity check, replacing the hand-written guard.
-			public new object __New(object X = null, object Y = null, object Width = null, object Height = null)
+			public object __New(object X = null, object Y = null, object Width = null, object Height = null)
 			{
 				if (X != null) x = X.Ai();
 				if (Y != null) y = Y.Ai();

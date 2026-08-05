@@ -116,6 +116,13 @@ namespace Keysharp.Builtins
 
 				return true;
 			}
+			catch (KeysharpException)
+			{
+				// A script error from the callback (or a binder error inside it) keeps its type -- a ValueError
+				// caught here and rethrown as plain Error would defeat `catch ValueError` in the script driving
+				// the loop.
+				throw;
+			}
 			catch (Exception e)
 			{
 				throw new Error(e.Message);

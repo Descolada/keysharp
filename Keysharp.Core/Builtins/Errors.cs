@@ -409,7 +409,7 @@ namespace Keysharp.Builtins
 		// dispatches by NAME, most-derived first (Class.Call for scripts, Any's constructor for C#), so the
 		// signature is free to be the documented one and arity/defaults/named binding all come from it directly.
 		// The parameters are PascalCase on purpose: these names ARE script-facing API (`Error(Message: "x")`).
-		public new object __New(object Message = null, object What = null, object Extra = null)
+		public object __New(object Message = null, object What = null, object Extra = null)
 		{
 			_message = Message == null ? GetType().Name : Message.As();
 			_what = What.As();

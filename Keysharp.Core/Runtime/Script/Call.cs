@@ -194,8 +194,11 @@ namespace Keysharp.Runtime
 
 			try
 			{
-				// VarRef fast-path
-				if (item is VarRef vr && namestr.Equals("__Value", StringComparison.OrdinalIgnoreCase))
+				// VarRef fast-path: only for a ref that is exactly a VarRef (see VarRef.IsPlain). A subclass may
+				// declare its own __Value, so it resolves through ordinary dispatch below, which is the point of it
+				// being a property. This and its twin in SetPropertyValue are IsPlain's only two callers -- every
+				// other path that touches a ref comes through here and inherits the shortcut.
+				if (item is VarRef vr && vr.IsPlain && namestr.Equals("__Value", StringComparison.OrdinalIgnoreCase))
 				{
 					return vr.__Value;
 				}
@@ -270,7 +273,14 @@ namespace Keysharp.Runtime
 					// COM
 					if (Marshal.IsComObject(item))
 					{
-						return item.GetType().InvokeMember(namestr, BindingFlags.InvokeMethod | BindingFlags.GetProperty, null, item, args);
+						// IDispatch takes named arguments natively: InvokeMember's `namedParameters` becomes
+						// DISPPARAMS.rgdispidNamedArgs, resolved through GetIDsOfNames. ToComLayout reorders the
+						// named values to the front, which is the layout that overload expects.
+						var comArgs = NamedArgBinder.ToComLayout(args, out var comNames);
+						return comNames.Length == 0
+							   ? item.GetType().InvokeMember(namestr, BindingFlags.InvokeMethod | BindingFlags.GetProperty, null, item, comArgs)
+							   : item.GetType().InvokeMember(namestr, BindingFlags.InvokeMethod | BindingFlags.GetProperty, null, item,
+															 comArgs, null, null, comNames);
 					}
 #endif
 					// Reflection property (non-indexed only)
@@ -365,14 +375,19 @@ namespace Keysharp.Runtime
 					case KeysharpFunc fn:
 						// Meta-call marker: Item1 == null ? this is __Call
 						if (mitup.Item1 == null)
+							// Any named arguments ride into the Params Array as an ordinary trailing element, so a
+							// __Call handler that forwards them relays them intact.
 							return fn.Call(actualThis, methName, new Keysharp.Builtins.Array(parameters));
 
-						// Fast path: if it's an unmodified Call method then call the actual function directly
+						// Fast path: if it's an unmodified Call method then call the actual function directly. The
+						// shared registration-time test (Any.IsBuiltinMember) is what keeps a receiver whose own
+						// Call SHADOWS the built-in one on the by-name path, so its override is reached -- a
+						// script override's function declares on the lowered assembly, never on a built-in type.
 						if (methName.Equals("Call", StringComparison.OrdinalIgnoreCase)
 							&& obj is KeysharpFunc direct
 							&& direct.IsValid
 							&& fn is KeysharpFunc fo
-							&& (fo == KeysharpFunc.PrototypeCall || fo.DeclaringType?.IsAssignableFrom(obj.GetType()) == true))
+							&& (fo == KeysharpFunc.PrototypeCall || Any.IsBuiltinMember(fo, obj.GetType())))
 							return direct.Call(parameters);
 
 						// Regular callable
@@ -381,17 +396,29 @@ namespace Keysharp.Runtime
 						return fn.CallInst(mitup.Item1, parameters);
 
 					case KeysharpObject callable:
-						// Callable object meta: Call(receiver, name, ParamsArray)
+						// Callable object meta: Call(receiver, name, ParamsArray). Named arguments ride into the
+						// Params Array as an ordinary trailing element.
 						if (mitup.Item1 == null)
 							return InvokeOrNull(callable, "Call", actualThis, methName, new Keysharp.Builtins.Array(parameters));
 
-						// Normal callable object: Call(receiver, ...args)
+						// Normal callable object: Call(receiver, ...args). Prepending keeps any named arguments
+						// trailing, so they bind against the object's own Call method further down.
 						return InvokeOrNull(callable, "Call", parameters.Prepend(actualThis));
 
 					case IMetaObject mo:
+						// Every IMetaObject resolves named arguments itself (COM via DISPIDs, Clr via reflection,
+						// Module by forwarding verbatim) -- that is part of the interface contract, see IMetaObject.
 						return mo.Call(methName, parameters);
 
 					case MethodPropertyHolder mph:
+						// A CLR type can have real overloads, and dynamic dispatch picked one without knowing the
+						// argument names. If that pick cannot take them, look for a sibling overload that can rather
+						// than failing on an arbitrary choice. Costs nothing unless the first pick is already wrong.
+						_ = NamedArgBinder.SplitAt(parameters, out var named);
+
+						if (named != null && !NamedArgBinder.Accepts(mph, named))
+							mph = Reflections.FindOverloadForNamedArgs((mitup.Item1 ?? actualThis)?.GetType(), methName, named) ?? mph;
+
 						return mph.CallFunc(mitup.Item1, parameters);
 				}
 			}
@@ -439,6 +466,76 @@ namespace Keysharp.Runtime
 			}
 		}
 
+		/// <summary>
+		/// Decides once whether a callback can be called straight through <see cref="KeysharpFunc.Call"/>, which
+		/// saves resolving "Call" by name on every single invocation. This applies the same test
+		/// <see cref="InvokeOrNull"/> applies per call, so that a receiver whose own Call shadows the built-in one
+		/// keeps going through the by-name path and still reaches its override. Returns null when the shortcut does
+		/// not apply.
+		/// <para>
+		/// Callers are expected to cache the result for the lifetime of whatever they are driving, so redefining
+		/// Call on the target afterwards does not change how an already-resolved caller reaches it.
+		/// </para>
+		/// </summary>
+		internal static KeysharpFunc ResolveDirectCallTarget(object callback)
+		{
+			if (callback is not KeysharpFunc direct || !direct.IsValid)
+				return null;
+
+			var call = ResolveMember(callback, "Call", out var isBuiltin);
+			// PrototypeCall is the shared Call every function object inherits before any type of its own registers
+			// one, so it is the built-in answer too -- IsBuiltinMember cannot see that, having no declaring type.
+			return call != null && (call == KeysharpFunc.PrototypeCall || isBuiltin) ? direct : null;
+		}
+
+		/// <summary>
+		/// How many of a collection callback's two arguments (Value, Index) it can actually accept, capped at 2.
+		/// Used by Array.Filter / FindIndex / MapTo, whose callbacks "may declare only the parameters they need".
+		/// <para>
+		/// <c>MaxParams</c> IS the answer: a <c>KeysharpFunc</c>'s counts describe the caller-visible signature,
+		/// with an attached receiver already consumed by the <see cref="KeysharpFunc.Inst"/> setter's accounting.
+		/// The one wrinkle handled below is a receiver the lookup itself supplies.
+		/// </para>
+		/// <para>
+		/// Two shapes carry no usable signature of their own: an <c>ObjBindMethod</c> BoundFunc, whose placeholder
+		/// claims to be variadic because its target is not resolved until the call, and a callable object, whose
+		/// Call is found by name. Both are answered by looking up the member that will actually run -- without
+		/// meta-dispatch, so asking a signature question cannot run script.
+		/// </para>
+		/// </summary>
+		internal static int CallbackArgCount(object callback)
+		{
+			var f = callback as KeysharpFunc;
+			var inst = f?.Inst;
+
+			if (f?.Mph?.parameters == null)
+			{
+				var recv = f != null ? f.Inst : callback;
+				var name = f != null ? f.Name : "Call";
+
+				try
+				{
+					if (recv != null && GetMethodOrProperty(recv, name, -1, throwIfMissing: false, invokeMeta: false).Item2 is KeysharpFunc target)
+					{
+						f = target;
+						inst = recv;   // the receiver the target runs on, not whatever Inst the lookup handed back
+					}
+				}
+				catch
+				{
+					// Discovering an arity must not be able to fail the operation; fall through to "pass everything".
+				}
+			}
+
+			if (f?.Mph?.parameters == null || f.IsVariadic)
+				return 2;
+
+			// The lookup above can supply a receiver the target's own Inst accounting has not seen (an unattached
+			// method found on recv), so correct by the DIFFERENCE -- an already-attached receiver is not
+			// subtracted twice, and the ordinary path (inst == f.Inst) adds nothing.
+			var extra = f.Mph.ReceiverCorrection(inst) - f.Mph.ReceiverCorrection(f.Inst);
+			return (int)Math.Clamp(f.MaxParams + extra, 0, 2);
+		}
 
 		public static bool IsCallable(object item)
 		{
@@ -470,8 +567,9 @@ namespace Keysharp.Runtime
 
 			try
 			{
-				// VarRef magic
-				if (item is VarRef vr && namestr.Equals("__Value", StringComparison.OrdinalIgnoreCase))
+				// VarRef fast-path: same guard as GetPropertyValue's (VarRef.IsPlain); anything else dispatches so an
+				// override is honored.
+				if (item is VarRef vr && vr.IsPlain && namestr.Equals("__Value", StringComparison.OrdinalIgnoreCase))
 					return vr.__Value = value;
 
 				if (item is Any a2)

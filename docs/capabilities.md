@@ -59,7 +59,8 @@ Status legend:
 | #SuspendExempt | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #SuspendExempt directive exempts subsequent hotkeys and hotstrings from suspension. |
 | #Undef | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Undefines a conditional compilation symbol. |
 | #UseHook | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #UseHook directive forces the use of the hook to implement all or some keyboard hotkeys. |
-| #Warn | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enables warnings (VarUnset, Unreachable, LocalSameAsGlobal); opt-in to avoid blocking the headless host. |
+| #Warn | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enables warnings (VarUnset, Unreachable, LocalSameAsGlobal, NamedArg); VarUnset, Unreachable and NamedArg are on by default. |
+| #Warn NamedArg | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp extension. Checks a named argument against the callee's signature at build time when the callee is a bare name. On by default; dispatch is by value at run time so it is a warning, and the binder re-checks and throws. |
 | #Warning | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Emits a compile-time warning directive message. |
 | #WinActivateForce | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #WinActivateForce directive skips the gentle method of activating a window and goes straight to the forceful method. |
 | %...% / Dereference | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Performs dynamic dereferencing (double-deref) to resolve a variable name stored in another variable. |
@@ -326,14 +327,14 @@ Status legend:
 | Array.__New() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Constructs a new Array object. |
 | Array.Capacity | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the reserved element capacity. |
 | Array.Clone() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns a shallow copy of an array. |
-| Array.Contains() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific Array method. |
+| Array.Contains() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific Array method. Omitting the value searches for an element which has no value. |
 | Array.Default | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Default value returned for missing indexes. |
 | Array.Delete() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the element at the specified index to null, returns the element at that index before it was cleared. |
 | Array.Filter() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns a new array containing elements accepted by a callback predicate. |
 | Array.FindIndex() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the index of the first element matching a callback predicate. |
 | Array.Get() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the value at an index with optional fallback default. |
 | Array.Has() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether an array contains a non-empty value at the given index. |
-| Array.IndexOf() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the index of the first occurrence of a value. |
+| Array.IndexOf() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the index of the first occurrence of a value. Omitting the value searches for an element which has no value. An out of bounds StartIndex (0, or an absolute value exceeding the length) throws an IndexError, like the sibling FindIndex; an empty array returns 0. |
 | Array.InsertAt() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Inserts an element or range of elements at a given index. |
 | Array.Join() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Joins array elements into a string with a separator. |
 | Array.Length | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets/sets the logical length of the array. |
@@ -342,7 +343,7 @@ Status legend:
 | Array.MinIndex() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the smallest integer contained in the array. Returns empty string if no integers are present. |
 | Array.Pop() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Removes and returns the last element of an array. An exception is thrown if the array was empty. |
 | Array.Push() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Appends values to the end of an array. |
-| Array.Remove() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific Array method. |
+| Array.Remove() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific Array method. Removes the first occurrence of the value and returns true if one was found and removed, else false. Omitting the value removes the first element which has no value. |
 | Array.RemoveAt() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Removes the element at a given index, plus optionally a length. Returns the removed item if no length was specified. Returns the null if a length was specified. |
 | Array.Sort() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sorts array elements, optionally using a custom comparer callback. |
 | Asin() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the arc sine. Throws an exception if the argument value is not between -1 and 1. |
@@ -525,6 +526,7 @@ Status legend:
 | FormatCs() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Formats text using C#-style format placeholders (1-based indexing adaptation). |
 | FormatTime | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Formats a datetime string according to the parameters. All C# formatting options are supported. Supports all V2 functionality except for the Dn and Tn options. If you want to specify a specific format, do it in the format parameter. |
 | Func | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Function object type. |
+| Func.Params | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp extension. An Array describing the function's parameters (Name, Index, Optional, ByRef, Variadic, and Default when there is a real one). Reports exactly the names named-argument binding uses, excluding the receiver, internal parameters, and a bound function's already-bound ones. Unset when the parameters cannot be known (ObjBindMethod). |
 | FuncObj | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Managed function-object type name accepted by compatibility type checks alongside Func. |
 | GetKeyboardLayout() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns a readable platform-native identifier for the active keyboard layout. |
 | GetKeyInfo() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns layout-aware portable VK, platform-native SC, key name, and modifier information on every platform. |
@@ -772,6 +774,7 @@ Status legend:
 | MouseGetPos() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MouseGetPos function retrieves the current position of the mouse cursor, and optionally which window and control it is hovering over. |
 | MouseMove() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The MouseMove function moves the mouse cursor. |
 | MsgBox() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Displays the specified text in a small window containing one or more buttons. Option values 6, 768, 4096, 8192, 262144 and 16384 are not supported on any platform (there is no help button), and when a timeout or an owner window is used the text is right justified. On Linux and macOS the toolkit offers only the OK, OK/Cancel, Yes/No and Yes/No/Cancel button sets, so button options 2 (Abort/Retry/Ignore), 5 (Retry/Cancel) and 6 (Cancel/Try Again/Continue) are unavailable there and fall back to OK. The four icon options behave the same everywhere. |
+| Named parameters | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp extension. Binds an argument to the callee's parameter of that name instead of by position; must trail the positional arguments. Works for script functions, built-ins, methods, constructors (built-in classes included: Buffer(ByteCount: 16), Error(Message: msg)), bound functions, COM objects (via IDispatch DISPIDs) and Clr calls (where they also drive overload selection). Not available in '[]' (that is the map literal), and not for the receiver. A call's named arguments travel as one first-class value (Ks.NamedArgs, a case-insensitive Map whose keys are the names; the last argument slot is reserved for it): any variadic parameter collects the ones it does not declare as an ordinary trailing element and a variadic call re-emits it, so a wrapper forwards names without knowing they exist, and NamedArgs(name, value) — imported from the Ks module — makes a named call dynamically; a variadic that consumes its tail as values (Format, Push, Max) receives it as data. See #Warn NamedArg. |
 | NormalizeEol() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Normalizes all line endings to a requested or platform-default sequence. |
 | not | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Logical NOT operator. |
 | Number() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Number function converts a numeric string to a pure integer or floating-point number. |
@@ -792,7 +795,7 @@ Status legend:
 | ObjHasOwnProp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether the object defines the specified own property name. |
 | ObjHasProp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Checks for a property without invoking an overridden HasProp method. |
 | ObjOwnPropCount() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the number of own properties currently defined on the object. |
-| ObjOwnProps | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerates an object's own properties. |
+| ObjOwnProps | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerates an object's own properties. Takes no parameters: how many values an iteration yields is decided by the variable count of the for-loop. |
 | ObjPtr() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Returns the raw pointer address of an object. |
 | ObjPtrAddRef() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Returns object pointer address and increments its reference count. |
 | ObjRelease() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ObjAddRef and ObjRelease functions increment or decrement an object's reference count. |
@@ -806,7 +809,7 @@ Status legend:
 | or | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Logical OR operator. |
 | Ord() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the numeric two byte unicode value for the first character in a string. This differs from V2 in that it also takes an optional second parameter which specified the 1-based index in the string to return the numeric value for, rather than only doing it for the first character. |
 | OSError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| OutputDebug() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The OutputDebug function sends a string to the debugger (if any) for display. |
+| OutputDebug() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The OutputDebug function sends a string to the debugger (if any) for display. Ks.OutputDebugLine additionally takes a flag to clear the debug output. |
 | OutputDebugLine() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Writes a debug line with newline terminator. |
 | Overlay | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Click-through, always-on-top screen overlay backed by a raster canvas and used by Highlight and ToolTip. Set ClickThrough := false for an interactive overlay and register mouse handlers with OnEvent("Click"/"DoubleClick"/"ContextMenu"/"MouseMove", cb) — the callback receives (overlay, x, y) in overlay-local units (verified on Windows; the Eto backing and native layer-shell surfaces (KWin/wlroots, via a client-side wl_pointer listener with synthesized DoubleClick) deliver events on Linux but are behavior-unverified; GNOME/Cinnamon compositor-drawn actors cannot receive input yet — see docs/design-wayland-overlay-input.md; macOS unverified). Update(source, x?, y?, w?, h?) atomically replaces the canvas image and geometry (SetImage was folded into it). Verified on Windows, Linux X11/Wayland and macOS. |
 | Parser and runtime execution | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Parser, preprocessing, and script execution runtime are implemented. |
@@ -912,8 +915,8 @@ Status legend:
 | StrCompare() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Compares two strings alphabetically. Note this supports local, human readable comparison as well. |
 | StrGet() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Copies a string from a memory address or buffer, optionally converting it from a given code page. |
 | String() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Converts a value to a string. For an object, the result is whatever its ToString() returned, so a ToString() which returns no value makes String() return no value too rather than raising. |
-| String.EndsWith() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether a string ends with the specified suffix. |
-| String.StartsWith() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether a string starts with the specified prefix. |
+| String.EndsWith() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether a string ends with the specified suffix. The CaseSense parameter matches InStr; comparisons are culture-invariant unless the Locale option is given. |
+| String.StartsWith() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether a string starts with the specified prefix. The CaseSense parameter matches InStr; comparisons are culture-invariant unless the Locale option is given. |
 | StringBuffer() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates a mutable string buffer object. |
 | StrLen() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves the count of how many characters are in a string. |
 | StrLower() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Converts a string to lowercase. |

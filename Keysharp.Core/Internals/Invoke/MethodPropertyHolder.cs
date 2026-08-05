@@ -1,5 +1,4 @@
 using Keysharp.Builtins;
-//#define CONCURRENT
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using Label = System.Reflection.Emit.Label;
@@ -56,16 +55,18 @@ namespace Keysharp.Internals.Invoke
 		internal readonly bool isItemSetter;
 		internal readonly int variadicParamIndex = -1;
 		internal readonly int[] requiredIdx;
+		internal readonly bool receiverInCounts;
 
-#if CONCURRENT
+		/// <summary>
+		/// The adjustment that turns <see cref="MaxParams"/>/<see cref="MinParams"/> into the number of arguments a
+		/// CALLER supplies, for the receiver this call will really use: -1 when the counts include a receiver that
+		/// is supplied out-of-band (so the caller never passes it), else 0.
+		/// </summary>
+		internal int ReceiverCorrection(object inst) => receiverInCounts && inst != null ? -1 : 0;
+
         internal static ConcurrentDictionary<MethodInfo, MethodPropertyHolder> methodCache = new();
 		internal static ConcurrentDictionary<PropertyInfo, MethodPropertyHolder> propertyCache = new();
 		internal static ConcurrentDictionary<FieldInfo, MethodPropertyHolder> fieldCache = new();
-#else
-		internal static Dictionary<MethodInfo, MethodPropertyHolder> methodCache = new();
-		internal static Dictionary<PropertyInfo, MethodPropertyHolder> propertyCache = new();
-		internal static Dictionary<FieldInfo, MethodPropertyHolder> fieldCache = new();
-#endif
 
 		internal bool IsBind { get; private set; }
 		internal bool IsStatic { get; private set; }
@@ -80,8 +81,59 @@ namespace Keysharp.Internals.Invoke
 
         internal const int DotNetMaxParams = 8192; // https://www.tabsoverspaces.com/233892-whats-the-maximum-number-of-arguments-for-method-in-csharp-and-in-net
 
+		/// <summary>
+		/// Whether a parameter is the explicit <c>object @this</c> receiver rather than a real argument. ONE
+		/// definition, because two consumers have to agree exactly: <c>BuildParamIndexMap</c> excludes it from the
+		/// name map, and <c>NamedArgBinder.ArgBase</c> shifts every name's slot down by one when it is present
+		/// (via <see cref="receiverInCounts"/>). If those two ever disagreed, a name would resolve to slot -1 and
+		/// index outside the argument array.
+		/// </summary>
+		private static bool IsExplicitThis(ParameterInfo p) =>
+			p.Name?.TrimStart('@').Equals("this", StringComparison.OrdinalIgnoreCase) ?? false;
+
 		private const string setterPrefix = "set_";
         private const string classSetterPrefix = Keywords.ClassStaticPrefix + setterPrefix;
+
+		private static readonly string[] namePrefixes = ["static", "get_", "set_"];
+
+		/// <summary>
+		/// Recovers the name a script wrote from the emitted C# one. Closures, nested functions and lambdas are
+		/// lowered to LOCAL functions, and Roslyn renames those to <c>&lt;Outer&gt;g__Name|n_m</c> -- which is what
+		/// <c>Func.Name</c> and every error message naming a function would otherwise print. An anonymous lambda has
+		/// no name a script could write, so it reports as empty, matching AutoHotkey.
+		/// <para>
+		/// The trailing <c>_&lt;n&gt;</c> is the lowerer's uniquing counter (see Lowerer.LowerFatArrow), stripped
+		/// with it. A nested function genuinely named <c>foo_2</c> therefore reports as <c>foo</c> -- cosmetic, and
+		/// only in a diagnostic.
+		/// </para>
+		/// </summary>
+		private static string Unmangle(string emitted)
+		{
+			// `<Outer>g__Inner|n_m` -- take what is between "g__" and the '|'.
+			if (emitted.Length == 0 || emitted[0] != '<')
+				return emitted;
+
+			var open = emitted.IndexOf("g__", StringComparison.Ordinal);
+			var bar = emitted.LastIndexOf('|');
+
+			if (open < 0 || bar < open)
+				return emitted;
+
+			var inner = emitted.Substring(open + 3, bar - open - 3);
+
+			if (inner.StartsWith(Keywords.TopLevelFunctionPrefix, StringComparison.Ordinal))
+				inner = inner.Substring(Keywords.TopLevelFunctionPrefix.Length);
+
+			if (inner.StartsWith(Keywords.AnonymousLambdaPrefix, StringComparison.Ordinal)
+					|| inner.StartsWith(Keywords.AnonymousFatArrowLambdaPrefix, StringComparison.Ordinal))
+				return "";
+
+			var lastUnderscore = inner.LastIndexOf('_');
+			return lastUnderscore > 0 && inner.AsSpan(lastUnderscore + 1).Length != 0
+				   && ulong.TryParse(inner.AsSpan(lastUnderscore + 1), out _)
+				? inner.Substring(0, lastUnderscore)
+				: inner;
+		}
 
 		string _name = null;
 		internal string Name
@@ -106,9 +158,9 @@ namespace Keysharp.Internals.Invoke
 					return _name = name;
 				}
 
-				string funcName = mi.Name;
-				var prefixes = new[] { "static", "get_", "set_" };
-				foreach (var p in prefixes)
+				string funcName = Unmangle(mi.Name);
+
+				foreach (var p in namePrefixes)
 				{
 					if (funcName.StartsWith(p, StringComparison.Ordinal))
 						funcName = funcName.Substring(p.Length);
@@ -133,37 +185,154 @@ namespace Keysharp.Internals.Invoke
 			}
 		}
 
+		private Dictionary<string, int> _paramIndexByName;
+
+		/// <summary>One bindable parameter, as reported by <c>Func.Params</c>; signature-level, so cached here.</summary>
+		internal sealed record ParamScanEntry(int Index, string Name, bool Optional, bool ByRef, bool Variadic, bool HasDefault, object Default);
+
+		private List<ParamScanEntry> _paramScan;
+
+		/// <summary>
+		/// The bindable parameters in declaration order, for <c>Func.Params</c>. Unfiltered: a BoundFunc skips
+		/// the entries whose slots its Bind already filled, which is per-instance data and stays out of this cache.
+		/// </summary>
+		internal List<ParamScanEntry> ParamScan => _paramScan ??= BuildParamScan();
+
+		private List<ParamScanEntry> BuildParamScan()
+		{
+			var scan = new List<ParamScanEntry>();
+
+			// name -> index, then inverted: the binder's map is the authority on which names bind, and on which
+			// parameters are addressable at all (the receiver and the variadic tail are already excluded there).
+			var byIndex = new Dictionary<int, string>();
+
+			foreach (var kv in ParamIndexByName)
+				if (!byIndex.ContainsKey(kv.Value))
+					byIndex[kv.Value] = kv.Key;
+
+			for (var i = 0; i < parameters.Length; i++)
+			{
+				var p = parameters[i];
+				var isVariadic = i == variadicParamIndex;
+
+				if (!isVariadic && !byIndex.ContainsKey(i))
+					continue;   // the receiver
+
+				var hasDefault = !isVariadic && p.HasDefaultValue && p.DefaultValue is object dv && dv is not DBNull;
+				// A lowered variadic parameter carries the `KS_` signature prefix (see Lowerer.VariadicRawName);
+				// scripts know it by the name they wrote.
+				var name = isVariadic && p.Name?.StartsWith(Keywords.InternalPrefix, StringComparison.Ordinal) == true
+						   ? p.Name.Substring(Keywords.InternalPrefix.Length)
+						   : isVariadic ? p.Name : byIndex[i];
+				scan.Add(new ParamScanEntry(i, name,
+											isVariadic || p.IsOptional,
+											p.GetCustomAttribute<Keysharp.Runtime.ByRefAttribute>() != null,
+											isVariadic,
+											hasDefault,
+											hasDefault ? p.DefaultValue : null));
+			}
+
+			return scan;
+		}
+
+		/// <summary>
+		/// The lifecycle method (<c>__New</c>, <c>__Init</c>) a type actually uses: the most-derived declaration,
+		/// walking base-ward.
+		/// <para>
+		/// A plain <c>Type.GetMethod(name, Public | Instance)</c> throws <c>AmbiguousMatchException</c> as soon as
+		/// a built-in declares its own real signature -- that declaration is <c>new</c>, not <c>override</c> (see
+		/// <c>Buffer.__New</c>), so <c>Any.__New(params object[])</c> is still inherited and BOTH are public
+		/// instance methods of that name. Walking <c>DeclaredOnly</c> outward picks the nearest one, which is what
+		/// C# <c>new</c>-hiding and script-side overriding both pick.
+		/// </para>
+		/// </summary>
+		internal static MethodInfo FindLifecycleMethod(Type t, string name)
+		{
+			for (var cur = t; cur != null; cur = cur.BaseType)
+				if (cur.GetMethod(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly) is { } mi)
+					return mi;
+
+			return null;
+		}
+
+		/// <summary>The <c>__New</c> a type constructs through. See <see cref="FindLifecycleMethod"/>.</summary>
+		internal static MethodInfo FindConstructor(Type t) => FindLifecycleMethod(t, "__New");
+
+		/// <summary>
+		/// Parameter name -> index into <see cref="parameters"/>, for binding named arguments (<c>f(Name: value)</c>).
+		/// Case-insensitive, matching every other identifier in the language. Built once, lazily: most methods are
+		/// never called with named arguments, so the cost stays with the scripts that use them.
+		/// <para>
+		/// Excluded from the map, and so not bindable by name: the receiver, and the variadic parameter (a
+		/// <c>rest*</c> tail is positional by nature).
+		/// </para>
+		/// </summary>
+		internal Dictionary<string, int> ParamIndexByName => _paramIndexByName ??= BuildParamIndexMap();
+
+		private Dictionary<string, int> BuildParamIndexMap()
+		{
+			var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+			if (parameters == null)   // the "fake" MPH used by ObjBindMethod: no signature to bind against
+				return map;
+
+			// [UserDeclaredName] carries the name a script writes when it cannot be the C# identifier: a documented built-in
+			// spelling, or -- on lowered user functions -- the original casing of an identifier whose case fold does
+			// not round-trip (see Lowerer.ParamDecls). BOTH spellings are registered, so the declared name and the
+			// emitted one each bind.
+			//
+			// Two passes, because the two kinds of name can collide across parameters (a `[UserDeclaredName("text")]` on one
+			// while another is literally called `text`). Declared names go in first and are never displaced: they are
+			// what the documentation promises, and what ParamNameTests pins. A single pass would hand the collision
+			// to whichever parameter came first.
+			for (var i = 0; i < parameters.Length; i++)
+				if (Bindable(i, out var p))
+				{
+					var declared = Normalize(p.GetCustomAttribute<Keysharp.Runtime.UserDeclaredNameAttribute>()?.Name);
+
+					if (declared.Length != 0)
+						map[declared] = i;
+				}
+
+			for (var i = 0; i < parameters.Length; i++)
+				if (Bindable(i, out var p))
+				{
+					var metaName = Normalize(p.Name);
+
+					if (metaName.Length != 0)
+						_ = map.TryAdd(metaName, i);
+				}
+
+			return map;
+
+			// The variadic tail is positional by nature. The receiver is not an argument: the implicit `this` of a C#
+			// instance method never appears in `parameters` at all, but the explicit `object @this` convention
+			// (Any.HasProp(@this, obj), and every lowered user method) puts it at index 0.
+			bool Bindable(int i, out ParameterInfo p)
+			{
+				p = parameters[i];
+				return i != variadicParamIndex && !(i == 0 && IsExplicitThis(p));
+			}
+
+			// A lowered script assembly keeps the C# keyword escape in metadata (NameMangler.Escape emits the
+			// identifier text verbatim), so a parameter named `class` arrives as "@class" while the same parameter
+			// in hand-written C# arrives as "class". Normalize so both bind by the name scripts use.
+			static string Normalize(string n) => string.IsNullOrEmpty(n) ? "" : n[0] == '@' ? n.Substring(1) : n;
+		}
+
 		public static MethodPropertyHolder GetOrAdd(MethodInfo mi)
         {
-#if CONCURRENT
             return methodCache.GetOrAdd(mi, key => new MethodPropertyHolder(mi));
-#else
-			if (methodCache.TryGetValue(mi, out var mph))
-                return mph;
-            return methodCache[mi] = new MethodPropertyHolder(mi);
-#endif
         }
 
 		internal static MethodPropertyHolder GetOrAdd(PropertyInfo pi)
 		{
-#if CONCURRENT
             return propertyCache.GetOrAdd(pi, key => new MethodPropertyHolder(pi));
-#else
-			if (propertyCache.TryGetValue(pi, out var mph))
-				return mph;
-			return propertyCache[pi] = new MethodPropertyHolder(pi);
-#endif
         }
 
 		internal static MethodPropertyHolder GetOrAdd(FieldInfo fi)
 		{
-#if CONCURRENT
             return fieldCache.GetOrAdd(fi, key => new MethodPropertyHolder(fi));
-#else
-			if (fieldCache.TryGetValue(fi, out var mph))
-				return mph;
-			return fieldCache[fi] = new MethodPropertyHolder(fi);
-#endif
         }
 
         public MethodPropertyHolder() { }
@@ -213,6 +382,12 @@ namespace Keysharp.Internals.Invoke
                 MinParams--;
 
 			MaxParams = parameters.Length + (hasHiddenThis ? 1 : 0) - (variadicParamIndex == -1 ? 0 : 1);
+
+			// Whether MinParams/MaxParams COUNT the receiver: a hidden-this instance method adds it above, and the
+			// explicit `object @this` convention carries it as parameters[0]. Anything reasoning about how many
+			// arguments a caller actually passes must correct for it via ReceiverCorrection -- never with
+			// NamedArgBinder.ArgBase, which answers a different question (the args-slot offset of parameter 0).
+			receiverInCounts = hasHiddenThis || (IsStatic && parameters.Length > 0 && IsExplicitThis(parameters[0]));
 
 			anyOptional = variadicParamIndex != -1 || MinParams != MaxParams;
 
@@ -387,14 +562,6 @@ namespace Keysharp.Internals.Invoke
 			fieldCache.Clear();
 		}
 	}
-    public class ArgumentError : Error
-    {
-        public ArgumentError(string message = "A required parameter was omitted or unset.")
-            : base(message)
-        {
-        }
-    }
-
 	/**
 	 * As of 10/2025 I've investigated multiple approaches on how to best do function invokes:
 	 * 1) MethodBase.Invoke: slow, throws TargetInvocationExceptions which need to be upwrapped and rethrown (slow)
@@ -471,6 +638,17 @@ namespace Keysharp.Internals.Invoke
 			object NormalInvoke(object instance, object[] args)
 			{
 				args ??= System.Array.Empty<object>();
+
+				// ---- fold named arguments into positional slots ----
+				// This has to happen BEFORE the count validation below: that trims trailing nulls to work out how many
+				// arguments were really supplied, and would otherwise count the trailing container as a positional one
+				// (so a named argument filling a required parameter would read as "too few arguments").
+				// See NamedArgBinder.ArgBase for why the offset depends on how the receiver is being passed.
+				// NEVER for a setter: an assignment's value slot is a DATA channel with no named-argument syntax,
+				// and its value arrives trailing -- binding would eat a container being ASSIGNED (`r.__Value := na`,
+				// a for-loop writing a forwarded container element into `&out`) as a named argument of the accessor.
+				if (!mph.isSetter && NamedArgBinder.Has(args))
+					args = NamedArgBinder.Bind(mph, args, NamedArgBinder.ArgBase(mph, instance));
 
 				// ---- validate the argument count ----
 				int lastProvided = args.Length;
@@ -727,21 +905,12 @@ namespace Keysharp.Internals.Invoke
 #endif
 	internal static class FastCtor
 	{
-#if CONCURRENT
 		private static readonly ConcurrentDictionary<System.Type, Func<object[], object>> Cache = new();
-#else
-		private static readonly Dictionary<System.Type, Func<object[], object>> Cache = new();
-#endif
 
 		// Semantics: always call a public ctor like:  new T(object[] args)
 		public static object Call(Type type, params object[] args)
 		{
-#if CONCURRENT
 			var activator = Cache.GetOrAdd(type, BuildFactory);
-#else
-			if (!Cache.TryGetValue(type, out var activator))
-				Cache[type] = activator = BuildFactory(type);
-#endif
 			return activator(args);
 		}
 

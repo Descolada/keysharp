@@ -1,6 +1,3 @@
-//#define CONCURRENT
-#define TL
-
 using StringBuffer = Keysharp.Builtins.Ks.StringBuffer;
 
 namespace Keysharp.Builtins
@@ -12,18 +9,8 @@ namespace Keysharp.Builtins
 		// is a floating-type, so the max size should be about 1000.
 		// procAddressCache is keyed by DllCall target functions, which in practice should not get
 		// into too large numbers.
-#if CONCURRENT
 		internal readonly ConcurrentDictionary<ulong, Delegate> delegateCache = new ();
 		internal readonly ConcurrentDictionary<string, nint> procAddressCache = new (StringComparer.OrdinalIgnoreCase);
-#else
-#if TL
-		internal readonly ThreadLocal<Dictionary<ulong, Delegate>> delegateCache = new (() => new ());
-		internal readonly ThreadLocal<Dictionary<string, nint>> procAddressCache = new (() => new Dictionary<string, nint>(StringComparer.OrdinalIgnoreCase));
-#else
-		internal readonly Dictionary<ulong, Delegate> delegateCache = new ();
-		internal readonly Dictionary<string, nint> procAddressCache = new (StringComparer.OrdinalIgnoreCase);
-#endif
-#endif
 	}
 
 	/// <summary>
@@ -156,29 +143,17 @@ namespace Keysharp.Builtins
 				if (z == -1)
 				{
 					name = path;
-#if TL
-
-					if (procAddressCache.Value.TryGetValue(name, out address))
-						goto AddressFound;
-
-#else
 
 					if (procAddressCache.TryGetValue(name, out address))
 						goto AddressFound;
 
-#endif
 
 					foreach (var dll in loadedDlls)
 					{
 						if (NativeLibrary.TryGetExport(dll.Value, name, out address))
 						{
-#if TL
-							procAddressCache.Value[name] = address;
-							procAddressCache.Value[dll.Key + Path.DirectorySeparatorChar + name] = address;
-#else
 							procAddressCache[name] = address;
 							procAddressCache[dll.Key + Path.DirectorySeparatorChar + name] = address;
-#endif
 							goto AddressFound;
 						}
 					}
@@ -190,13 +165,8 @@ namespace Keysharp.Builtins
 					{
 						if (NativeLibrary.TryGetExport(dll.Value, nameW, out address))
 						{
-#if TL
-							procAddressCache.Value[name] = address;
-							procAddressCache.Value[dll.Key + Path.DirectorySeparatorChar + name] = address;
-#else
 							procAddressCache[name] = address;
 							procAddressCache[dll.Key + Path.DirectorySeparatorChar + name] = address;
-#endif
 							goto AddressFound;
 						}
 					}
@@ -208,17 +178,10 @@ namespace Keysharp.Builtins
 				{
 					name = path.Substring(z + 1);
 					var key = moduleName + Path.DirectorySeparatorChar + name;
-#if TL
-
-					if (procAddressCache.Value.TryGetValue(key, out address))
-						goto AddressFound;
-
-#else
 
 					if (procAddressCache.TryGetValue(key, out address))
 						goto AddressFound;
 
-#endif
 
 					if (!NativeLibrary.TryGetExport(loadedDlls[moduleName], name, out address))
 					{
@@ -229,13 +192,8 @@ namespace Keysharp.Builtins
 						return Errors.ErrorOccurred($"Unable to locate {LibraryExtension} with path {path}.");
 					else
 					{
-#if TL
-						procAddressCache.Value[name] = address;
-						procAddressCache.Value[key] = address;
-#else
 						procAddressCache[name] = address;
 						procAddressCache[key] = address;
-#endif
 					}
 				}
 				else
@@ -334,19 +292,7 @@ namespace Keysharp.Builtins
 			// this means the maximum argument count is 63 for integer return values, 57 for floating point ones
 			// (this limitation can be eliminated in the future if needed)
 			ulong key = ((ulong)n << 58) | (mask & ((1UL << 58) - 1));
-#if CONCURRENT
 			var del = delegateCache.GetOrAdd(key, _ => CreateInvoker(n, mask));
-#else
-#if TL
-			ref var del = ref CollectionsMarshal.GetValueRefOrAddDefault(delegateCache.Value, key, out var exists);
-#else
-			ref var del = ref CollectionsMarshal.GetValueRefOrAddDefault(delegateCache, key, out var exists);
-#endif
-
-			if (!exists)
-				del = CreateInvoker(n, mask);
-
-#endif
 #if WINDOWS
 
 			// Under Windows x64 AutoHotkey passes the first four arguments in both

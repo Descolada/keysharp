@@ -112,3 +112,24 @@ rBoxed := &boxed.__Value
 check(rBoxed.__Value == 7)
 rBoxed.__Value := 70
 check(boxed.__Value == 70)
+
+; --- 9. A subclassed VarRef with a REDEFINED __Value is honored everywhere a plain one is fast-pathed ----
+; The plain built-in VarRef takes a direct-write shortcut in property access, the for-loop's per-element
+; writes and %r% deref; a subclass resolves __Value through its prototype, so it must dispatch instead.
+; (Static storage: a VarRef derives from Any, which holds no ad-hoc instance value props.)
+class DoubleRef extends VarRef {
+    static box := {v: 0}
+    __Value {
+        get => DoubleRef.box.v
+        set => DoubleRef.box.v := value * 2
+    }
+}
+dr := DoubleRef()
+dr.__Value := 5
+check(dr.__Value == 10)             ; property get/set dispatch to the redefined accessors
+drEnum := [7].__Enum(1)
+drEnum(dr)
+check(DoubleRef.box.v == 14)        ; the enumerator's output write dispatches too
+%dr% := 3
+check(DoubleRef.box.v == 6)         ; ... and so does deref assignment
+check(%dr% == 6)

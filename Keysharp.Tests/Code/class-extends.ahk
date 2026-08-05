@@ -824,3 +824,39 @@ if (classobj.getsupera() == 123)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+; A member declared on a script class SHADOWS the one it inherits from a built-in base. Most already did,
+; through the prototype chain; __Enum did not, because enumeration reached the built-in through its C#
+; interface without ever consulting that chain.
+class OverridingMap extends Map
+{
+	hits := 0
+	__Enum(n)
+	{
+		this.hits += 1
+		return Map("overridden", 1).__Enum(n)
+	}
+	Has(key) => "shadowed"
+}
+
+om := OverridingMap()
+om["real"] := 1
+seen := ""
+for k, v in om
+	seen .= k "=" v ";"
+
+if (seen == "overridden=1;" && om.hits == 1)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+if (om.Has("real") == "shadowed")
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; ... and a built-in NOT overridden still resolves to the built-in.
+if (om.Count == 1)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"

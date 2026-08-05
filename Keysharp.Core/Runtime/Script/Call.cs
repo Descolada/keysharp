@@ -403,6 +403,43 @@ namespace Keysharp.Runtime
 			throw new MemberError($"Attempting to invoke method or property {meth} failed.");
 		}
 
+		/// <summary>
+		/// The function <paramref name="name"/> resolves to on <paramref name="obj"/>, found the ordinary way --
+		/// through the prototype chain -- with <paramref name="isBuiltin"/> saying which of the two it is: the
+		/// implementation registration put on the prototype, or a script's override of it.
+		/// <para>
+		/// For the callers that hold a fast path for the built-in behaviour and so have to know which they are
+		/// looking at, from either side: <see cref="ResolveDirectCallTarget"/> takes its shortcut only when the
+		/// answer is the built-in, and <c>Loops.ScriptEnum</c> takes the override only when it is not. Resolving by
+		/// name rather than by reflection is what makes an override found wherever it lives, including on a class
+		/// built at run time, whose instances share their base's CLR type and so have no method to find.
+		/// </para>
+		/// <para>
+		/// No meta path, so <c>__Call</c>/<c>__Get</c> do not fire -- but resolution still invokes a Get accessor
+		/// when the member is a property, so a member backed by one is evaluated to be identified. Any failure
+		/// answers "nothing found" rather than propagating: these are all questions asked to decide how to
+		/// dispatch, never operations in themselves.
+		/// </para>
+		/// </summary>
+		internal static KeysharpFunc ResolveMember(object obj, string name, out bool isBuiltin)
+		{
+			isBuiltin = false;
+
+			try
+			{
+				if (GetMethodOrProperty(obj, name, -1, checkBase: true, throwIfMissing: false, invokeMeta: false).Item2 is not KeysharpFunc fn)
+					return null;
+
+				isBuiltin = Any.IsBuiltinMember(fn, obj.GetType());
+				return fn;
+			}
+			catch
+			{
+				return null;
+			}
+		}
+
+
 		public static bool IsCallable(object item)
 		{
 			if (item is KeysharpFunc || item is IMetaObject)

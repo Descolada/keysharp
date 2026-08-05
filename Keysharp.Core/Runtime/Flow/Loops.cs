@@ -417,6 +417,17 @@ namespace Keysharp.Runtime
 		}
 
 		/// <summary>
+		/// A script's own <c>__Enum</c>, or null when what resolves is the built-in one. The other side of the
+		/// question <see cref="Script.ResolveDirectCallTarget"/> asks, off the same resolver -- and it needs no
+		/// counterpart to that one's <c>PrototypeCall</c> case, because here only a false NEGATIVE could change
+		/// behaviour. Reporting an override that is really the built-in would call the same method the interface
+		/// branch was about to call; missing a real one would silently ignore it, and that is what
+		/// <see cref="Any.IsBuiltinMember"/> rules out.
+		/// </summary>
+		internal static KeysharpFunc ScriptEnum(object obj) =>
+			Script.ResolveMember(obj, "__Enum", out var isBuiltin) is KeysharpFunc fn && !isBuiltin ? fn : null;
+
+		/// <summary>
 		/// Gets an enumerator out of various collection types.
 		/// This should never be called directly by the user and instead is used<br/>
 		/// in the generated C# code.
@@ -443,7 +454,18 @@ namespace Keysharp.Runtime
 				return new Enumerator(obj, ct, funcObj);
 
 			if (obj is I__Enum ienum)
+			{
+				// The interface call reaches the C# implementation directly, which is what a built-in wants but
+				// silently ignores a script's override of it. __Enum is an ordinary member, so resolve it the
+				// ordinary way -- through the prototype chain, where an override lives whether the class was
+				// declared in source or built at run time -- and keep the interface fast path only for what
+				// resolves to the registration-time built-in. Same test as the direct-Call shortcut in
+				// Script.InvokeOrNull, and it runs once per loop, not once per iteration.
+				if (ScriptEnum(obj) is KeysharpFunc over)
+					return NormalizeEnumerator(over.Call(obj, count), obj, ct);
+
 				return NormalizeEnumerator(ienum.__Enum(ct), obj, ct);
+			}
 			//else if (obj is IEnumerable<(object, object)> ie0)
 			//  return ie0.GetEnumerator();
 			//else if (obj is IEnumerator<(object, object)> ie1)

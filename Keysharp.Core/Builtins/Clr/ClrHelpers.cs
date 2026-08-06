@@ -40,12 +40,85 @@ namespace Keysharp.Builtins
 		private static readonly ConcurrentDictionary<string, byte> TriedAssemblyLoads =
 			new(StringComparer.OrdinalIgnoreCase);
 
+		// ---- Deferred (known-but-not-loaded) assemblies ----
+		//
+		// A compiled C# program gets laziness for free: the compiler recorded an assembly reference for every type the
+		// code names, so the runtime can bind on first use. Name-based lookup through Clr has no such record -- it
+		// searches an index, and an index can only contain types from assemblies that are loaded. Registering an
+		// assembly's type NAMES (read straight from PE metadata, without loading it) restores the missing half: a
+		// lookup can now be answered from names alone, and the assembly is loaded only when a lookup actually hits
+		// it. #Package registers a package's dependencies this way.
+		//
+		// Both the full name and the simple name of every type land in ONE map: they cannot disagree about which
+		// assembly declares a type, and the only key they can share is a namespace-less type, where both would name
+		// the same path anyway. The value is every declaring assembly rather than the first, because all of them must
+		// be materialized before a unique-vs-ambiguous verdict is trustworthy â€” keeping only the first would make the
+		// answer depend on registration order.
+		private static readonly ConcurrentDictionary<string, ConcurrentBag<string>> DeferredNames =
+			new(StringComparer.OrdinalIgnoreCase);
+
+		/// <summary>Deferred assemblies that could not be loaded, so a repeat lookup does not retry them forever.</summary>
+		private static readonly ConcurrentDictionary<string, byte> DeferredLoadFailures =
+			new(StringComparer.OrdinalIgnoreCase);
+
 		private static volatile bool _indexed;
 		private static readonly Lock _indexLock = new();
 
 		static TypeResolver()
 		{
 			AppDomain.CurrentDomain.AssemblyLoad += (_, e) => IndexAssemblySafe(e.LoadedAssembly);
+		}
+
+		/// <summary>
+		/// Declares that <paramref name="path"/> contains <paramref name="publicTypes"/> but has deliberately not
+		/// been loaded. Only the names are taken; nothing in the assembly runs until a lookup needs it.
+		/// </summary>
+		internal static void RegisterDeferredAssembly(string path, IEnumerable<(string Namespace, string Name)> publicTypes)
+		{
+			foreach (var (ns, name) in publicTypes)
+			{
+				DeferredNames.GetOrAdd(name, _ => new ConcurrentBag<string>()).Add(path);
+
+				if (!ns.IsNullOrEmpty())
+					DeferredNames.GetOrAdd(ns + "." + name, _ => new ConcurrentBag<string>()).Add(path);
+			}
+		}
+
+		/// <summary>
+		/// Loads every deferred assembly declaring <paramref name="name"/>, full or simple. Loading fires
+		/// AssemblyLoad, so <see cref="IndexAssemblySafe"/> populates the real index and the caller can simply retry.
+		/// </summary>
+		private static bool Materialize(string name)
+		{
+			if (!DeferredNames.TryGetValue(name, out var paths))
+				return false;
+
+			var any = false;
+
+			foreach (var path in paths.Distinct())
+				any |= LoadDeferred(path);
+
+			return any;
+		}
+
+		private static bool LoadDeferred(string path)
+		{
+			if (DeferredLoadFailures.ContainsKey(path))
+				return false;
+
+			try
+			{
+				_ = AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
+				return true;
+			}
+			catch (Exception)
+			{
+				// Unloadable (wrong architecture, already present under another path, corrupt). The path is recorded
+				// rather than its names pruned: a ConcurrentBag cannot have entries removed, and every name the
+				// assembly declared points at it, so a lookup would otherwise retry the load on every miss.
+				_ = DeferredLoadFailures.TryAdd(path, 0);
+				return false;
+			}
 		}
 
 		/// <summary>Gets all types with the given simple name from the global index (distinct).</summary>
@@ -89,7 +162,9 @@ namespace Keysharp.Builtins
 				if (pref.Length > 1) { ambiguous = true; return false; }
 			}
 
-			// 2) Global simple-name index.
+			// 2) Global simple-name index. Any deferred assembly declaring the name is loaded first, so the
+			// unique-vs-ambiguous verdict below accounts for all of them rather than just those already loaded.
+			_ = Materialize(simpleName);
 			var global = GetBySimpleName(simpleName);
 			if (global.Count == 1) { t = global[0]; return true; }
 			if (global.Count > 1) { ambiguous = true; return false; }
@@ -122,7 +197,13 @@ namespace Keysharp.Builtins
 			t = Type.GetType(fullName, throwOnError: false, ignoreCase: true);
 			if (t != null) return CacheAndReturn(t);
 
-			// 4) Global full-name cache after potential assembly loads by prefix (below)
+			// 4) A deferred assembly known to declare this exact type. Checked before the prefix guessing below
+			// because this is recorded knowledge rather than a heuristic, and it is the only step here that can
+			// resolve a type in a package the script never named (a transitive #Package dependency). The cache is
+			// then consulted unconditionally: steps 2 and 3 can populate it as a side effect (a load they trigger
+			// fires AssemblyLoad -> IndexAssemblySafe), and for a dotless name step 5 never runs.
+			_ = Materialize(fullName);
+
 			if (FullNameCache.TryGetValue(fullName, out t))
 				return t;
 
@@ -219,6 +300,18 @@ namespace Keysharp.Builtins
 					FullNameCache.TryAdd(t2.FullName, t2);
 					SimpleNameIndex.GetOrAdd(t2.Name, _ => new ConcurrentBag<Type>()).Add(t2);
 					return t2;
+				}
+
+				// A deferred assembly may declare it under either spelling; loading one re-populates both indexes.
+				if (Materialize(id))
+				{
+					if (FullNameCache.TryGetValue(id, out var t3))
+						return t3;
+
+					var byName = GetBySimpleName(id);
+
+					if (byName.Count == 1)
+						return byName[0];
 				}
 
 				return null;

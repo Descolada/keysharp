@@ -44,6 +44,10 @@ namespace Keysharp.Tests
 			Assert.IsNotNull(ver);
 			Assert.AreEqual(ver.Version, "9.8.7.6");
 			//
+			// #AssemblyName sets the assembly's identity rather than an attribute, so it is read from the name and
+			// not via GetCustomAttribute. It overrides the name derived from the script file.
+			Assert.AreEqual("ThisIsAnAsmName", asm.GetName().Name);
+			//
 			Assert.IsTrue(TestScript("directive-asminfo", false));
 		}
 

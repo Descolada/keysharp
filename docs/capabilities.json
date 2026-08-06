@@ -126,12 +126,13 @@
                  {
                      "category":  "Environment/System",
                      "feature":  "#AssemblyName",
-                     "syntax":  "",
+                     "syntax":  "#AssemblyName <Name>",
                      "windows":  "full",
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Sets assembly name metadata for compiled scripts."
+                     "notes":  "Sets the compiled assembly's identity, which is what Assembly.GetName().Name reports. Unlike the other #Assembly* directives this is not an attribute (.NET has no AssemblyNameAttribute), so it is passed to the compiler rather than emitted as one; A_AssemblyName reads it back.",
+                     "tested-by":  "directive-asminfo.ahk"
                  },
                  {
                      "category":  "Environment/System",
@@ -438,6 +439,17 @@
                  },
                  {
                      "category":  "Environment/System",
+                     "feature":  "#Package",
+                     "syntax":  "#Package [*i] <PackageName> [Version]",
+                     "windows":  "full",
+                     "linux_x11":  "unknown",
+                     "linux_wayland":  "unknown",
+                     "macos":  "unknown",
+                     "notes":  "Keysharp-only. Makes a NuGet package's assemblies available to Clr. Resolution is delegated to the .NET SDK ('dotnet restore' on a generated project) and cached, so the SDK is needed only the first time a package set is successfully resolved on a machine (a set containing an unavailable *i package retries each run). Packages load before any script code runs, whichever module declared them. Version may be omitted (newest stable), partial, exact, or a bounded range. Verified on Windows; the implementation is platform-neutral but has not been exercised on Linux or macOS.",
+                     "tested-by":  "PackageDirectiveTests.cs"
+                 },
+                 {
+                     "category":  "Environment/System",
                      "feature":  "#Pragma",
                      "syntax":  "",
                      "windows":  "full",
@@ -545,11 +557,11 @@
                      "category":  "Environment/System",
                      "feature":  "#Warning",
                      "syntax":  "",
-                     "windows":  "full",
-                     "linux_x11":  "full",
-                     "linux_wayland":  "full",
-                     "macos":  "full",
-                     "notes":  "Emits a compile-time warning directive message."
+                     "windows":  "planned",
+                     "linux_x11":  "planned",
+                     "linux_wayland":  "planned",
+                     "macos":  "planned",
+                     "notes":  "Intended to emit a compile-time warning message. No handler exists, so using it is a load-time error. Distinct from #Warn, which is implemented."
                  },
                  {
                      "category":  "Environment/System",
@@ -3731,6 +3743,17 @@
                      "macos":  "full",
                      "notes":  "Loads a managed assembly for CLR interop through the shared .NET runtime.",
                      "tested-by":  "external-clr.ahk"
+                 },
+                 {
+                     "category":  "Interop",
+                     "feature":  "Clr.LoadPackage()",
+                     "syntax":  "Package := Clr.LoadPackage(Name [, Version, Optional])",
+                     "windows":  "full",
+                     "linux_x11":  "unknown",
+                     "linux_wayland":  "unknown",
+                     "macos":  "unknown",
+                     "notes":  "Keysharp-only. Runtime form of the #Package directive, for a package chosen by a computed name or needed only on some code paths. Accumulates: each call re-resolves the union of everything requested so far, and a version conflict with an already-loaded package is reported. Prefer #Package where it fits. Verified on Windows; not exercised on Linux or macOS.",
+                     "tested-by":  "PackageDirectiveTests.cs"
                  },
                  {
                      "category":  "Interop/Memory",
@@ -10541,7 +10564,7 @@
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
-                     "feature":  "A_AsmCompany",
+                     "feature":  "A_AssemblyCompany",
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "full",
@@ -10551,7 +10574,7 @@
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
-                     "feature":  "A_AsmConfiguration",
+                     "feature":  "A_AssemblyConfiguration",
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "full",
@@ -10561,7 +10584,7 @@
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
-                     "feature":  "A_AsmCopyright",
+                     "feature":  "A_AssemblyCopyright",
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "full",
@@ -10571,7 +10594,7 @@
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
-                     "feature":  "A_AsmDescription",
+                     "feature":  "A_AssemblyDescription",
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "full",
@@ -10581,7 +10604,7 @@
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
-                     "feature":  "A_AsmProduct",
+                     "feature":  "A_AssemblyProduct",
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "full",
@@ -10591,7 +10614,7 @@
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
-                     "feature":  "A_AsmTitle",
+                     "feature":  "A_AssemblyTitle",
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "full",
@@ -10601,7 +10624,18 @@
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
-                     "feature":  "A_AsmTrademark",
+                     "feature":  "A_AssemblyName",
+                     "syntax":  "#import KS { A_AssemblyName }",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "The executing assembly's identity, set by #AssemblyName. Unlike the other A_Assembly* variables this reads the assembly name rather than an attribute, so it always has a value: without the directive it is the name the script was compiled under.",
+                     "tested-by":  "directive-asminfo.ahk"
+                 },
+                 {
+                     "category":  "Keysharp Module (Ks)",
+                     "feature":  "A_AssemblyTrademark",
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "full",
@@ -10611,7 +10645,7 @@
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
-                     "feature":  "A_AsmVersion",
+                     "feature":  "A_AssemblyVersion",
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "full",

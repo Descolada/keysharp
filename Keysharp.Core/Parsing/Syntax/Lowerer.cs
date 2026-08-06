@@ -82,6 +82,18 @@ namespace Keysharp.Parsing.Syntax
 		private readonly List<Type> _wildcardModules = new();   // `#import "Mod" { * }` types — members resolved on demand
 		private readonly List<string> _classFieldIds = new();   // class slot fields — referenced at auto-exec start to force static init
 		private readonly List<(string Attr, string Value)> _asmAttributes = new();   // #Assembly* directives -> [assembly: …]
+		/// <summary>`#AssemblyName`, or null when the script does not set one. Read by CompilerHelper after Build.</summary>
+		public string AssemblyName;
+		// `#Package`: the program's whole package set, gathered by a prescan (PrescanPackageDirectives) because package
+		// resolution is a whole-graph operation — resolving each directive on its own could unify a shared dependency
+		// to two different versions and load both. Being program-wide, the set is emitted from one program-wide
+		// position (BuildOuterAuto) ahead of every module's auto-exec, so packages are loaded before any script code
+		// can reference them regardless of which module declared them. _packagesSeen holds the directive NODES the
+		// prescan visited, by reference: a directive reaching the lowerer that is not among them sits below the top
+		// level and is reported rather than silently dropped. Identity matters — two directives can have identical
+		// text, and comparing text would let a nested one pass for its top-level twin.
+		private readonly List<Keysharp.Internals.Os.NuGetPackageLoader.PackageRef> _packages = [];
+		private readonly HashSet<Stmt> _packagesSeen = new(ReferenceEqualityComparer.Instance);
 
 		// Compatibility mode (`#Requires AutoHotkey v2.0`/`v2.1`): lexically scoped per module/class/function. Controls
 		// the default/implicit return value (v2.0 → "", v2.1 → unset) and the per-method [CompatibilityMode] attribute.
@@ -272,6 +284,10 @@ namespace Keysharp.Parsing.Syntax
 			_sourceLines = source?.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
 			_startupName = startupName;
 			_includeDir = includeDir;
+			// Package requirements are program-wide, so they are gathered before either lowering path runs. Scanning
+			// prog.Body covers both: the multi-module path partitions this same list into modules, so every module's
+			// top-level statements are already here.
+			PrescanPackageDirectives(prog.Body);
 			// Use the dedicated multi-module path when the file defines/uses modules: a `#Module`, an `export`, or a
 			// `#import "name"` that resolves to a separate <name>.ahk file. Otherwise the common single-module path is
 			// completely unaffected (a builtin `#import "Ks"` stays here). The file-import scan is DEEP (any nesting):
@@ -608,6 +624,12 @@ namespace Keysharp.Parsing.Syntax
 			_modulesByName = byName;   // lets a function/class-scoped `#import "ScriptMod"` resolve exports at body-lowering time
 			LoadFileModules(mods, byName);   // pull in `#import "name"` modules defined in a separate <name>.ahk
 			if (Diagnostics.Count > 0) return null;   // an imported module file failed to parse — surface that, not a later "module not found"
+
+			// An imported module file's statements never reach prog.Body, so its top-level `#Package` directives are
+			// only visible now. Without this a library declaring its own package is rejected as if it were nested.
+			// __Main's body is rescanned here; the prescan is idempotent per directive node, so that is a no-op.
+			foreach (var m in mods)
+				PrescanPackageDirectives(m.Body);
 			var execOrder = ComputeExecOrder(mods, byName);
 
 			// A top-level `#Requires` (in __Main, before any #Module) sets the script-wide default that other modules
@@ -1697,6 +1719,10 @@ namespace Keysharp.Parsing.Syntax
 					if (lib.StartsWith("*i", System.StringComparison.OrdinalIgnoreCase)) { ignoreMissing = true; lib = lib.Substring(2).Trim().Trim('"', '\''); }
 					return ExprStmt(Inv(Access("MainScript.LoadDll"), Str(lib), ignoreMissing ? False : True));
 				}
+				// #Package [*i] <id> [version]: make a package's assemblies available to `Clr` before the script uses
+				// them. The program's whole package set was gathered by PrescanPackageDirectives, so the first
+				// directive emits one call covering all of them and the rest emit nothing (see the _packages field).
+				case "PACKAGE": return LowerPackageDirective(d);
 				// #Persistent [false|0]: keep the script running with no hotkeys/timers. Sets the same flag the DHHR uses
 				// to emit Flow.Persistent() (see BuildOuterAuto); a `false`/`0` argument leaves it off.
 				case "PERSISTENT":
@@ -1753,7 +1779,7 @@ namespace Keysharp.Parsing.Syntax
 				case "ERROR":
 					Diag(string.IsNullOrWhiteSpace(args) ? "#Error directive" : args.Trim());
 					return null;
-				// #Assembly* metadata -> assembly attributes on the generated unit (A_Asm* read them at runtime).
+				// #Assembly* metadata -> assembly attributes on the generated unit (A_Assembly* read them at runtime).
 				case "ASSEMBLYTITLE": _asmAttributes.Add(("System.Reflection.AssemblyTitleAttribute", args)); return null;
 				case "ASSEMBLYDESCRIPTION": _asmAttributes.Add(("System.Reflection.AssemblyDescriptionAttribute", args)); return null;
 				case "ASSEMBLYCONFIGURATION": _asmAttributes.Add(("System.Reflection.AssemblyConfigurationAttribute", args)); return null;
@@ -1763,11 +1789,39 @@ namespace Keysharp.Parsing.Syntax
 				case "ASSEMBLYTRADEMARK": _asmAttributes.Add(("System.Reflection.AssemblyTrademarkAttribute", args)); return null;
 				case "ASSEMBLYVERSION":
 					_asmAttributes.Add(("System.Reflection.AssemblyVersionAttribute", args));
-					_asmAttributes.Add(("System.Reflection.AssemblyFileVersionAttribute", args));   // A_AsmVersion reads FileVersion
+					_asmAttributes.Add(("System.Reflection.AssemblyFileVersionAttribute", args));   // A_AssemblyVersion reads FileVersion
 					return null;
-				default: return null;
+				// #AssemblyName <name>: the assembly's identity, which is what Assembly.GetName().Name reports. Unlike
+				// its siblings this is not an attribute — .NET has no AssemblyNameAttribute — so it is surfaced to the
+				// compiler instead (see AssemblyName below), which passes it to CSharpCompilation.Create.
+				case "ASSEMBLYNAME":
+					if (args.Length > 0)
+						AssemblyName = args.Trim('"', '\'');
+
+					return null;
+				default:
+					// A directive nobody handles is a typo, a v1 leftover, or an unsupported feature. Letting it vanish
+					// means the script runs with the setting silently absent and fails somewhere unrelated later, so it
+					// is rejected here. Deprecated AutoHotkey v1 directives (#InstallMouseHook, #NoEnv, #LTrim, …) are
+					// deliberately in that set: Keysharp targets v2, and silently ignoring them hides a porting bug.
+					// The allow-list below is only for directives that ARE handled, just earlier in the pipeline.
+					if (!DirectivesHandledElsewhere.Contains(d.Name))
+						Diag($"{Keywords.ExUnknownDirv}: #{d.Name}");
+
+					return null;
 			}
 		}
+
+		/// <summary>
+		/// Directives consumed before the lowerer's switch sees them: the parser splices the #Include/#Define/#If
+		/// families, and the DHHR takes #HotIf/#Hotstring at top level (so only a nested one reaches the switch).
+		/// They reach the default arm as legitimate no-ops. Anything genuinely implemented has a `case` above instead.
+		/// </summary>
+		private static readonly HashSet<string> DirectivesHandledElsewhere = new(System.StringComparer.OrdinalIgnoreCase)
+		{
+			"Include", "IncludeAgain", "Import", "Module", "Export", "HotIf", "Hotstring",
+			"Define", "Undef", "If", "ElIf", "Else", "EndIf",
+		};
 
 		// ---- #Warn (compile-time warning analysis) ----
 
@@ -1809,6 +1863,106 @@ namespace Keysharp.Parsing.Syntax
 				default: Diag($"#Warn: unrecognized warning type '{typeStr}'"); break;
 			}
 		}
+
+		// Gathers the program's `#Package [*i] <id> [version]` directives into one package set (see the _packages field
+		// for why they cannot be resolved one at a time) and validates each. Validation belongs here rather than at
+		// runtime so a malformed id/version is a compile error — and, since these values are written verbatim into the
+		// generated project file the SDK restores, the character allowlist is also what makes that safe.
+		private void PrescanPackageDirectives(List<Stmt> body)
+		{
+			foreach (var s in body)
+			{
+				if (s is not DirectiveStmt d || !d.Name.Equals("Package", System.StringComparison.OrdinalIgnoreCase))
+					continue;
+
+				var args = (d.Args ?? "").Trim();
+
+				if (!_packagesSeen.Add(d))   // the multi-module path rescans __Main, whose body the first scan already covered
+					continue;
+
+				var parts = args.Split((char[])null, System.StringSplitOptions.RemoveEmptyEntries);
+				// `*i` marks the package optional: an unavailable one is skipped instead of stopping the script.
+				var optional = parts.Length != 0 && parts[0].Equals("*i", System.StringComparison.OrdinalIgnoreCase);
+
+				if (optional)
+					parts = parts.Skip(1).ToArray();
+
+				if (parts.Length == 0)
+				{
+					Diag("#Package: expected a package name (e.g. `#Package Newtonsoft.Json 13.0.3`)");
+					continue;
+				}
+
+				var id = parts[0].Trim('"', '\'');
+				// Everything after the name is the version expression. It is joined rather than limited to one token
+				// because a bounded form takes two (`>=13.0 <14`), exactly as `#Requires` writes them.
+				var version = string.Join(" ", parts.Skip(1)).Trim('"', '\'');
+
+				if (!Keysharp.Internals.Os.NuGetPackageLoader.IsValidId(id))
+				{
+					Diag($"#Package: '{id}' is not a valid package name");
+					continue;
+				}
+
+				// Translated at compile time so a bad version is a compile error, and so the runtime cache key is
+				// canonical (two spellings of the same range share one resolved set).
+				if (!Keysharp.Internals.Os.NuGetPackageLoader.TryTranslateVersion(version, out var range, out var verr))
+				{
+					Diag($"#Package: {verr} for package '{id}'");
+					continue;
+				}
+
+				version = range;
+
+				// The same package twice is harmless if identical; conflicting versions are not, since the resolver
+				// would have to unify them and the script author almost certainly did not mean it.
+				var dup = _packages.FindIndex(p => p.Id.Equals(id, System.StringComparison.OrdinalIgnoreCase));
+
+				if (dup >= 0)
+				{
+					if (!_packages[dup].Version.Equals(version, System.StringComparison.OrdinalIgnoreCase))
+						Diag($"#Package: package '{id}' is requested twice with different versions ('{_packages[dup].Version}' and '{version}')");
+					else if (!optional)
+						_packages[dup] = _packages[dup] with { Optional = false };   // one required mention makes it required
+
+					continue;
+				}
+
+				_packages.Add(new Keysharp.Internals.Os.NuGetPackageLoader.PackageRef(id, version, optional));
+			}
+		}
+
+		/// <summary>
+		/// Lowers a `#Package` directive. The prescan gathered and validated the program's whole package set and
+		/// BuildOuterAuto emits the single call for it, so a directive in its own right emits nothing. All this does
+		/// is report one the prescan never visited: such a directive sits below the top level of a script or module,
+		/// and a package declaration buried in a function body would otherwise vanish.
+		/// </summary>
+		private StatementSyntax LowerPackageDirective(DirectiveStmt d)
+		{
+			if (!_packagesSeen.Contains(d))
+				Diag("#Package must appear at the top level of a script or module, not inside a function, class or block");
+
+			return null;
+		}
+
+		/// <summary>
+		/// The one call that loads every `#Package` the program declared, or null when it declared none (or when all
+		/// of them were malformed and already reported).
+		/// </summary>
+		private StatementSyntax EmitPackageLoad() =>
+			_packages.Count == 0 ? null
+			// One `(id, version, optional)` tuple per package, passed straight to the params array. The pieces stay
+			// pieces: packing them into a string would need a matching parser, and with it a failure mode for a
+			// string this same method wrote.
+			: ExprStmt(Inv(Access("MainScript.LoadPackages"),
+						   _packages.Select(p => (ExpressionSyntax)SyntaxFactory.TupleExpression(
+													 SyntaxFactory.SeparatedList(new[]
+													 {
+														 Arg(Str(p.Id)), Arg(Str(p.Version)),
+														 Arg(SyntaxFactory.LiteralExpression(p.Optional ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression))
+													 })))
+									 .ToArray()));
 
 		// Scans the module body for `#Warn` directives up-front so the config is location-independent (per the docs).
 		private void PrescanWarnDirectives(List<Stmt> body)
@@ -4631,7 +4785,13 @@ namespace Keysharp.Parsing.Syntax
 		private MemberDeclarationSyntax BuildOuterAuto(IReadOnlyList<string> execOrder)
 		{
 			var stmts = new List<StatementSyntax>();
-			// #Warn output runs first (at load time, before any script logic), per the configured mode.
+			// Packages load before anything else: a required one that cannot be resolved is fatal, and module
+			// auto-exec below may reference its types. The set is program-wide (see _packages), so it is loaded here
+			// rather than at a directive's position — a directive in the main script would otherwise load after every
+			// imported module had already run, since modules execute in dependency order.
+			if (EmitPackageLoad() is StatementSyntax loadPackages) stmts.Add(loadPackages);
+
+			// #Warn output runs next (at load time, before any script logic), per the configured mode.
 			stmts.AddRange(EmitWarnings());
 			// DHHR: hotkey/hotstring/remap registration runs before the manifest, then Persistent() if any were defined.
 			stmts.AddRange(_dhhr);

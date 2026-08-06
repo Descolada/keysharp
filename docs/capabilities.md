@@ -22,7 +22,7 @@ Status legend:
 | #AssemblyConfiguration | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets assembly configuration metadata for compiled scripts. |
 | #AssemblyCopyright | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets assembly copyright metadata for compiled scripts. |
 | #AssemblyDescription | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets assembly description metadata for compiled scripts. |
-| #AssemblyName | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets assembly name metadata for compiled scripts. |
+| #AssemblyName | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the compiled assembly's identity, which is what Assembly.GetName().Name reports. Unlike the other #Assembly* directives this is not an attribute (.NET has no AssemblyNameAttribute), so it is passed to the compiler rather than emitted as one; A_AssemblyName reads it back. |
 | #AssemblyProduct | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets assembly product metadata for compiled scripts. |
 | #AssemblyTrademark | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets assembly trademark metadata for compiled scripts. |
 | #AssemblyVersion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets assembly version metadata for compiled scripts. |
@@ -51,6 +51,7 @@ Status legend:
 | #Module | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Module directive starts a new module or reopens an existing module. |
 | #NoTrayIcon | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #NoTrayIcon directive disables the showing of a tray icon. |
 | #Nullable | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Accepted; nullable-context state is a no-op in Keysharp. |
+| #Package | 🟢 Full | ⚪ Unknown | ⚪ Unknown | ⚪ Unknown | Keysharp-only. Makes a NuGet package's assemblies available to Clr. Resolution is delegated to the .NET SDK ('dotnet restore' on a generated project) and cached, so the SDK is needed only the first time a package set is successfully resolved on a machine (a set containing an unavailable *i package retries each run). Packages load before any script code runs, whichever module declared them. Version may be omitted (newest stable), partial, exact, or a bounded range. Verified on Windows; the implementation is platform-neutral but has not been exercised on Linux or macOS. |
 | #Pragma | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Accepted; preprocessor pragma options are a no-op. |
 | #Region | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Accepted; a source-folding marker with no runtime semantics. |
 | #Requires | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Requires directive displays an error and quits if a version requirement is not met. |
@@ -61,7 +62,7 @@ Status legend:
 | #UseHook | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #UseHook directive forces the use of the hook to implement all or some keyboard hotkeys. |
 | #Warn | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enables warnings (VarUnset, Unreachable, LocalSameAsGlobal, NamedArg); VarUnset, Unreachable and NamedArg are on by default. |
 | #Warn NamedArg | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp extension. Checks a named argument against the callee's signature at build time when the callee is a bare name. On by default; dispatch is by value at run time so it is a warning, and the binder re-checks and throws. |
-| #Warning | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Emits a compile-time warning directive message. |
+| #Warning | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Intended to emit a compile-time warning message. No handler exists, so using it is a load-time error. Distinct from #Warn, which is implemented. |
 | #WinActivateForce | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #WinActivateForce directive skips the gentle method of activating a window and goes straight to the forceful method. |
 | %...% / Dereference | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Performs dynamic dereferencing (double-deref) to resolve a variable name stored in another variable. |
 | & | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Bitwise AND operator |
@@ -130,14 +131,15 @@ Status legend:
 | A_AppData | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_AppDataCommon | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_Args | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable containing command-line arguments passed to the script. |
-| A_AsmCompany | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly company metadata set by #AssemblyCompany. |
-| A_AsmConfiguration | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly configuration metadata set by #AssemblyConfiguration. |
-| A_AsmCopyright | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly copyright metadata set by #AssemblyCopyright. |
-| A_AsmDescription | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly description metadata set by #AssemblyDescription. |
-| A_AsmProduct | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly product metadata set by #AssemblyProduct. |
-| A_AsmTitle | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly title metadata set by #AssemblyTitle. |
-| A_AsmTrademark | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly trademark metadata set by #AssemblyTrademark. |
-| A_AsmVersion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly version metadata set by #AssemblyVersion. |
+| A_AssemblyCompany | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly company metadata set by #AssemblyCompany. |
+| A_AssemblyConfiguration | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly configuration metadata set by #AssemblyConfiguration. |
+| A_AssemblyCopyright | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly copyright metadata set by #AssemblyCopyright. |
+| A_AssemblyDescription | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly description metadata set by #AssemblyDescription. |
+| A_AssemblyName | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The executing assembly's identity, set by #AssemblyName. Unlike the other A_Assembly* variables this reads the assembly name rather than an attribute, so it always has a value: without the directive it is the name the script was compiled under. |
+| A_AssemblyProduct | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly product metadata set by #AssemblyProduct. |
+| A_AssemblyTitle | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly title metadata set by #AssemblyTitle. |
+| A_AssemblyTrademark | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly trademark metadata set by #AssemblyTrademark. |
+| A_AssemblyVersion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Assembly version metadata set by #AssemblyVersion. |
 | A_Clipboard | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | A_Clipboard is a built-in variable that reflects the current contents of the Windows clipboard. |
 | A_ClipboardTimeout | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets/sets clipboard operation timeout used by Keysharp. |
 | A_CommandLine | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets the current script command line. |
@@ -376,6 +378,7 @@ Status legend:
 | Clr.GetNamespaceName() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the namespace name for a managed wrapper or type; implemented by the shared managed runtime. |
 | Clr.GetTypeName() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the type name for a managed wrapper or object; implemented by the shared managed runtime. |
 | Clr.Load() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Loads a managed assembly for CLR interop through the shared .NET runtime. |
+| Clr.LoadPackage() | 🟢 Full | ⚪ Unknown | ⚪ Unknown | ⚪ Unknown | Keysharp-only. Runtime form of the #Package directive, for a package chosen by a computed name or needed only on some code paths. Accumulates: each call re-resolves the union of everything requested so far, and a version conflict with an already-loaded package is reported. Prefer #Package where it fits. Verified on Windows; not exercised on Linux or macOS. |
 | Clr.ManagedAssembly | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Platform-independent wrapper for a loaded managed assembly. |
 | Clr.ManagedInstance | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Platform-independent managed object instance wrapper. |
 | Clr.ManagedInstance.__Enum() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerates members exposed by the platform-independent managed instance wrapper. |
@@ -795,7 +798,7 @@ Status legend:
 | ObjHasOwnProp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether the object defines the specified own property name. |
 | ObjHasProp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Checks for a property without invoking an overridden HasProp method. |
 | ObjOwnPropCount() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the number of own properties currently defined on the object. |
-| ObjOwnProps | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerates an object's own properties. Takes no parameters: how many values an iteration yields is decided by the variable count of the for-loop. |
+| ObjOwnProps | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerates an object's own properties. |
 | ObjPtr() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Returns the raw pointer address of an object. |
 | ObjPtrAddRef() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Returns object pointer address and increments its reference count. |
 | ObjRelease() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ObjAddRef and ObjRelease functions increment or decrement an object's reference count. |

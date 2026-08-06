@@ -120,6 +120,9 @@ using String = Keysharp.Builtins.String
 		/// the main program.
 		/// </summary>
 		public static Assembly compiledasm;
+
+		/// <summary>The script's `#AssemblyName`, captured while lowering; null when it does not set one.</summary>
+		private string declaredAssemblyName;
 		public static byte[] compiledBytes;
 
 		/// <summary>
@@ -713,6 +716,7 @@ using String = Keysharp.Builtins.String
 				{
 					var lowerer = new Keysharp.Parsing.Syntax.Lowerer();
 					unit = lowerer.Build(prog, buildName, scriptPath, startupName, includeDir, source, compileToFile);
+					declaredAssemblyName = lowerer.AssemblyName;   // #AssemblyName; overrides the script-derived name below
 
 					if (unit == null || lowerer.Diagnostics.Count > 0)
 						foreach (var d in lowerer.Diagnostics)
@@ -819,9 +823,10 @@ using String = Keysharp.Builtins.String
 		{
 			var asm = Assembly.GetExecutingAssembly();
 			exeDir ??= Path.GetFullPath(Path.GetDirectoryName(asm.Location.IsNullOrEmpty() ? Environment.ProcessPath : asm.Location));
-			var assemblyName = nameNoExt ?? "*";
-
 			var (unit, errs) = CreateCompilationUnitFromFile(fileName, nameNoExt, compileToFile);
+			// `#AssemblyName` wins over the name derived from the script file; it is only known once the script has
+			// been lowered, hence after the call above.
+			var assemblyName = declaredAssemblyName ?? nameNoExt ?? "*";
 
 			if (errs.HasErrors || unit == null)
 			{

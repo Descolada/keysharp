@@ -1709,7 +1709,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// The company of the assembly that is currently executing, specified with the #ASSEMBLYCOMPANY directive.
 		/// </summary>
-		public static string A_AsmCompany
+		public static string A_AssemblyCompany
 		{
 			get
 			{
@@ -1721,7 +1721,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// The configuration of the assembly that is currently executing, specified with the #ASSEMBLYCONFIGURATION directive.
 		/// </summary>
-		public static string A_AsmConfiguration
+		public static string A_AssemblyConfiguration
 		{
 			get
 			{
@@ -1733,7 +1733,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// The copyright of the assembly that is currently executing, specified with the #ASSEMBLYCOPYRIGHT directive.
 		/// </summary>
-		public static string A_AsmCopyright
+		public static string A_AssemblyCopyright
 		{
 			get
 			{
@@ -1745,7 +1745,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// The description of the assembly that is currently executing, specified with the #ASSEMBLYDESCRIPTION directive.
 		/// </summary>
-		public static string A_AsmDescription
+		public static string A_AssemblyDescription
 		{
 			get
 			{
@@ -1757,7 +1757,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// The product of the assembly that is currently executing, specified with the #ASSEMBLYPRODUCT directive.
 		/// </summary>
-		public static string A_AsmProduct
+		public static string A_AssemblyProduct
 		{
 			get
 			{
@@ -1769,7 +1769,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// The title of the assembly that is currently executing, specified with the #ASSEMBLYTITLE directive.
 		/// </summary>
-		public static string A_AsmTitle
+		public static string A_AssemblyTitle
 		{
 			get
 			{
@@ -1779,9 +1779,16 @@ namespace Keysharp.Builtins
 		}
 
 		/// <summary>
+		/// The name of the assembly that is currently executing, specified with the #ASSEMBLYNAME directive.
+		/// This is the assembly's identity rather than an attribute, so it is read from the assembly name itself and
+		/// always has a value: without the directive it is the name the script was compiled under.
+		/// </summary>
+		public static string A_AssemblyName => GetAssembly().GetName().Name ?? DefaultObject;
+
+		/// <summary>
 		/// The trademark of the assembly that is currently executing, specified with the #ASSEMBLYTRADEMARK directive.
 		/// </summary>
-		public static string A_AsmTrademark
+		public static string A_AssemblyTrademark
 		{
 			get
 			{
@@ -1793,7 +1800,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// The version of the assembly that is currently executing, specified with the #ASSEMBLVERSION directive.
 		/// </summary>
-		public static string A_AsmVersion
+		public static string A_AssemblyVersion
 		{
 			get
 			{

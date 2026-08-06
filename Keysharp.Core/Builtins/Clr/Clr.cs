@@ -19,6 +19,38 @@ namespace Keysharp.Builtins
 					: new ManagedNamespace([asm], s);
 			}
 
+			/// <summary>
+			/// Makes a NuGet package's assemblies available at run time — the imperative form of the <c>#Package</c>
+			/// directive, for the cases a directive cannot express (a package chosen by a computed name, or one only
+			/// needed on some code paths).
+			///
+			/// <para>Prefer the directive where it fits: batching every request into one resolution is a correctness
+			/// property rather than a convenience (see <c>NuGetPackageLoader.requested</c>), and the directive gets it
+			/// by construction. This entry point mitigates it by accumulating — each call re-resolves the union of
+			/// everything requested so far — but assemblies already loaded by an earlier call cannot be unloaded, so a
+			/// genuine conflict is reported rather than repaired.</para>
+			/// </summary>
+			/// <param name="Name">The package name, as on the feed.</param>
+			/// <param name="Version">Omitted for the newest stable release; otherwise the same forms
+			/// <c>#Package</c> accepts — partial (<c>13</c>), exact (<c>13.0.3</c>) or bounded (<c>&gt;=13.0 &lt;14</c>).</param>
+			/// <param name="Optional">When true, an unavailable package yields an empty return instead of an error.</param>
+			/// <returns>A ManagedAssembly over the package's own assemblies — so its types are reachable directly from
+			/// the return value as well as through <c>Clr</c> — or unset (an empty string under
+			/// <c>#Requires AutoHotkey v2.0</c>) when an optional package was unavailable.</returns>
+			public static object staticLoadPackage(object @this, object Name, object Version = null, object Optional = null)
+			{
+				var id = Name.As();
+				var asms = Keysharp.Internals.Os.NuGetPackageLoader.LoadOne(id, Version.As(), Optional.Ab(), out var error);
+
+				if (error != null)
+					return Errors.ErrorOccurred(error);
+
+				if (asms == null || asms.Length == 0)
+					return DefaultObject;   // optional and unavailable
+
+				return new ManagedAssembly(asms);
+			}
+
 			public static object static__Get(object @this, object name, object args)
 			{
 				var namestr = name.As();

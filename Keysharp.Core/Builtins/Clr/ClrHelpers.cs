@@ -37,6 +37,10 @@ namespace Keysharp.Builtins
 		private static readonly ConcurrentDictionary<string, ConcurrentBag<Type>> SimpleNameIndex =
 			new(StringComparer.OrdinalIgnoreCase);
 
+		// Namespaces and namespace prefixes contributed by every indexed assembly; see IsKnownNamespace.
+		private static readonly ConcurrentDictionary<string, byte> NamespaceIndex =
+			new(StringComparer.Ordinal);
+
 		private static readonly ConcurrentDictionary<string, byte> TriedAssemblyLoads =
 			new(StringComparer.OrdinalIgnoreCase);
 
@@ -52,10 +56,16 @@ namespace Keysharp.Builtins
 		// Both the full name and the simple name of every type land in ONE map: they cannot disagree about which
 		// assembly declares a type, and the only key they can share is a namespace-less type, where both would name
 		// the same path anyway. The value is every declaring assembly rather than the first, because all of them must
-		// be materialized before a unique-vs-ambiguous verdict is trustworthy â€” keeping only the first would make the
+		// be materialized before a unique-vs-ambiguous verdict is trustworthy — keeping only the first would make the
 		// answer depend on registration order.
 		private static readonly ConcurrentDictionary<string, ConcurrentBag<string>> DeferredNames =
 			new(StringComparer.OrdinalIgnoreCase);
+
+		// Namespaces and namespace prefixes a deferred assembly declares, so IsKnownNamespace can answer for one
+		// without loading it. Separate because these carry no paths: walking a namespace must not materialize
+		// anything, only reaching a type may.
+		private static readonly ConcurrentDictionary<string, byte> DeferredNamespaceIndex =
+			new(StringComparer.Ordinal);
 
 		/// <summary>Deferred assemblies that could not be loaded, so a repeat lookup does not retry them forever.</summary>
 		private static readonly ConcurrentDictionary<string, byte> DeferredLoadFailures =
@@ -79,8 +89,13 @@ namespace Keysharp.Builtins
 			{
 				DeferredNames.GetOrAdd(name, _ => new ConcurrentBag<string>()).Add(path);
 
-				if (!ns.IsNullOrEmpty())
-					DeferredNames.GetOrAdd(ns + "." + name, _ => new ConcurrentBag<string>()).Add(path);
+				if (ns.IsNullOrEmpty())
+					continue;
+
+				DeferredNames.GetOrAdd(ns + "." + name, _ => new ConcurrentBag<string>()).Add(path);
+
+				foreach (var prefix in EnumeratePrefixes(ns))
+					_ = DeferredNamespaceIndex.TryAdd(prefix, 0);
 			}
 		}
 
@@ -207,7 +222,7 @@ namespace Keysharp.Builtins
 			if (FullNameCache.TryGetValue(fullName, out t))
 				return t;
 
-			// 5) OPTIONAL: attempt to Assembly.Load likely prefixes
+			// 6) OPTIONAL: attempt to Assembly.Load likely prefixes
 			var lastDot = fullName.LastIndexOf('.');
 			if (lastDot > 0)
 			{
@@ -370,7 +385,63 @@ namespace Keysharp.Builtins
 					FullNameCache.TryAdd(t.FullName, t);
 
 				SimpleNameIndex.GetOrAdd(t.Name, _ => new ConcurrentBag<Type>()).Add(t);
+
+				// Types overwhelmingly share a namespace with their neighbours, so one lookup skips the prefix walk
+				// (an iterator plus a substring per level) for all but the first type of each namespace.
+				if (!string.IsNullOrEmpty(t.Namespace) && !NamespaceIndex.ContainsKey(t.Namespace))
+					foreach (var prefix in EnumeratePrefixes(t.Namespace))
+						_ = NamespaceIndex.TryAdd(prefix, 0);
 			}
+		}
+
+		/// <summary>
+		/// Every namespace and namespace prefix seen while indexing. A namespace walk that has left the map is
+		/// provably dead, which is what lets <see cref="Ks.Clr.ManagedNamespace"/> report a wrong type path at the
+		/// point the path goes wrong instead of silently yielding a node that stringifies to the dotted name.
+		/// </summary>
+		internal static bool IsKnownNamespace(string ns)
+		{
+			if (string.IsNullOrEmpty(ns))
+				return false;
+
+			EnsureIndex();
+
+			if (NamespaceIndex.ContainsKey(ns))
+				return true;
+
+			// A deferred assembly's namespaces count as known without loading it -- the whole point of walking a
+			// namespace is to reach a type, and the type's own lookup is what materializes the assembly. Answering
+			// "unknown" here would make a live path through a lazily-registered dependency look dead.
+			if (DeferredNamespaceIndex.ContainsKey(ns))
+				return true;
+
+			// No re-index on a miss: assemblies loaded after EnsureIndex are picked up by the AssemblyLoad hook in
+			// the static constructor, so the index is already current. Re-indexing here would also append every type
+			// to SimpleNameIndex's bags again on each miss, growing them without bound.
+			return false;
+		}
+
+		/// <summary>
+		/// True when any type in <paramref name="assemblies"/> lives in namespace <paramref name="ns"/> or below.
+		/// Only used where assembly precision matters (deciding what a bare <c>Clr.Load</c> name anchors to); the
+		/// global check gates it, so the type scan is reached only for a name that is a namespace *somewhere*.
+		/// </summary>
+		internal static bool IsKnownNamespaceIn(IEnumerable<Assembly> assemblies, string ns)
+		{
+			if (!IsKnownNamespace(ns))
+				return false;
+
+			if (assemblies == null)
+				return true;
+
+			var withDot = ns + ".";
+
+			foreach (var a in assemblies)
+				foreach (var t in SafeGetTypes(a))
+					if (t.Namespace is string n && (n.Equals(ns, StringComparison.Ordinal) || n.StartsWith(withDot, StringComparison.Ordinal)))
+						return true;
+
+			return false;
 		}
 
 		private static IEnumerable<string> EnumeratePrefixes(string ns)
@@ -514,24 +585,62 @@ namespace Keysharp.Builtins
 
 			if (fi == null) return false;
 
-			if (isSet)
+			// Unlike TryMethod, a field access used to run unguarded, so anything the accessor threw escaped as a raw
+			// CLR exception. Mapping it keeps every path through Clr catchable by script (see ThrowMapped).
+			try
 			{
-				var val = ConvertScalarToCLR(value, fi.FieldType);
-				fi.SetValue(fi.IsStatic ? null : instance, val);
-				result = value;
+				if (isSet)
+				{
+					var val = ConvertScalarToCLR(value, fi.FieldType);
+					fi.SetValue(fi.IsStatic ? null : instance, val);
+					result = value;
+				}
+				else
+				{
+					var v = fi.GetValue(fi.IsStatic ? null : instance);
+					result = ConvertOut(v);
+				}
 			}
-			else
+			catch (Exception ex)
 			{
-				var v = fi.GetValue(fi.IsStatic ? null : instance);
-				result = ConvertOut(v);
+				result = ThrowMapped(ex, $"{type.FullName}.{fi.Name}");
 			}
+
 			return true;
 		}
 
 		// -------- Property (incl. indexers) --------
 
-		// one engine for both named properties and indexers
+		/// <summary>
+		/// Guards <see cref="TryPropertyCoreUnguarded"/>. Property and indexer accessors used to run unguarded, so a
+		/// getter or setter that threw escaped as a raw CLR exception and killed the pseudo-thread -- a plain
+		/// out-of-range `list[5]` was fatal rather than catchable. The inner recursion (property-then-indexer sugar)
+		/// passes back through here, which is harmless: <see cref="ThrowMapped"/> lets an already-mapped
+		/// KeysharpException through untouched, so the mapping only ever happens once.
+		/// </summary>
 		private static bool TryPropertyCore(
+			object instance,
+			Type type,
+			string name,
+			object[] args,
+			bool isSet,
+			object putValue,
+			out object result)
+		{
+			try
+			{
+				return TryPropertyCoreUnguarded(instance, type, name, args, isSet, putValue, out result);
+			}
+			catch (Exception ex)
+			{
+				var member = string.IsNullOrEmpty(name) ? "indexer" : name;
+				result = ThrowMapped(ex, $"{type.FullName}.{member}");
+				return true;
+			}
+		}
+
+		// one engine for both named properties and indexers
+		private static bool TryPropertyCoreUnguarded(
 			object instance,
 			Type type,
 			string name,               // pass null for pure indexer access
@@ -1058,8 +1167,49 @@ namespace Keysharp.Builtins
 
 		internal static bool ThrowInvokeError(Exception ex, MethodBase m)
 		{
-			_ = Errors.ErrorOccurred($"{m.DeclaringType?.FullName}.{m.Name} threw: {ex.GetType().Name}: {ex.Message}");
+			_ = ThrowMapped(ex, $"{m.DeclaringType?.FullName}.{m.Name}");
 			return true;
+		}
+
+		/// <summary>
+		/// Maps a CLR exception onto the matching Keysharp error so a script `try/catch` can see it.
+		/// Without this, anything thrown out of a member reached through <see cref="Ks.Clr"/> escapes as a raw CLR
+		/// exception and terminates the pseudo-thread, which makes the escape hatch unusable defensively -- a script
+		/// cannot probe for an optional assembly or member without risking the whole run.
+		/// Reflection wraps everything in <see cref="TargetInvocationException"/>, so that is peeled off first;
+		/// otherwise every message would read "Exception has been thrown by the target of an invocation."
+		/// A <see cref="KeysharpException"/> passes through untouched: it is already a script error (typically thrown
+		/// by a script callback the CLR called back into), and re-wrapping would hide its type from `catch`.
+		/// </summary>
+		[StackTraceHidden]
+		internal static object ThrowMapped(Exception ex, string what)
+		{
+			while (ex is TargetInvocationException tie && tie.InnerException != null)
+				ex = tie.InnerException;
+
+			if (ex is KeysharpException)
+				throw ex;
+
+			var msg = $"{what} threw {ex.GetType().Name}: {ex.Message}";
+			// Order matters: ArgumentOutOfRangeException derives from ArgumentException, so it has to be tested first.
+			// OSError is the one that does not take a message: its first parameter is the error number (or the
+			// Exception to read one from), and it derives Message itself -- passing a string there would leave the
+			// caller reading "The operation completed successfully." So it gets the exception, and the context goes
+			// into What, where the other error types put it via the message.
+			Error err = ex switch
+			{
+				ArgumentOutOfRangeException or IndexOutOfRangeException => new IndexError(msg),
+				KeyNotFoundException => new KeyError(msg),
+				DivideByZeroException => new ZeroDivisionError(msg),
+				InvalidCastException => new TypeError(msg),
+				FormatException or ArgumentException => new ValueError(msg),
+				MissingMethodException => new MethodError(msg),
+				MissingMemberException => new PropertyError(msg),
+				FileNotFoundException or FileLoadException or BadImageFormatException
+					or IOException or UnauthorizedAccessException => new OSError(ex, what),
+				_ => new Error(msg),
+			};
+			return Errors.ErrorOccurred(err) ? throw err : DefaultObject;
 		}
 
 		// -------- Conversions (Keysharp <-> CLR) --------

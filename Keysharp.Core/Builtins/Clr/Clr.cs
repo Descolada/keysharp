@@ -2,19 +2,33 @@ namespace Keysharp.Builtins
 {
 	public partial class Ks
 	{
-		public class Clr : KeysharpObject
+		public partial class Clr : KeysharpObject
 		{
 			public static object staticLoad(object @this, object assemblyOrPath)
 			{
 				var s = assemblyOrPath.As();
-				var asm = s.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+				Assembly asm;
+
+				// A miss used to throw FileNotFoundException straight out of here, past any script try/catch, killing
+				// the pseudo-thread -- so "load this if it exists" was unwriteable. Mapping it makes probing possible.
+				try
+				{
+					asm = s.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
 						  ? Assembly.LoadFrom(s)
 						  : Assembly.Load(s);
+				}
+				catch (Exception ex)
+				{
+					return ManagedInvoke.ThrowMapped(ex, $"Clr.Load(\"{s}\")");
+				}
 
-				// If user gave a simple assembly name that matches the loaded assembly,
-				// return a namespace root anchored at that simple name ("System", etc.).
-				// Otherwise return a ManagedAssembly for mixed scenarios.
-				return s.Contains('.') || !asm.GetName().Name.Equals(s, StringComparison.OrdinalIgnoreCase)
+				// If the user gave a simple assembly name that is *also* a namespace root in that assembly, anchor the
+				// walk there ("System", ...). The name matching alone is not enough: UIAutomationClient's types live
+				// under System.Windows.Automation, so anchoring at "UIAutomationClient" produced a node from which no
+				// type was ever reachable, and nothing said so.
+				return s.Contains('.')
+					   || !asm.GetName().Name.Equals(s, StringComparison.OrdinalIgnoreCase)
+					   || !TypeResolver.IsKnownNamespaceIn([asm], s)
 					? new ManagedAssembly(asm)
 					: new ManagedNamespace([asm], s);
 			}
@@ -55,7 +69,14 @@ namespace Keysharp.Builtins
 			{
 				var namestr = name.As();
 				var type = TypeResolver.Resolve(namestr);
-				return type != null ? new ManagedType(type) : new ManagedNamespace([], namestr);
+
+				if (type != null)
+					return new ManagedType(type);
+
+				if (!TypeResolver.IsKnownNamespace(namestr))
+					return Errors.ErrorOccurred($"'{namestr}' is neither a type nor a namespace in the loaded assemblies.");
+
+				return new ManagedNamespace([], namestr);
 			}
 
 			// Still keep these for direct access if someone prefers:
@@ -125,7 +146,14 @@ namespace Keysharp.Builtins
 						return Errors.ErrorOccurred($"Type name '{name}' is ambiguous in these assemblies.");
 					}
 
-					// Not a type: start a namespace walk rooted at this assembly scope.
+					// Not a type: start a namespace walk rooted at this assembly scope, but only if the name can still
+					// lead somewhere. The global check is enough here -- these assemblies are loaded, so their
+					// namespaces are indexed, and a name that is a namespace nowhere is dead for them too. Narrowing
+					// it to these assemblies would only cost a full type scan to reject a case ManagedNamespace.Get
+					// catches on the next step anyway.
+					if (!TypeResolver.IsKnownNamespace(name))
+						return Errors.ErrorOccurred($"'{name}' is neither a type nor a namespace in these assemblies.");
+
 					return new Clr.ManagedNamespace(_assemblies, name);
 				}
 
@@ -195,7 +223,12 @@ namespace Keysharp.Builtins
 					if (t2 != null)
 						return new ManagedType(t2);
 
-					// Otherwise keep walking deeper into the namespace.
+					// Keep walking only while the path could still reach a type. A walk that has left every known
+					// namespace can never resolve, and continuing it is how a typo used to survive all the way to a
+					// blank string at the point of use rather than an error at the point of the mistake.
+					if (!TypeResolver.IsKnownNamespace(full))
+						return Errors.ErrorOccurred($"'{full}' is neither a type nor a namespace in the loaded assemblies.");
+
 					return new ManagedNamespace(_assemblies, full);
 				}
 
@@ -252,8 +285,18 @@ namespace Keysharp.Builtins
 					return Errors.ErrorOccurred($"Constructor on type '{t.FullName}' not found for {args.Length} argument(s).");
 				}
 
+				/// <summary>
+				/// A namespace node is an intermediate in a type walk, never a value. Returning <c>_ns</c> here is what
+				/// made an unfinished walk look like it had succeeded -- the node stringified to the dotted path, so
+				/// the mistake surfaced as a wrong-looking string far from its cause. Use <see cref="Clr.GetNamespaceName"/>
+				/// (which reads the field directly) when the text is actually wanted.
+				/// </summary>
 				[PublicHiddenFromUser]
-				public override string ToString() => _ns;
+				public override string ToString()
+				{
+					_ = Errors.ErrorOccurred($"'{_ns}' is a namespace, not a value. Continue to a type before using it.");
+					return _ns;
+				}
 			}
 
 			public sealed class ManagedType : ManagedObject
@@ -300,6 +343,9 @@ namespace Keysharp.Builtins
 						}
 					}
 
+					if (TryEventCall(null, _type, this, name, args, out var evResult))
+						return evResult;
+
 					// Static method: TypeNode.Method(args...)
 					return ManagedInvoke.InvokeStatic(_type, name, args);
 				}
@@ -335,7 +381,9 @@ namespace Keysharp.Builtins
 
 				// Instance method call: obj.Method(args...)
 				internal override object Call(string name, object[] args)
-					=> ManagedInvoke.InvokeInstance(_instance, _type, name, args);
+					=> TryEventCall(_instance, _type, this, name, args, out var evResult)
+					   ? evResult
+					   : ManagedInvoke.InvokeInstance(_instance, _type, name, args);
 
 				// Instance prop/field: get/set
 				internal override object Get(string name, object[] args)

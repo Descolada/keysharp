@@ -3,6 +3,19 @@ using Clr = Keysharp.Builtins.Ks.Clr;
 
 namespace Keysharp.Builtins
 {
+	/// <summary>
+	/// A non-script callable the delegate shim can forward to, so a CLR delegate can be pointed at engine code
+	/// instead of straight at a script function. CLR event subscriptions use this to interpose their marshalling
+	/// decision (run here, or hand to the owning scheduler) between the CLR raiser and the script callback,
+	/// while still reusing this file's per-delegate-type IL shim rather than duplicating it.
+	/// </summary>
+	internal sealed class ClrCallbackShim(Func<object[], object> fn)
+	{
+		private readonly Func<object[], object> fn = fn;
+
+		internal object Invoke(object[] args) => fn(args);
+	}
+
 	internal static class ClrDelegateMarshaler
 	{
 		private static readonly ConcurrentDictionary<Type, Func<object, Delegate>> _cache = new();
@@ -293,6 +306,7 @@ namespace Keysharp.Builtins
 		private static object InvokeKeysharpFunc(object func, object[] args)
 		{
 			if (func is KeysharpFunc fo) return fo.Call(args);
+			if (func is ClrCallbackShim shim) return shim.Invoke(args);
 			if (func is Delegate dnet) return dnet.DynamicInvoke(args);
 			return Script.Invoke(func, "Call", args);
 		}

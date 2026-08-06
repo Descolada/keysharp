@@ -384,7 +384,7 @@ namespace Keysharp.Runtime
 		internal WinEventManager WinEventManagerIfExists => winEventManager;
 
 		/// <summary>Lazily-created registry of live CLR event subscriptions made through <c>Clr</c>'s <c>OnEvent</c>.</summary>
-		internal ClrEventManager ClrEventManager => clrEventManager ?? (clrEventManager = new (this));
+		internal ClrEventManager ClrEventManager => clrEventManager ?? (clrEventManager = new ());
 
 		/// <summary>The CLR event manager if one has been created, else null (used by cleanup paths that must not create it).</summary>
 		internal ClrEventManager ClrEventManagerIfExists => clrEventManager;

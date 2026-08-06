@@ -93,7 +93,7 @@ namespace Keysharp.Internals.Threading
 		}
 
 		internal bool TryPushThreadVariables(long priority, bool skipUninterruptible,
-				bool isCritical, bool inc, bool allowEmergencyOverflow, out ThreadVariables tv)
+				bool isCritical, bool inc, bool allowEmergencyOverflow, out ThreadVariables tv, ThreadKind kind = ThreadKind.None)
 		{
 			var script = Script.TheScript;
 			tv = null;
@@ -104,7 +104,7 @@ namespace Keysharp.Internals.Threading
 					return false;
 			}
 
-			tv = ThreadVariableManagerForCurrentThread.PushThreadVariables(priority, skipUninterruptible, isCritical);
+			tv = ThreadVariableManagerForCurrentThread.PushThreadVariables(priority, skipUninterruptible, isCritical, kind);
 
 			if (tv == null)
 			{
@@ -132,38 +132,38 @@ namespace Keysharp.Internals.Threading
 			return Volatile.Read(ref script.totalExistingThreads) < script.MaxThreadsTotal;
 		}
 
-		internal long RequestExit(long? target, int exitCode)
+		/// <summary>
+		/// Requests that <paramref name="targetThread"/> exit with <paramref name="exitCode"/>. The current
+		/// pseudo-thread exits immediately (by throw); any other one is marked and unwinds when it next reaches an
+		/// exit-enabled TryDoEvents safe point. A later request wins until the target actually exits.
+		/// </summary>
+		/// <returns>The targeted pseudo-thread's ID.</returns>
+		internal long RequestExit(ThreadVariables targetThread, int exitCode)
 		{
-			var manager = ThreadVariableManagerForCurrentThread;
-			var currentThread = manager.threadVars.TryPeek();
-			ThreadVariables targetThread = currentThread;
-
-			if (target is long targetValue)
-			{
-				// A valid exact ID always has a nonzero creation sequence, so 0..65535 is unambiguously an index.
-				if ((ulong)targetValue <= ushort.MaxValue)
-					targetThread = manager.TryGetPseudoThread((int)targetValue);
-				else
-				{
-					var position = (ushort)unchecked((ulong)targetValue);
-					targetThread = manager.TryGetPseudoThread(position);
-
-					if (targetThread == null || targetThread.pseudoThreadId != targetValue)
-						return 0L;
-				}
-			}
-
 			if (targetThread == null)
 				return 0L;
 
-			// A later request wins until the target reaches an exit-enabled TryDoEvents safe point.
 			targetThread.requestedExitCode = exitCode;
 
-			if (ReferenceEquals(targetThread, currentThread))
-				ThrowIfExitRequested(currentThread);
+			if (ReferenceEquals(targetThread, ThreadVariableManagerForCurrentThread.threadVars.TryPeek()))
+				ThrowIfExitRequested(targetThread);
 
 			return targetThread.pseudoThreadId;
 		}
+
+		/// <summary>Requests that the current pseudo-thread exit. Does not return.</summary>
+		internal long RequestExit(int exitCode)
+			=> RequestExit(ThreadVariableManagerForCurrentThread.threadVars.TryPeek(), exitCode);
+
+		/// <summary>The pseudo-thread stack manager of the calling real thread.</summary>
+		internal ThreadVariableManager CurrentManager => ThreadVariableManagerForCurrentThread;
+
+		/// <summary>
+		/// The script-visible <c>KeysharpThread</c> for the current pseudo-thread (<c>A_Thread</c>), created on first
+		/// read and cached on the pooled <see cref="ThreadVariables"/> so repeated reads do not allocate.
+		/// </summary>
+		internal Keysharp.Builtins.KeysharpThread CurrentThreadObject
+			=> Keysharp.Builtins.KeysharpThread.Wrap(ThreadVariableManagerForCurrentThread, CurrentThread);
 
 		internal void ThrowIfExitRequested(ThreadVariables tv)
 		{
@@ -207,11 +207,11 @@ namespace Keysharp.Internals.Threading
 		}
 
 		internal void LaunchThreadInMain(Action act, long priority = 0, bool skipUninterruptible = false,
-							 bool isCritical = false)
+							 bool isCritical = false, ThreadKind kind = ThreadKind.None)
 		{
 			try
 			{
-				Script.TheScript.UIEventScheduler.EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, act);
+				Script.TheScript.UIEventScheduler.EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, act, kind);
 			}
 			catch (Exception ex) when (ex.InnerException is not null)
 			{

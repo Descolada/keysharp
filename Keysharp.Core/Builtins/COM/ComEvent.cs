@@ -145,7 +145,7 @@ namespace Keysharp.Builtins.COM
 							e.Result = mph.CallFunc(null, args);
 						}
 					});
-				});
+				}, kind: ThreadKind.Com);
 			}
 		}
 
@@ -170,7 +170,7 @@ namespace Keysharp.Builtins.COM
 					e.IsHandled = true;
 					e.Result = Script.Invoke(sinkObj, e.Name, allArgs);
 				});
-			});
+			}, kind: ThreadKind.Com);
 		}
 
 		private static Type ResolveModuleType(Type type)

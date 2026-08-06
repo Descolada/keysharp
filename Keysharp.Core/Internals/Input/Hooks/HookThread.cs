@@ -4086,7 +4086,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 							so.DeactivateCallbackPersistence();
 						}
-					}));
+					}), ThreadKind.Input);
 				}
 
 				case (uint)UserMessages.AHK_INPUT_KEYDOWN:
@@ -4131,7 +4131,7 @@ namespace Keysharp.Internals.Input.Hooks
 							? new object[] { inputHook.scriptObject, new string(wParamVal == 0 ? [(char)lParamVal] : [(char)lParamVal, (char)wParamVal]) }
 							: [inputHook.scriptObject, lParamVal, wParamVal];
 						_ = Script.Invoke(callback, "Call", args);
-					}));
+					}), ThreadKind.Input);
 				}
 
 				case (uint)UserMessages.AHK_INPUT_MOUSEDOWN:
@@ -4177,7 +4177,7 @@ namespace Keysharp.Internals.Input.Hooks
 							? new object[] { inputHook.scriptObject, mx, my }
 							: [inputHook.scriptObject, VKtoKeyName(vkVal, true), mx, my];
 						_ = Script.Invoke(callback, "Call", args);
-					}));
+					}), ThreadKind.Input);
 				}
 
 				default:

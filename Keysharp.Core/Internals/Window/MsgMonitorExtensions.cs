@@ -43,7 +43,7 @@ namespace Keysharp.Internals.Window
 		private static ScriptEventExecutionResult InvokeRegistrationOnSchedulerThread(ScriptEventScheduler targetScheduler, MsgMonitorRegistration registration, object[] args, object eventInfo, long hwnd, bool skipUninterruptible, bool allowEmergencyOverflow, out long result)
 		{
 			result = 0L;
-			using var thread = targetScheduler.StartPseudoThreadScope(0, skipUninterruptible, false, allowEmergencyOverflow);
+			using var thread = targetScheduler.StartPseudoThreadScope(0, skipUninterruptible, false, allowEmergencyOverflow, ThreadKind.Message);
 
 			if (!thread.Started)
 				return thread.Result;

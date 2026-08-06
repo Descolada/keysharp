@@ -1,4 +1,4 @@
-{
+﻿{
     "legend":  {
                    "full":  "Implemented and generally usable",
                    "partial":  "Implemented with known limitations or gaps",
@@ -2010,13 +2010,36 @@
                  },
                  {
                      "category":  "Keysharp Module (Ks)",
-                     "feature":  "A_ThreadId",
-                     "syntax":  "#import KS { A_ThreadId }",
+                     "feature":  "A_Thread",
+                     "syntax":  "#import KS { A_Thread }",
                      "windows":  "full",
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Returns a nearly unique 64-bit ID for the current pseudo-thread. The lower 16 bits are its zero-based stack index; auto-execute is index 0. Exact IDs are active-lifetime handles local to their owning real thread."
+                     "notes":  "The current pseudo-thread as a Thread object. Id keeps the former A_ThreadId layout: a 48-bit creation sequence and a 16-bit zero-based stack position.",
+                     "tested-by":  "FlowTests/FlowExit"
+                 },
+                 {
+                     "category":  "Keysharp Module (Ks)",
+                     "feature":  "A_RealThread",
+                     "syntax":  "#import KS { A_RealThread }",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "The real OS thread the current pseudo-thread runs on, as a RealThread object. On the main thread this is the same object as RealThread.Main.",
+                     "tested-by":  "flow-realthreads.ahk"
+                 },
+                 {
+                     "category":  "Keysharp Module (Ks)",
+                     "feature":  "Thread (object)",
+                     "syntax":  "",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Thread is a class rather than a function: calling it runs the AHK sub-functions (NoTimers/Priority/Interrupt) unchanged, and an instance describes one pseudo-thread: Id, Index (1-based), IsActive, Kind, Elapsed, Priority, Critical, Paused, IsInterruptible, Underlying and Exit. An Is prefix marks a read-only predicate; a settable mode is named for the mode. Obtained from A_Thread, Under or RealThread.Threads, never constructed. There is one object per pseudo-thread, so 	hr == A_Thread tests whether it is the running one. It revalidates its identity on every access, so one held past its pseudo-thread's life reports IsActive false rather than describing whichever pseudo-thread reused the pooled slot. Reads work from any real thread; setters and Exit require the owning one.",
+                     "tested-by":  "FlowTests/FlowExit"
                  },
                  {
                      "category":  "Environment/System",
@@ -4886,12 +4909,12 @@
                  {
                      "category":  "Core Language",
                      "feature":  "Exit",
-                     "syntax":  "Exit(ExitCode?, ThreadId?)",
+                     "syntax":  "Exit(ExitCode?)",
                      "windows":  "full",
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Exits the current pseudo-thread immediately when ThreadId is omitted. ThreadId may be an exact KS.A_ThreadId or a zero-based index in the current real thread\u0027s active pseudo-thread stack. An underlying target exits at its next cooperative event/message check. Later requests overwrite its pending exit code. Returns the exact targeted ID; an explicit target which does not match throws ValueError.",
+                     "notes":  "Exits the current pseudo-thread immediately. Terminating a different pseudo-thread is Thread.Exit(ExitCode?) on a Thread object, reached through KS.A_Thread.Underlying or KS.A_RealThread.Threads[i] (1-based, oldest first). An underlying target exits at its next cooperative event/message check; later requests overwrite its pending exit code.",
                      "tested-by":  "ControlTests/control_send.ahk"
                  },
                  {
@@ -7028,6 +7051,17 @@
                  },
                  {
                      "category":  "Automation",
+                     "feature":  "Lock",
+                     "syntax":  "#import KS { Lock }",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "A mutual-exclusion lock for code shared between RealThreads: Acquire([Timeout]) and Release(). Covers what LockRun cannot - a timed acquire, and a lock held across several statements. Reentrant and owned by a real thread; Acquire blocks that whole real thread.",
+                     "tested-by":  "flow-realthreads.ahk"
+                 },
+                 {
+                     "category":  "Keysharp Module (Ks)",
                      "feature":  "LockRun()",
                      "syntax":  "",
                      "windows":  "full",
@@ -8630,8 +8664,8 @@
                  },
                  {
                      "category":  "Automation",
-                     "feature":  "WinEvent.IsPaused",
-                     "syntax":  "hook.IsPaused / WinEvent.IsPaused",
+                     "feature":  "WinEvent.Paused",
+                     "syntax":  "hook.Paused / WinEvent.Paused",
                      "windows":  "full",
                      "linux_x11":  "full",
                      "linux_wayland":  "full",

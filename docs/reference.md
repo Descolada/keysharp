@@ -394,12 +394,10 @@ Despite our best efforts to remain compatible with the AutoHotkey v2 spec, there
 	+ `ComObjConnect()` takes an optional third parameter as a boolean (default: `false`) which specifies whether to write additional information to the debug output tab when events are received.
 	+ `DateAdd()` and `DateDiff()` support taking a value of `"L"` for the `TimeUnits` parameter to add miLliseconds or return the elapsed time in milliseconds, respectively.
 		+ See the new accessors `A_NowMs`/`A_NowUTCMs`.
-	+ `Exit(ExitCode?, ThreadId?)` extends `Exit()` with targeted pseudo-thread termination.
-		+ If `ThreadId` is omitted, the current pseudo-thread exits immediately, as before.
-		+ `ThreadId` may be an exact `A_ThreadId` value or a zero-based index in the current real thread's active pseudo-thread stack. Index 0 selects the oldest active pseudo-thread.
+	+ `Exit(ExitCode?)` exits the current pseudo-thread, as in AHK.
+		+ Terminating a *different* pseudo-thread is `threadObj.Exit(ExitCode?)`, reached via `A_Thread.Underlying` or `A_RealThread.Threads[i]`.
 		+ Targeting an underlying pseudo-thread marks it to exit when it next resumes and reaches a cooperative event/message check (`TryDoEvents`). It does not asynchronously abort managed code.
 		+ A later request made before the target exits replaces its pending exit code.
-		+ The function returns the targeted pseudo-thread's exact ID. An explicit `ThreadId` which does not match an active pseudo-thread on the current real thread throws `ValueError`. Targeting the current pseudo-thread exits immediately and therefore does not return.
 	+ `FileGetSize()` supports `G` and `T` for gigabytes and terabytes.
 	+ `ImageSearch()` takes an options string as a fifth parameter, rather than inserted in the string before the `imageFile` parameter.
 	+ `Log(number, base := 10)` is by default base 10, but it can accept a double as the second parameter to specify a custom base.
@@ -420,9 +418,9 @@ Despite our best efforts to remain compatible with the AutoHotkey v2 spec, there
 		+ Full documentation for the C# formatting rules can be found [here](https://learn.microsoft.com/en-us/dotnet/api/system.string.format).
 	+ `LockRun(lockobj, funcobj [, params*])`: Calls `funcobj` inside of a lock on `lockobj`, optionally passing `params` to it.
 		+ This is used to ensure only one `RealThread` at a time executes the code in `funcobj`.
-		+ `lockobj` must be initialized to some value, such as an empty string.
+		+ `lockobj` must be an object (`Object()` or a `Lock`). A number throws `TypeError`: it boxes afresh at each call site, so every call would lock a different monitor and nothing would be serialized. A string works but is a poor lock, because identical literals are shared process-wide.
 			```
-			lockit := ""
+			lockit := Object()
 			sharedvar := 0
 			LockRun(lockit, () => sharedvar++) ; If this were called in multiple threads, sharedvar would only ever be accessed by one thread at a time.
 			```
@@ -578,10 +576,12 @@ Despite our best efforts to remain compatible with the AutoHotkey v2 spec, there
 	+ `A_NoTrayIcon` returns whether the tray icon was hidden with #NoTrayIcon.
 	+ `A_NowMs`/`A_NowUTCMs` returns the current local/UTC time formatted to include milliseconds like so "YYYYMMDDHH24MISS.ff".
 		+ These can be used with `DateAdd()`/`DateDiff()` using `"L"` for the `TimeUnits` parameter.
+	+ `A_RealThread` is the real OS thread the current pseudo-thread runs on, as a `RealThread` object, and is available from the KS module: `#import KS { A_RealThread }`.
+		+ On the main thread it is literally the same object as `RealThread.Main`, so `A_RealThread == RealThread.Main` is the test for "am I on the main thread". See the `RealThread` class under *New classes*.
 	+ `A_SuspendExempt` returns whether subsequent hotkeys and hotstrings will be exmpt from suspension because `#SuspendExempt true` was specified.
-	+ `A_ThreadId` identifies the current Keysharp pseudo-thread and is available from the KS module: `#import KS { A_ThreadId }`.
-		+ The 64-bit value is laid out as a 48-bit script-wide creation sequence and a 16-bit zero-based pseudo-thread stack index. `A_ThreadId & 0xFFFF` retrieves the stack index; auto-execute is index 0 on its real thread.
-	+ IDs are nearly unique for the lifetime of a script, but are only valid while their pseudo-thread is active. An exact ID can only be targeted from its owning real thread.
+	+ `A_Thread` is the current pseudo-thread as a `Thread` object, and is available from the KS module: `#import KS { A_Thread }`.
+		+ Every per-pseudo-thread fact is a property on the object rather than its own importable global, so the surface extends without new names. See the `Thread` class under *New classes*.
+		+ There is exactly one object per pseudo-thread, so "is this the one I am in" is `thr == A_Thread`.
 	+ `A_TotalScreenHeight` returns the total height in pixels of the virtual screen.
 	+ `A_TotalScreenWidth` returns the total width in pixels of the virtual screen.
 	+ `A_UseHook` returns the value `n` specified with `#UseHook n`.
@@ -623,15 +623,51 @@ Despite our best efforts to remain compatible with the AutoHotkey v2 spec, there
 				MsgBox(sb) ; No need to use StrGet() anymore.
 				```
 		+ `StringBuffer` internally uses a `StringBuilder` which is how C# P/Invoke handles string pointers.
+	+ `Thread`: The current pseudo-thread, obtained from `A_Thread`.
+		+ `Thread` is a **class**, not a function, and calling it runs the AHK sub-functions unchanged — `Thread "NoTimers"`, `Thread "Priority", n`, `Thread "Interrupt", n`. One name therefore covers the thread settings and the thread object, which is what lets `A_Thread`'s type simply be `Thread`. It stays a global name (no import needed for `thr is Thread`) because `Thread` was already global as a function; the consequence is that `Thread is Func` is now false.
+			```
+			class Thread          ; script name; the CLR type is KeysharpThread, as Func is KeysharpFunc
+			{
+				static Call(SubFunction [, Value1, Value2])   ; the AHK Thread() function
+				Id => Integer            ; 48-bit creation sequence << 16 | 16-bit zero-based stack position
+				Index => Integer         ; 1-based stack position; 1 is the oldest active pseudo-thread
+				IsActive => Boolean      ; false once this pseudo-thread has ended
+				Kind => String           ; what launched it: Auto, Hotkey, Hotstring, Timer, Event, Message,
+				                         ; Callback, Input, WinEvent, Com, Clr, RealThread, or "" when the
+				                         ; launch site does not name one. Event covers every registered
+				                         ; handler (GUI, menu, OnExit, OnClipboardChange) — one registry
+				                         ; dispatches them all, so they are not separable.
+				Elapsed => Integer       ; ms since launch
+				Priority => Integer      ; get/set; same storage as Thread "Priority"
+				Critical => Boolean      ; get/set; the object form of the Critical function
+				Paused => Boolean        ; get/set; the object form of Pause. A_IsPaused is this on Under
+				IsInterruptible => Boolean ; read-only
+				Underlying => Thread     ; the pseudo-thread this one interrupted, or ""
+				Exit([ExitCode := 0]) => Integer   ; cooperative; returns the target's Id
+			}
+			```
+		+ Pseudo-thread state is pooled and reused, so a `Thread` object captures its ID and re-checks it on every access. Once its pseudo-thread ends, `Id` and `Index` still answer from captured values and `IsActive` reports false, while everything else throws `TargetError` — a stored object can never silently describe a later pseudo-thread that reused the slot.
+		+ Boolean members follow the library-wide naming rule: `IsActive`/`IsInterruptible` are read-only, `Critical`/`Paused` are settable.
+		+ There is deliberately no `IsCurrent` property, and likewise no `IsMain`/`IsAlive` on `RealThread` — anything derivable from an identity comparison or from `Status` is left out.
+		+ A `Thread` object may be read from any real thread, but every setter and `Exit` throw `TargetError` when called from a real thread other than its owner. Pseudo-thread stacks are per real thread and are mutated without locking.
 	+ `RealThread`: Manages real threads which are not related to the green threads that are used for the rest of the project.
 		+ A `RealThread` is created by calling the `RealThread` class static instance.
 			```
 			class RealThread
 			{
-				static Call(funcobj [, params*]) => RealThread` ; Calls `funcobj` in a real thread, optionally passing `params` to it, and return a `RealThread` object.
+				static Call(funcobj [, params*]) => RealThread ; Runs `funcobj` on a new real thread, passing `params` to it.
 				RealThread(funcobj [, params*])
-				RealThread ContinueWith(funcobj [, params*]) => RealThread ; Calls `funcobj` after the task completes, optionally passing `params` to it and return a new `RealThread` object for the continuation thread.
-				Wait([timeout]) ; Waits until the thread object which was passed to the constructor completes. Optionally return after a specified timeout period in milliseconds elapses.
+				static Main => RealThread ; The script's main thread.
+				Id => Integer             ; Managed id of the backing OS thread.
+				Status => String          ; "Running" until it finishes, then "Done" or "Error".
+				                          ; Work can be given to it exactly while it is "Running".
+				Result => Any             ; The body's return value; "" while running, on error, or if it exited early.
+				Threads => Array          ; The active ScriptThreads of this real thread, oldest first.
+				Post(funcobj [, params*])              ; Queue work and return immediately.
+				Send(funcobj [, params*]) => Any       ; Run work there, wait, return its value.
+				Wait([timeout := -1]) => Boolean       ; True if it finished, false if the timeout elapsed first.
+				ContinueWith(funcobj [, params*]) => RealThread ; Runs `funcobj` on a new real thread after this one finishes.
+				Exit([exitCode := 0])                  ; Cooperative shutdown request.
 			}
 
 			ThreadFunc(obj)
@@ -642,6 +678,20 @@ Despite our best efforts to remain compatible with the AutoHotkey v2 spec, there
 			theThread := RealThread("ThreadFunc") ; Create and start the thread.
 			theThread.Wait() ; Wait for the thread to complete before continuing.
 			```
+		+ `RealThread.Main.Post(fn)` is the supported way to move work back onto the main thread from a worker. `A_RealThread` is the calling thread's object; on the main thread it is literally the same object as `RealThread.Main`, so `A_RealThread == RealThread.Main` is the test for "am I on the main thread".
+		+ `Wait` reports *completion*, not the body's value — that is `Result` — so a timeout is distinguishable from a body that returned nothing.
+		+ An uncaught error in a body is reported on the thread where it happened, exactly like one in a timer or hotkey body, and sets `Status` to `"Error"`. It is never smuggled to a later `Wait`.
+		+ A worker that registered a timer, hotkey or callback keeps serving them after its body returns; `Exit` is how it is shut down. `Wait`, `ContinueWith` and `Exit` throw `TargetError` on `RealThread.Main` and on adopted threads, which have no body of their own.
+	+ `Lock`: Guards code shared between real threads where `LockRun` cannot — a timed acquire, or a lock held across several statements. `LockRun` remains the one-call form and is not duplicated on the class.
+		```
+		class Lock
+		{
+			static Call() => Lock
+			Acquire([Timeout := -1]) => Boolean ; true once held, false if the timeout elapsed first
+			Release()                           ; once per successful Acquire, from the acquiring real thread
+		}
+		```
+		+ The lock belongs to a *real* thread and is reentrant. `Acquire` blocks the whole real thread, so acquiring on the main thread stalls the message loop — pass a timeout there.
 	+ New class `Image` provides cross-platform image capture and manipulation. Capture with `Image.FromDesktop()`, `Image.FromMonitor(n)`, `Image.FromRect(x, y, w, h)`, `Image.FromWindow(winTitle [, options])`, load with `Image.FromFile(path)` / `Image.FromBitmap(handle)` / `Image.FromClipboard()` (the round-trip counterpart of `CopyImageToClipboard`; returns `""` when the clipboard holds no image), or create a blank ARGB canvas to draw on with `Image.Create(width, height [, background])` (omit `background` or pass `""` for fully transparent), or build one from raw pixel bytes with `Image.FromBuffer(data, width, height [, bytesPerPixel := 4])` — the inverse of `GetPixelData`, where `bytesPerPixel` 1 = 8-bit grayscale and 4 = RGBA. Paint shapes and text with `Clear([color])`, `DrawLine(x1, y1, x2, y2 [, color, thickness])`, `DrawRect`/`FillRect(x, y, w, h [, color, thickness])`, `DrawRoundRect`/`FillRoundRect(x, y, w, h, radius [, color, thickness])`, `DrawEllipse`/`FillEllipse(x, y, w, h [, color, thickness])`, `DrawText(text, x, y [, color, font])` (`font` is `"Name size"` with optional trailing style keywords `bold`, `italic`, `underline`, `strike`, e.g. `"Sans 16 bold italic"`), and `DrawImage(image [, x, y, w, h])` (stamp another image onto this one). A color is a name (`"Red"`), a `0xRRGGBB` value (opaque), or — for a non-opaque alpha — a `0xAARRGGBB` value given either as a number (e.g. `0x80FF0000`) or an 8-hex-digit string; a fully-transparent `0x00` alpha survives only as an 8-hex-digit string, since a numeric `0x00RRGGBB` collapses to a plain opaque `0xRRGGBB`. Queue chainable transforms — geometry (`Scale`, `Resize(width, height)` for an absolute resize where a single negative dimension keeps the aspect ratio, `Rotate`, `Flip`, `Crop`) and color (`Grayscale()`, `Opacity(factor)` with `factor` 0-1, `Brightness(amount)` and `Contrast(amount)` with `amount` -1 to 1); the draw ops and transforms all apply lazily and chain, then output via `Save(filename)` or `ToBitmap()`, show it in a window with `Show([title, wait])` (`wait` = block until the preview window closes), read/write pixels with `GetPixel(x, y)` (returns the full `0xAARRGGBB`, alpha included) and `SetPixel(x, y, color)` (a `0xRRGGBB` opaque or `0xAARRGGBB` value), or search it — the three search methods return a boolean found? and write the result(s) into a leading `&match` output variable, and matching is RGB-only (alpha is ignored, since capture alpha is unreliable): `Search(&match, needle [, variation, trans, direction])` locates a sub-image and on a hit sets `match := {x, y}` (the match's top-left as absolute image pixels) and returns `true`, else returns `false` and sets `match := ""` (`trans` = a needle color that matches anything, ImageSearch's `*TransN`; `direction` = ImageSearch's `*DirN` scan order 1-9 selecting which match wins); `SearchAll(&matches, needle [, variation, trans, direction])` sets `matches := [{x, y}, {x, y}, …]` (all matches, an empty array `[]` when none) and returns `true` when there is at least one; `SearchPixel(&match, color [, variation])` finds the first matching pixel — PixelSearch over a capture instead of the live screen — and on a hit sets `match := {x, y, color}` where `color` is the actual matched pixel's full `0xAARRGGBB` (the value `GetPixel` returns). Each also takes an optional `(x, y, w, h)` region right after `&match` (`Search(&match, x, y, w, h, needle [, …])`, likewise `SearchAll`/`SearchPixel`) to search only inside that rectangle (clamped to the image); returned coordinates stay absolute image pixels. The region form is selected by argument count — 5+ arguments after `&match` means a region; `SearchPixel` with 3 or 4 arguments (neither the plain nor the region form) raises a ValueError. Additional surface: `Copy()` duplicates the image; `MeasureText(text, font, &w, &h)` measures a string with the same font spec `DrawText` uses; `GetPixelData([bytesPerPixel := 1]) => Buffer` copies the pixels into a tightly packed `Buffer` (`bytesPerPixel` 1 = grayscale, 4 = RGBA) for `DllCall`/OCR interop, and `SetPixelData(data [, bytesPerPixel := 4])` overwrites the current image's pixels from such a buffer; and the read-only `X`/`Y`/`ScaleX`/`ScaleY` properties report the capture's screen origin and HiDPI pixel scale so coordinates found in the image map back to screen coordinates. `FromWindow` captures the whole window (title bar included; occluded windows capture correctly everywhere except foreign-toplevel-only compositors) and accepts an `options` object/mode (matching OCR.ahk): on Windows it selects the capture technique — `0`/`1` = GetDC + BitBlt, `2`/`3` = PrintWindow, `4` (default) = PrintWindow + PW_RENDERFULLCONTENT for hardware-accelerated windows (mode `5`, UWP capture, is not yet implemented) — and `{decorations: false}` requests a client-area-only grab where the platform can honor it (KWin); elsewhere the flag is ignored. `Image.FromRect` takes absolute screen coordinates and deliberately ignores the Pixel `CoordMode` (unlike `PixelGetColor`/`ImageSearch`), matching its sibling capture factories. Replaces the earlier `ImageCapture` function — e.g. `Image.FromRect(x, y, w, h).Save(filename)` or `.ToBitmap()`. Using a disposed `Image` now throws rather than silently returning `0`, and because `Rotate`/`Flip` invalidate the `X`/`Y` screen-origin mapping (`Rotate` also invalidates `ScaleX`/`ScaleY`), don't rely on those properties after rotating or flipping.
 		* New KS class `Overlay` provides a click-through, always-on-top image surface. `Overlay(x, y [, w, h])` and all screen-facing geometry use the platform's native coordinates; the platform chooses the backing-pixel canvas automatically. Draw with the `Image` primitives, replace content with `SetImage(source)`, or atomically replace content and optional geometry with `Update(source [, x, y, w, h])`. `Redraw(callback [, x, y, w, h])` builds a target-sized frame off-screen and commits it once, while `BeginDraw()`/`EndDraw()` batches ordinary draw calls. `Show`, `Move`, `Hide`, and `Destroy` control the surface; `W`/`H` resize its display rectangle without discarding the canvas. `Opacity`, `ClickThrough`, `Visible`, and `Hwnd` expose presentation state. `Highlight` and, on Linux/macOS, `ToolTip` use this same primitive. Some compositor-drawn Wayland backings remain click-through even when `ClickThrough` is `false`.
 * Syntax:
@@ -696,6 +746,9 @@ Despite our best efforts to remain compatible with the AutoHotkey v2 spec, there
 	* In addition to the `AHK` module, a `KS` module has been added which contains extra variabes and methods added to Keysharp. Accessing them requires using the `import` statement.
 		+ These include all new classes, functions and variables mentioned here (eg `HashMap`, `Sinh` etc).
 		+ Note: class method/property additions are always included and do not need to be imported (eg `String` or `Buffer` extra methods).
+	* **Boolean property naming.** On a class, an `Is` prefix marks a **read-only predicate** (`Thread.IsActive`, `Thread.IsInterruptible`, `Func.IsBuiltIn`, `Func.IsVariadic`); a **settable** boolean is named for the state itself (`Thread.Critical`, `Thread.Paused`, `WinEvent.Paused`), so it reads as `obj.Paused := true` rather than as a question.
+		+ This follows AutoHotkey, which never prefixes a settable boolean property — `InputHook.VisibleText`, `InputHook.CaseSensitive`, `GuiControl.Enabled`, `GuiControl.Visible` — while using `Is` on some read-only ones (`Func.IsBuiltIn`, `Func.IsVariadic`, alongside unprefixed `InputHook.InProgress`, `File.AtEOF`, `GuiControl.Focused`).
+		+ The `A_Is*` **variables** are a separate namespace and keep their AHK spelling: `A_IsCritical`, `A_IsPaused`, `A_IsSuspended`.
 	+ A compiled script can be reloaded.
 		+ AutoHotkey does not support reloading a compiled script.
 	+ When sending a string through `SendMessage()` using the `WM_COPYDATA` message type, the caller is no longer responsible for creating the special `COPYDATA` struct.
@@ -795,12 +848,12 @@ Despite our best efforts to remain compatible with the AutoHotkey v2 spec, there
 
 					; Global pause
 					static Pause(newState := 1) => Boolean  ; Pause (1), unpause (0) or toggle (-1) all hooks; returns the new paused state.
-					static IsPaused => Boolean              ; Get/set whether all hooks are paused.
+					static Paused => Boolean                ; Get/set whether all hooks are paused.
 
 					; Per-hook
 					Stop()                       ; Cancel the subscription so the callback no longer fires.
 					Pause(newState := 1) => Boolean ; Pause (1), unpause (0) or toggle (-1) this hook; returns the new paused state.
-					IsPaused => Boolean          ; Get/set whether this hook is paused (paused hooks stay registered but don't fire).
+					Paused => Boolean            ; Get/set whether this hook is paused (paused hooks stay registered but don't fire).
 					IsActive => Boolean          ; Whether the subscription is still receiving events.
 					EventType => String          ; The event kind, e.g. "Active" or "Move".
 					Count => Integer             ; Remaining number of times the callback will fire (-1 = unlimited).

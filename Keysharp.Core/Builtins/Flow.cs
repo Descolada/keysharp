@@ -99,27 +99,15 @@ namespace Keysharp.Builtins
 		/// The exit is achieved by throwing an exception which will be caught in the catch
 		/// clause that wraps all threads.
 		/// </summary>
-		/// <param name="exitCode">The process exit code to apply when the targeted pseudo-thread exits. Defaults to zero.</param>
-		/// <param name="threadId">If omitted, exits the current pseudo-thread immediately. Otherwise, a pseudo-thread ID
-		/// returned by <c>KS.A_ThreadId</c>, or a zero-based index in the current real thread's pseudo-thread stack.
-		/// Index zero is the oldest active pseudo-thread. IDs belonging to another real thread cannot be targeted.</param>
-		/// <returns>The targeted pseudo-thread ID. Targeting the current
-		/// pseudo-thread exits immediately and therefore does not return. A later request made before termination replaces
-		/// the target's pending exit code.</returns>
-		/// <exception cref="ValueError">Thrown when an explicit <paramref name="threadId"/> does not match an active
-		/// pseudo-thread in the current real thread.</exception>
-		public static object Exit(object exitCode = null, object threadId = null)
+		/// <param name="exitCode">The process exit code to apply when the pseudo-thread exits. Defaults to zero.</param>
+		/// <returns>Does not return: the current pseudo-thread exits immediately. To terminate a different
+		/// pseudo-thread, call <c>Exit</c> on its <c>Thread</c> object (<c>A_Thread.Underlying.Exit()</c>,
+		/// <c>A_RealThread.Threads[1].Exit()</c>).</returns>
+		public static object Exit(object exitCode = null)
 		{
-			var code = exitCode.Ai();
-			var threads = Script.TheScript.Threads;
-			var hasExplicitTarget = !threadId.IsNullOrEmpty();
-			var target = hasExplicitTarget ? threadId.Al() : (long?)null;
-			var terminatedId = threads.RequestExit(target, code);
-
-			if (terminatedId == 0L && hasExplicitTarget)
-				return Errors.ValueErrorOccurred($"No active pseudo-thread matched ThreadId {target}.", threadId, 0L);
-
-			return terminatedId;
+			// Requesting an exit on the current pseudo-thread throws, so this never returns normally unless there is
+			// no pseudo-thread to exit at all.
+			return Script.TheScript.Threads.RequestExit(exitCode.Ai());
 		}
 
 		/// <summary>
@@ -408,34 +396,9 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		/// <summary>
-		/// Sets the priority or interruptibility of threads. It can also temporarily disable all timers.<br/>
-		/// The subFunction, Value1, and Value2 parameters are dependent upon each other and their usage is described below.
-		/// </summary>
-		/// <param name="subFunction">Specify one of the following:<br/>
-		///     NoTimers: Prevents interruptions from any timers until the current thread either ends, executes Thread "NoTimers", false, or is interrupted by another thread that allows timers (in which case timers can interrupt the interrupting thread until it finishes).<br/>
-		///     Priority: Changes the priority level of the current thread.<br/>
-		///     Interrupt: Changes the duration of interruptibility for newly launched threads.
-		/// </param>
-		/// <param name="value1">Has a different meaning depending on subFunction:
-		///     NoTimers: True to disallow timers, else false to allow timers.  Default: true.<br/>
-		///     Priority: The thread priority as an integer in the range -2147483648 and 2147483647.<br/>
-		///     Interrupt: The time in milliseconds that each newly launched thread is uninterruptible. Default: 17.
-		/// </param>
-		public static object Thread(object subFunction, object value1 = null, object value2 = null)
-		{
-			var sf = subFunction.As();
-			var script = Script.TheScript;
-
-			if (string.Compare(sf, "notimers", true) == 0)
-				Ks.A_AllowTimers = !(Options.OnOff(value1.As()) ?? false);
-			else if (string.Compare(sf, "priority", true) == 0)
-				script.Threads.CurrentThread.priority = value1.Al();
-			else if (string.Compare(sf, "interrupt", true) == 0)
-				script.uninterruptibleTime = value1.Ai(script.uninterruptibleTime);
-
-			return DefaultObject;
-		}
+		// The AutoHotkey `Thread` function is not a function here: `Thread` is the script thread class, and calling
+		// it runs the same sub-functions. See KeysharpThread.staticCall — one name covers the thread settings and the
+		// thread object, which is what lets A_Thread's type simply be `Thread`.
 
 		/// <summary>
 		/// Throws the specified error object.

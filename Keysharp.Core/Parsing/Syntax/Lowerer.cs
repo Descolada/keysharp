@@ -774,7 +774,7 @@ namespace Keysharp.Parsing.Syntax
 						else if (isScript)
 							RegisterImportField(impAlias, ModuleMemberField(modName, impName));   // best-effort (script modules bind non-exported declarations too)
 						else if (BindBuiltinMember(modName, isAhk, impName) is { } bind)
-							RegisterImportField(impAlias, bind);                                   // built-in method/type/property → its inline expression
+							BindBuiltinImport(impAlias, bind, ResolvedBuiltinProperty(modName, isAhk, impName), props);   // built-in method/type/property
 						else if (!isAhk && Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var bmt) && BuiltinModuleHasMember(bmt, impName))
 							{ }                                                                    // has the member but not bindable here — leave to ambient resolution
 						else
@@ -829,6 +829,71 @@ namespace Keysharp.Parsing.Syntax
 			if (_fields.ContainsKey(lower)) return;
 			_fields[lower] = NameMangler.Escape(lower);
 			_fieldDecls.Add(ObjField(NameMangler.Escape(lower), value));
+		}
+
+		// A built-in METHOD or nested TYPE is an immutable reference and binds as a cached field. A built-in PROPERTY
+		// must bind as a property instead: values such as A_Thread, A_NowMs, A_LastError or A_TickCount are recomputed
+		// on every read — several of them per pseudo-thread — so caching the first value in a field at module-init
+		// time froze the imported name for the rest of the run. This mirrors what BindNamedImport already does for a
+		// script module's variable exports. The get/set form is used only for an `object`-typed property, which every
+		// writable one currently is; a future typed setter degrades to read-only here rather than emitting C# that
+		// cannot compile.
+		private void BindBuiltinImport(string alias, ExpressionSyntax read, System.Reflection.PropertyInfo prop, List<MemberDeclarationSyntax> props)
+		{
+			if (prop == null)
+			{
+				RegisterImportField(alias, read);
+				return;
+			}
+
+			var lower = alias.ToLowerInvariant();
+			if (_fields.ContainsKey(lower)) return;
+			_fields[lower] = NameMangler.Escape(lower);
+			var name = NameMangler.Escape(lower);
+			var access = Access(prop.DeclaringType.FullName.Replace('+', '.') + "." + prop.Name);
+
+			if (prop.SetMethod?.IsPublic != true || prop.PropertyType != typeof(object))
+			{
+				props.Add(ObjArrowProp(name, access));
+				return;
+			}
+
+			props.Add(SyntaxFactory.PropertyDeclaration(ObjType, name)
+				.AddModifiers(PublicTok, StaticTok)
+				.AddAccessorListAccessors(
+					SyntaxFactory.AccessorDeclaration(SyntaxKind.GetAccessorDeclaration).WithExpressionBody(SyntaxFactory.ArrowExpressionClause(access)).WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken)),
+					SyntaxFactory.AccessorDeclaration(SyntaxKind.SetAccessorDeclaration).WithExpressionBody(SyntaxFactory.ArrowExpressionClause(Assign(access, Id("value")))).WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken))));
+		}
+
+		// The PropertyInfo an explicitly imported built-in member resolves to, or null when it resolves to a method or
+		// a nested type instead (or does not resolve at all). Mirrors the resolution ORDER of ResolveGlobalBuiltin and
+		// BindModuleMember exactly, so a name those bind as a method is never mistaken for a property here.
+		private static System.Reflection.PropertyInfo ResolvedBuiltinProperty(string modName, bool isAhk, string member)
+		{
+			var rd = Script.TheScript.ReflectionsData;
+
+			if (isAhk)
+			{
+				var lower = member.ToLowerInvariant();
+				return rd.flatPublicStaticMethods.ContainsKey(lower) ? null
+					   : rd.flatPublicStaticProperties.TryGetValue(lower, out var globalProp) ? globalProp : null;
+			}
+
+			if (!rd.stringToTypes.TryGetValue(modName, out var modType))
+				return null;
+
+			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly;
+			bool Matches(System.Reflection.MemberInfo m) =>
+				(Script.GetUserDeclaredName(m) ?? m.Name).Equals(member, System.StringComparison.OrdinalIgnoreCase)
+				|| m.Name.Equals(member, System.StringComparison.OrdinalIgnoreCase);
+
+			if (modType.GetMethods(flags).Any(mi => !mi.IsSpecialName && Matches(mi)))
+				return null;
+
+			if (modType.GetNestedTypes(System.Reflection.BindingFlags.Public).Any(Matches))
+				return null;
+
+			return modType.GetProperties(flags).FirstOrDefault(Matches);
 		}
 
 		// Adds `[Keysharp.Runtime.Export]` to the backing fields of a module's exported names.
@@ -1055,8 +1120,7 @@ namespace Keysharp.Parsing.Syntax
 						Diag($"{d.Line}:{d.Column}: #Import: module '{modName}' has no exported member named '{impName}'");
 					continue;
 				}
-				_fields[lower] = NameMangler.Escape(lower);
-				_fieldDecls.Add(ObjField(NameMangler.Escape(lower), init));
+				BindBuiltinImport(impAlias, init, ResolvedBuiltinProperty(modName, isAhk, impName), _fieldDecls);
 			}
 		}
 

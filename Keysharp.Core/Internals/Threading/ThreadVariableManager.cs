@@ -22,6 +22,27 @@ namespace Keysharp.Internals.Threading
 			// #MaxThreads is capped at 255, so every valid index fits in the encoded 16-bit field.
 			=> (uint)index <= ushort.MaxValue ? threadVars.TryGet(index + 1) : null;
 
+		/// <summary>
+		/// The active pseudo-threads of this real thread, oldest first. Skips the permanent context holder at slot 0
+		/// and any slot whose ID has since been cleared, so every entry describes a live pseudo-thread at the moment
+		/// it was read. Used by <c>RealThread.Threads</c>, which is a diagnostic/control surface, never a launch path.
+		/// </summary>
+		internal List<ThreadVariables> SnapshotPseudoThreads()
+		{
+			var count = PseudoThreadCount;
+			var list = new List<ThreadVariables>(count);
+
+			for (var i = 0; i < count; i++)
+			{
+				var tv = TryGetPseudoThread(i);
+
+				if (tv != null && tv.pseudoThreadId != 0L)
+					list.Add(tv);
+			}
+
+			return list;
+		}
+
 		internal void PopThreadVariables(ThreadVariables threadVarsToPop, bool checkThread = true)
 		{
 			if (threadVarsToPop == null)
@@ -52,7 +73,7 @@ namespace Keysharp.Internals.Threading
 		}
 
 		internal ThreadVariables PushThreadVariables(long priority, bool skipUninterruptible,
-				bool isCritical = false)
+				bool isCritical = false, ThreadKind kind = ThreadKind.None)
 		{
 			var script = Script.TheScript;
 			var pushed = threadVars.TryPush(out var tv);
@@ -61,6 +82,7 @@ namespace Keysharp.Internals.Threading
 			{
 				tv.Init();
 				tv.threadId = Thread.CurrentThread.ManagedThreadId;
+				tv.kind = kind;
 
 				// The first entry is a permanent context holder, not a script pseudo-thread.
 				// Exclude it from both the creation sequence and the encoded stack position.

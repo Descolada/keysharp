@@ -197,7 +197,7 @@ namespace Keysharp.Runtime
 		/// so timers/hotkey subroutines fire during a menu or are held forever. Tracking a set keeps the menu-visible
 		/// state true until the LAST menu closes and is idempotent when the same menu reports closed twice (e.g.
 		/// Tsmi_Click clearing up-front and then the Closed event). The set is mutated only under <see cref="menuVisibleGate"/>
-		/// ΓÇö its writers run on the UI thread (and, for the Windows MenuItem.Disposed reconcile, possibly the GC
+		/// — its writers run on the UI thread (and, for the Windows MenuItem.Disposed reconcile, possibly the GC
 		/// finalizer thread), so the lock, not thread affinity, is what makes it safe; <see cref="menuVisibleCount"/>
 		/// mirrors its size as a volatile int so the low-level keyboard-hook thread can read visibility without a
 		/// lock or a torn value.
@@ -301,6 +301,7 @@ namespace Keysharp.Runtime
 		private ToolTipData toolTipData;
 		private Dictionary<string, WindowGroup> windowGroups;
 		private WinEventManager winEventManager;
+		private ClrEventManager clrEventManager;
 		private int disposeStarted;
 
 		public static Keysharp.Runtime.Script TheScript { get; internal set; }
@@ -382,6 +383,12 @@ namespace Keysharp.Runtime
 		/// <summary>The WinEvent manager if one has been created, else null (used by cleanup paths that must not create it).</summary>
 		internal WinEventManager WinEventManagerIfExists => winEventManager;
 
+		/// <summary>Lazily-created registry of live CLR event subscriptions made through <c>Clr</c>'s <c>OnEvent</c>.</summary>
+		internal ClrEventManager ClrEventManager => clrEventManager ?? (clrEventManager = new (this));
+
+		/// <summary>The CLR event manager if one has been created, else null (used by cleanup paths that must not create it).</summary>
+		internal ClrEventManager ClrEventManagerIfExists => clrEventManager;
+
 #if OSX
 		internal string ldLibraryPath = Environment.GetEnvironmentVariable("DYLD_LIBRARY_PATH") ?? "";
 #elif LINUX
@@ -432,13 +439,13 @@ namespace Keysharp.Runtime
 			// Xlib must be put into threaded mode before any display connection is opened.
 			_ = Keysharp.Internals.Window.Linux.X11.Xlib.XInitThreads();
 
-			// Resolve the platform host on the startup thread ΓÇö the deterministic resolution point, before any
+			// Resolve the platform host on the startup thread — the deterministic resolution point, before any
 			// hook/IPC thread can freeze a thread-affine probe (IsX11Available reads the [ThreadStatic] XDisplay).
 			// Construction is trivial; each service resolves its session/backend lazily on first use.
 			_ = Platform.Instance;
 
 			// Use GTK's native backend per session: Wayland on a Wayland session, X11 on an X11 session. We
-			// no longer force GDK_BACKEND=x11 (XWayland) ΓÇö window management, input synthesis and screen
+			// no longer force GDK_BACKEND=x11 (XWayland) — window management, input synthesis and screen
 			// capture all go through the compositor backends (KWin/GNOME/Cinnamon) on Wayland rather than
 			// X11. A user can still pin a backend explicitly via the GDK_BACKEND environment variable.
 
@@ -578,9 +585,9 @@ namespace Keysharp.Runtime
 		/// <summary>
 		/// Backs the <c>#Package</c> directive: a generated call at the position of the script's first <c>#Package</c>
 		/// line, carrying the program's whole package set (see <see cref="Keysharp.Internals.Os.NuGetPackageLoader"/>
-		/// for why the set has to arrive in one call, and why the SDK ΓÇö not Keysharp ΓÇö does the resolving).
+		/// for why the set has to arrive in one call, and why the SDK — not Keysharp — does the resolving).
 		/// </summary>
-		/// <param name="spec">An <c>id|version|flags;ΓÇª</c> list built by the lowerer; the only flag is <c>i</c> (optional).</param>
+		/// <param name="spec">An <c>id|version|flags;…</c> list built by the lowerer; the only flag is <c>i</c> (optional).</param>
 		public void LoadPackages(params (string Id, string Version, bool Optional)[] packages) => NuGetPackageLoader.Load(packages);
 
 		/// <summary>
@@ -928,9 +935,9 @@ namespace Keysharp.Runtime
 			};
 
 			// Eto/GTK terminates the whole application when the last non-withdrawn top-level window closes.
-			// Our main window is realized-but-hidden (withdrawn), so it isn't counted ΓÇö which means a transient
+			// Our main window is realized-but-hidden (withdrawn), so it isn't counted — which means a transient
 			// overlay/tooltip closing can be "the last window" and quit the app even though the script is still
-			// meant to run (Persistent, registered hotkeys, timers, GUIs, ΓÇª). Veto that spontaneous termination
+			// meant to run (Persistent, registered hotkeys, timers, GUIs, …). Veto that spontaneous termination
 			// whenever the script is persistent, mirroring ExitIfNotPersistent's AnyPersistent() gate. A genuine
 			// ExitApp sets hasExited before calling Quit(), so real exits are still allowed through.
 			app.Terminating += (s, e) =>
@@ -999,7 +1006,7 @@ namespace Keysharp.Runtime
 				{
 					tv.configData = prevConfigData;
 				}
-			});
+			}, ThreadKind.Auto);
 
 			if (executionResult != ScriptEventExecutionResult.Executed)
 				return;
@@ -1067,11 +1074,11 @@ namespace Keysharp.Runtime
 			if (IsUiInitializationBlocked || !HasAvailableDisplay() || IsHeadlessForced())
 			{
 				// Skip the native UI message loop when it cannot be driven:
-				//   IsUiInitializationBlocked ΓÇö macOS testhost: AppKit requires OS thread 1, which
+				//   IsUiInitializationBlocked — macOS testhost: AppKit requires OS thread 1, which
 				//     the NUnit adapter does not run on.
-				//   !HasAvailableDisplay()    ΓÇö no display is attached (CI, SSH without X11, etc.)
-				//   IsHeadlessForced()        ΓÇö KEYSHARP_FORCE_HEADLESS env var set explicitly.
-				// Note: #NoTrayIcon only suppresses tray chrome, not the loop ΓÇö those scripts still
+				//   !HasAvailableDisplay()    — no display is attached (CI, SSH without X11, etc.)
+				//   IsHeadlessForced()        — KEYSHARP_FORCE_HEADLESS env var set explicitly.
+				// Note: #NoTrayIcon only suppresses tray chrome, not the loop — those scripts still
 				// need Application.Run for event handling.
 				SuppressErrorOccurredDialog = true;
 				UIThreadContext ??= SynchronizationContext.Current ?? ScriptMainThreadContext;
@@ -1271,6 +1278,10 @@ namespace Keysharp.Runtime
 
 			HookThread?.Stop();
 			winEventManager?.Dispose();
+			// Before anything else managed goes away: a subscription to a *static* CLR event is a root the runtime
+			// holds indefinitely, so leaving one attached keeps the callback -- and the engine behind it -- alive past
+			// dispose. This is the orphaned-callback case teardown has to cover.
+			clrEventManager?.Dispose();
 #if LINUX
 			Keysharp.Internals.Input.Linux.KeysharpInputdManager.DisconnectClients();
 #endif
@@ -1503,7 +1514,7 @@ namespace Keysharp.Runtime
 					return t;
 				}
 
-					// follow the ΓÇ£baseΓÇ¥ link:
+					// follow the “base” link:
 					obj = obj.Base;
 				}
 				// fallback?

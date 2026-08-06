@@ -1,6 +1,29 @@
 ﻿using Keysharp.Builtins;
 namespace Keysharp.Internals.Threading
 {
+	/// <summary>
+	/// What launched a pseudo-thread, exposed to scripts as <c>Thread.Kind</c>. Set at the launch site, so a value
+	/// exists only where the site can name it truthfully: every registered event handler (GUI events, menu items,
+	/// OnExit, OnClipboardChange, COM value events) dispatches through one shared registry and therefore shares
+	/// <see cref="Event"/>, rather than this enum carrying names nothing ever produces.
+	/// </summary>
+	internal enum ThreadKind : byte
+	{
+		None = 0,
+		Auto,        // the auto-execute section
+		Hotkey,
+		Hotstring,
+		Timer,
+		Event,       // a registered handler: GUI/menu/OnExit/OnClipboardChange/ComValue
+		Message,     // OnMessage
+		Callback,    // a CallbackCreate pointer invoked from native code
+		Input,       // InputHook
+		WinEvent,
+		Com,         // a COM event sink
+		Clr,         // a CLR event subscription
+		RealThread,  // a RealThread body, or work posted/sent to one
+	}
+
 	public class ThreadConfigData
 	{
 		public ThreadConfigData() { }
@@ -107,6 +130,13 @@ namespace Keysharp.Internals.Threading
 		internal long pseudoThreadId;
 		internal int? requestedExitCode;
 		internal int lastError = 0;
+		// What launched this pseudo-thread; script-visible as Thread.Kind. Set once at push time.
+		internal ThreadKind kind;
+		// The script-visible KeysharpThread wrapper for this pseudo-thread, created on the first read of A_Thread and
+		// cleared on reuse. Scripts that never ask for it pay one null field on a pooled object. The wrapper captures
+		// pseudoThreadId and validates it on every access, so a wrapper held past this slot's reuse reports itself
+		// inactive rather than silently describing an unrelated later pseudo-thread.
+		internal Keysharp.Builtins.KeysharpThread threadObject;
 
 		// These describe the configuration defaults of the pseudo-thread,
 		// inherited from (and set by) the auto-execute section thread
@@ -134,10 +164,9 @@ namespace Keysharp.Internals.Threading
 				if (isCritical || script.uninterruptibleTime < 0)
 					UninterruptibleDuration = -1;
 				else
-				{
-					threadStartTick = Environment.TickCount64;
+					// threadStartTick was already stamped by Init(); the uninterruptible window measures from the
+					// same launch instant, so there is nothing to re-read here.
 					UninterruptibleDuration = script.uninterruptibleTime;
-				}
 			}
 		}
 
@@ -167,6 +196,8 @@ namespace Keysharp.Internals.Threading
 			pseudoThreadId = 0L;
 			requestedExitCode = null;
 			lastError = 0;
+			kind = ThreadKind.None;
+			threadObject = null;
 		}
 
 		public void Init()
@@ -176,7 +207,10 @@ namespace Keysharp.Internals.Threading
 			isPaused = false;
 			allowThreadToBeInterrupted = true;
 			UninterruptibleDuration = Script.TheScript.uninterruptibleTime;
-			threadStartTick = 0L;
+			// Stamped unconditionally (not just when the uninterruptible window applies) so KeysharpThread.Elapsed
+			// always has a launch instant to measure from. One shared-page read per pseudo-thread launch, and
+			// ApplyUninterruptibleStartupWindow no longer reads it a second time.
+			threadStartTick = Environment.TickCount64;
 			currentTimer = null;
 			defaultGui = null;
 			dialogOwner = null;
@@ -193,6 +227,8 @@ namespace Keysharp.Internals.Threading
 			pseudoThreadId = 0L;
 			requestedExitCode = null;
 			lastError = 0;
+			kind = ThreadKind.None;
+			threadObject = null;
 			// Instead of cloning the instance, copy the data because
 			// allocating the memory for new instances is expensive
 			configData.CopyFromPrototypeConfigData();

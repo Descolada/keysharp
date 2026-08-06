@@ -390,7 +390,7 @@ namespace Keysharp.Builtins
 		private (ScriptEventExecutionResult status, (object value, bool completed) execution) RunInPseudoThread(
 			ScriptEventScheduler targetScheduler, long launchPriority, object[] args, long[] rawArgs)
 		{
-			using var thread = targetScheduler.StartPseudoThreadScope(launchPriority, true, false, false);
+			using var thread = targetScheduler.StartPseudoThreadScope(launchPriority, true, false, false, ThreadKind.Callback);
 
 			if (!thread.Started)
 				return (thread.Result, (null, false));

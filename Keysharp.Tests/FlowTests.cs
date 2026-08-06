@@ -53,61 +53,70 @@ namespace Keysharp.Tests
 				Sleep(1)
 				goto SomeLabel
 			", "7", true, false, 0)));
+			//Targeting an underlying pseudo-thread: the timer marks the auto-execute thread, the later request
+			//replaces the pending exit code, and Exit returns the target's ID both times.
 			Assert.IsTrue(HasPassed(RunScript(@"
-				#import KS { A_ThreadId }
-				autoId := A_ThreadId
-				SetTimer((*) => (Exit(6, autoId), FileAppend(Exit(7, autoId) == autoId ? 'pass' : 'fail', '*')), -1)
+				#import KS { A_Thread }
+				autoThread := A_Thread
+				SetTimer((*) => (autoThread.Exit(6), FileAppend(autoThread.Exit(7) == autoThread.Id ? 'pass' : 'fail', '*')), -1)
 				Loop
 					Sleep(1)
 			", "8", true, false, 7)));
+			//The auto-execute thread is the oldest one on its real thread, so it is both Index 1 and Threads[1].
 			Assert.IsTrue(HasPassed(RunScript(@"
-				#import KS { A_ThreadId }
-				if (A_ThreadId & 0xFFFF) != 0
+				#import KS { A_Thread, A_RealThread }
+				if A_Thread.Index != 1
 					ExitApp(1)
-				autoId := A_ThreadId
-				SetTimer((*) => FileAppend(Exit(7, 0) == autoId ? 'pass' : 'fail', '*'), -1)
+				autoId := A_Thread.Id
+				SetTimer((*) => FileAppend(A_RealThread.Threads[1].Exit(7) == autoId ? 'pass' : 'fail', '*'), -1)
 				Loop
 					Sleep(1)
 			", "9", true, false, 7)));
+			//A pseudo-thread stays reachable through Underlying while it is the one being interrupted.
 			Assert.IsTrue(HasPassed(RunScript(@"
-				#import KS { A_ThreadId }
-				try
-					Exit(9, A_ThreadId + (1 << 32))
-				catch ValueError
-					FileAppend('pass', '*')
-			", "10", true, false)));
+				#import KS { A_Thread }
+				autoId := A_Thread.Id
+				SetTimer((*) => FileAppend(A_Thread.Underlying.Id == autoId ? 'pass' : 'fail', '*'), -1)
+				Sleep(200)
+				ExitApp(0)
+			", "10", true, false, 0)));
 			Assert.IsTrue(HasPassed(RunScript(@"
-				#import KS { A_ThreadId }
+				#import KS { A_Thread }
 				FileAppend('pass', '*')
-				Exit(4, A_ThreadId)
+				A_Thread.Exit(4)
 				FileAppend('fail', '*')
 			", "11", true, false, 4)));
 			Assert.IsTrue(HasPassed(RunScript(@"
+				#import KS { A_RealThread }
 				FileAppend('pass', '*')
-				Exit(5, 0)
+				A_RealThread.Threads[1].Exit(5)
 				FileAppend('fail', '*')
 			", "12", true, false, 5)));
+			//A Thread object held past its pseudo-thread's lifetime reports itself inactive and refuses to be
+			//exited, rather than silently targeting whichever pseudo-thread reused the pooled slot.
 			Assert.IsTrue(HasPassed(RunScript(@"
-				#import KS { A_ThreadId }
-				staleId := 0
-				SetTimer(CaptureId, -1)
-				while !staleId
+				#import KS { A_Thread, A_RealThread }
+				staleThread := 0
+				SetTimer(CaptureThread, -1)
+				while !staleThread
 					Sleep(1)
-				SetTimer(CheckStaleId, -1)
+				SetTimer(CheckStaleThread, -1)
 				Loop
 					Sleep(1)
 
-				CaptureId() {
-					global staleId := A_ThreadId
+				CaptureThread() {
+					global staleThread := A_Thread
 				}
 
-				CheckStaleId() {
-					global staleId
+				CheckStaleThread() {
+					global staleThread
+					if staleThread.IsActive
+						FileAppend('fail', '*')
 					try
-						Exit(9, staleId)
-					catch ValueError
+						staleThread.Exit(9)
+					catch TargetError
 						FileAppend('pass', '*')
-					Exit(0, 0)
+					A_RealThread.Threads[1].Exit(0)
 				}
 			", "13", true, false, 0)));
         }

@@ -12,7 +12,7 @@ namespace Keysharp.Tests
 			Assert.AreEqual(true, Ks.A_AllowTimers);
 			Assert.IsTrue(s.AccessorData.threadConfigDataPrototype.allowTimers);
 
-			_ = Keysharp.Builtins.Flow.Thread("NoTimers", true);
+			_ = Keysharp.Builtins.KeysharpThread.staticCall(null, "NoTimers", true);
 
 			Assert.AreEqual(false, Ks.A_AllowTimers);
 			Assert.IsTrue(s.AccessorData.threadConfigDataPrototype.allowTimers);
@@ -37,7 +37,7 @@ namespace Keysharp.Tests
 		[Test, Category("Threading")]
 		public void ThreadInterruptDuration()
 		{
-			_ = Keysharp.Builtins.Flow.Thread("Interrupt", 42, 1);
+			_ = Keysharp.Builtins.KeysharpThread.staticCall(null, "Interrupt", 42, 1);
 			Assert.AreEqual(42, s.uninterruptibleTime);
 
 			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));

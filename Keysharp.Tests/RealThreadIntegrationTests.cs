@@ -176,7 +176,7 @@ namespace Keysharp.Tests
 			if (worker == null)
 				return;
 
-			_ = SpinWait.SpinUntil(() => !worker.IsAlive, 2000);
+			_ = SpinWait.SpinUntil(() => (string)worker.Status != "Running", 2000);
 		}
 
 		[Test, Category("Threading"), Category("UI")]
@@ -253,7 +253,7 @@ namespace Keysharp.Tests
 				Assert.IsTrue(WaitWithUiPump(() => registered.IsSet), "Worker did not finish registration setup.");
 				if (workerSetupException != null)
 					Assert.Fail(workerSetupException.ToString());
-				Assert.IsTrue(worker.IsAlive, "Worker should stay alive while it owns persistent registrations.");
+				Assert.AreEqual("Running", worker.Status, "Worker should stay alive while it owns persistent registrations.");
 				Assert.AreEqual(registrations.WorkerThreadId, worker.Id);
 				Assert.IsTrue(registrations.WorkerHasSchedulerContext);
 
@@ -294,7 +294,7 @@ namespace Keysharp.Tests
 				ShutdownWorker(s, worker);
 			}
 
-			AssertEventually(() => !worker.IsAlive, "Worker should be fully stopped after shutdown.");
+			AssertEventually(() => (string)worker.Status != "Running", "Worker should be fully stopped after shutdown.");
 			AssertEventually(() => s.FlowData.timers.Find(registrations.TimerFunc, registrations.TimerScheduler) == null, "Worker-owned timer was not removed.");
 			AssertEventually(() => registrations.HotkeyBinding.OwnerScheduler == null, "Worker-owned hotkey scheduler affinity was not cleared.");
 			AssertEventually(() => !registrations.HotkeyBinding.IsActive, "Worker-owned hotkey binding was not disabled.");
@@ -324,7 +324,7 @@ namespace Keysharp.Tests
 				});
 
 				Assert.IsTrue(WaitWithUiPump(() => ready.IsSet), "Worker did not become ready.");
-				Assert.IsTrue(worker.IsAlive, "Worker must still be alive before Send.");
+				Assert.AreEqual("Running", worker.Status, "Worker must still be alive before Send.");
 
 				var result = worker.Send(new KeysharpFunc((Func<object>)(() =>
 				{
@@ -342,28 +342,34 @@ namespace Keysharp.Tests
 			}
 		}
 
+		// A KeysharpThread may be read from any real thread, but only its owner may terminate it: pseudo-thread stacks
+		// are per real thread and are mutated without locking. This is the same restriction targeted Exit() always
+		// had, now enforced by the object rather than by an error return.
 		[Test, Category("Threading"), Category("UI")]
-		public void ForeignPseudoThreadIdIsRejected()
+		public void ForeignPseudoThreadCannotBeExited()
 		{
 			EnsureUiScheduler();
 			var ready = new ManualResetEventSlim(false);
-			long foreignThreadId = 0L;
+			KeysharpThread foreignThread = null;
 			Ks.RealThread worker = null;
 
 			try
 			{
 				worker = StartWorker(() =>
 				{
-					foreignThreadId = s.Threads.CurrentThread.pseudoThreadId;
+					foreignThread = s.Threads.CurrentThreadObject;
 					_ = Env.OnClipboardChange(new KeysharpFunc((Func<object, object>)(_ => 0L)));
 					ready.Set();
 				});
 
-				Assert.IsTrue(WaitWithUiPump(() => ready.IsSet), "Worker did not expose its pseudo-thread ID.");
+				Assert.IsTrue(WaitWithUiPump(() => ready.IsSet), "Worker did not expose its pseudo-thread.");
 				_ = s.EventScheduler.TryExecuteThreadLaunch(0, false, false, threadVariables =>
 				{
-					var error = AssertScriptError(() => _ = Keysharp.Builtins.Flow.Exit(1, foreignThreadId));
-					Assert.That(error, Is.TypeOf<ValueError>());
+					//Reading it from here is fine; only the mutation is refused.
+					Assert.IsTrue(foreignThread.IsActive);
+					Assert.AreNotSame(foreignThread, s.Threads.CurrentThreadObject);
+					var error = AssertScriptError(() => _ = foreignThread.Exit(1));
+					Assert.That(error, Is.TypeOf<TargetError>());
 				});
 			}
 			finally
@@ -392,12 +398,12 @@ namespace Keysharp.Tests
 				Assert.Throws<Keysharp.Builtins.Flow.UserRequestedExitException>(() =>
 					s.EventScheduler.TryExecuteThreadLaunch(0, false, false, tv =>
 					{
-						var targetId = tv.pseudoThreadId;
+						var targetThread = s.Threads.CurrentThreadObject;
 						_ = worker.Send(new KeysharpFunc((Func<object>)(() =>
 						{
 							s.UIEventScheduler.EnqueueCallback(() =>
 							{
-								try { _ = Keysharp.Builtins.Flow.Exit(8, targetId); }
+								try { _ = targetThread.Exit(8); }
 								finally { exitRequested.Set(); }
 							}, ScriptEventQueue.Normal, false);
 							Assert.IsTrue(exitRequested.Wait(1000), "Main scheduler did not process the exit request.");
@@ -641,7 +647,7 @@ namespace Keysharp.Tests
 			_ = s.EventScheduler;
 			var worker = StartWorker(() => { });
 
-			AssertEventually(() => !worker.IsAlive, "Worker with no persistent registrations should exit on its own.");
+			AssertEventually(() => (string)worker.Status != "Running", "Worker with no persistent registrations should exit on its own.");
 
 			var postError = AssertScriptError(() => worker.Post(new KeysharpFunc((Func<object>)(() => 0L))));
 			var sendError = AssertScriptError(() => worker.Send(new KeysharpFunc((Func<object>)(() => 0L))));

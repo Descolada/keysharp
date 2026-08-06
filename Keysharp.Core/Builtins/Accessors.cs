@@ -1929,13 +1929,21 @@ namespace Keysharp.Builtins
 		}
 
 		/// <summary>
-		/// A nearly unique 64-bit identifier for the current pseudo-thread.<br/>
-		/// Bits 63-16 contain a script-wide creation sequence and bits 15-0 contain the zero-based index
-		/// in the owning real thread's pseudo-thread stack.<br/>
-		/// Import with <c>#import KS { A_ThreadId }</c>. An ID can only be passed to <see cref="Flow.Exit"/>
-		/// from its owning real thread.
+		/// The current thread as a <see cref="KeysharpThread"/> object — the class scripts know as <c>Thread</c>:
+		/// its ID, stack position, elapsed time, priority, interruptibility, the thread it interrupted, and
+		/// cooperative termination.<br/>
+		/// Import with <c>#import KS { A_Thread }</c>. Replaces the former <c>A_ThreadId</c>, which is now
+		/// <c>A_Thread.Id</c>.
 		/// </summary>
-		public static long A_ThreadId => Script.TheScript.Threads.CurrentThread.pseudoThreadId;
+		public static object A_Thread => Script.TheScript.Threads.CurrentThreadObject;
+
+		/// <summary>
+		/// The real (operating system) thread the current pseudo-thread is running on, as a
+		/// <see cref="Ks.RealThread"/> object. On the script's main thread this is the same object as
+		/// <c>RealThread.Main</c>.<br/>
+		/// Import with <c>#import KS { A_RealThread }</c>.
+		/// </summary>
+		public static object A_RealThread => Ks.RealThread.ForCurrentThread();
 
 		/// <summary>
 		/// The version of Keysharp.Builtins.dll

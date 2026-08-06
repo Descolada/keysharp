@@ -268,6 +268,7 @@ Status legend:
 | A_Programs | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ProgramsCommon | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_PtrSize | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
+| A_RealThread | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The real OS thread the current pseudo-thread runs on, as a RealThread object. On the main thread this is the same object as RealThread.Main. |
 | A_RegView | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets whether the registry is in 32 or 64 bit mode. |
 | A_ScreenDPI | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ScreenHeight | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
@@ -291,7 +292,7 @@ Status legend:
 | A_Temp | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ThisFunc | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The name of the function. If called outside of a function, empty string is returned. |
 | A_ThisHotkey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
-| A_ThreadId | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns a nearly unique 64-bit ID for the current pseudo-thread. The lower 16 bits are its zero-based stack index; auto-execute is index 0. Exact IDs are active-lifetime handles local to their owning real thread. |
+| A_Thread | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The current pseudo-thread as a Thread object. Id keeps the former A_ThreadId layout: a 48-bit creation sequence and a 16-bit zero-based stack position. |
 | A_TickCount | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The number of milliseconds since the system started. Note this is not limited to 49.7 days like AHK because it uses a long integer. |
 | A_TimeIdle | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_TimeIdleKeyboard | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
@@ -487,7 +488,7 @@ Status legend:
 | EnvSet() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the specified environment variable to the specified value. Using a value of null deletes the variable. |
 | EnvUpdate() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Windows broadcasts WM_SETTINGCHANGE. Linux publishes pending EnvSet changes to the D-Bus activation environment and systemd user manager; D-Bus deletions become empty values because its update API cannot unset them. macOS publishes pending changes to the current launchd session. Existing processes are unchanged and these updates are not persistent. |
 | Error | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| Exit | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Exits the current pseudo-thread immediately when ThreadId is omitted. ThreadId may be an exact KS.A_ThreadId or a zero-based index in the current real thread's active pseudo-thread stack. An underlying target exits at its next cooperative event/message check. Later requests overwrite its pending exit code. Returns the exact targeted ID; an explicit target which does not match throws ValueError. |
+| Exit | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Exits the current pseudo-thread immediately. Terminating a different pseudo-thread is Thread.Exit(ExitCode?) on a Thread object, reached through KS.A_Thread.Underlying or KS.A_RealThread.Threads[i] (1-based, oldest first). An underlying target exits at its next cooperative event/message check; later requests overwrite its pending exit code. |
 | ExitApp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The ExitApp function terminates the script. |
 | Exp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes e raised to the nth power. |
 | Export | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | An Export declaration marks a function, class or variable for wildcard import, and optionally marks it as the default export. |
@@ -704,6 +705,7 @@ Status legend:
 | ListViewGetContent() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The ListViewGetContent function returns content data from a list-view control, such as rows, columns, or count values. |
 | Ln() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the base e (natural) logarithm of a number. Throws an exception if a negative number is passed in. |
 | LoadPicture() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Loads an image, icon or cursor. Differs in that instead of writing to a ref argument, it returns a structure whose fields are Handle and ImageType. |
+| Lock | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | A mutual-exclusion lock for code shared between RealThreads: Acquire([Timeout]) and Release(). Covers what LockRun cannot - a timed acquire, and a lock held across several statements. Reentrant and owned by a real thread; Acquire blocks that whole real thread. |
 | LockRun() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Runs code under a lock to prevent concurrent execution overlap. |
 | Log() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the base 10 logarithm of a number. Throws an exception if a negative number is passed in. |
 | Loop | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Loop statement. |
@@ -946,6 +948,7 @@ Status legend:
 | Tanh() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the hyperbolic tangent of a number. |
 | TargetError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | Thread | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Thread settings and controls. |
+| Thread (object) | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Thread is a class rather than a function: calling it runs the AHK sub-functions (NoTimers/Priority/Interrupt) unchanged, and an instance describes one pseudo-thread: Id, Index (1-based), IsActive, Kind, Elapsed, Priority, Critical, Paused, IsInterruptible, Underlying and Exit. An Is prefix marks a read-only predicate; a settable mode is named for the mode. Obtained from A_Thread, Under or RealThread.Threads, never constructed. There is one object per pseudo-thread, so 	hr == A_Thread tests whether it is the running one. It revalidates its identity on every access, so one held past its pseudo-thread's life reports IsActive false rather than describing whichever pseudo-thread reused the pooled slot. Reads work from any real thread; setters and Exit require the owning one. |
 | Throw | 🟡 Partial | 🟡 Partial | 🟡 Partial | 🟡 Partial | Rethrowing with throw is only allowed directly within the scope of catch, not from an arbitrary point (eg from functions). |
 | TimeoutError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | ToolTip() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | Creates an always-on-top window anywhere on the screen. On Linux and macOS it is drawn with the cross-platform Overlay primitive rather than a native tooltip, which on Wayland needs a compositor the Overlay supports (KWin, GNOME, or Cinnamon with the Keysharp extension). |
@@ -991,11 +994,11 @@ Status legend:
 | WinEvent.EventType | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The event kind this subscription listens for, e.g. "Active" or "Move". |
 | WinEvent.Exist() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to a matching window appearing (created, shown, or its title changed so it now matches); fires once per matching window and respects DetectHiddenWindows. Subsumes the reference library's Create. macOS uses per-application AXObserver streams and requires Accessibility permission. |
 | WinEvent.IsActive | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Whether the subscription is still receiving events. |
-| WinEvent.IsPaused | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets whether a single hook (instance) or all hooks (static) are paused. |
 | WinEvent.Minimize() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to window minimize/iconify. |
 | WinEvent.Move() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to window move/resize. Every event is delivered as-is (not coalesced). |
 | WinEvent.NotExist() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to a matching window disappearing (destroyed, hidden/cloaked, or its title changed so it no longer matches). Subsumes the reference library's Close. Tracks the set of matching top-level windows while they are alive (mirroring the reference library) so it fires reliably even though the window may be gone by the time the event arrives. |
 | WinEvent.Pause() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Pauses (1), unpauses (0) or toggles (-1) a single hook (instance) or all hooks (static). A paused hook stays registered but does not fire. Returns the resulting paused state. |
+| WinEvent.Paused | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets whether a single hook (instance) or all hooks (static) are paused. |
 | WinEvent.Restore() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to restoration from a minimized state. X11 derives it from _NET_WM_STATE_HIDDEN transitions, Wayland maps compositor restore events, and macOS uses AXWindowDeminiaturized. |
 | WinEvent.Stop() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Cancels the subscription. Also runs on __Delete, but GC timing is unpredictable so call it (or let the owning thread tear down) explicitly. |
 | WinEvent.TitleChange() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subscribes to window title changes. |

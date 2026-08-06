@@ -2396,7 +2396,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				if (binding == null || Volatile.Read(ref binding.ExistingThreads) >= variant.maxThreads)
 					return Complete(variant.maxThreadsBuffer ? ScriptEventExecutionResult.LocalBlocked : ScriptEventExecutionResult.Dropped);
 
-				using var thread = scheduler.StartPseudoThreadScope(variant.priority, false, false, false);
+				using var thread = scheduler.StartPseudoThreadScope(variant.priority, false, false, false, ThreadKind.Hotkey);
 				if (!thread.Started)
 					return Complete(thread.Result);
 

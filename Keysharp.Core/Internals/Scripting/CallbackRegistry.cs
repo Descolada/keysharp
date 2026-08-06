@@ -259,7 +259,7 @@ namespace Keysharp.Internals.Scripting
 			// launches (subsequent timers/hotkeys stop firing).
 			ScriptEventExecutionResult RunHandler(ScriptEventScheduler scheduler, KeysharpFunc handler, long priority)
 			{
-				using var thread = scheduler.StartPseudoThreadScope(priority, skipUninterruptible, false, allowEmergencyOverflow);
+				using var thread = scheduler.StartPseudoThreadScope(priority, skipUninterruptible, false, allowEmergencyOverflow, ThreadKind.Event);
 
 				if (!thread.Started)
 					return thread.Result;

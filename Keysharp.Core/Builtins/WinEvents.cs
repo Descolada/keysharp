@@ -92,11 +92,11 @@ namespace Keysharp.Builtins
 			public static object staticPause(object @this, object newState = null)
 				=> Script.TheScript.WinEventManager.SetGlobalPause(newState.Al(1L));
 
-			/// <summary>Gets whether all event hooks are paused (script: <c>WinEvent.IsPaused</c>).</summary>
-			public static object staticget_IsPaused(object @this) => Script.TheScript.WinEventManager.GlobalPaused;
+			/// <summary>Gets whether all event hooks are paused (script: <c>WinEvent.Paused</c>).</summary>
+			public static object staticget_Paused(object @this) => Script.TheScript.WinEventManager.GlobalPaused;
 
-			/// <summary>Sets whether all event hooks are paused (script: <c>WinEvent.IsPaused := …</c>).</summary>
-			public static object staticset_IsPaused(object @this, object value)
+			/// <summary>Sets whether all event hooks are paused (script: <c>WinEvent.Paused := …</c>).</summary>
+			public static object staticset_Paused(object @this, object value)
 				=> Script.TheScript.WinEventManager.SetGlobalPause(value.Ab() ? 1L : 0L);
 
 			// ---- instance surface ----------------------------------------------------------------------------
@@ -111,10 +111,12 @@ namespace Keysharp.Builtins
 			public long Count => reg?.Remaining ?? 0L;
 
 			/// <summary>Gets or sets whether this hook is paused (paused hooks stay registered but don't fire).</summary>
-			public bool IsPaused
+			// object-typed, not bool: a script's `true` arrives as an Integer, and a bool-typed setter fails the
+			// dynamic invoke with an InvalidCastException that no script try/catch can intercept.
+			public object Paused
 			{
 				get => reg?.paused ?? false;
-				set { if (reg != null) reg.paused = value; }
+				set { if (reg != null) reg.paused = value.Ab(); }
 			}
 
 			/// <summary>Pauses (1), unpauses (0) or toggles (-1) this hook. Returns the resulting paused state.</summary>

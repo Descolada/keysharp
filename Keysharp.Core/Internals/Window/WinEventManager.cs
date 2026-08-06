@@ -602,7 +602,7 @@ namespace Keysharp.Internals.Window
 			// No reg.active re-check here: TryConsumeFire (at enqueue time) is the authoritative gate. Re-checking
 			// would drop callbacks that were already consumed/queued when the subscription auto-stops on its last
 			// allowed fire (Count reaching 0 deactivates the registration before the queued callback runs).
-			using var thread = scheduler.StartPseudoThreadScope(0, false, false, false);
+			using var thread = scheduler.StartPseudoThreadScope(0, false, false, false, ThreadKind.WinEvent);
 
 			if (!thread.Started)
 				return thread.Result;

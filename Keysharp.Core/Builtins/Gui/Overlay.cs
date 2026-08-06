@@ -538,7 +538,7 @@ namespace Keysharp.Builtins
 
 			private static ScriptEventExecutionResult RunPointerHandler(ScriptEventScheduler scheduler, CallbackRegistration reg, object[] args)
 			{
-				using var thread = scheduler.StartPseudoThreadScope(0, false, false, false);
+				using var thread = scheduler.StartPseudoThreadScope(0, false, false, false, ThreadKind.Event);
 
 				if (!thread.Started)
 					return thread.Result;

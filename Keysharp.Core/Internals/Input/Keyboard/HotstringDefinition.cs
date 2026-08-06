@@ -540,7 +540,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				if (!definition.AnyThreadsAvailable())
 					return ScriptEventExecutionResult.Dropped;
 
-				using var thread = scheduler.StartPseudoThreadScope(definition.priority, false, false, false);
+				using var thread = scheduler.StartPseudoThreadScope(definition.priority, false, false, false, ThreadKind.Hotstring);
 				if (!thread.Started)
 					return thread.Result;
 

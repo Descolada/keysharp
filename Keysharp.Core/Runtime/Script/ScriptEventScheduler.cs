@@ -18,7 +18,17 @@ namespace Keysharp.Runtime
 		/// such as in RealThread setup. All other callers should use <see cref="EventScheduler"/>.
 		/// </summary>
 		internal ScriptEventScheduler ThreadScheduler
-			=> (eventSchedulers ??= new(() => new(this, Thread.CurrentThread.ManagedThreadId, IsOnMainThread), true)).Value;
+			=> (eventSchedulers ??= new(CreateSchedulerForCurrentThread, true)).Value;
+
+		// The factory runs on the thread the scheduler will belong to, which is the only place its pseudo-thread
+		// stack can be captured correctly (both are thread-local and 1:1 with the real thread). Binding them here is
+		// what lets RealThread.Threads and RealThread.Main reach another thread's stack without a second registry.
+		private ScriptEventScheduler CreateSchedulerForCurrentThread()
+		{
+			var scheduler = new ScriptEventScheduler(this, Thread.CurrentThread.ManagedThreadId, IsOnMainThread);
+			scheduler.threadManager = Threads.CurrentManager;
+			return scheduler;
+		}
 
 		internal ScriptEventScheduler UIEventScheduler
 			=> uiEventScheduler ?? throw new InvalidOperationException("UI event scheduler has not been bound yet.");
@@ -148,6 +158,13 @@ namespace Keysharp.Runtime
 		private readonly List<Keysharp.Internals.Threading.ScriptTimerState> dueTimerBuffer = new();
 		private AutoResetEvent workerPumpSignal = new(false);
 		private int workerDisposed;
+		private int workerExitRequested;
+		// The script-visible RealThread bound to this scheduler's thread (A_RealThread). Set by the RealThread
+		// worker before its body runs, or created on demand for the main/adopted threads.
+		internal Keysharp.Builtins.Ks.RealThread realThread;
+		// This thread's pseudo-thread stack, captured when the scheduler is created (see
+		// Script.CreateSchedulerForCurrentThread). Scheduler, stack and real thread are all 1:1.
+		internal ThreadVariableManager threadManager;
 		private int persistentRegistrationCount;
 		private bool blockedQueuedWork;
 		private bool pumpScheduled;
@@ -288,14 +305,14 @@ internal bool HasBlockedQueuedWork
 				_ = EnqueueTimer(timer);
 		}
 
-		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action)
+		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action, ThreadKind kind = ThreadKind.None)
 			=> action != null
-				&& Enqueue(ScriptEventQueue.Normal, priority, () => TryExecuteThreadLaunch(priority, skipUninterruptible, isCritical, _ => action()));
+				&& Enqueue(ScriptEventQueue.Normal, priority, () => TryExecuteThreadLaunch(priority, skipUninterruptible, isCritical, _ => action(), kind));
 
-		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action, bool useTryCatch)
+		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action, bool useTryCatch, ThreadKind kind = ThreadKind.None)
 			=> useTryCatch
-				? EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, () => _ = Keysharp.Internals.Flow.TryCatch(action))
-				: EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, action);
+				? EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, () => _ = Keysharp.Internals.Flow.TryCatch(action), kind)
+				: EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, action, kind);
 
 		internal bool EnqueueCallback(Action action, ScriptEventQueue queueType = ScriptEventQueue.Normal, long priority = 0)
 			=> action != null
@@ -405,9 +422,29 @@ internal bool HasBlockedQueuedWork
 			}
 		}
 
+		/// <summary>
+		/// Whether <see cref="RequestWorkerExit"/> has asked this worker's event loop to stop.
+		/// </summary>
+		internal bool IsWorkerExitRequested => Volatile.Read(ref workerExitRequested) != 0;
+
+		/// <summary>
+		/// Asks this worker's event loop to stop at its next iteration and wakes it. Needed because a worker that
+		/// registered a timer, hotkey or callback holds a persistence root and would otherwise loop until the
+		/// process ends. The loop only checks between events, so work already running finishes first; a pseudo-thread
+		/// that must be unwound is handled separately through its requested exit code.
+		/// </summary>
+		internal void RequestWorkerExit()
+		{
+			if (isUiScheduler)
+				return;
+
+			_ = Interlocked.Exchange(ref workerExitRequested, 1);
+			SignalWorkerPump();
+		}
+
 		internal void RunWorkerEventLoop()
 		{
-			while (!script.hasExited && !IsDisposed)
+			while (!script.hasExited && !IsDisposed && !IsWorkerExitRequested)
 			{
 				if (HasBlockedQueuedWork)
 				{
@@ -451,6 +488,7 @@ internal bool HasBlockedQueuedWork
 			DisposeOwnedGuiHandlers();
 			DisposeOwnedMenuHandlers();
 			DisposeOwnedWinEventHandlers();
+			DisposeOwnedClrSubscriptions();
 			DelegateHolder.DisposeOwnedByScheduler(this);
 			_ = Interlocked.Exchange(ref persistentRegistrationCount, 0);
 
@@ -732,7 +770,7 @@ internal bool HasBlockedQueuedWork
 				var executed = false;
 
 				{
-					using var thread = scheduler.StartPseudoThreadScope(timer.Priority, true, false, false);
+					using var thread = scheduler.StartPseudoThreadScope(timer.Priority, true, false, false, ThreadKind.Timer);
 
 					if (thread.Started)
 					{
@@ -775,14 +813,14 @@ internal bool HasBlockedQueuedWork
 		// 3. Execution policy: the scheduler core is raw. Semantic callers that want handled behavior
 		//    wrap their callback with Keysharp.Internals.Flow.TryCatch before calling into the scheduler. The scheduler
 		//    runners always end the pseudo-thread in one place.
-		internal ScriptEventExecutionResult TryExecuteThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action<ThreadVariables> action, bool allowEmergencyOverflow = false)
+		internal ScriptEventExecutionResult TryExecuteThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action<ThreadVariables> action, ThreadKind kind = ThreadKind.None, bool allowEmergencyOverflow = false)
 		{
 			if (action == null || IsDisposed)
 				return ScriptEventExecutionResult.Dropped;
 
 			if (OwnsCurrentThread)
 			{
-				var status = TryStartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var threadVariables);
+				var status = TryStartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var threadVariables, kind);
 				return status != ScriptEventExecutionResult.Executed
 					? status
 					: RunPseudoThreadAction(threadVariables, action);
@@ -790,7 +828,7 @@ internal bool HasBlockedQueuedWork
 
 			return InvokeSynchronous(() =>
 			{
-				var status = TryStartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var threadVariables);
+				var status = TryStartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var threadVariables, kind);
 				return status != ScriptEventExecutionResult.Executed
 					? status
 					: RunPseudoThreadAction(threadVariables, action);
@@ -872,7 +910,7 @@ internal bool HasBlockedQueuedWork
 		private void PumpDuringSynchronousWait(ScriptEventScheduler waitingScheduler)
 			=> Keysharp.Internals.Flow.TryDoEvents(waitingScheduler, propagateExit: true, yieldTick: false);
 
-		internal ScriptEventExecutionResult TryStartPseudoThread(long priority, bool skipUninterruptible, bool isCritical, bool allowEmergencyOverflow, out ThreadVariables threadVariables)
+		internal ScriptEventExecutionResult TryStartPseudoThread(long priority, bool skipUninterruptible, bool isCritical, bool allowEmergencyOverflow, out ThreadVariables threadVariables, ThreadKind kind = ThreadKind.None)
 		{
 			threadVariables = null;
 
@@ -893,14 +931,14 @@ internal bool HasBlockedQueuedWork
 			if (!allowEmergencyOverflow && priority < threads.CurrentThread.priority)
 				return ScriptEventExecutionResult.Dropped;
 
-			return threads.TryPushThreadVariables(priority, skipUninterruptible, isCritical, true, allowEmergencyOverflow, out threadVariables)
+			return threads.TryPushThreadVariables(priority, skipUninterruptible, isCritical, true, allowEmergencyOverflow, out threadVariables, kind)
 				? ScriptEventExecutionResult.Executed
 				: ScriptEventExecutionResult.GlobalBlocked;
 		}
 
-		internal ScriptPseudoThreadScope StartPseudoThreadScope(long priority, bool skipUninterruptible, bool isCritical, bool allowEmergencyOverflow)
+		internal ScriptPseudoThreadScope StartPseudoThreadScope(long priority, bool skipUninterruptible, bool isCritical, bool allowEmergencyOverflow, ThreadKind kind = ThreadKind.None)
 		{
-			var result = TryStartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var threadVariables);
+			var result = TryStartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var threadVariables, kind);
 			return new(script, threadVariables, result);
 		}
 
@@ -941,6 +979,9 @@ internal bool HasBlockedQueuedWork
 
 		private void DisposeOwnedWinEventHandlers()
 			=> _ = script.WinEventManagerIfExists?.RemoveOwned(this);
+
+		private void DisposeOwnedClrSubscriptions()
+			=> _ = script.ClrEventManagerIfExists?.RemoveOwned(this);
 
 		private void DisposeOwnedGuiHandlers()
 		{

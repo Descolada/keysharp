@@ -2192,7 +2192,14 @@ GetIcon(Theme, W:=0, H:=0)
 }
 
 Icon2 := "HICON:*" . hSecondPic ; The * is important so it can be reused.
+; svgToHBITMAP is X64-only: it hands D2D1_SIZE_F (two floats) to CreateSvgDocument as a packed
+; Uint64, which is how the x64 ABI passes an 8-byte struct by value. On ARM64 that struct is a
+; homogeneous float aggregate passed in v0/v1 instead, so the packed integer lands in the wrong
+; register and the call faults. DllCall/ComCall cannot express struct-by-value, so there is nothing
+; to pass here that would be right on both.
+#if X64
 Icon3 := "HBITMAP:*" svgToHBITMAP(A_WorkingDir . A_DirSeparator . "check-mark.svg", 100, 100)
+#endif
 #endif
 
 LoadPic(*) {
@@ -2210,16 +2217,20 @@ LoadPic(*) {
 	else
 		MySecondPic.Value := Icon2
 
+#if X64
 	if (MyThirdPic = "")
 		MyThirdPic := MyGui.Add("Picture", "xc+230 yc+410 w100 h-1 border", Icon3)
 	else
 		MyThirdPic.Value := Icon3
 #endif
+#endif
 	Sleep(2000)
 	MyFirstPic.Value := ""
 #if WINDOWS
 	MySecondPic.Value := ""
+#if X64
 	MyThirdPic.Value := ""
+#endif
 #endif
 	Tab.UseTab()
 	; MyGui.Opts("+Redraw")
@@ -2231,10 +2242,12 @@ DestroyPic(*)
 	global MyFirstPic, MySecondPic, MyThirdPic
 	DllCall("DestroyWindow", "Ptr", MyFirstPic.Hwnd)
 	DllCall("DestroyWindow", "Ptr", MySecondPic.Hwnd)
-	DllCall("DestroyWindow", "Ptr", MyThirdPic.Hwnd)
 	MyFirstPic := ""
 	MySecondPic := ""
+#if X64
+	DllCall("DestroyWindow", "Ptr", MyThirdPic.Hwnd)
 	MyThirdPic := ""
+#endif
 }
 
 ; https://www.autohotkey.com/boards/viewtopic.php?f=83&t=121834

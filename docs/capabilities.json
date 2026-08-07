@@ -10788,6 +10788,26 @@
                      "notes":  "Current platform symbol: WINDOWS, LINUX or OSX."
                  },
                  {
+                     "category":  "Keysharp Module (Ks)",
+                     "feature":  "A_ProcessArch",
+                     "syntax":  "",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "CPU architecture of the running process: X64, ARM64, X86 or ARM, matching the preprocessor symbol of the same name. Branch on this rather than A_PtrSize for interop, since A_PtrSize is 8 for both X64 and ARM64."
+                 },
+                 {
+                     "category":  "Keysharp Module (Ks)",
+                     "feature":  "A_OSArch",
+                     "syntax":  "",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "CPU architecture of the OS, same names as A_ProcessArch. Differs from it only when the process is emulated, e.g. an X64 build on ARM64 Windows."
+                 },
+                 {
                      "category":  "Collections",
                      "feature":  "DefineProp()",
                      "syntax":  "DefineProp(Obj, Name, Descriptor)",

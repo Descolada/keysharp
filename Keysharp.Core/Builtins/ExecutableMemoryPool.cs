@@ -9,6 +9,12 @@ namespace Keysharp.Builtins
 	/// Renting and returning are serialised, because a lock-free free list would need tagged pointers to be
 	/// safe here: chunks hold executable code, so handing the same chunk to two callers would let one overwrite
 	/// a shim the other is about to jump to. The lock costs nothing next to the DllCall it accompanies.
+	///
+	/// Only the x64 shim rents from this pool today, so on other architectures the pool is constructed and
+	/// never used. Anyone adding an ARM64 shim must also flush the instruction cache over the chunk before
+	/// jumping to it (FlushInstructionCache): ARM64 has separate, non-coherent I and D caches, so freshly
+	/// written bytes are not guaranteed to be visible to the fetcher. x64 needs no such flush, which is why
+	/// nothing here does one.
 	/// </summary>
 	public sealed class ExecutableMemoryPoolManager : IDisposable
 	{

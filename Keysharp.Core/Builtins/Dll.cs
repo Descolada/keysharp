@@ -299,6 +299,14 @@ namespace Keysharp.Builtins
 			// general purpose registers as well as floating point registers to support
 			// variadic function calls. Here we create a small shim which copies floating points
 			// to GPRs, but only if any of the first four args is floating point.
+			//
+			// There is deliberately no ARM64 equivalent. AAPCS64 counts general and floating point argument
+			// registers separately, so a value cannot occupy x_n and v_n at once the way it can occupy a GPR
+			// and an XMM on x64 - duplicating it would consume an integer slot the next argument needs. A
+			// non-variadic callee reads a double from v_n (which CreateInvoker's `double` parameter already
+			// satisfies), while a Windows ARM64 variadic callee reads it from x_n, and DllCall has no way to
+			// know which it is calling. Non-variadic calls are therefore correct and variadic calls with
+			// floating point arguments are not; distinguishing them needs an explicit caller-supplied flag.
 			if (((mask & 0xFUL) != 0) && RuntimeInformation.ProcessArchitecture == Architecture.X64)
 			{
 				shim = script.ExecutableMemoryPoolManager.Rent();

@@ -1,4 +1,4 @@
-#Import Ks { A_KeysharpPath, A_NewLine }
+#Import Ks { A_KeysharpPath, A_NewLine, A_ProcessArch, A_OSArch }
 #NoTrayIcon
 
 ; Can't really test if some of these properties have "valid" values. So at least just test if they can be compiled properly in a script.
@@ -12,6 +12,31 @@ expectedOsType := "LINUX"
 #endif
 
 if (A_OSType = expectedOsType)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; Exactly one architecture symbol is predefined, and it names A_ProcessArch.
+#if X64
+expectedArch := "X64"
+#elif ARM64
+expectedArch := "ARM64"
+#elif X86
+expectedArch := "X86"
+#elif ARM
+expectedArch := "ARM"
+#else
+expectedArch := "<none defined>"
+#endif
+
+if (A_ProcessArch = expectedArch)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; A_OSArch uses the same names. It only differs from A_ProcessArch under emulation, so just check it
+; is one of the known values rather than tying the test to the host.
+if (A_OSArch ~= "^(X64|ARM64|X86|ARM)$")
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

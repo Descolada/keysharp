@@ -225,7 +225,7 @@ namespace Keysharp.Main
 #elif WINDOWS
 				finalPath = $"{path}.exe";
 				HostWriter.CreateAppHost(
-					appHostSourceFilePath: @$"C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x64\{ver}\runtimes\win-x64\native\apphost.exe",
+					appHostSourceFilePath: @$"{WindowsHostPackRoot}{ver}\runtimes\{WindowsHostRid}\native\apphost.exe",
 					appHostDestinationFilePath: finalPath,
 					appBinaryFilePath: $"{namenoext}.dll",
 					windowsGraphicalUserInterface: true,
@@ -322,6 +322,14 @@ namespace Keysharp.Main
 			return Runner.Message(error, true);
 		}
 
+#if WINDOWS
+		// The apphost stamped onto a compiled exe has to match the architecture of the Keysharp that produced
+		// it, since that exe loads the same Keysharp.Core and native dependencies sitting next to it.
+		internal static string WindowsHostRid => RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
+
+		internal static string WindowsHostPackRoot => @$"C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.{WindowsHostRid}\";
+#endif
+
 		internal static string GetLatestDotNetVersion()
 		{
 #if OSX
@@ -338,7 +346,7 @@ namespace Keysharp.Main
 #elif LINUX
 			var dir = Directory.GetDirectories(@"/lib/dotnet/sdk/").Select(System.IO.Path.GetFileName).Where(x => x.StartsWith(Script.dotNetMajorVersion)).OrderByDescending(x => new Version(x)).FirstOrDefault();
 #elif WINDOWS
-			var dir = Directory.GetDirectories(@"C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x64\").Select(Path.GetFileName).Where(x => x.StartsWith(Script.dotNetMajorVersion)).OrderByDescending(x => new Version(x.Contains("-rc", StringComparison.OrdinalIgnoreCase) ? x.Substring(0, x.IndexOf("-rc", StringComparison.OrdinalIgnoreCase)) : x)).FirstOrDefault();
+			var dir = Directory.GetDirectories(WindowsHostPackRoot).Select(Path.GetFileName).Where(x => x.StartsWith(Script.dotNetMajorVersion)).OrderByDescending(x => new Version(x.Contains("-rc", StringComparison.OrdinalIgnoreCase) ? x.Substring(0, x.IndexOf("-rc", StringComparison.OrdinalIgnoreCase)) : x)).FirstOrDefault();
 #else
 			var dir = "";
 #endif

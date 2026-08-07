@@ -1,12 +1,23 @@
 param(
+    # Defaults to this machine's architecture. Pass -RuntimeIdentifier explicitly to cross-target,
+    # e.g. -RuntimeIdentifier win-x64 from an ARM64 box.
     [string] $Configuration = "Release",
-    [string] $RuntimeIdentifier = "win-x64",
+    [ValidateSet("", "win-x64", "win-arm64")]
+    [string] $RuntimeIdentifier = "",
     [string] $Version = "",
     [string] $DevenvPath = "",
     [switch] $SkipPublish
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $RuntimeIdentifier) {
+    $RuntimeIdentifier = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+        "Arm64" { "win-arm64" }
+        default { "win-x64" }
+    }
+    Write-Host "No -RuntimeIdentifier given; defaulting to this machine's architecture: $RuntimeIdentifier."
+}
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = (Resolve-Path (Join-Path $scriptDir "..")).Path
@@ -28,8 +39,14 @@ if (Test-Path $etoDir) {
 $installerProjectPath = Join-Path $root "Keysharp.Install\Keysharp.Install.vdproj"
 $installerProjectOriginalContent = $null
 
-if ($RuntimeIdentifier -ne "win-x64") {
-    throw "The Visual Studio installer project is configured for win-x64 publish output. Use -RuntimeIdentifier win-x64."
+# The Visual Studio installer project hard-codes its source paths (dist\staging\win-x64\...), its output
+# name (Keysharp-win-x64.msi) and an x64 .NET Desktop Runtime prerequisite, so only win-x64 can produce an
+# MSI. Other architectures still publish, stage and zip - they just skip the MSI rather than failing, which
+# is what makes packaging usable on Windows on ARM.
+$msiPath = Join-Path $root "dist\Keysharp-win-x64.msi"
+$buildMsi = $RuntimeIdentifier -eq "win-x64"
+if (-not $buildMsi) {
+    Write-Warning "The installer project only supports win-x64, so no MSI will be produced for $RuntimeIdentifier; the zip package will still be created."
 }
 
 function Resolve-KeysharpVersion {
@@ -552,24 +569,30 @@ try {
     Write-Host "Checking staged files for local absolute paths..."
     Assert-NoLocalPaths $appDir $localPathPatterns
 
-    $devenv = Find-Devenv $DevenvPath
-    $solutionConfig = "$Configuration|x64"
-    $installerProjectOriginalContent = Get-Content -LiteralPath $installerProjectPath -Raw
-    Update-InstallerProjectVersion $installerProjectPath $Version
+    if ($buildMsi) {
+        $devenv = Find-Devenv $DevenvPath
+        # Must name a solution configuration that actually exists in Keysharp.sln. Every project is AnyCPU,
+        # so the solution carries a single "Any CPU" platform; devenv fails outright on an unknown one.
+        $solutionConfig = "$Configuration|Any CPU"
+        $installerProjectOriginalContent = Get-Content -LiteralPath $installerProjectPath -Raw
+        Update-InstallerProjectVersion $installerProjectPath $Version
 
-    Write-Host "Building MSI with $devenv ($solutionConfig, project $installerProject)..."
-    & $devenv $solution /Build $solutionConfig /Project $installerProject
-    if ($LASTEXITCODE -ne 0) {
-        throw "Installer build failed with exit code $LASTEXITCODE."
+        Write-Host "Building MSI with $devenv ($solutionConfig, project $installerProject)..."
+        & $devenv $solution /Build $solutionConfig /Project $installerProject
+        if ($LASTEXITCODE -ne 0) {
+            throw "Installer build failed with exit code $LASTEXITCODE."
+        }
+
+        Add-CloseInstancesCustomAction $msiPath
+        Move-RemoveExistingProductsEarly $msiPath
     }
-
-    Add-CloseInstancesCustomAction (Join-Path $root "dist\Keysharp-win-x64.msi")
-    Move-RemoveExistingProductsEarly (Join-Path $root "dist\Keysharp-win-x64.msi")
 
     Write-Host "Creating zip package at $zipPath..."
     Compress-WindowsPackage $appDir $zipPath
 
-    Write-Host "Windows package ready at $(Join-Path $root 'dist\Keysharp-win-x64.msi')"
+    if ($buildMsi) {
+        Write-Host "Windows package ready at $msiPath"
+    }
     Write-Host "Windows zip ready at $zipPath"
 }
 finally {

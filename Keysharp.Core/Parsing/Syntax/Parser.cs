@@ -47,6 +47,11 @@ namespace Keysharp.Parsing.Syntax
 #if DEBUG
             , "DEBUG"
 #endif
+			// Exactly one architecture symbol - X64, ARM64, X86 or ARM - matching Ks.A_ProcessArch. This is a
+			// runtime check rather than a C# #if because it must describe the process the script is being
+			// compiled for and run in, which is what decides DllCall/ComCall calling conventions. A_PtrSize
+			// cannot stand in for it: X64 and ARM64 are both 8.
+			, Keysharp.Builtins.Ks.ArchName(RuntimeInformation.ProcessArchitecture)
 		};
 		public readonly List<string> Diagnostics = new();
 

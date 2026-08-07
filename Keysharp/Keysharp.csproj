@@ -5,7 +5,6 @@
 		<ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
 		<OutputType>WinExe</OutputType>
 		<UseWindowsForms>true</UseWindowsForms>
-		<Platforms>x64</Platforms>
 		<ApplicationManifest>Keysharp.manifest</ApplicationManifest>
 	</PropertyGroup>
 
@@ -29,8 +28,6 @@
 		<PreserveCompilationContext>true</PreserveCompilationContext>
 		<SignAssembly>False</SignAssembly>
 		<DelaySign>False</DelaySign>
-		<PlatformTarget Condition="$([MSBuild]::IsOSPlatform('Windows'))">x64</PlatformTarget>
-		<PlatformTarget Condition="!$([MSBuild]::IsOSPlatform('Windows'))">AnyCPU</PlatformTarget>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<WarningLevel>8</WarningLevel>
 		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>

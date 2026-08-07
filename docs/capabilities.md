@@ -258,12 +258,14 @@ Status legend:
 | A_NowMs | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets current local timestamp including milliseconds. |
 | A_NowUTC | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The current Coordinated Universal Time (UTC) in YYYYMMDDHH24MISS format. |
 | A_NowUtcMs | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets current UTC timestamp including milliseconds. |
+| A_OSArch | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | CPU architecture of the OS, same names as A_ProcessArch. Differs from it only when the process is emulated, e.g. an X64 build on ARM64 Windows. |
 | A_OSType | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Current platform symbol: WINDOWS, LINUX or OSX. |
 | A_OSVersion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_PeekFrequency | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the current thread's message-check interval in milliseconds. |
 | A_PriorHotkey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_Priority | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the default priority copied into new script threads. |
 | A_PriorKey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
+| A_ProcessArch | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | CPU architecture of the running process: X64, ARM64, X86 or ARM, matching the preprocessor symbol of the same name. Branch on this rather than A_PtrSize for interop, since A_PtrSize is 8 for both X64 and ARM64. |
 | A_ProgramFiles | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_Programs | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ProgramsCommon | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
@@ -652,9 +654,9 @@ Status legend:
 | InputHook.Start() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Starts capturing input. |
 | InputHook.Stop() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Stops capturing input. |
 | InputHook.Timeout | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Maximum capture duration in seconds. |
-| InputHook.Wait() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Waits until capture ends or times out. |
 | InputHook.VisibleNonText | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Whether visible non-text keys are collected. |
 | InputHook.VisibleText | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Whether visible text characters are collected. |
+| InputHook.Wait() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Waits until capture ends or times out. |
 | InstallKeybdHook() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The InstallKeybdHook function installs or uninstalls the keyboard hook. |
 | InstallMouseHook() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | The InstallMouseHook function installs or uninstalls the mouse hook. |
 | InStr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Searches for a string within another string, returning the 1-based index where it was found. Use negative numbers for searching in reverse order. |
@@ -942,7 +944,6 @@ Status legend:
 | Switch | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Selects one case branch based on a value/expression. |
 | SysGet() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Gets system information. Non-Windows builds implement monitor dimensions/count, mouse presence/buttons, network state and selected session metrics; Win32-only system metrics have no portable equivalent and are not implemented. |
 | SysGetIPAddresses() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The SysGetIPAddresses function returns an array of the system's IPv4 addresses. |
-| ZeroDivisionError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
 | TabControl.SetTabIcon() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets icon for a tab page in tab controls. |
 | Tan() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the tangent of a number. |
 | Tanh() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the hyperbolic tangent of a number. |
@@ -1050,3 +1051,4 @@ Status legend:
 | WinWaitActive() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |
 | WinWaitClose() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | The WinWaitClose function waits until no matching windows can be found. |
 | WinWaitNotActive() | 🟢 Full | 🟢 Full | 🟡 Partial | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |
+| ZeroDivisionError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |

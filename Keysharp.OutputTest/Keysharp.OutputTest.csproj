@@ -3,7 +3,6 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Platforms>x64</Platforms>
     <ApplicationManifest>Keysharp.OutputTest.manifest</ApplicationManifest>
   </PropertyGroup>
 
@@ -25,8 +24,6 @@
     <Description>A simple test program to paste generated code into for debugging</Description>
     <SignAssembly>False</SignAssembly>
     <DelaySign>False</DelaySign>
-    <PlatformTarget Condition="$([MSBuild]::IsOSPlatform('Windows'))">x64</PlatformTarget>
-    <PlatformTarget Condition="!$([MSBuild]::IsOSPlatform('Windows'))">AnyCPU</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <WarningLevel>8</WarningLevel>
     <NoWin32Manifest>true</NoWin32Manifest>

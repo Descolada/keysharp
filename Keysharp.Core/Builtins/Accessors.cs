@@ -1946,6 +1946,35 @@ namespace Keysharp.Builtins
 		public static object A_RealThread => Ks.RealThread.ForCurrentThread();
 
 		/// <summary>
+		/// The CPU architecture this script is running as: X64, ARM64, X86 or ARM, matching the preprocessor
+		/// symbol of the same name (<c>#if ARM64</c>).<br/>
+		/// This is the calling convention <see cref="DllCall"/> and <see cref="ComCall"/> have to obey, so it -
+		/// not <see cref="Accessors.A_PtrSize"/> - is what interop code should branch on: A_PtrSize is 8 for
+		/// both X64 and ARM64, so AutoHotkey's usual 32/64 test cannot tell them apart.<br/>
+		/// Import with <c>#import Ks { A_ProcessArch }</c>.
+		/// </summary>
+		public static string A_ProcessArch => ArchName(RuntimeInformation.ProcessArchitecture);
+
+		/// <summary>
+		/// The CPU architecture of the operating system, using the same names as
+		/// <see cref="A_ProcessArch"/>. It differs from A_ProcessArch only when the process runs emulated,
+		/// e.g. an X64 build on ARM64 Windows, so prefer A_ProcessArch for anything interop-related.<br/>
+		/// Import with <c>#import Ks { A_OSArch }</c>.
+		/// </summary>
+		public static string A_OSArch => ArchName(RuntimeInformation.OSArchitecture);
+
+		// Kept in Keysharp's own casing rather than Architecture.ToString(), so the value is directly
+		// comparable to the preprocessor symbol and to A_OSType's uppercase style.
+		internal static string ArchName(Architecture arch) => arch switch
+		{
+			Architecture.X64 => "X64",
+			Architecture.Arm64 => "ARM64",
+			Architecture.X86 => "X86",
+			Architecture.Arm => "ARM",
+			_ => arch.ToString().ToUpperInvariant(),
+		};
+
+		/// <summary>
 		/// The version of Keysharp.Builtins.dll
 		/// </summary>
 		public static string A_KsVersion

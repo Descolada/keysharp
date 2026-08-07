@@ -557,11 +557,10 @@ using String = Keysharp.Builtins.String
 			}
 
 			var ms = new MemoryStream();
-#if WINDOWS
-			const Microsoft.CodeAnalysis.Platform compiledPlatform = Microsoft.CodeAnalysis.Platform.X64;
-#else
+			// AnyCpu, like the rest of Keysharp: the script assembly is loaded into this very process (or one
+			// built the same way), and the CLR rejects an assembly whose machine type doesn't match the
+			// process. Stamping an architecture would only create a mismatch to get wrong.
 			const Microsoft.CodeAnalysis.Platform compiledPlatform = Microsoft.CodeAnalysis.Platform.AnyCpu;
-#endif
 			var compilation = CSharpCompilation.Create(outputname)
 								.WithOptions(
 									new CSharpCompilationOptions(OutputKind.WindowsApplication)

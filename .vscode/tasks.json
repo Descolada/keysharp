@@ -1,4 +1,6 @@
-{
+﻿{
+    // Every project builds AnyCPU on every platform; architecture is chosen at publish time with
+    // -r <rid>, so no build task needs to name one.
     "version": "2.0.0",
     "tasks": [
         {
@@ -10,19 +12,8 @@
                 "Keysharp.sln",
                 "--no-restore",
                 "-c",
-                "${config:keysharp.buildConfiguration}",
-                "-p:Platform=AnyCPU"
+                "${config:keysharp.buildConfiguration}"
             ],
-            "windows": {
-                "args": [
-                    "build",
-                    "Keysharp.sln",
-                    "--no-restore",
-                    "-c",
-                    "${config:keysharp.buildConfiguration}",
-                    "-p:Platform=x64"
-                ]
-            },
             "group": {
                 "kind": "build",
                 "isDefault": true
@@ -38,19 +29,8 @@
                 "Keysharp/Keysharp.csproj",
                 "--no-restore",
                 "-c",
-                "${config:keysharp.buildConfiguration}",
-                "-p:Platform=AnyCPU"
+                "${config:keysharp.buildConfiguration}"
             ],
-            "windows": {
-                "args": [
-                    "build",
-                    "Keysharp/Keysharp.csproj",
-                    "--no-restore",
-                    "-c",
-                    "${config:keysharp.buildConfiguration}",
-                    "-p:Platform=x64"
-                ]
-            },
             "group": "none",
             "problemMatcher": "$msCompile"
         },
@@ -63,19 +43,8 @@
                 "Keyview/Keyview.csproj",
                 "--no-restore",
                 "-c",
-                "${config:keysharp.buildConfiguration}",
-                "-p:Platform=AnyCPU"
+                "${config:keysharp.buildConfiguration}"
             ],
-            "windows": {
-                "args": [
-                    "build",
-                    "Keyview/Keyview.csproj",
-                    "--no-restore",
-                    "-c",
-                    "${config:keysharp.buildConfiguration}",
-                    "-p:Platform=x64"
-                ]
-            },
             "group": "none",
             "problemMatcher": "$msCompile"
         },
@@ -88,8 +57,7 @@
                 "Keyview/Keyview.csproj",
                 "--no-restore",
                 "-c",
-                "${config:keysharp.buildConfiguration}",
-                "-p:Platform=AnyCPU"
+                "${config:keysharp.buildConfiguration}"
             ],
             "group": "none",
             "problemMatcher": "$msCompile"
@@ -115,19 +83,8 @@
                 "Keysharp.OutputTest/Keysharp.OutputTest.csproj",
                 "--no-restore",
                 "-c",
-                "${config:keysharp.buildConfiguration}",
-                "-p:Platform=AnyCPU"
+                "${config:keysharp.buildConfiguration}"
             ],
-            "windows": {
-                "args": [
-                    "build",
-                    "Keysharp.OutputTest/Keysharp.OutputTest.csproj",
-                    "--no-restore",
-                    "-c",
-                    "${config:keysharp.buildConfiguration}",
-                    "-p:Platform=x64"
-                ]
-            },
             "group": "none",
             "problemMatcher": "$msCompile"
         },

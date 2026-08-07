@@ -5,7 +5,21 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ASSETS_DIR="${ROOT}/Keysharp.Install/linux"
 CONFIG="${CONFIG:-Release}"
-RID="${RID:-linux-x64}"
+
+# Default to this machine's architecture; set RID explicitly to cross-target (e.g. RID=linux-arm64).
+detect_default_rid() {
+  case "$(uname -m)" in
+    x86_64) echo "linux-x64" ;;
+    aarch64|arm64) echo "linux-arm64" ;;
+    armv7l|armv7|armhf) echo "linux-arm" ;;
+    *)
+      echo "Unable to infer Linux RID from architecture $(uname -m). Set RID=linux-x64, linux-arm64 or linux-arm." >&2
+      return 1
+      ;;
+  esac
+}
+
+RID="${RID:-$(detect_default_rid)}"
 DIST_DIR="${ROOT}/dist"
 ETO_DIR="$(cd "${ROOT}/../Eto" 2>/dev/null && pwd || true)"
 PATH_MAP="${ROOT}=/_/keysharp"

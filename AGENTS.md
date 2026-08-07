@@ -28,7 +28,23 @@ Keysharp.sln
 
 ## Build
 
-Target framework is **net10.0** (net10.0-windows on Windows). Platform is **x64** on Windows, AnyCPU elsewhere.
+Target framework is **net10.0** (net10.0-windows on Windows). Platform is **AnyCPU** everywhere, on every OS.
+
+Nothing needs a machine type in the managed assemblies: native dependencies are resolved at runtime through
+the RID graph in `deps.json`, the x64-only DllCall register shim is guarded by a `ProcessArchitecture` check,
+and scripts are Roslyn-compiled as AnyCpu. So architecture is chosen with **`-r <rid>`**, never `-p:Platform`
+— a RID-less `dotnet build` simply takes the apphost matching the SDK doing the building, which is what makes
+the same checkout work on x64 and on Windows on ARM.
+
+```bash
+dotnet build Keysharp.sln -c Debug                       # runnable on this machine, whatever its arch
+dotnet publish Keysharp/Keysharp.csproj -c Release -r win-x64
+dotnet publish Keysharp/Keysharp.csproj -c Release -r win-arm64
+```
+
+Scripts can branch on architecture with the predefined `X64` / `ARM64` / `X86` / `ARM` preprocessor symbols,
+or at runtime via `#Import Ks { A_ProcessArch, A_OSArch }`. Use those rather than `A_PtrSize`, which is 8 for
+both x64 and ARM64.
 
 ```bash
 # Windows — from repo root

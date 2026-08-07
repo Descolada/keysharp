@@ -3,21 +3,17 @@
     <OutputType>Exe</OutputType>
     <IsPublishable>false</IsPublishable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <PlatformTarget Condition="$([MSBuild]::IsOSPlatform('Windows'))">x64</PlatformTarget>
-    <PlatformTarget Condition="!$([MSBuild]::IsOSPlatform('Windows'))">AnyCPU</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
-    <Platforms Condition="$([MSBuild]::IsOSPlatform('Windows'))">x64</Platforms>
     <NoWin32Manifest>true</NoWin32Manifest>
 	<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
 		<TargetFramework>net10.0-windows</TargetFramework>
-		<Platforms>x64</Platforms>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">

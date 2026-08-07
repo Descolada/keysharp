@@ -32,12 +32,22 @@
     <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)/obj/$(MSBuildProjectName)/osx/</BaseIntermediateOutputPath>
   </PropertyGroup>
 
+  <!-- Every project is AnyCPU on every platform. Nothing here needs a machine type baked into the managed
+       assembly: native dependencies are resolved at runtime through the RID graph in deps.json (see
+       CompilerHelper.GetRidNativeDependencyPath), the x64-only DllCall register shim is guarded by a
+       RuntimeInformation.ProcessArchitecture check, and scripts are Roslyn-compiled as AnyCpu so they load
+       in whatever process runs them. Architecture is therefore chosen with `-r <rid>`, not -p:Platform:
+       a RID-less build just takes the apphost matching the SDK doing the building. -->
+  <PropertyGroup>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Keysharp' OR '$(MSBuildProjectName)' == 'Keyview'">
     <IsKeysharpShippingProject>true</IsKeysharpShippingProject>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(IsKeysharpShippingProject)' == 'true' AND $([MSBuild]::IsOSPlatform('Windows'))">
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(IsKeysharpShippingProject)' == 'true' AND $([MSBuild]::IsOSPlatform('Linux'))">

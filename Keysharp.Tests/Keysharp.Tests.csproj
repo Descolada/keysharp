@@ -2,7 +2,6 @@
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
 		<TargetFramework>net10.0-windows</TargetFramework>
 		<UseWindowsForms>true</UseWindowsForms>
-		<Platforms>x64</Platforms>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
@@ -33,8 +32,6 @@
 		<ProduceReferenceAssembly>true</ProduceReferenceAssembly>
 		<SignAssembly>False</SignAssembly>
 		<DelaySign>False</DelaySign>
-		<PlatformTarget Condition="$([MSBuild]::IsOSPlatform('Windows'))">x64</PlatformTarget>
-		<PlatformTarget Condition="!$([MSBuild]::IsOSPlatform('Windows'))">AnyCPU</PlatformTarget>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<WarningLevel>8</WarningLevel>
 	<SatelliteResourceLanguages>en</SatelliteResourceLanguages>

@@ -76,16 +76,24 @@ namespace Keysharp.Main
 			// Daemon fast path: a plain source run can offload compilation to the shared daemon and run the
 			// returned bytes here, so this lean launcher never loads the parser/Roslyn. KEYSHARP_DAEMON forces it
 			// on/off; if unset, release builds use it and debug builds do not.
+			// --define is excluded explicitly, not merely via KeysharpArgs: the daemon is sent nothing but a script
+			// path, so it would compile with no symbols and silently resolve the #if branches the other way.
 			if (command.Kind == CliCommandKind.RunSource
 					&& !command.FromStdin
 					&& !command.Validate
 					&& !command.Transpile
 					&& command.KeysharpArgs.Length == 0
+					&& command.Defines.Length == 0
 					&& ShouldUseDaemon())
 			{
-				switch (CompileClient.CompileViaServer(command.ScriptName, out var daemonBytes, out var daemonErr))
+				switch (CompileClient.CompileViaServer(command.ScriptName, out var daemonBytes, out var daemonErr, out var daemonWarnings))
 				{
 					case CompileDaemonStatus.Compiled:
+						// The daemon compiled in a process whose stderr goes nowhere, so its #Warning text rides back
+						// with the bytes and is reported here instead.
+						if (!string.IsNullOrEmpty(daemonWarnings))
+							Console.Error.WriteLine(daemonWarnings);
+
 						// The daemon compiled the source but this process runs it: point A_ScriptFullPath/A_ScriptDir at
 						// the source the user launched, not at a path baked in by the daemon.
 						CompilerHelper.runScriptPath = command.ScriptName;
@@ -126,10 +134,11 @@ namespace Keysharp.Main
 
 			if (string.Equals(sub, "ping", StringComparison.OrdinalIgnoreCase) && daemonArgs.Length > 2)
 			{
-				var st = CompileClient.TryCompile(daemonArgs[2], out var b, out var err);
+				var st = CompileClient.TryCompile(daemonArgs[2], out var b, out var err, out var warn);
 				Console.WriteLine(st switch
 				{
-					CompileDaemonStatus.Compiled => $"daemon ping: OK, {b.Length} bytes",
+					CompileDaemonStatus.Compiled => $"daemon ping: OK, {b.Length} bytes"
+						+ (string.IsNullOrEmpty(warn) ? "" : $"\n{warn}"),
 					CompileDaemonStatus.CompileFailed => $"daemon ping: COMPILE ERROR\n{err}",
 					_ => "daemon ping: FAIL, no daemon reachable",
 				});
@@ -168,10 +177,14 @@ namespace Keysharp.Main
 			string compileResult;
 
 			using (var script = new Script())
-				(arr, compileResult) = ch.CompileCodeToByteArray(r.ScriptName, namenoext, exeDir, r.MinimalExe, false, compileToFile: true);
+				(arr, compileResult) = ch.CompileCodeToByteArray(r.ScriptName, namenoext, exeDir, r.MinimalExe, false, compileToFile: true, defines: r.Defines);
 
 			if (arr == null)
 				return Runner.Message(compileResult, true);
+
+			// #Warning from the compiled script; on the failure path above it is already inside compileResult.
+			if (!string.IsNullOrEmpty(ch.CompileWarnings))
+				Console.Error.WriteLine(ch.CompileWarnings);
 
 			var finalPath = "";
 

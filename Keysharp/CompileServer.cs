@@ -358,8 +358,10 @@ namespace Keysharp.Main
 		// Wire format (length-prefixed, BinaryReader/Writer):
 		//   request : int32 protocolVersion, string scriptPath
 		//   response: bool success,
-		//             if success -> int32 byteLen, byte[] assemblyBytes
+		//             if success -> int32 byteLen, byte[] assemblyBytes, string warnings ("" when none)
 		//             else        -> string errorMessage
+		// `warnings` carries the script's #Warning text to the client: the daemon compiles in a detached process
+		// whose stderr goes nowhere, so a warning printed here would be lost on the path most runs take.
 		private static void HandleRequest(NamedPipeServerStream server, CompilerHelper ch, string exeDir)
 		{
 			using var reader = new BinaryReader(server, Encoding.UTF8, leaveOpen: true);
@@ -381,10 +383,12 @@ namespace Keysharp.Main
 
 			byte[] bytes;
 			string error;
+			string warnings = null;
 
 			try
 			{
 				(bytes, error) = ch.CompileCodeToByteArray(scriptPath, nameNoExt, exeDir);
+				warnings = ch.CompileWarnings;
 			}
 			catch (Exception ex)
 			{
@@ -400,6 +404,7 @@ namespace Keysharp.Main
 				writer.Write(true);
 				writer.Write(bytes.Length);
 				writer.Write(bytes);
+				writer.Write(warnings ?? "");
 			}
 			else
 			{
@@ -429,9 +434,9 @@ namespace Keysharp.Main
 		/// Compiles <paramref name="scriptPath"/> via a running daemon, spawning one if none is reachable.
 		/// Falls back to <see cref="CompileDaemonStatus.Unreachable"/> only if no daemon can be started.
 		/// </summary>
-		internal static CompileDaemonStatus CompileViaServer(string scriptPath, out byte[] bytes, out string error)
+		internal static CompileDaemonStatus CompileViaServer(string scriptPath, out byte[] bytes, out string error, out string warnings)
 		{
-			var status = TryCompile(scriptPath, out bytes, out error, connectTimeoutMs: 300);
+			var status = TryCompile(scriptPath, out bytes, out error, out warnings, connectTimeoutMs: 300);
 
 			if (status != CompileDaemonStatus.Unreachable)
 				return status;
@@ -444,7 +449,7 @@ namespace Keysharp.Main
 
 			while (sw.Elapsed < SpawnWaitTimeout)
 			{
-				status = TryCompile(scriptPath, out bytes, out error, connectTimeoutMs: 500);
+				status = TryCompile(scriptPath, out bytes, out error, out warnings, connectTimeoutMs: 500);
 
 				if (status != CompileDaemonStatus.Unreachable)
 					return status;
@@ -460,10 +465,11 @@ namespace Keysharp.Main
 		/// Attempts a single compile against an already-running daemon. Returns
 		/// <see cref="CompileDaemonStatus.Unreachable"/> (no exception) when no daemon is listening.
 		/// </summary>
-		internal static CompileDaemonStatus TryCompile(string scriptPath, out byte[] bytes, out string error, int connectTimeoutMs = 1000)
+		internal static CompileDaemonStatus TryCompile(string scriptPath, out byte[] bytes, out string error, out string warnings, int connectTimeoutMs = 1000)
 		{
 			bytes = null;
 			error = null;
+			warnings = null;
 
 			using var client = new NamedPipeClientStream(".", CompileServer.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 
@@ -493,6 +499,7 @@ namespace Keysharp.Main
 				{
 					var len = reader.ReadInt32();
 					bytes = reader.ReadBytes(len);
+					warnings = reader.ReadString();
 					return CompileDaemonStatus.Compiled;
 				}
 

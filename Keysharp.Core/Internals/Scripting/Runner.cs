@@ -35,6 +35,7 @@ namespace Keysharp.Internals.Scripting
 		internal string DestPath = "";
 		internal string[] ScriptArgs = [];
 		internal string[] KeysharpArgs = [];
+		internal string[] Defines = [];   // --define:NAME symbols, handed to the compilation this command performs
 		internal bool FromStdin;
 		internal bool Validate;
 		internal bool Transpile;
@@ -87,6 +88,7 @@ namespace Keysharp.Internals.Scripting
 			var validate = false;
 			var compileAsm = false;
 			var compileDestPath = "";
+			var defines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 			for (var i = 0; i < args.Length; i++)
 			{
@@ -106,6 +108,17 @@ namespace Keysharp.Internals.Scripting
 
 					if (!TryParseAsmEntryPoint(entryPoint, out asmType, out asmMethod, out var entryError))
 						return CliCommand.Error(entryError);
+
+					continue;
+				}
+
+				// --define:NAME[,NAME...] predefines conditional-compilation symbols, like C#'s -define. Repeatable.
+				// This is also the only way to configure an IMPORTED module's compilation: a module is compiled once
+				// and shared by every importer, so an importer's own #defines cannot reach it.
+				if (opt.StartsWith("define:", StringComparison.OrdinalIgnoreCase))
+				{
+					if (AddDefineSymbols(option, defines) is string defineError)
+						return CliCommand.Error("--define: " + defineError);
 
 					continue;
 				}
@@ -209,6 +222,11 @@ namespace Keysharp.Internals.Scripting
 
 					case "script":
 						break;
+
+					// Without this, a colon-less --define falls through to `default:` and is taken for the script name,
+					// so an obvious typo reports "Could not find the script file ...\--define".
+					case "define":
+						return CliCommand.Error("--define requires a symbol, as --define:NAME[,NAME...].");
 #if WINDOWS
 
 					case "install":
@@ -260,6 +278,13 @@ namespace Keysharp.Internals.Scripting
 						break;
 					}
 				}
+
+				// The script was discovered rather than named, so SetInput never ran and every argument was a switch —
+				// they are all Keysharp's. Without this they vanish from KeysharpArgs, and callers that gate on it read
+				// the run as plain: the compile daemon in particular would then compile without the --define symbols
+				// it was never sent, silently taking the other branch.
+				if (!string.IsNullOrEmpty(scriptName))
+					keysharpArgs = args;
 			}
 
 			if (loadAsm && string.IsNullOrEmpty(scriptName))
@@ -301,6 +326,8 @@ namespace Keysharp.Internals.Scripting
 
 			var (nameNoExt, scriptDir, outPath) = GetScriptOutputPaths(scriptName, fromstdin);
 
+			// Only the kinds that COMPILE carry the symbols; RunAssembly above deliberately does not, since a
+			// precompiled assembly had its conditionals resolved when it was built.
 			return new CliCommand
 			{
 				Kind = compileExe ? CliCommandKind.CompileExe : compileAsm ? CliCommandKind.CompileAsm : CliCommandKind.RunSource,
@@ -313,6 +340,7 @@ namespace Keysharp.Internals.Scripting
 				DestPath = compileDestPath,
 				ScriptArgs = scriptArgs,
 				KeysharpArgs = keysharpArgs,
+				Defines = [.. defines],
 				FromStdin = fromstdin,
 				Validate = validate,
 				Transpile = transpile,
@@ -390,7 +418,11 @@ namespace Keysharp.Internals.Scripting
 			script.ScriptArgs = command.ScriptArgs;
 			script.KeysharpArgs = command.KeysharpArgs;
 
-			var (arr, result) = ch.CompileCodeToByteArray(command.ScriptName, command.NameNoExt, command.ExeDir, false, command.Transpile, command.Kind == CliCommandKind.CompileAsm);
+			var (arr, result) = ch.CompileCodeToByteArray(command.ScriptName, command.NameNoExt, command.ExeDir, false, command.Transpile, command.Kind == CliCommandKind.CompileAsm, command.Defines);
+			// #Warning goes to stderr, never a dialog: it must not block an otherwise-good script from starting. On a
+			// failed compile the text is already part of `result`, so only the success path needs to print it.
+			if (arr != null && !string.IsNullOrEmpty(ch.CompileWarnings))
+				Console.Error.WriteLine(ch.CompileWarnings);
 
 			if (command.Transpile)
 			{
@@ -499,6 +531,7 @@ namespace Keysharp.Internals.Scripting
 			  --errorstdout[=ENC]     Write load-time errors to stderr.
 			  --cpN                   Read script files using codepage N.
 			  --include <file>        Include a file before the main script.
+			  --define:NAME[,NAME]    Predefine #if symbols (repeatable). Also reaches imported modules.
 			  --debug                 Reserve the AutoHotkey debugging-client switch.
 			  --iLib <ignored>        Deprecated alias for --validate.
 
@@ -578,6 +611,59 @@ namespace Keysharp.Internals.Scripting
 				return false;
 
 			return option.AsSpan(2).IndexOfAnyExceptInRange('0', '9') < 0;
+		}
+
+		// A --define symbol must be spellable as an #if operand, i.e. exactly what the lexer would produce as a single
+		// identifier token — so it is tested with the same character predicates the lexer uses.
+		private static bool IsDefineName(string name) =>
+			name.Length > 0 && name[0].IsLeadingIdentifierChar() && name.All(c => c.IsIdentifierChar());
+
+		// Parses one `define:NAME[,NAME...]` switch value into `into`, returning an error message for the first name
+		// that is not a valid symbol, else null. Shared by the command-line parser and SplitDefines below so the two
+		// cannot drift on what a symbol may look like.
+		private static string AddDefineSymbols(string option, ICollection<string> into)
+		{
+			foreach (var name in option.Substring(option.IndexOf(':') + 1)
+					 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+			{
+				// Reject anything that is not a bare identifier rather than defining a symbol no #if can ever name —
+				// `--define:FOO=1` is the likely mistake, since a preprocessor symbol carries no value.
+				if (!IsDefineName(name))
+					return $"'{name}' is not a valid symbol name — it must be a plain identifier, spelled the way an #if would name it. Symbols carry no value.";
+
+				into.Add(name);
+			}
+
+			return null;
+		}
+
+		/// <summary>
+		/// Splits a Keysharp command line into its `--define:NAME` symbols and everything else, so a caller that both
+		/// compiles and launches (Ks.RunScript) can apply the symbols to its own compile and forward the rest to the
+		/// process it starts. --define cannot simply be forwarded: it selects which code is COMPILED, and by the time
+		/// the launched process exists that has already happened.
+		/// </summary>
+		/// <returns>An error message when a symbol name is invalid, else null.</returns>
+		internal static string SplitDefines(IEnumerable<string> args, out List<string> defines, out List<string> rest)
+		{
+			defines = [];
+			rest = [];
+
+			foreach (var arg in args)
+			{
+				if ((TryGetSwitch(arg, out var option) || TryGetAhkSlashSwitch(arg, out option))
+						&& option.StartsWith("define:", StringComparison.OrdinalIgnoreCase))
+				{
+					if (AddDefineSymbols(option, defines) is string error)
+						return error;
+
+					continue;
+				}
+
+				rest.Add(arg);
+			}
+
+			return null;
 		}
 
 		private static void SetInput(string[] args, int index, ref string scriptName, out string[] scriptArgs, out string[] keysharpArgs)

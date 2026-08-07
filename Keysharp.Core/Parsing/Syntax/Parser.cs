@@ -28,7 +28,10 @@ namespace Keysharp.Parsing.Syntax
 		// AHK processes directives per physical line regardless of nesting, so these are hoisted to program scope.
 		private readonly List<Stmt> _hoistedStmts = new();
 		private bool _inFlowCond;     // true while parsing a control-flow header — `(cond){…}` is the body, not an anon block fn
-		// Preprocessor symbols for #if/#elif. WINDOWS is predefined (this front-end targets the Windows runtime); #define adds more.
+		// Preprocessor symbols for #if/#elif: the predefined set, plus whatever the caller supplied for this
+		// compilation (`--define:NAME`, or Ks.RunScript's Defines option), and #define adds more. Seeded per Parser
+		// and deliberately NOT inherited from an importing file — #include shares this Parser (so its #defines do
+		// carry), but a module file gets its own, which is why the supplied set has to be passed down to those too.
 		private readonly HashSet<string> _defines = new(System.StringComparer.OrdinalIgnoreCase)
 		{
 			"KEYSHARP"
@@ -52,14 +55,23 @@ namespace Keysharp.Parsing.Syntax
 		private int _includeDepth;             // current #include nesting depth (guards against circular #includeagain)
 		private const int MaxIncludeDepth = 100;
 
-		public Parser(List<Token> tokens, string includeDir = null) { _includeDir = includeDir; _t = Preprocess(tokens); }
+		// `defines` are the caller's extra preprocessor symbols for this compilation (null when there are none).
+		public Parser(List<Token> tokens, string includeDir = null, IEnumerable<string> defines = null)
+		{
+			_includeDir = includeDir;
+
+			if (defines != null)
+				foreach (var d in defines) _ = _defines.Add(d);
+
+			_t = Preprocess(tokens);
+		}
 
 		public static ProgramNode Parse(string source, string includeDir = null, string scriptFile = null) => ParseWithDiagnostics(source, includeDir, scriptFile).program;
 
 		// Tokenizes + parses, returning the AST together with all lex + parse diagnostics (line:col: message).
 		// scriptFile is the main script's full path (when known): it stamps the top-level tokens so %A_LineFile% in an
 		// #include resolves to the real file (not just its directory) and main-file diagnostics name the file.
-		public static (ProgramNode program, List<string> diagnostics) ParseWithDiagnostics(string source, string includeDir = null, string scriptFile = null)
+		public static (ProgramNode program, List<string> diagnostics) ParseWithDiagnostics(string source, string includeDir = null, string scriptFile = null, IEnumerable<string> defines = null)
 		{
 			var diags = new List<string>();
 			try
@@ -68,7 +80,7 @@ namespace Keysharp.Parsing.Syntax
 				var tokens = lexer.Tokenize();
 				// A lex error (e.g. an unterminated string) terminates immediately — before parsing — with the first one.
 				if (lexer.Diagnostics.Count > 0) throw new Keysharp.Builtins.ParseException(lexer.Diagnostics[0]);
-				var parser = new Parser(tokens, includeDir);
+				var parser = new Parser(tokens, includeDir, defines);
 				var prog = parser.ParseProgram();
 				return (prog, parser.Diagnostics);
 			}
@@ -539,6 +551,10 @@ namespace Keysharp.Parsing.Syntax
 		// #DirectiveName trailing-args  — the trailing text is consumed raw (directives use unquoted args).
 		private Stmt ParseDirective()
 		{
+			// Positioned here rather than only in ParseStatement: a directive is also parsed straight from a class body
+			// and from an object literal, and those callers would otherwise produce an unlocatable #Warning/#Error.
+			int dirLine = Current.Line, dirCol = Current.Column;
+			var dirFile = Current.File;
 			Advance(); // #
 			var name = At(TokenKind.Identifier) ? Advance().Text : "";
 			var argToks = new List<Token>();
@@ -554,9 +570,20 @@ namespace Keysharp.Parsing.Syntax
 				sb.Append(Advance().Text);
 			}
 			var args = sb.ToString();
-			if (name.Equals("import", System.StringComparison.OrdinalIgnoreCase)) return ParseImportDirective(args, argToks);
-			ValidateDirectiveArgs(name, argToks);
-			return new DirectiveStmt(name, args);
+			Stmt dir;
+
+			if (name.Equals("import", System.StringComparison.OrdinalIgnoreCase))
+				dir = ParseImportDirective(args, argToks);
+			else
+			{
+				ValidateDirectiveArgs(name, argToks);
+				dir = new DirectiveStmt(name, args);
+			}
+
+			dir.Line = dirLine;
+			dir.Column = dirCol;
+			dir.File = dirFile;
+			return dir;
 		}
 
 		// Each directive accepts a fixed number of comma-separated arguments (taken from the AHK v2 source's
@@ -712,8 +739,17 @@ namespace Keysharp.Parsing.Syntax
 
 		// ---- conditional-compilation preprocessor ----
 		// Resolves #if/#elif/#else/#endif and #define/#undef on the token stream BEFORE parsing, so a directive can
-		// split a single statement (e.g. an `if (#if WINDOWS cond1 #else cond2 #endif)` condition). Only tokens in
-		// the active branch survive; the directive lines themselves are removed.
+		// split a single statement — the branches need not each be a whole statement:
+		//     if (
+		//     #if WINDOWS
+		//         cond1
+		//     #else
+		//         cond2
+		//     #endif
+		//     )
+		// Each directive still owns its own line, though: the condition is everything up to the newline, so the
+		// one-line form (`if (#if WINDOWS cond1 #else cond2 #endif)`) does NOT work — the first directive swallows
+		// the rest of the line. Only tokens in the active branch survive; the directive lines themselves are removed.
 		private List<Token> Preprocess(List<Token> src) => Preprocess(src, _includeDir);
 
 		// `includeDir` is the directory relative includes in THIS token stream resolve against (the main script dir, or
@@ -721,8 +757,12 @@ namespace Keysharp.Parsing.Syntax
 		private List<Token> Preprocess(List<Token> src, string includeDir)
 		{
 			var outp = new List<Token>(src.Count);
-			var stack = new Stack<(bool parentActive, bool taken, bool active)>();
-			bool Emit() { foreach (var f in stack) if (!f.active) return false; return true; }
+			// `dirIdx` indexes the opening #if's name token in `src`, so an unterminated block can point back at it
+			// (an index, not the Token itself: this tuple is copied on every Emit() below); `seenElse` rejects a
+			// duplicate #else and an #elif that follows one.
+			var stack = new Stack<(bool parentActive, bool taken, bool active, bool seenElse, int dirIdx)>();
+			// Every `active` pushed below already folds in its parent's, so the innermost frame answers for all of them.
+			bool Emit() => stack.Count == 0 || stack.Peek().active;
 
 			int i = 0;
 			var curDir = includeDir;   // base dir for THIS file's relative includes; `#Include <dir>` updates it
@@ -769,19 +809,51 @@ namespace Keysharp.Parsing.Syntax
 				}
 				if (t.Kind == TokenKind.Hash && i + 1 < src.Count && src[i + 1].Kind == TokenKind.Identifier && IsCondDirective(src[i + 1].Text))
 				{
-					var name = src[i + 1].Text;
+					var nameTok = src[i + 1];
+					var name = nameTok.Text;
 					int j = i + 2;
 					var cond = new List<Token>();
 					while (j < src.Count && src[j].Kind != TokenKind.Newline && src[j].Kind != TokenKind.EOF) cond.Add(src[j++]);
 					bool emit = Emit();
+					// Every closing/continuing directive needs an open #if to act on; the message echoes what was written.
+					void RequireOpenIf() { if (stack.Count == 0) ErrorAt(nameTok, $"#{name} without a matching #If"); }
+
+					// #Else/#EndIf take no condition, and quietly dropping one is the very failure this grammar is
+					// strict to avoid: `#else OSX` reads as "the OSX case" but compiles its block on every platform.
+					void RejectCondition()
+					{
+						if (cond.Count > 0)
+							ErrorAt(cond[0], $"#{name} takes no condition"
+								   + (name.Equals("else", System.StringComparison.OrdinalIgnoreCase) ? " (did you mean #ElIf?)" : ""));
+					}
+
+					// EvalCond is called before being AND-ed rather than short-circuited into the result, so a dead
+					// branch's condition is still validated — a malformed one is then caught on every platform, not
+					// only on the platform that happens to take that branch.
 					if (name.Equals("if", System.StringComparison.OrdinalIgnoreCase))
-					{ bool v = emit && EvalCond(cond); stack.Push((emit, v, v)); }
-					else if (name.Equals("elif", System.StringComparison.OrdinalIgnoreCase) && stack.Count > 0)
-					{ var f = stack.Pop(); bool v = f.parentActive && !f.taken && EvalCond(cond); stack.Push((f.parentActive, f.taken || v, v)); }
-					else if (name.Equals("else", System.StringComparison.OrdinalIgnoreCase) && stack.Count > 0)
-					{ var f = stack.Pop(); bool v = f.parentActive && !f.taken; stack.Push((f.parentActive, true, v)); }
-					else if (name.Equals("endif", System.StringComparison.OrdinalIgnoreCase) && stack.Count > 0)
+					{ bool c = EvalCond(cond, nameTok); bool v = emit && c; stack.Push((emit, v, v, false, i + 1)); }
+					else if (name.Equals("elif", System.StringComparison.OrdinalIgnoreCase))
+					{
+						RequireOpenIf();
+						var f = stack.Pop();
+						if (f.seenElse) ErrorAt(nameTok, "#ElIf after #Else");
+						bool c = EvalCond(cond, nameTok); bool v = f.parentActive && !f.taken && c;
+						stack.Push((f.parentActive, f.taken || v, v, false, f.dirIdx));
+					}
+					else if (name.Equals("else", System.StringComparison.OrdinalIgnoreCase))
+					{
+						RequireOpenIf();
+						RejectCondition();
+						var f = stack.Pop();
+						if (f.seenElse) ErrorAt(nameTok, "duplicate #Else");
+						stack.Push((f.parentActive, true, f.parentActive && !f.taken, true, f.dirIdx));
+					}
+					else if (name.Equals("endif", System.StringComparison.OrdinalIgnoreCase))
+					{
+						RequireOpenIf();
+						RejectCondition();
 						stack.Pop();
+					}
 					else if (name.Equals("define", System.StringComparison.OrdinalIgnoreCase))
 					{ if (emit && cond.Count > 0 && cond[0].Kind == TokenKind.Identifier) _defines.Add(cond[0].Text); }
 					else if (name.Equals("undef", System.StringComparison.OrdinalIgnoreCase))
@@ -792,7 +864,16 @@ namespace Keysharp.Parsing.Syntax
 				if (Emit()) outp.Add(t);
 				i++;
 			}
-			return outp.Count > 0 ? outp : src;   // never hand the parser an empty stream
+			if (stack.Count > 0)   // innermost unterminated block; without this its excluded region silently eats the rest of the file
+			{
+				var open = src[stack.Peek().dirIdx];
+				ErrorAt(open, $"#{open.Text} without a matching #EndIf");
+			}
+			// The parser indexes off the trailing EOF token, so a stream that conditionals emptied still needs it.
+			// (Returning `src` instead would resurrect every token the conditionals just excluded — and an #included
+			// stream carries no EOF, so leaving it genuinely empty is the right answer there.)
+			if (outp.Count == 0 && src.Count > 0 && src[^1].Kind == TokenKind.EOF) outp.Add(src[^1]);
+			return outp;
 		}
 
 		// Reconstructs the include filename from its tokens, expands %BuiltInVar% references, and resolves it against
@@ -956,37 +1037,85 @@ namespace Keysharp.Parsing.Syntax
 			|| name.Equals("else", System.StringComparison.OrdinalIgnoreCase) || name.Equals("endif", System.StringComparison.OrdinalIgnoreCase)
 			|| name.Equals("define", System.StringComparison.OrdinalIgnoreCase) || name.Equals("undef", System.StringComparison.OrdinalIgnoreCase);
 
-		// Evaluates an #if/#elif condition: defined symbols, integer literals, !, &&/and, ||/or, and parentheses.
-		private bool EvalCond(List<Token> toks) { int p = 0; return EvalCondOr(toks, ref p); }
-
-		private bool EvalCondOr(List<Token> t, ref int p)
+		// Evaluates an #if/#elif condition: defined symbols, true/false, integer literals, !, &&/and, ||/or, and
+		// parentheses. Anything outside that grammar is a hard error rather than a silent `false` — `#if defined(X)`
+		// and `#if X == 1` read as though they work (they do in C), but there is no defined() and no comparison
+		// operator here, so dropping the tokens quietly would take the wrong branch with nothing to notice it by.
+		private bool EvalCond(List<Token> toks, Token dir)
 		{
-			var v = EvalCondAnd(t, ref p);
-			while (p < t.Count && (t[p].Kind == TokenKind.LogicalOr || t[p].IsKeyword("or"))) { p++; v = EvalCondAnd(t, ref p) || v; }
+			if (toks.Count == 0) ErrorAt(dir, $"#{dir.Text} requires a condition");
+			int p = 0;
+			_condDepth = 0;
+			var v = EvalCondOr(toks, ref p, dir);
+			if (p < toks.Count) ErrorAt(toks[p], CondErr(dir, toks[p]));
 			return v;
 		}
 
-		private bool EvalCondAnd(List<Token> t, ref int p)
+		// Recursion guard for the condition grammar, mirroring MaxExprDepth for expressions. Conditions are evaluated
+		// even in excluded branches, so without this a deeply parenthesized one anywhere in a file — including in dead
+		// code the script never uses — overflows the stack, and a StackOverflowException cannot be caught and turned
+		// into a diagnostic: the whole process dies with nothing the user can act on.
+		private int _condDepth;
+		private const int MaxCondDepth = 250;
+
+		private static string CondErr(Token dir, Token t) => $"unexpected '{t.Text}' in the #{dir.Text} condition "
+			+ "(only defined symbols, true/false, integers, !, &&, ||, and parentheses are supported)";
+
+		private bool EvalCondOr(List<Token> t, ref int p, Token dir)
 		{
-			var v = EvalCondUnary(t, ref p);
-			while (p < t.Count && (t[p].Kind == TokenKind.LogicalAnd || t[p].IsKeyword("and"))) { p++; v = EvalCondUnary(t, ref p) && v; }
+			var v = EvalCondAnd(t, ref p, dir);
+			while (p < t.Count && (t[p].Kind == TokenKind.LogicalOr || t[p].IsKeyword("or"))) { p++; v = EvalCondAnd(t, ref p, dir) || v; }
 			return v;
 		}
 
-		private bool EvalCondUnary(List<Token> t, ref int p)
+		private bool EvalCondAnd(List<Token> t, ref int p, Token dir)
 		{
-			if (p < t.Count && (t[p].Kind == TokenKind.Not || t[p].IsKeyword("not"))) { p++; return !EvalCondUnary(t, ref p); }
-			if (p < t.Count && t[p].Kind == TokenKind.LParen)
+			var v = EvalCondUnary(t, ref p, dir);
+			while (p < t.Count && (t[p].Kind == TokenKind.LogicalAnd || t[p].IsKeyword("and"))) { p++; v = EvalCondUnary(t, ref p, dir) && v; }
+			return v;
+		}
+
+		private bool EvalCondUnary(List<Token> t, ref int p, Token dir)
+		{
+			if (p >= t.Count) { ErrorAt(dir, $"incomplete #{dir.Text} condition"); return false; }
+			if (++_condDepth > MaxCondDepth) ErrorAt(t[p], $"#{dir.Text} condition is nested too deeply");
+
+			try
 			{
-				p++;
-				var v = EvalCondOr(t, ref p);
-				if (p < t.Count && t[p].Kind == TokenKind.RParen) p++;
-				return v;
+				if (t[p].Kind == TokenKind.Not || t[p].IsKeyword("not")) { p++; return !EvalCondUnary(t, ref p, dir); }
+				if (t[p].Kind == TokenKind.LParen)
+				{
+					p++;
+					var v = EvalCondOr(t, ref p, dir);
+					if (p < t.Count && t[p].Kind == TokenKind.RParen) p++;
+					else ErrorAt(dir, $"missing ')' in the #{dir.Text} condition");
+					return v;
+				}
+				// A numeric literal is false only when its VALUE is zero: comparing the text against "0" made 0x0 and
+				// 00 true. Parsed invariantly because this is source text, and a literal too large for the type fails
+				// to parse — which is certainly not zero, hence the leading `!`.
+				if (t[p].Kind == TokenKind.Number)
+				{
+					var r = t[p++].Text;
+					return r.StartsWith("0x", System.StringComparison.OrdinalIgnoreCase)
+						   ? !long.TryParse(r.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hex) || hex != 0
+						   : !double.TryParse(r, NumberStyles.Float, CultureInfo.InvariantCulture, out var num) || num != 0;
+				}
+
+				if (t[p].Kind == TokenKind.Identifier)
+				{
+					// A defined symbol wins over the true/false literals. Symbols are case-insensitive here, so
+					// `#define FALSE` names the same thing as the literal `false`; letting the literal win would
+					// silently flip a branch that used to be taken. Only when nothing defines the name do they read
+					// as the value keywords they are everywhere else, so `#if true` keeps its block.
+					var s = t[p++].Text;
+					return _defines.Contains(s) || s.Equals(Keywords.TrueTxt, System.StringComparison.OrdinalIgnoreCase);
+				}
+
+				ErrorAt(t[p], CondErr(dir, t[p]));
+				return false;
 			}
-			if (p < t.Count && t[p].Kind == TokenKind.Number) { var r = t[p++].Text; return r != "0" && r != "0.0"; }
-			if (p < t.Count && t[p].Kind == TokenKind.Identifier) return _defines.Contains(t[p++].Text);
-			if (p < t.Count) p++;
-			return false;
+			finally { _condDepth--; }
 		}
 
 		private Stmt ParseThrow()
@@ -1094,10 +1223,15 @@ namespace Keysharp.Parsing.Syntax
 					else if (dir.Name.Equals("StructPack", System.StringComparison.OrdinalIgnoreCase))
 						structPack = long.TryParse((dir.Args ?? "").Trim(), out var sp) ? sp : 0;
 					// A class-body `#import` scopes its bindings to this class (retained for the Lowerer instead of
-					// being silently discarded); other directives are not meaningful here.
+					// being silently discarded).
 					else if (dir is ImportDirective imp) classImports.Add(imp);
 					else if (dir.Name.Equals("Module", System.StringComparison.OrdinalIgnoreCase))
 						Error("#Module is only allowed at the top level, not inside a class body");
+					// Everything else is hoisted to program scope rather than dropped, exactly as a directive found in
+					// expression position is. A class body has nowhere to put a statement, but the directive still has
+					// to be SEEN: dropping it silently discarded a #Warning or #Error written to be read, and let a
+					// misspelled directive through in the one place the "unrecognized directive" check could not reach.
+					else _hoistedStmts.Add(dir);
 					SkipNewlines();
 					continue;
 				}

@@ -26,6 +26,10 @@ namespace Keysharp.Parsing.Syntax
 	internal sealed class Lowerer
 	{
 		public readonly List<string> Diagnostics = new();
+		// Non-fatal compile-time messages (#Warning). Kept apart from Diagnostics because anything in that list aborts
+		// the build; these are surfaced alongside it and compilation continues. Named for the compile phase to keep it
+		// distinct from `_warnings` below, which is the unrelated #Warn analysis emitted into the generated program.
+		public readonly List<string> CompileWarnings = new();
 
 		// Global slot table: lowercased name -> emitted C# field identifier (keyword-escaped).
 		private readonly Dictionary<string, string> _fields = new(System.StringComparer.Ordinal);
@@ -274,12 +278,16 @@ namespace Keysharp.Parsing.Syntax
 		private readonly Dictionary<string, string[]> _includedSourceLines = new(System.StringComparer.OrdinalIgnoreCase);
 		private string _startupName;
 		private string _includeDir;   // directory for resolving file-based `#import "name"` module imports
+		// This compilation's caller-supplied preprocessor symbols (null when there are none), forwarded to the separate
+		// parse that each imported module file gets so its #if branches resolve as they do in the main script.
+		private IEnumerable<string> _defines;
 		private bool _compileToFile;   // emitting a distributable .cks/.exe: relativize #include paths in A_LineFile
 
-		public CompilationUnitSyntax Build(ProgramNode prog, string name, string scriptPath = "*", string startupName = null, string includeDir = null, string source = null, bool compileToFile = false)
+		public CompilationUnitSyntax Build(ProgramNode prog, string name, string scriptPath = "*", string startupName = null, string includeDir = null, string source = null, bool compileToFile = false, IEnumerable<string> defines = null)
 		{
 			_scriptPath = scriptPath ?? "*";
 			_compileToFile = compileToFile;
+			_defines = defines;
 			_staticFieldSink = _fieldDecls;   // module scope by default (the single-module path skips ClearPerModuleState)
 			_sourceLines = source?.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
 			_startupName = startupName;
@@ -350,7 +358,9 @@ namespace Keysharp.Parsing.Syntax
 					ProgramNode fileProg;
 					try
 					{
-						var (p, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(System.IO.File.ReadAllText(file), fileDir);
+						// The module file is parsed on its own, so this compilation's symbols have to be handed to it
+						// explicitly — its #if branches must resolve the same way they do in the main script.
+						var (p, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(System.IO.File.ReadAllText(file), fileDir, null, _defines);
 						// A parse error in the imported module file is surfaced as the script's error (prefixed with the
 						// module file name), not swallowed — otherwise the user would only see a misleading "module not
 						// found" for a file that does exist. BuildMultiModule aborts as soon as a diagnostic is recorded.
@@ -1839,9 +1849,16 @@ namespace Keysharp.Parsing.Syntax
 				// #StructPack is applied per-field by the parser inside a class/struct body; at module level it is a no-op.
 				case "STRUCTPACK":
 					return null;
-				// #Error emits a user-specified compile-time diagnostic.
+				// #Error emits a user-specified compile-time diagnostic, positioned like #Warning below.
 				case "ERROR":
-					Diag(string.IsNullOrWhiteSpace(args) ? "#Error directive" : args.Trim());
+					Diag(DirectiveMessage(d, args, "#Error directive"));
+					return null;
+				// #Warning is the non-fatal sibling of #Error: reported at compile time like one, but it does not stop
+				// the compile. Deliberately NOT routed through #Warn's load-time output — that would bake the message
+				// into a compiled exe and re-show it to the script's users on every run, and this is a message for
+				// whoever builds the script. #Warn's Off/StdOut/MsgBox config does not apply for the same reason.
+				case "WARNING":
+					CompileWarnings.Add(DirectiveMessage(d, args, "#Warning directive"));
 					return null;
 				// #Assembly* metadata -> assembly attributes on the generated unit (A_Assembly* read them at runtime).
 				case "ASSEMBLYTITLE": _asmAttributes.Add(("System.Reflection.AssemblyTitleAttribute", args)); return null;
@@ -2035,6 +2052,14 @@ namespace Keysharp.Parsing.Syntax
 				if (s is DirectiveStmt d && d.Name.Equals("Warn", System.StringComparison.OrdinalIgnoreCase))
 					ApplyWarnDirective(d.Args);
 		}
+
+		// A user-authored #Error/#Warning message, positioned like every other diagnostic ("[file:]line:col: text") so
+		// it points at the directive rather than the top of the main script. Positioning is also what makes it SAFE:
+		// the reader that splits a diagnostic apart takes the leading line:col, so an unpositioned message that itself
+		// began "10:30:" would be reported as coming from line 10 of the script.
+		private static string DirectiveMessage(DirectiveStmt d, string args, string whenEmpty) =>
+			$"{(d.File != null ? System.IO.Path.GetFileName(d.File) + ":" : "")}{d.Line}:{d.Column}: "
+			+ (string.IsNullOrWhiteSpace(args) ? whenEmpty : args.Trim());
 
 		private void Warn(string mode, int line, string desc, string file = null) { if (mode != null) _warnings.Add((mode, line, desc, file)); }
 

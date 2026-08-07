@@ -234,3 +234,76 @@ if (x)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+; true and false are value keywords inside a condition too, not merely undefined symbols: #if true must
+; keep its block, and #if false must drop it (the usual way to comment out a whole region).
+x := false
+
+#if true
+	x := true
+#endif
+
+if (x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+x := true
+
+#if false
+	x := false
+#endif
+
+if (x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; A defined symbol still wins over the literal. Symbol names are case-insensitive, so #define FALSE names the same
+; thing as the literal false; if the literal won, this branch would silently stop being taken.
+x := false
+
+#define FALSE
+
+#if FALSE
+	x := true
+#endif
+
+if (x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+#undef FALSE
+
+; Every spelling of zero is false, not just "0" and "0.0".
+x := true
+
+#if 0x0
+	x := false
+#endif
+
+#if 00
+	x := false
+#endif
+
+#if 0.00
+	x := false
+#endif
+
+if (x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; ...and a nonzero hex literal is still true.
+x := false
+
+#if 0x1
+	x := true
+#endif
+
+if (x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"

@@ -123,6 +123,13 @@ using String = Keysharp.Builtins.String
 
 		/// <summary>The script's `#AssemblyName`, captured while lowering; null when it does not set one.</summary>
 		private string declaredAssemblyName;
+
+		/// <summary>
+		/// Formatted `#Warning` text from the last <see cref="CompileCodeToByteArray"/> call, or null when it produced
+		/// none. Non-fatal, so it is published for the caller to route to wherever that caller shows output, rather
+		/// than printed here (see the assignment for why).
+		/// </summary>
+		public string CompileWarnings { get; private set; }
 		public static byte[] compiledBytes;
 
 		/// <summary>
@@ -314,14 +321,12 @@ using String = Keysharp.Builtins.String
 				_ = sbe.AppendLine("The following errors occurred:");
 			}
 
-#if DEBUG
-
+			// Headed in every configuration, not just DEBUG: #Warning is a user-authored message that a release build
+			// must still label, otherwise its text is printed with nothing saying it is a warning.
 			if (results.HasWarnings)
 			{
 				_ = sbw.AppendLine("The following warnings occurred:");
 			}
-
-#endif
 
 			foreach (CompilerError error in results)
 			{
@@ -365,6 +370,8 @@ using String = Keysharp.Builtins.String
 					_ = sbe.AppendLine($"\t{str}");
 			}
 
+			// Stays DEBUG-only, unlike the same header in GetCompilerErrors: these are Roslyn's warnings about the C#
+			// WE generate, which a script author can neither cause nor fix, so a release build does not label them.
 #if DEBUG
 
 			if (sbw.Length != 0)
@@ -658,7 +665,7 @@ using String = Keysharp.Builtins.String
 			script.Threads.EnsureCurrentThreadVariables();
 		}
 
-		public (CompilationUnitSyntax, CompilerErrorCollection) CreateCompilationUnitFromFile(string fileName, string name = null, bool compileToFile = false, string includeDirOverride = null)
+		public (CompilationUnitSyntax, CompilerErrorCollection) CreateCompilationUnitFromFile(string fileName, string name = null, bool compileToFile = false, string includeDirOverride = null, IEnumerable<string> defines = null)
 		{
 			CompilationUnitSyntax unit = null;
 			var errors = new CompilerErrorCollection();
@@ -705,7 +712,7 @@ using String = Keysharp.Builtins.String
 				var includeDir = isFile ? Path.GetDirectoryName(scriptPath) : includeDirOverride;
 				var buildName = name ?? (isFile ? Path.GetFileNameWithoutExtension(scriptName) : "*");
 
-				var (prog, parseDiags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(source, includeDir, isFile ? scriptPath : null);
+				var (prog, parseDiags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(source, includeDir, isFile ? scriptPath : null, defines);
 
 				if (parseDiags.Count > 0)
 				{
@@ -715,12 +722,20 @@ using String = Keysharp.Builtins.String
 				else
 				{
 					var lowerer = new Keysharp.Parsing.Syntax.Lowerer();
-					unit = lowerer.Build(prog, buildName, scriptPath, startupName, includeDir, source, compileToFile);
+					unit = lowerer.Build(prog, buildName, scriptPath, startupName, includeDir, source, compileToFile, defines);
 					declaredAssemblyName = lowerer.AssemblyName;   // #AssemblyName; overrides the script-derived name below
 
 					if (unit == null || lowerer.Diagnostics.Count > 0)
 						foreach (var d in lowerer.Diagnostics)
 							_ = errors.Add(ToCompilerError(d, scriptPath));
+
+					// #Warning: same collection, flagged non-fatal so HasErrors stays false and the build proceeds.
+					foreach (var w in lowerer.CompileWarnings)
+					{
+						var warn = ToCompilerError(w, scriptPath);
+						warn.IsWarning = true;
+						_ = errors.Add(warn);
+					}
 				}
 			}
 			catch (ParseException e)
@@ -819,14 +834,22 @@ using String = Keysharp.Builtins.String
 
 		internal string CreateEscapedIdentifier(string variable) => provider.CreateEscapedIdentifier(variable);
 
-		public (byte[], string) CompileCodeToByteArray(string fileName, string nameNoExt, string exeDir = null, bool minimalexeout = false, bool emitCode = false, bool compileToFile = false)
+		// `defines` are the preprocessor symbols for THIS compilation — from `--define:NAME`, or from a caller such as
+		// Ks.RunScript. They are per-compilation rather than ambient so a nested compile can choose its own.
+		public (byte[], string) CompileCodeToByteArray(string fileName, string nameNoExt, string exeDir = null, bool minimalexeout = false, bool emitCode = false, bool compileToFile = false, IEnumerable<string> defines = null)
 		{
 			var asm = Assembly.GetExecutingAssembly();
 			exeDir ??= Path.GetFullPath(Path.GetDirectoryName(asm.Location.IsNullOrEmpty() ? Environment.ProcessPath : asm.Location));
-			var (unit, errs) = CreateCompilationUnitFromFile(fileName, nameNoExt, compileToFile);
+			var (unit, errs) = CreateCompilationUnitFromFile(fileName, nameNoExt, compileToFile, null, defines);
 			// `#AssemblyName` wins over the name derived from the script file; it is only known once the script has
 			// been lowered, hence after the call above.
 			var assemblyName = declaredAssemblyName ?? nameNoExt ?? "*";
+			// #Warning text, published for the caller to route rather than written to a console here: this same method
+			// serves the compile daemon (whose stderr belongs to no one) and Keyview (which has no console at all), so
+			// printing in place would drop them for exactly the callers that have to forward them. Callers owning a
+			// console print this; the daemon ships it to its client. Assigned before the failure branch below so it can
+			// never be left stale from a previous compile.
+			CompileWarnings = errs.HasWarnings ? GetCompilerErrors(errs).Item2.Trim() : null;
 
 			if (errs.HasErrors || unit == null)
 			{

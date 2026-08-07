@@ -587,6 +587,49 @@ namespace Keysharp.Builtins
 	public partial class Ks
 	{
 		/// <summary>
+		/// RunScript's Options as individual command-line arguments: an Array element by element, or a string split on
+		/// whitespace with double quotes grouping, so `--include "My include.ahk"` stays one argument. Written out
+		/// because there is nothing to borrow — .NET exposes no command-line splitter, and the repo's quote-aware
+		/// splitters parse expressions (they also track paren/brace nesting), not command lines. The rule is
+		/// deliberately just "quotes group, and are removed"; anything needing more should use the Array form, where
+		/// each element is one argument and nothing has to be escaped at all.
+		/// </summary>
+		private static List<string> SplitCommandLine(object options)
+		{
+			var args = new List<string>();
+
+			// Looped rather than LINQ: Keysharp's Array implements two IEnumerable<T> instantiations, so Select is
+			// ambiguous on it (see the note on Array.GetEnumerator).
+			if (options is Array arr)
+			{
+				foreach (var v in arr)
+					if (v?.As() is { Length: > 0 } s)
+						args.Add(s);
+
+				return args;
+			}
+
+			var sb = new StringBuilder();
+			var quoted = false;
+			// Distinguishes `--x ""`, a deliberate empty argument, from the whitespace between two arguments — without
+			// it the empty one is silently dropped and every later argument shifts up one position.
+			var started = false;
+
+			foreach (var c in options.As())
+			{
+				if (c == '"') { quoted = !quoted; started = true; }
+				else if (quoted || !char.IsWhiteSpace(c)) { _ = sb.Append(c); started = true; }
+				else if (started) { args.Add(sb.ToString()); _ = sb.Clear(); started = false; }
+			}
+
+			// An unterminated quote takes the rest of the line, which is what was visibly written minus the closer.
+			if (started)
+				args.Add(sb.ToString());
+
+			return args;
+		}
+
+		/// <summary>
 		/// Compiles and executes a C# script dynamically in a separate process.
 		/// </summary>
 		/// <param name="code">The script source result (as any object with a valid string representation).</param>
@@ -595,12 +638,18 @@ namespace Keysharp.Builtins
 		/// <param name="executable">Optional executable path used to run the generated assembly; defaults to the currently running process.</param>
 		/// If provided a callback function then it's considered async and the function <c>Call</c> method will be
 		/// invoked when the process exits with the ProcessInfo as the only argument.</param>
+		/// <param name="options">Optional Keysharp command-line arguments for this script, either as a string
+		/// (e.g. `--define:FEATURE_X --include "My include.ahk"`, split on whitespace with double quotes grouping) or
+		/// as an Array where each element is already one argument. Nothing is inherited from the calling script: this
+		/// is a separate compilation in a separate process, so it states what it wants. `--define:NAME` is applied to
+		/// the compile that happens HERE, since the launched process receives already-compiled bytes and a define
+		/// handed to it would arrive after the conditionals were resolved; every other argument goes to that process.</param>
 		/// <returns>
 		/// Returns a <see cref="ProcessInfo"/> wrapper around the spawned process.
 		/// If compilation fails without a flagged error, returns <c>null</c>.
 		/// </returns>
 		/// <exception cref="Error">Throws any compilation as <see cref="Error"/>.</exception>
-		public static object RunScript(object code, object callbackOrAsync = null, object name = null, object executable = null)
+		public static object RunScript(object code, object callbackOrAsync = null, object name = null, object executable = null, object options = null)
 		{
 			string script = code.As();
 			KeysharpFunc cb = null;
@@ -609,6 +658,14 @@ namespace Keysharp.Builtins
 				cb = Functions.Func(callbackOrAsync);
 
 			string nameVal = name?.As();
+			// --define selects which code is COMPILED, and that happens here — the launched process only ever receives
+			// already-compiled bytes, so a define forwarded to it would arrive too late to mean anything. Every other
+			// argument is genuinely the launched process's, and is passed along below.
+			List<string> defineNames = null, forwardedArgs = null;
+
+			if (options != null && Runner.SplitDefines(SplitCommandLine(options), out defineNames, out forwardedArgs) is string badDefine)
+				return Errors.ValueErrorOccurred(badDefine);
+
 			string result = null;
 			byte[] compiledBytes;
 			var ext = Path.GetExtension(script);
@@ -617,15 +674,22 @@ namespace Keysharp.Builtins
 			// callers ship and launch a precompiled script (e.g. WindowSpy.cks) for faster startup.
 			if (File.Exists(script) && (ext.Equals(".cks", StringComparison.OrdinalIgnoreCase) || ext.Equals(".dll", StringComparison.OrdinalIgnoreCase)))
 			{
+				if (defineNames is { Count: > 0 })
+					return Errors.ValueErrorOccurred("--define cannot be applied to an already-compiled .cks/.dll script; its conditionals were resolved when it was built.");
+
 				compiledBytes = File.ReadAllBytes(script);
 			}
 			else
 			{
 				var ch = new CompilerHelper();
-				(compiledBytes, result) = ch.CompileCodeToByteArray(script, nameVal);
+				(compiledBytes, result) = ch.CompileCodeToByteArray(script, nameVal, defines: defineNames);
 
 				if (compiledBytes == null)
 					return Errors.ErrorOccurred(result);
+
+				// Non-fatal #Warning text from the nested compile; the caller's console is the only place to show it.
+				if (!string.IsNullOrEmpty(ch.CompileWarnings))
+					Console.Error.WriteLine(ch.CompileWarnings);
 			}
 
 			// Relaunch a Keysharp host that understands "--script --assembly *" (it reads the assembly
@@ -635,7 +699,18 @@ namespace Keysharp.Builtins
 			// would time out. Prefer the native apphost that sits beside the entry assembly; fall back to
 			// "dotnet <entry.dll>", and finally to ProcessPath (single-file publish has no separate dll).
 			string launcher = executable?.As();
-			var launcherArgs = "--script --assembly *";
+			// The caller's arguments go BEFORE "--script --assembly *": the command line is read as switches, then the
+			// script, then the script's own arguments, so anything after the script marker would be taken for the
+			// latter. Collected as a LIST, not joined into one string: ProcessStartInfo.ArgumentList applies the
+			// platform's own quoting, so an argument containing a space, a tab, a double quote or a trailing backslash
+			// arrives intact. Hand-joining cannot get this right — on Windows the child's parser reads the `\"` in
+			// "C:\My Dir\" as an escaped quote, swallowing the rest of the command line.
+			var launcherArgs = new List<string>();
+
+			if (forwardedArgs != null)
+				launcherArgs.AddRange(forwardedArgs);
+
+			launcherArgs.AddRange(["--script", "--assembly", "*"]);
 
 			if (string.IsNullOrEmpty(launcher))
 			{
@@ -652,7 +727,11 @@ namespace Keysharp.Builtins
 				if (appHost != null && File.Exists(appHost))
 					launcher = appHost;
 				else if (entryDir != null && string.Equals(Path.GetFileNameWithoutExtension(Environment.ProcessPath), "dotnet", StringComparison.OrdinalIgnoreCase))
-					(launcher, launcherArgs) = (Environment.ProcessPath, $"\"{entryAsm}\" {launcherArgs}");
+				{
+					// "dotnet <entry.dll> …" — the assembly to run must precede everything else.
+					launcher = Environment.ProcessPath;
+					launcherArgs.Insert(0, entryAsm);
+				}
 				else
 					launcher = Environment.ProcessPath;
 			}
@@ -662,13 +741,15 @@ namespace Keysharp.Builtins
 				StartInfo = new ProcessStartInfo
 				{
 					FileName = launcher,
-					Arguments = launcherArgs,
 					RedirectStandardInput = true,
 					RedirectStandardOutput = true,
 					UseShellExecute = false,
 					CreateNoWindow = true
 				}
 			};
+
+			foreach (var arg in launcherArgs)
+				scriptProcess.StartInfo.ArgumentList.Add(arg);
 
 			var info = new ProcessInfo(scriptProcess);
 			scriptProcess.EnableRaisingEvents = true;

@@ -64,6 +64,272 @@ namespace Keysharp.Tests
 		public void Misc() => Assert.IsTrue(TestScript("directive-misc", false));
 
 		[Test, Category("Directives")]
+		public void ConditionalDirectiveErrors()
+		{
+			// Every case below used to be accepted silently, and each one silently changed which code compiled:
+			// a condition the grammar does not cover was dropped (taking the wrong branch), an unmatched #if
+			// swallowed the rest of the file, and a stray/duplicate #else..#endif was ignored outright.
+			static string Diag(string src) => string.Join("; ", Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(src).diagnostics);
+
+			static void Rejects(string src, string expect)
+			{
+				var d = Diag(src);
+				Assert.IsTrue(d.Contains(expect, StringComparison.OrdinalIgnoreCase),
+					$"expected '{expect}' for {src.Replace("\n", "\\n")} but got: {(d.Length == 0 ? "no diagnostic at all" : d)}");
+			}
+
+			// Conditions outside the supported grammar. defined() and == are the dangerous ones: they look like C
+			// but evaluated to a silent false/true, so the wrong branch compiled with nothing to notice it by.
+			Rejects("#if defined(WINDOWS)\nx:=1\n#endif\n", "unexpected '('");
+			Rejects("#if WINDOWS == 0\nx:=1\n#endif\n", "unexpected '=='");
+			Rejects("#if\nx:=1\n#endif\n", "requires a condition");
+			Rejects("#if (WINDOWS\nx:=1\n#endif\n", "missing ')'");
+			Rejects("#if !\nx:=1\n#endif\n", "incomplete");
+			// A dead branch's condition is validated too, so a typo is caught on every platform and not just on
+			// the one that happens to take the branch.
+			Rejects("#if WINDOWS\nx:=1\n#elif defined(LINUX)\nx:=2\n#endif\n", "unexpected '('");
+
+			// #Else/#EndIf take no condition. Swallowing one silently compiled the block on every platform: `#else OSX`
+			// reads as "the OSX case" but is just #else.
+			Rejects("#if LINUX\nx:=1\n#else OSX\nx:=2\n#endif\n", "#else takes no condition");
+			Rejects("#if WINDOWS\nx:=1\n#endif WINDOWS == 1\n", "#endif takes no condition");
+
+			// Conditions are evaluated even in dead branches, so an unbounded recursion there used to kill the process
+			// with an uncatchable StackOverflowException instead of reporting anything.
+			Rejects($"#if LINUX\n#if {new string('(', 5000)}WINDOWS{new string(')', 5000)}\nx:=1\n#endif\n#endif\n", "nested too deeply");
+
+			// Unbalanced blocks.
+			Rejects("#if WINDOWS\nx:=1\n", "without a matching #EndIf");
+			Rejects("#if LINUX\nx:=1\n", "without a matching #EndIf");
+			Rejects("#endif\n", "#EndIf without a matching #If");
+			Rejects("#else\n#endif\n", "#Else without a matching #If");
+			Rejects("#elif WINDOWS\n#endif\n", "#ElIf without a matching #If");
+			Rejects("#if LINUX\n#else\n#else\n#endif\n", "duplicate #Else");
+			Rejects("#if LINUX\n#else\n#elif WINDOWS\n#endif\n", "#ElIf after #Else");
+
+			// Valid forms must still compile: the whole point is to reject only what was already broken.
+			foreach (var ok in new[]
+			{
+				"#if WINDOWS\nx:=1\n#elif LINUX\nx:=2\n#else\nx:=3\n#endif\n",
+				"#if (((WINDOWS || LINUX || OSX) && 1))\nx:=1\n#endif\n",
+				"#if !NOT_DEFINED_ANYWHERE\nx:=1\n#endif\n",
+				"#if WINDOWS and not LINUX\nx:=1\n#endif\n",
+				"x := (\n#if WINDOWS\n1\n#else\n2\n#endif\n)\n",       // a block may split one statement
+				"#if WINDOWS\n#if LINUX\nx:=1\n#else\nx:=2\n#endif\n#endif\n",
+			})
+				Assert.IsEmpty(Diag(ok), "valid conditional rejected: " + ok.Replace("\n", "\\n"));
+		}
+
+		[Test, Category("Directives")]
+		public void WarningDirectiveIsNonFatal()
+		{
+			// #Warning is #Error's non-fatal sibling: reported at compile time, but the build still produces a unit.
+			static (object unit, string[] diags, string[] warns) Lower(string src)
+			{
+				var (prog, parseDiags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(src);
+				Assert.IsEmpty(parseDiags, "unexpected parse diagnostics: " + string.Join("; ", parseDiags));
+				var lowerer = new Keysharp.Parsing.Syntax.Lowerer();
+				var unit = lowerer.Build(prog, "Test");
+				return (unit, lowerer.Diagnostics.ToArray(), lowerer.CompileWarnings.ToArray());
+			}
+
+			var w = Lower("#Warning untested on macOS\nx := 1\n");
+			Assert.IsNotNull(w.unit, "#Warning must not abort the compile");
+			Assert.IsEmpty(w.diags, "#Warning must not produce an error");
+			Assert.AreEqual(1, w.warns.Length, "expected exactly one warning");
+			// Positioned like any other diagnostic, so it points at the directive rather than the top of the script.
+			Assert.AreEqual("1:1: untested on macOS", w.warns[0]);
+			Assert.AreEqual("3:1: on line three", Lower("x := 1\ny := 2\n#Warning on line three\n").warns[0]);
+
+			// The message is free-form English text, captured verbatim: commas do not separate arguments, and an
+			// apostrophe or a brace is literal. Lexed as code instead, "don't" is an unterminated string and a lone
+			// "{" swallows every following line — silently, since #Warning does not fail the build.
+			Assert.AreEqual("1:1: a, b, c", Lower("#Warning a, b, c\n").warns[0]);
+			Assert.AreEqual("1:1: don't use this", Lower("#Warning don't use this\nx := 1\n").warns[0]);
+
+			var brace = Lower("#Warning fix the { in ParseFoo\nx := 1\ny := 2\n");
+			Assert.AreEqual("1:1: fix the { in ParseFoo", brace.warns[0]);
+			Assert.IsEmpty(brace.diags, "a brace in the message must not consume the rest of the script");
+
+			// A bare #Warning still says something rather than emitting an empty line.
+			Assert.AreEqual("1:1: #Warning directive", Lower("#Warning\n").warns[0]);
+
+			// Conditional compilation applies: a warning in a dead branch never fires.
+			Assert.IsEmpty(Lower("#if LINUX\n#Warning dead\n#endif\nx := 1\n").warns,
+				"a #Warning inside an excluded branch must not be reported");
+
+			// Control: #Error remains fatal, and does not land in Warnings.
+			var e = Lower("#Error nope\nx := 1\n");
+			Assert.IsNull(e.unit, "#Error must abort the compile");
+			Assert.IsNotEmpty(e.diags, "#Error must produce an error");
+			Assert.IsEmpty(e.warns);
+		}
+
+		[Test, Category("Directives")]
+		public void DefineSwitch()
+		{
+			// Symbols belong to a compilation, not to the process: they are passed down to the parse rather than read
+			// from ambient state, so a nested compile (Ks.RunScript) can choose its own.
+			var script = Path.GetTempFileName();
+
+			try
+			{
+				File.WriteAllText(script, "x := 1\n");
+
+				static bool BranchTaken(string symbol, params string[] defines)
+				{
+					// The #if body is a syntax error, so it compiles cleanly only when the branch is excluded.
+					var (_, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics($"#if {symbol}\n}} }} }}\n#endif\n", null, null, defines);
+					return diags.Count > 0;
+				}
+
+				Assert.IsFalse(BranchTaken("FEATURE_X"), "an undefined symbol should be false");
+				Assert.IsTrue(BranchTaken("FEATURE_X", "FEATURE_X"), "a supplied symbol should be true");
+				Assert.IsTrue(BranchTaken("feature_x", "FEATURE_X"), "symbols are case-insensitive, like #Define");
+				Assert.IsFalse(BranchTaken("FEATURE_Y", "FEATURE_X"), "only the supplied symbol should be defined");
+
+				// The switch itself: accepted forms, comma lists, and rejection of a value-looking argument. The
+				// parsed symbols ride on the command, like every other switch — nothing is published process-wide.
+				foreach (var form in new[] { "--define:A_SYM", "-define:A_SYM", "/define:A_SYM" })
+				{
+					var cmd = Keysharp.Internals.Scripting.Runner.Parse([form, script]);
+					Assert.IsNull(cmd.ErrorText, $"{form} should parse; got: {cmd.ErrorText}");
+					Assert.Contains("A_SYM", cmd.Defines, $"{form} should define A_SYM");
+				}
+
+				// A comma list and a repeated switch both accumulate.
+				var multi = Keysharp.Internals.Scripting.Runner.Parse(["--define:P,Q", "--define:R", script]);
+				foreach (var sym in new[] { "P", "Q", "R" })
+					Assert.Contains(sym, multi.Defines, $"{sym} should be defined");
+
+				// One command line's symbols cannot reach another.
+				Assert.IsEmpty(Keysharp.Internals.Scripting.Runner.Parse([script]).Defines,
+					"a command line without --define should carry no symbols");
+
+				// A precompiled assembly had its conditionals resolved when it was built, so it carries none.
+				Assert.IsEmpty(Keysharp.Internals.Scripting.Runner.Parse(["--define:X", "--asm", script]).Defines,
+					"a RunAssembly command should carry no symbols");
+
+				// Symbols carry no value, so a name that could never be written in an #if is rejected outright
+				// rather than defining something unusable. A colon-less --define is a typo, not a script name.
+				foreach (var bad in new[] { "--define:FOO=1", "--define:9BAD", "--define:has space", "--define:a-b", "--define" })
+				{
+					var cmd = Keysharp.Internals.Scripting.Runner.Parse([bad, script]);
+					Assert.IsNotNull(cmd.ErrorText, $"{bad} should be rejected");
+					Assert.IsTrue(cmd.ErrorText.Contains("--define", StringComparison.Ordinal), $"{bad} should name the switch; got: {cmd.ErrorText}");
+				}
+			}
+			finally
+			{
+				try { File.Delete(script); } catch { }
+			}
+		}
+
+		[Test, Category("Directives")]
+		public void DefinesArePerCompilation()
+		{
+			// Symbols are an argument to a compilation, not process state, so two compiles in the same process can
+			// disagree — which is what lets Ks.RunScript compile a nested script with its own set. Asserted on the
+			// generated C# (emitCode: true) so nothing has to run.
+			static string Compile(string src, params string[] defines)
+			{
+				var (arr, code) = new CompilerHelper().CompileCodeToByteArray(src, "definetest", null, false, true, false, defines);
+				Assert.IsNotNull(arr, code);
+				return code;
+			}
+
+			const string src = "#if FEATURE_X\nx := \"on-marker\"\n#else\nx := \"off-marker\"\n#endif\n";
+
+			Assert.IsTrue(Compile(src, "FEATURE_X").Contains("on-marker"), "the supplied symbol should select its branch");
+			Assert.IsTrue(Compile(src).Contains("off-marker"), "no symbols should select the #else branch");
+			// Back-to-back in one process, in both directions: neither compile can leak into the other.
+			Assert.IsTrue(Compile(src, "FEATURE_X").Contains("on-marker"), "a later compile must not inherit the previous one's absence of symbols");
+			Assert.IsTrue(Compile(src).Contains("off-marker"), "a later compile must not inherit the previous one's symbols");
+		}
+
+		[Test, Category("Directives")]
+		public void RunScriptOptionsSplitCompileTimeFromRuntime()
+		{
+			// Ks.RunScript takes a command line, not a bespoke defines list. It compiles in-process and pipes only the
+			// resulting bytes to the launcher, so --define has to be applied HERE and everything else forwarded there.
+			static (string[] defines, string[] rest, string error) Split(params string[] args)
+			{
+				var err = Keysharp.Internals.Scripting.Runner.SplitDefines(args, out var d, out var r);
+				return (d.ToArray(), r.ToArray(), err);
+			}
+
+			var mixed = Split("--define:FEATURE_X", "--force", "/define:A,B", "--errorstdout");
+			Assert.IsNull(mixed.error);
+			NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "FEATURE_X", "A", "B" }, mixed.defines, "every --define form should be extracted");
+			NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "--force", "--errorstdout" }, mixed.rest, "other switches must be forwarded untouched");
+
+			// Nothing to extract: the whole command line is forwarded.
+			var none = Split("--force", "--restart");
+			Assert.IsEmpty(none.defines);
+			NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "--force", "--restart" }, none.rest);
+
+			// A bad symbol is reported rather than forwarded as if it were an ordinary switch.
+			Assert.IsNotNull(Split("--define:FOO=1").error, "an invalid symbol name should be rejected");
+
+			// The string form of RunScript's Options: double quotes group and are removed, so a switch value containing
+			// spaces survives as ONE argument. Split on whitespace alone, `--include "My include.ahk"` becomes
+			// `--include`, `"My`, `include.ahk"` — three broken arguments carrying literal quotes.
+			var split = typeof(Keysharp.Builtins.Ks).GetMethod("SplitCommandLine", BindingFlags.NonPublic | BindingFlags.Static);
+			List<string> Args(object o) => (List<string>)split.Invoke(null, [o]);
+
+			NUnit.Framework.Legacy.CollectionAssert.AreEqual(
+				new[] { "--define:FEATURE_X", "--include", "My include.ahk", "--force" },
+				Args(@"--define:FEATURE_X --include ""My include.ahk"" --force"),
+				"a quoted argument containing spaces must stay a single argument");
+
+			// Quotes group anywhere in an argument, not just around the whole of it.
+			NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "--include=My include.ahk" }, Args(@"--include=""My include.ahk"""));
+			// A deliberate empty argument survives, so the arguments after it keep their positions.
+			NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "--a", "", "--b" }, Args(@"--a """" --b"));
+			// Tabs and runs of spaces separate exactly like single spaces.
+			NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "--a", "--b" }, Args("  --a \t\t --b  "));
+			// An unterminated quote takes the rest of the line rather than dropping it.
+			NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "--include", "My include.ahk" }, Args(@"--include ""My include.ahk"));
+			// An Array element is already one argument, so it needs no quoting even with spaces in it.
+			NUnit.Framework.Legacy.CollectionAssert.AreEqual(new[] { "--include", "My include.ahk" },
+				Args(new Keysharp.Builtins.Array(["--include", "My include.ahk"])));
+		}
+
+		[Test, Category("Directives")]
+		public void DefinesReachImportedModules()
+		{
+			// A module file is parsed separately from the script that imports it, and is compiled once and shared by
+			// every importer — so an importer's own #define cannot reach it, and the supplied symbols must.
+			var dir = Path.Combine(Path.GetTempPath(), "ks_moddef_" + Guid.NewGuid().ToString("N"));
+			_ = Directory.CreateDirectory(dir);
+
+			try
+			{
+				File.WriteAllText(Path.Combine(dir, "DefMod.ahk"),
+								  "#if FEATURE_X\nexport Which() => \"module-on-marker\"\n#else\nexport Which() => \"module-off-marker\"\n#endif\n");
+				var main = Path.Combine(dir, "defmain.ahk");
+				// The main script also #defines the symbol, to prove that is NOT what reaches the module.
+				File.WriteAllText(main, "#define FEATURE_X\n#import \"DefMod\" { Which }\nx := Which()\n");
+
+				string Compile(params string[] defines)
+				{
+					var (arr, code) = new CompilerHelper().CompileCodeToByteArray(main, "defmain", null, false, true, false, defines);
+					Assert.IsNotNull(arr, code);
+					return code;
+				}
+
+				Assert.IsTrue(Compile().Contains("module-off-marker"),
+					"an importer's own #define must not reach the module it imports");
+				Assert.IsTrue(Compile("FEATURE_X").Contains("module-on-marker"),
+					"the compilation's symbols must reach the module it imports");
+			}
+			finally
+			{
+				try { Directory.Delete(dir, true); } catch { }
+			}
+		}
+
+		[Test, Category("Directives")]
 		public void RequiresCapability()
 		{
 			// `#Requires capability <names>` must lower to a RequireCapabilities(...) call in the auto-exec
